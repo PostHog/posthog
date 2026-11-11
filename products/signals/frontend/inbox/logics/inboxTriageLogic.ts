@@ -51,7 +51,7 @@ export interface inboxTriageLogicValues {
     reportsLoadFailed: boolean // reportListLogic
     reportsResponseLoading: boolean // reportListLogic
     unassigningReportIds: string[] // reportListLogic
-    assignDisabledReason: string | null
+    claimDisabledReason: string | null
     canCreatePr: boolean
     canRemoveMeFromCurrent: boolean
     counter: string
@@ -60,7 +60,7 @@ export interface inboxTriageLogicValues {
     currentReportUrl: string | null
     expanded: boolean
     implementationDisabledReason: string | null
-    isCurrentAssignedToMe: boolean
+    isCurrentClaimedByMe: boolean
     isRemovingMeFromCurrent: boolean
     isRestoringPosition: boolean
     isSavingClaimOnCurrent: boolean
@@ -166,7 +166,7 @@ export interface inboxTriageLogicActions {
         reportId: string
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // reportListLogic
-    assignCurrentToMe: (trigger: InboxTriageTrigger) => {
+    claimCurrent: (trigger: InboxTriageTrigger) => {
         trigger: InboxTriageTrigger
     }
     createPrForCurrent: () => {
@@ -210,7 +210,7 @@ export interface inboxTriageLogicActions {
     toggleExpanded: () => {
         value: true
     }
-    unassignCurrent: (trigger: InboxTriageTrigger) => {
+    unclaimCurrent: (trigger: InboxTriageTrigger) => {
         trigger: InboxTriageTrigger
     }
 }
@@ -240,8 +240,8 @@ export interface inboxTriageLogicMeta {
         canRemoveMeFromCurrent: (currentReport: SignalReport | null, isScopedToMe: boolean) => boolean
         removeMeDisabledReason: (canRemoveMeFromCurrent: boolean, isRemovingMeFromCurrent: boolean) => string | null
         isSavingClaimOnCurrent: (currentReport: SignalReport | null, claimSavingReportIds: string[]) => boolean
-        isCurrentAssignedToMe: (currentReport: SignalReport | null, user: null | import('~/types').UserType) => boolean
-        assignDisabledReason: (
+        isCurrentClaimedByMe: (currentReport: SignalReport | null, user: null | import('~/types').UserType) => boolean
+        claimDisabledReason: (
             currentReport: SignalReport | null,
             isSavingClaimOnCurrent: boolean,
             user: null | import('~/types').UserType
@@ -314,8 +314,8 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
         setExpanded: (expanded: boolean) => ({ expanded }),
         dismissCurrent: true,
         resolveCurrent: true,
-        assignCurrentToMe: (trigger: InboxTriageTrigger) => ({ trigger }),
-        unassignCurrent: (trigger: InboxTriageTrigger) => ({ trigger }),
+        claimCurrent: (trigger: InboxTriageTrigger) => ({ trigger }),
+        unclaimCurrent: (trigger: InboxTriageTrigger) => ({ trigger }),
         removeMeFromCurrent: (trigger: InboxTriageTrigger) => ({ trigger }),
         createPrForCurrent: true,
         openCurrent: true,
@@ -440,12 +440,12 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             (currentReport: SignalReport | null, claimSavingReportIds: string[]): boolean =>
                 currentReport !== null && claimSavingReportIds.includes(currentReport.id),
         ],
-        isCurrentAssignedToMe: [
+        isCurrentClaimedByMe: [
             (s) => [s.currentReport, userLogic.selectors.user],
             (currentReport: SignalReport | null, user: { uuid: string } | null): boolean =>
                 !!currentReport && !!user?.uuid && reportClaimant(currentReport)?.uuid === user.uuid,
         ],
-        assignDisabledReason: [
+        claimDisabledReason: [
             (s) => [s.currentReport, s.isSavingClaimOnCurrent, userLogic.selectors.user],
             (
                 currentReport: SignalReport | null,
@@ -464,7 +464,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 }
                 return isReportClaimable(currentReport, user?.uuid ?? null)
                     ? null
-                    : "You can't assign yourself to a report in this state"
+                    : "You can't claim this report in its current state"
             },
         ],
         // The triage URL for the current spot; what a report opened from here returns to.
@@ -561,16 +561,16 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 })
             },
             // Triage stays on the report after an assign, because the next step is usually to implement it.
-            assignCurrentToMe: ({ trigger }) => {
+            claimCurrent: ({ trigger }) => {
                 const report = values.currentReport
-                if (!report || values.isCurrentAssignedToMe || values.assignDisabledReason) {
+                if (!report || values.isCurrentClaimedByMe || values.claimDisabledReason) {
                     return
                 }
                 actions.setReportClaimed(report, true, 'triage_mode', false, { trigger })
             },
-            unassignCurrent: ({ trigger }) => {
+            unclaimCurrent: ({ trigger }) => {
                 const report = values.currentReport
-                if (!report || !values.isCurrentAssignedToMe || values.isSavingClaimOnCurrent) {
+                if (!report || !values.isCurrentClaimedByMe || values.isSavingClaimOnCurrent) {
                     return
                 }
                 actions.setReportClaimed(report, false, 'triage_mode', false, { trigger })

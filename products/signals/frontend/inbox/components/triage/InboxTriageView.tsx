@@ -197,31 +197,38 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                 </div>
             )}
 
-            <div className="flex flex-none flex-wrap items-center gap-2 border-t border-primary px-4 py-2">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconCheckCircle />}
-                    onClick={resolveCurrent}
-                    sideIcon={<KeyboardShortcut r />}
-                    data-attr="inbox-triage-resolve"
-                >
-                    Resolve
-                </LemonButton>
-                <DismissButton />
-                <TriageClaimButton />
-                {canCreatePr && (
-                    <ImplementButton
-                        report={report}
-                        surface="triage_mode"
-                        implementationDisabledReason={implementationDisabledReason}
-                    />
-                )}
-                <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+            <div
+                className="flex flex-none flex-col gap-2 border-t border-primary px-4 py-2 @4xl/triage:flex-row @4xl/triage:items-center"
+                data-attr="inbox-triage-actions"
+            >
+                {/* Below @lg the groups become two-column grids, so the wrap reads as rows instead of a ragged run. */}
+                <div className="grid grid-cols-2 gap-2 @max-lg/triage:[&>*]:w-full @max-lg/triage:[&_.LemonButtonWithSideAction>.LemonButton]:w-full @lg/triage:flex @lg/triage:flex-wrap @lg/triage:items-center">
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        icon={<IconCheckCircle />}
+                        onClick={resolveCurrent}
+                        sideIcon={<KeyboardShortcut r />}
+                        data-attr="inbox-triage-resolve"
+                    >
+                        Resolve
+                    </LemonButton>
+                    <DismissButton />
+                    <TriageClaimButton />
+                    {canCreatePr && (
+                        <ImplementButton
+                            report={report}
+                            surface="triage_mode"
+                            implementationDisabledReason={implementationDisabledReason}
+                            size="xsmall"
+                        />
+                    )}
+                </div>
+                <div className="grid grid-cols-2 justify-items-start gap-x-2 @lg/triage:flex @lg/triage:flex-wrap @lg/triage:items-center @4xl/triage:ml-auto">
                     {canRemoveMeFromCurrent && (
                         <LemonButton
                             type="tertiary"
-                            size="small"
+                            size="xsmall"
                             onClick={() => removeMeFromCurrent('button')}
                             loading={isRemovingMeFromCurrent}
                             disabledReason={removeMeDisabledReason}
@@ -234,7 +241,7 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                     )}
                     <LemonButton
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         onClick={openCurrent}
                         sideIcon={<KeyboardShortcut o />}
                         data-attr="inbox-triage-open-report"
@@ -243,7 +250,7 @@ export function TriageCard({ report, expanded }: { report: SignalReport; expande
                     </LemonButton>
                     <LemonButton
                         type="tertiary"
-                        size="small"
+                        size="xsmall"
                         onClick={toggleExpanded}
                         sideIcon={<KeyboardShortcut enter />}
                         data-attr="inbox-triage-toggle-summary"
@@ -279,8 +286,8 @@ export function InboxTriageView(): JSX.Element {
         setExpanded,
         dismissCurrent,
         resolveCurrent,
-        assignCurrentToMe,
-        unassignCurrent,
+        claimCurrent,
+        unclaimCurrent,
         removeMeFromCurrent,
         createPrForCurrent,
         openCurrent,
@@ -319,9 +326,9 @@ export function InboxTriageView(): JSX.Element {
                     if (isCommandKeyDown(event)) {
                         // The chord replaces the browser's own ⌘U / Ctrl+U (view page source) in triage.
                         event.preventDefault()
-                        unassignCurrent('hotkey')
+                        unclaimCurrent('hotkey')
                     } else {
-                        assignCurrentToMe('hotkey')
+                        claimCurrent('hotkey')
                     }
                 }),
                 willHandleEvent: true,
@@ -347,8 +354,8 @@ export function InboxTriageView(): JSX.Element {
             setExpanded,
             dismissCurrent,
             resolveCurrent,
-            assignCurrentToMe,
-            unassignCurrent,
+            claimCurrent,
+            unclaimCurrent,
             removeMeFromCurrent,
             createPrForCurrent,
             openCurrent,
@@ -443,8 +450,8 @@ export function InboxTriageView(): JSX.Element {
             <footer className="flex flex-none flex-wrap items-center justify-center gap-x-4 gap-y-1 border-t border-primary px-4 py-1.5 text-xxs text-tertiary">
                 <HintBarItem shortcut={<KeyboardShortcut arrowdown />} label="next" />
                 <HintBarItem shortcut={<KeyboardShortcut arrowup />} label="previous" />
-                <HintBarItem shortcut={<KeyboardShortcut u />} label="assign to me" />
-                <HintBarItem shortcut={<KeyboardShortcut command u />} label="unassign" />
+                <HintBarItem shortcut={<KeyboardShortcut u />} label="claim" />
+                <HintBarItem shortcut={<KeyboardShortcut command u />} label="unclaim" />
                 <HintBarItem shortcut={<KeyboardShortcut command enter />} label="open report" />
                 <HintBarItem shortcut={<KeyboardShortcut escape />} label="back" />
             </footer>

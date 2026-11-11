@@ -68,7 +68,7 @@ export function TriageReportFacts({ report }: { report: SignalReport }): JSX.Ele
                     <span className="text-tertiary">None yet</span>
                 )}
             </Fact>
-            <Fact label="Assignee">
+            <Fact label="Claimed by">
                 {claim ? (
                     <>
                         <ReportClaimAvatar claim={claim} />

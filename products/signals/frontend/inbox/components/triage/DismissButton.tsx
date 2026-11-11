@@ -13,7 +13,7 @@ export function DismissButton(): JSX.Element {
     return (
         <LemonButton
             type="secondary"
-            size="small"
+            size="xsmall"
             icon={<IconHide />}
             onClick={dismissCurrent}
             sideIcon={<KeyboardShortcut a />}

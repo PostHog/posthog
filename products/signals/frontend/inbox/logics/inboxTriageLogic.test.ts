@@ -195,25 +195,25 @@ describe('inboxTriageLogic', () => {
 
     it.each([
         {
-            name: 'assigns an unclaimed report to me',
+            name: 'claims an unclaimed report',
             assignee: null,
-            run: 'assign',
+            run: 'claim',
             bodies: [{ takeover: false }],
             reason: null,
         },
-        { name: 'unassigns my claim', assignee: 'me', run: 'unassign', bodies: [{ release: true }], reason: null },
+        { name: 'unclaims my report', assignee: 'me', run: 'unclaim', bodies: [{ release: true }], reason: null },
         {
-            name: 'does not assign a report I already hold',
+            name: 'does not claim a report I already hold',
             assignee: 'me',
-            run: 'assign',
+            run: 'claim',
             bodies: [],
-            reason: "You can't assign yourself to a report in this state",
+            reason: "You can't claim this report in its current state",
         },
-        { name: 'does not unassign a report I do not hold', assignee: null, run: 'unassign', bodies: [], reason: null },
+        { name: 'does not unclaim a report I do not hold', assignee: null, run: 'unclaim', bodies: [], reason: null },
         {
             name: "does not take over a teammate's claim",
             assignee: 'teammate',
-            run: 'assign',
+            run: 'claim',
             bodies: [],
             reason: expect.stringContaining('Robin'),
         },
@@ -234,16 +234,16 @@ describe('inboxTriageLogic', () => {
         })
         await mountAt({ report: report.id, at: 0 })
 
-        if (run === 'assign') {
-            logic.actions.assignCurrentToMe('hotkey')
+        if (run === 'claim') {
+            logic.actions.claimCurrent('hotkey')
         } else {
-            logic.actions.unassignCurrent('hotkey')
+            logic.actions.unclaimCurrent('hotkey')
         }
         await expectLogic(logic).toFinishAllListeners()
 
         expect(received).toEqual(bodies)
         expect(logic.values.currentReport?.id).toBe('r-1')
-        expect(logic.values.assignDisabledReason).toEqual(reason)
+        expect(logic.values.claimDisabledReason).toEqual(reason)
     })
 
     it('loads the next page when unassigning me moves triage near the end of the loaded reports', async () => {

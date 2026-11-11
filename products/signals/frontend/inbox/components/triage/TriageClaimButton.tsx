@@ -7,35 +7,35 @@ import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut
 
 import { inboxTriageLogic } from '../../logics/inboxTriageLogic'
 
-/** Assign to me, or Unassign once the report is yours. Each label shows its key, so the footer teaches both. */
+/** Claim, or Unclaim once the report is yours. Each label shows its key, so the footer teaches both. */
 export function TriageClaimButton(): JSX.Element {
-    const { isCurrentAssignedToMe, isSavingClaimOnCurrent, assignDisabledReason } = useValues(inboxTriageLogic)
-    const { assignCurrentToMe, unassignCurrent } = useActions(inboxTriageLogic)
+    const { isCurrentClaimedByMe, isSavingClaimOnCurrent, claimDisabledReason } = useValues(inboxTriageLogic)
+    const { claimCurrent, unclaimCurrent } = useActions(inboxTriageLogic)
 
-    return isCurrentAssignedToMe ? (
+    return isCurrentClaimedByMe ? (
         <LemonButton
             type="secondary"
-            size="small"
+            size="xsmall"
             icon={<IconPerson />}
-            onClick={() => unassignCurrent('button')}
+            onClick={() => unclaimCurrent('button')}
             loading={isSavingClaimOnCurrent}
             sideIcon={<KeyboardShortcut command u />}
-            data-attr="inbox-triage-unassign"
+            data-attr="inbox-triage-unclaim"
         >
-            Unassign
+            Unclaim
         </LemonButton>
     ) : (
         <LemonButton
             type="secondary"
-            size="small"
+            size="xsmall"
             icon={<IconPerson />}
-            onClick={() => assignCurrentToMe('button')}
+            onClick={() => claimCurrent('button')}
             loading={isSavingClaimOnCurrent}
-            disabledReason={assignDisabledReason}
+            disabledReason={claimDisabledReason}
             sideIcon={<KeyboardShortcut u />}
-            data-attr="inbox-triage-assign-to-me"
+            data-attr="inbox-triage-claim"
         >
-            Assign to me
+            Claim
         </LemonButton>
     )
 }

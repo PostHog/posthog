@@ -26,6 +26,7 @@ interface ImplementButtonProps {
     reportTaskToOpen?: ReportTaskEntry | null
     openChoicesFromLink?: boolean
     onChoicesOpenedFromLink?: () => void
+    size?: 'xsmall' | 'small'
 }
 
 export function ImplementButton({
@@ -35,6 +36,7 @@ export function ImplementButton({
     reportTaskToOpen,
     openChoicesFromLink = false,
     onChoicesOpenedFromLink,
+    size = 'small',
 }: ImplementButtonProps): JSX.Element {
     const { isCreatingPr, isDiscussing, createPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const {
@@ -105,7 +107,7 @@ export function ImplementButton({
         return (
             <LemonButton
                 type="primary"
-                size="small"
+                size={size}
                 className="w-fit"
                 to={urls.taskDetail(task.id)}
                 onClick={(event) => {
@@ -124,7 +126,7 @@ export function ImplementButton({
         <>
             <LemonButton
                 type="primary"
-                size="small"
+                size={size}
                 className="[--lemon-button-hover-depth:0px]"
                 icon={<IconPullRequest />}
                 onClick={() => submit(instructions)}

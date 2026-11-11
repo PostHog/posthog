@@ -58,9 +58,9 @@ describe('TriageCard', () => {
     })
 
     it.each([
-        { claimedByMe: false, reviewer: true, shown: ['Assign to me', 'Remove yourself'], hidden: ['Unassign'] },
-        { claimedByMe: true, reviewer: true, shown: ['Unassign', 'Remove yourself'], hidden: ['Assign to me'] },
-        { claimedByMe: false, reviewer: false, shown: ['Assign to me'], hidden: ['Unassign', 'Remove yourself'] },
+        { claimedByMe: false, reviewer: true, shown: ['Claim', 'Remove yourself'], hidden: ['Unclaim'] },
+        { claimedByMe: true, reviewer: true, shown: ['Unclaim', 'Remove yourself'], hidden: ['Claim'] },
+        { claimedByMe: false, reviewer: false, shown: ['Claim'], hidden: ['Unclaim', 'Remove yourself'] },
     ])(
         'shows the claim and reviewer actions in the footer (mine: $claimedByMe, reviewer: $reviewer)',
         async ({ claimedByMe, reviewer, shown, hidden }) => {
@@ -76,9 +76,9 @@ describe('TriageCard', () => {
             // A list scoped to you counts you as a reviewer on every report, so read the flag from the report.
             inboxFiltersLogic.actions.setScope(INBOX_SCOPE_ENTIRE_PROJECT)
             await expectLogic(logic).toFinishAllListeners()
-            render(<TriageCard report={report} expanded={false} />)
+            const { container } = render(<TriageCard report={report} expanded={false} />)
 
-            const footer = screen.getByText('Dismiss').closest('div') as HTMLElement
+            const footer = container.querySelector('[data-attr="inbox-triage-actions"]') as HTMLElement
             shown.forEach((label) => expect(within(footer).getByText(label)).toBeInTheDocument())
             hidden.forEach((label) => expect(within(footer).queryByText(label)).not.toBeInTheDocument())
         }
