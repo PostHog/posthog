@@ -44,6 +44,7 @@ from products.signals.backend.temporal.summary import (
     SignalReportSummaryWorkflow,
     emit_inbox_report_ready_activity,
     implementation_buffer_seconds_activity,
+    mark_report_ready_activity,
     maybe_autostart_implementation_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
@@ -155,7 +156,7 @@ class _Recorder:
         self.work_owners: list[str | None] = []
         self.candidate_checks = 0
         self.ready_result: bool | None = False
-        self.persist_research = False
+        self.real_ready_transition = False
         self.publications = 0
         # Auto-starts completed by the time the notification child made its first state check. The
         # child only waits for the implementation PR if the task already exists then, so a 0 here
@@ -217,7 +218,10 @@ async def _run_summary_workflow(
 
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
-        return None
+        if recorder.real_ready_transition:
+            await SignalReport.objects.filter(id=report_id, status=SignalReport.Status.CANDIDATE).aupdate(
+                status=SignalReport.Status.IN_PROGRESS
+            )
 
     @activity.defn(name="report_safety_judge_activity")
     async def fake_safety(input: SafetyJudgeInput) -> SafetyJudgeOutput:
@@ -237,10 +241,8 @@ async def _run_summary_workflow(
     async def fake_research(input: RunAgenticReportInput) -> RunAgenticReportOutput:
         recorder.work_owners.append(input.signal_id)
         recorder.researches += 1
-        if recorder.persist_research:
-            await SignalReport.objects.filter(id=report_id).aupdate(title=f"Research {recorder.researches}")
         return RunAgenticReportOutput(
-            title="t",
+            title=f"Research {recorder.researches}",
             summary="s",
             choice=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
             priority=Priority.P1,
@@ -252,6 +254,8 @@ async def _run_summary_workflow(
     @activity.defn(name="mark_report_ready_activity")
     async def fake_mark_ready(input: MarkReportReadyInput) -> bool | None:
         # No new signals arrived during the run itself; the buffer is what catches late signals.
+        if recorder.real_ready_transition:
+            recorder.ready_result = await mark_report_ready_activity(input)
         return recorder.ready_result
 
     @activity.defn(name="publish_report_completed_activity")
@@ -273,7 +277,10 @@ async def _run_summary_workflow(
     @activity.defn(name="report_is_candidate_activity")
     async def fake_candidate(input: ReportIsCandidateInput) -> bool:
         recorder.candidate_checks += 1
-        return recorder.candidate_on_first_check and recorder.candidate_checks == 1
+        became_candidate = recorder.candidate_on_first_check and recorder.candidate_checks == 1
+        if became_candidate and recorder.real_ready_transition:
+            await SignalReport.objects.filter(id=report_id).aupdate(status=SignalReport.Status.CANDIDATE)
+        return became_candidate
 
     @activity.defn(name="maybe_autostart_implementation_activity")
     async def fake_autostart(input: MaybeAutostartImplementationInput) -> None:
@@ -367,23 +374,22 @@ async def test_no_buffer_autostarts_immediately_at_settle():
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    "buffer_seconds,signal_during_buffer,ready_result,expected_titles",
+    "status_at_start,buffer_seconds,signal_during_buffer,expected_titles",
     [
-        (0, False, False, ["Research 1"]),
-        (120, True, False, ["Research 2"]),
-        (0, False, None, []),
+        (SignalReport.Status.CANDIDATE, 0, False, ["Research 1"]),
+        (SignalReport.Status.CANDIDATE, 120, True, ["Research 2"]),
+        (SignalReport.Status.SUPPRESSED, 0, False, []),
     ],
-    ids=["settled", "re-researched_during_buffer", "skipped"],
+    ids=["settled", "re-researched_during_buffer", "suppressed_during_research"],
 )
 async def test_only_the_settled_summary_reaches_destinations(
-    ateam, buffer_seconds, signal_during_buffer, ready_result, expected_titles
+    ateam, status_at_start, buffer_seconds, signal_during_buffer, expected_titles
 ):
     report = await SignalReport.objects.acreate(
-        team=ateam, status=SignalReport.Status.READY, title="Before research", summary="Summary"
+        team=ateam, status=status_at_start, title="Before research", summary="Summary"
     )
     recorder = _Recorder(buffer_seconds=buffer_seconds, candidate_on_first_check=signal_during_buffer)
-    recorder.ready_result = ready_result
-    recorder.persist_research = True
+    recorder.real_ready_transition = True
 
     with recorded_internal_events() as (sent, _):
         await _run_summary_workflow(
