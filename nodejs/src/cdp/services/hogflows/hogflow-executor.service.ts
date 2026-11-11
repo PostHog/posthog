@@ -50,6 +50,7 @@ import {
     WorkflowChangedError,
     actionIdForLogging,
     aiTaskLogToken,
+    canSendEmail,
     ensureCurrentAction,
     findContinueAction,
     shouldSkipAction,
@@ -76,17 +77,23 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
-// The email service sets teamCapped and suppressionLookupAttempts on one delayed send, which reads them from the
-// job's stored metadata. The actions after it in the same dequeue start from this executor's result, so neither
-// leaks into them as a cap delay or an inherited backoff.
-function withoutSendRetryState(
-    metadata: CyclotronJobInvocationHogFlow['queueMetadata']
+const PER_SEND_METADATA_KEYS = [
+    'teamCapped',
+    'suppressionLookupAttempts',
+    'attachmentLoadRetries',
+    'teamBudgetClaimed',
+] as const
+
+const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const
+
+function withoutMetadata(
+    metadata: CyclotronJobInvocationHogFlow['queueMetadata'],
+    keys: readonly string[]
 ): CyclotronJobInvocationHogFlow['queueMetadata'] {
-    if (!metadata) {
+    if (!metadata || !keys.some((key) => key in metadata)) {
         return metadata
     }
-    const { teamCapped: _teamCapped, suppressionLookupAttempts: _attempts, ...rest } = metadata
-    return rest
+    return Object.fromEntries(Object.entries(metadata).filter(([key]) => !keys.includes(key)))
 }
 
 export function createHogFlowInvocation(
@@ -699,7 +706,10 @@ export class HogFlowExecutorService {
         // run whose email action isn't the first action executed.
         const result = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queuePriority: invocation.queuePriority,
-            queueMetadata: invocation.queue === 'email' ? withoutSendRetryState(invocation.queueMetadata) : undefined,
+            queueMetadata:
+                invocation.queue === 'email'
+                    ? withoutMetadata(invocation.queueMetadata, PER_SEND_METADATA_KEYS)
+                    : undefined,
         })
         result.finished = false // Typically we are never finished unless we error or exit
 
@@ -911,6 +921,12 @@ export class HogFlowExecutorService {
         result.finished = false
 
         result.invocation.state.actionStepCount++
+        if (canSendEmail(currentAction)) {
+            result.invocation.queueMetadata = withoutMetadata(
+                result.invocation.queueMetadata,
+                SEND_WITH_FILES_METADATA_KEYS
+            )
+        }
         // Update the state to be going to the next action
         result.invocation.state.currentAction = {
             id: nextAction.id,

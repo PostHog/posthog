@@ -361,6 +361,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |Release
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -448,6 +449,7 @@ rules:
                               |SingleSessionSummary
                               |SlackThreadTaskMapping
                               |SlackThreadJoin
+                              |SlackDailyFocus
                               |SourceBatch
                               |SourceGroupLease
                               |StreamlitApp
@@ -877,6 +879,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |Release
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation
@@ -964,6 +967,7 @@ rules:
                         |SingleSessionSummary
                         |SlackThreadTaskMapping
                         |SlackThreadJoin
+                        |SlackDailyFocus
                         |SourceBatch
                         |SourceGroupLease
                         |StreamlitApp
@@ -1770,6 +1774,7 @@ rules:
                               |FileSystemHomeFolder
                               |FileSystemShortcut
                               |FileSystemViewLog
+                              |InsightAgentRead
                               |InsightViewed
                               |KernelRuntime
                               |MCPServerInstallation
@@ -1847,6 +1852,7 @@ rules:
                         |FileSystemHomeFolder
                         |FileSystemShortcut
                         |FileSystemViewLog
+                        |InsightAgentRead
                         |InsightViewed
                         |KernelRuntime
                         |PersonalInboxRanking
