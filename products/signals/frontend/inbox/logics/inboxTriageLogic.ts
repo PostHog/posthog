@@ -238,12 +238,12 @@ export interface inboxTriageLogicMeta {
         ) => string | null
         isRemovingMeFromCurrent: (currentReport: SignalReport | null, unassigningReportIds: string[]) => boolean
         canRemoveMeFromCurrent: (currentReport: SignalReport | null, isScopedToMe: boolean) => boolean
-        removeMeDisabledReason: (canRemoveMeFromCurrent: any, isRemovingMeFromCurrent: any) => string | null
-        isSavingClaimOnCurrent: (currentReport: SignalReport | null, claimSavingReportIds: any) => boolean
+        removeMeDisabledReason: (canRemoveMeFromCurrent: boolean, isRemovingMeFromCurrent: boolean) => string | null
+        isSavingClaimOnCurrent: (currentReport: SignalReport | null, claimSavingReportIds: string[]) => boolean
         isCurrentAssignedToMe: (currentReport: SignalReport | null, user: null | import('~/types').UserType) => boolean
         assignDisabledReason: (
             currentReport: SignalReport | null,
-            isSavingClaimOnCurrent: any,
+            isSavingClaimOnCurrent: boolean,
             user: null | import('~/types').UserType
         ) => string | null
         returnUrl: (currentReport: SignalReport | null, currentIndex: number) => string
