@@ -511,7 +511,7 @@ describe('Hog Inputs', () => {
             ['integration_multi', null],
         ])("treats another team's warehouse row like a missing row for an %s input", async (type, message) => {
             const otherTeam = (await createTestTeamFixture(hub.postgres)).team
-            const foreignId = 100000000 + otherTeam.id
+            const foreignId = otherTeam.id
             const missingId = foreignId + 1
             await insertIntegration(hub.postgres, otherTeam.id, {
                 id: foreignId,
