@@ -60,6 +60,24 @@ describe('testResultBanner', () => {
             "Not sent yet. Couldn't check whether the sandbox sender is available. Try again in a few minutes.",
         ],
         [
+            'a project whose email sending is suspended',
+            { status: 'skipped', reason: 'sending_suspended' },
+            'warning',
+            'Not sent. Email sending is suspended for this project. Contact support to get sending re-enabled.',
+        ],
+        [
+            'a workflow whose email sending is paused',
+            { status: 'skipped', reason: 'sending_paused' },
+            'warning',
+            'Not sent. Email sending is paused for this workflow. Resume sending, then send the test again.',
+        ],
+        [
+            'a send whose suspension state could not be read',
+            { status: 'pending', reason: 'suspension_state_unavailable' },
+            'warning',
+            "Not sent yet. Couldn't check whether this project can send email. Try again in a few minutes.",
+        ],
+        [
             'a send over the rate limit',
             { status: 'failed', reason: 'send_rate_limited' },
             'error',
