@@ -83,7 +83,7 @@ export function DotMatrixTable<D extends Record<string, unknown>>({
             tableStyle={{ width: '100%', minWidth: tableWidth }}
             loading={loading}
             emptyState={emptyState}
-            pagination={pageSize ? { pageSize } : undefined}
+            pagination={pageSize ? { pageSize, useUrl: false } : undefined}
             useURLForSorting={false}
         />
     )

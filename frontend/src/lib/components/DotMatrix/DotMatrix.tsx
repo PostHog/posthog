@@ -67,7 +67,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
 
     return (
         <div className={clsx('DotMatrix', `DotMatrix--${mode}`, className)}>
-            {legend !== false && coloredSeries.length > 0 && (
+            {legend !== false && (coloredSeries.length > 0 || (mode === 'count' && !!resolvedCountScale?.length)) && (
                 <DotMatrixLegend
                     series={coloredSeries}
                     groups={groups}
