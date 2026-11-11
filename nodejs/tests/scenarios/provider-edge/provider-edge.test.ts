@@ -57,20 +57,24 @@ describe('provider edge', () => {
         return outcomes
     }
 
-    const call = async (method: string, path: string, body?: object | null): Promise<{ status: number; json: any }> => {
+    const call = async <T = unknown>(
+        method: string,
+        path: string,
+        body?: object | null
+    ): Promise<{ status: number; json: T }> => {
         const response = await internalFetch(`${edge.url}${path}`, {
             method,
             headers: { 'content-type': 'application/json' },
             body: body === undefined ? undefined : JSON.stringify(body),
         })
         const text = await response.text()
-        return { status: response.status, json: text ? parseJSON(text) : undefined }
+        return { status: response.status, json: (text ? parseJSON(text) : undefined) as T }
     }
 
-    const truth = async (query = ''): Promise<TruthPage> => (await call('GET', `/_truth${query}`)).json
+    const truth = async (query = ''): Promise<TruthPage> => (await call<TruthPage>('GET', `/_truth${query}`)).json
 
     const addFault = async (fault: object): Promise<string> => {
-        const { status, json } = await call('POST', '/_faults', fault)
+        const { status, json } = await call<{ id: string }>('POST', '/_faults', fault)
         expect(status).toBe(201)
         return json.id
     }
@@ -274,7 +278,7 @@ describe('provider edge', () => {
         ['a fault without a dose', { name: 'ses.reject', params: { type: 'rejected' } }, 'dose'],
         ['a share above one', { name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 2 } }, 'dose'],
     ])('refuses %s and names the field', async (_name, fault, field) => {
-        const { status, json } = await call('POST', '/_faults', fault)
+        const { status, json } = await call<{ problems: string[] }>('POST', '/_faults', fault)
 
         expect(status).toBe(400)
         expect(json.problems).toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(`^${field}`))]))
