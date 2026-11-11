@@ -41,7 +41,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.facade.testing import create_access_control, create_role
@@ -79,6 +79,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.property_type import PropertyType
 
 

@@ -6,13 +6,15 @@ from django.core.management.base import BaseCommand
 from posthog.api.oauth.cimd import CIMDMetadataDocument, _create_cimd_application
 from posthog.models import OAuthApplication
 
+HOG_CLIENT_ID = "https://posthog.com/.well-known/oauth/hog/client-metadata.json"
+
 # The client metadata documents PostHog publishes from PostHog/posthog.com
 # (static/.well-known/oauth/<app>/client-metadata.json). A local stack can't count on reaching
 # posthog.com, so the seed creates each app from this copy. The first real use refreshes it from
 # the published document.
 POSTHOG_CIMD_DOCUMENTS: list[dict[str, object]] = [
     {
-        "client_id": "https://posthog.com/.well-known/oauth/hog/client-metadata.json",
+        "client_id": HOG_CLIENT_ID,
         "client_name": "hog CLI for PostHog",
         "logo_uri": "https://posthog.com/.well-known/oauth/hog/logo.png",
         "grant_types": ["urn:ietf:params:oauth:grant-type:device_code", "refresh_token"],
@@ -84,8 +86,19 @@ class Command(BaseCommand):
                     client_id, cast(CIMDMetadataDocument, document), capture_ph_event=lambda **_: None
                 )
                 self.stdout.write(self.style.SUCCESS(f"Created CIMD app '{app.name}' ({client_id})"))
+            changed: list[str] = []
             # A device client works only while it is verified, and staff verify PostHog's own apps.
             if not app.is_verified:
                 app.is_verified = True
-                app.save(update_fields=["is_verified"])
+                changed.append("is_verified")
                 self.stdout.write(self.style.SUCCESS(f"Verified CIMD app '{app.name}'"))
+            # hog handles an `insufficient_scope` challenge. Elsewhere, staff turn on step-up in the admin.
+            if client_id == HOG_CLIENT_ID and not app.supports_step_up:
+                app.supports_step_up = True
+                changed.append("supports_step_up")
+                # A token copies the flag when it's issued, so an earlier login keeps getting a 403 without the challenge.
+                self.stdout.write(
+                    self.style.SUCCESS(f"Turned on step-up for CIMD app '{app.name}'. Log in again to use it.")
+                )
+            if changed:
+                app.save(update_fields=changed)

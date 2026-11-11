@@ -1,7 +1,7 @@
 import type { ScanOutcomeApi } from '@/api/replayVision'
 import { track } from '@/lib/analytics'
-
 import type { SessionOpenSource } from './replayLinks'
+import type { ReplayVideoErrorKind, ReplayVideoState } from './video/useReplayVideo'
 
 // Properties are enums, ids and counts only. Session ids are product ids, the same as report ids in other events.
 
@@ -65,4 +65,23 @@ export function trackSessionChatOpened(sessionId: string): void {
 
 export function trackSessionIssueOpened(sessionId: string): void {
     track('mobile_replay_issue_opened', { session_id: sessionId })
+}
+
+export function trackReplayVideoRequested(sessionId: string): void {
+    track('mobile_replay_video_requested', { session_id: sessionId })
+}
+
+export function trackReplayVideoReady(sessionId: string, props: { waitedMs: number; reused: boolean }): void {
+    track('mobile_replay_video_ready', { session_id: sessionId, waited_ms: props.waitedMs, reused: props.reused })
+}
+
+/** `playback` is the native player failing on a video the server says is ready. */
+export type ReplayVideoFailureKind = ReplayVideoErrorKind | 'playback'
+
+export function trackReplayVideoFailed(sessionId: string, kind: ReplayVideoFailureKind): void {
+    track('mobile_replay_video_failed', { session_id: sessionId, kind })
+}
+
+export function trackReplayVideoClosed(sessionId: string, props: { status: ReplayVideoState['status'] }): void {
+    track('mobile_replay_video_closed', { session_id: sessionId, status: props.status })
 }

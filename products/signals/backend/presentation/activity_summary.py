@@ -24,25 +24,26 @@ from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.permissions import APIScopePermission, is_service_auth
 
-from products.signals.backend.activity_summary.prompt import ActivitySummaryMode
-from products.signals.backend.activity_summary.read import DEFAULT_VERSIONS_LIMIT, ActivitySummaryStatus
-from products.signals.backend.activity_summary.render import Product
-from products.signals.backend.activity_summary.search import (
-    DEFAULT_LIMIT as SEARCH_DEFAULT_LIMIT,
-    MAX_LIMIT as SEARCH_MAX_LIMIT,
+from products.signals.backend.facade import api as signals_facade
+from products.signals.backend.facade.api import (
+    ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT,
+    ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT,
+    ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT,
+    ActivitySummaryMode,
+    ActivitySummaryProductKey,
+    ActivitySummaryStatus,
     MatchKind,
     SearchMode,
     SemanticSearchUnavailable,
 )
-from products.signals.backend.facade import api as signals_facade
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 
 READ_EVENT = "activity summary read"
 
 
-# Built from `Product`, so the API enum cannot drift from the keys that `computed.py` writes.
+# Built from `ActivitySummaryProductKey`, so the API enum cannot drift from the keys that `computed.py` writes.
 ActivitySummaryProduct = models.TextChoices(  # type: ignore[call-overload]  # the stubs lack the functional API
-    "ActivitySummaryProduct", [(product.name, product.value) for product in Product]
+    "ActivitySummaryProduct", [(product.name, product.value) for product in ActivitySummaryProductKey]
 )
 
 
@@ -208,7 +209,7 @@ class ActivitySummaryVersionSerializer(serializers.Serializer):
 class ActivitySummaryVersionsQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         min_value=1,
-        default=DEFAULT_VERSIONS_LIMIT,
+        default=ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT,
         help_text="The most versions to return, newest first. Capped at the number of versions kept.",
     )
     version = serializers.IntegerField(
@@ -323,8 +324,8 @@ class ActivitySummarySearchQuerySerializer(serializers.Serializer):
     )
     limit = serializers.IntegerField(
         min_value=1,
-        max_value=SEARCH_MAX_LIMIT,
-        default=SEARCH_DEFAULT_LIMIT,
+        max_value=ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT,
+        default=ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT,
         help_text="The most results to return, best match first.",
     )
 

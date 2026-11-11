@@ -16,7 +16,6 @@ import { WorkflowMetricCard } from '../WorkflowMetricCard'
 import { METRIC_COLORS, withDisplayName, workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 import { WorkflowMessageLeaderboard } from './WorkflowMessageLeaderboard'
 import { WorkflowOverviewDetails } from './WorkflowOverviewDetails'
-import { WorkflowOverviewFeedback } from './WorkflowOverviewFeedback'
 import { WorkflowOverviewHealth } from './WorkflowOverviewHealth'
 import { WorkflowOverviewInFlight } from './WorkflowOverviewInFlight'
 import { workflowOverviewLogic } from './workflowOverviewLogic'
@@ -161,7 +160,6 @@ export function WorkflowOverview({ id, run, previousRun, controls }: WorkflowOve
 
     return (
         <div className="@container flex flex-col gap-4" data-attr="workflow-overview">
-            <WorkflowOverviewFeedback />
             <div className="flex flex-wrap items-center justify-end gap-2">
                 {controls ?? <AppMetricsFilters logicKey={logicKey} />}
             </div>

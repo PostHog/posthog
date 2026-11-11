@@ -277,7 +277,16 @@ class TestGetRows:
             ("https://example.com/a", "query", "https://example.com/")
         ]
 
-    def test_page_query_stats_skips_a_page_bing_rejects_as_invalid(self):
+    @pytest.mark.parametrize(
+        "rejected_page_response",
+        [
+            # Bing rejects a page GetPageStats itself just listed with an ApiFault.
+            ScriptedResponse(status=400, json={"ErrorCode": 38, "Message": "ERROR!!! InvalidUrl"}),
+            # Bing can also reject a page with a non-JSON (here, empty) body instead of a fault.
+            ScriptedResponse(status=200, body=b""),
+        ],
+    )
+    def test_page_query_stats_skips_a_page_bing_rejects(self, rejected_page_response):
         # GetPageStats and GetPageQueryStats can disagree about which pages are valid: Bing can
         # reject a page GetPageStats itself just listed. That page's stats should be skipped
         # without losing the other pages' data.
@@ -290,7 +299,7 @@ class TestGetRows:
             [
                 ScriptedResponse(json={"d": _SITES}),
                 ScriptedResponse(json={"d": page_stats}),
-                ScriptedResponse(status=400, json={"ErrorCode": 38, "Message": "ERROR!!! InvalidUrl"}),
+                rejected_page_response,
                 ScriptedResponse(json={"d": _QUERY_STATS}),
             ],
         )

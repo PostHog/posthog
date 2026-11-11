@@ -5,6 +5,7 @@ import { LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
+import { LearnFromPastTicketsSetting } from './LearnFromPastTicketsSetting'
 
 export function LearnFromSupportSetting(): JSX.Element {
     const { settings, settingsLoading, settingsSaving } = useValues(businessKnowledgeSettingsLogic)
@@ -25,22 +26,25 @@ export function LearnFromSupportSetting(): JSX.Element {
     const cannotEnable = supportOff && !settings.learn_from_support_enabled
 
     return (
-        <div className="flex flex-col gap-2">
-            <LemonSwitch
-                bordered
-                checked={settings.learn_from_support_enabled}
-                onChange={setLearnFromSupportEnabled}
-                loading={settingsSaving}
-                disabledReason={cannotEnable ? 'Turn on Support to learn from resolved tickets' : undefined}
-                label="Learn from support"
-                // data-attr is a frozen autocapture / Playwright key. Do not rename.
-                data-attr="business-knowledge-learn-from-support"
-            />
-            {supportOff ? (
-                <Link to={urls.settings('environment-conversations')}>
-                    Turn on Support to learn from resolved tickets
-                </Link>
-            ) : null}
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-col gap-2">
+                <LemonSwitch
+                    bordered
+                    checked={settings.learn_from_support_enabled}
+                    onChange={setLearnFromSupportEnabled}
+                    loading={settingsSaving}
+                    disabledReason={cannotEnable ? 'Turn on Support to learn from resolved tickets' : undefined}
+                    label="Learn from support"
+                    // data-attr is a frozen autocapture / Playwright key. Do not rename.
+                    data-attr="business-knowledge-learn-from-support"
+                />
+                {supportOff ? (
+                    <Link to={urls.settings('environment-conversations')}>
+                        Turn on Support to learn from resolved tickets
+                    </Link>
+                ) : null}
+            </div>
+            <LearnFromPastTicketsSetting />
         </div>
     )
 }

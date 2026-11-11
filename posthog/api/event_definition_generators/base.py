@@ -6,9 +6,9 @@ from django.db.models import Exists, OuterRef, Q, QuerySet
 import orjson
 
 from posthog.event_usage import report_user_action
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty
 from posthog.taxonomy.taxonomy import CORE_EVENTS
 
+from products.event_definitions.backend.models import EventDefinition, EventSchema, SchemaPropertyGroupProperty
 from products.event_definitions.backend.models.property_definition import effective_project_id_expr
 
 

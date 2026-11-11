@@ -12,7 +12,7 @@ from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
-from django_filters import BooleanFilter, FilterSet
+from django_filters import BooleanFilter, CharFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
@@ -206,6 +206,7 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
     "origin_product",
     "source_record",
     "optimization_enabled",
+    "name",
 )
 
 
@@ -488,6 +489,11 @@ class _WorkflowFilterSet(FilterSet):
     optimization_enabled = BooleanFilter(
         method="filter_optimization_enabled",
         label="Only workflows someone turned suggestions on for.",
+    )
+    name = CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+        label="Only workflows whose name contains this text, ignoring case.",
     )
 
     class Meta:

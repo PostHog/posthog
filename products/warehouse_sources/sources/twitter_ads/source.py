@@ -210,4 +210,5 @@ class TwitterAdsSource(ResumableSource[TwitterAdsSourceConfig, TwitterAdsResumeC
             inputs.schema_name,
             resumable_source_manager,
             inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
+            inputs.logger,
         )

@@ -36,8 +36,9 @@ It parses every message in two phases.
 1. **A cheap gate.**
    The first parse reads only `team_id` and whether `person_id` is present.
    Large fields such as `properties` and `person_properties` are skipped without being allocated.
-2. **A full parse for survivors.**
-   Only events that pass the gate are parsed completely and turned into the output envelope.
+2. **A forward parse for survivors.**
+   Only events that pass the gate are parsed again, and this parse reads only the fields it needs to build the output envelope.
+   The blobs it forwards, `properties`, `person_properties` and `elements_chain`, are copied as they arrived, without being unescaped.
 
 An event passes the gate when it has a person id and its team passes two checks.
 
@@ -107,6 +108,7 @@ A broker or network outage longer than that timeout abandons every forward still
 Other losses:
 
 - a message that cannot be parsed,
+- an event whose forwarded blob holds a lone surrogate escape: the shuffler copies blobs without checking them, and the processor then refuses the whole envelope,
 - a forward the producer rejects outright, for example because it is too large,
 - an event for a team that has just gained its first realtime cohort and is not yet in the team index.
   These are counted together with every other out-of-scope team, so they are not separately visible.
@@ -211,7 +213,7 @@ Person p-1 is `0192f3a0-7c1e-7d2a-9b3c-000000000001`.
 1. Ingestion writes a `$pageview` from p-1 to firehose partition 3, at offset 9870001.
 2. The shuffler's cheap gate reads `team_id: 7` and sees a `person_id`.
    Team 7 is in the team index, so the event passes.
-3. The full parse builds the envelope with `source_partition: 3, source_offset: 9870001`.
+3. The forward parse builds the envelope with `source_partition: 3, source_offset: 9870001`.
 4. The key is `"7:0192f3a0-7c1e-7d2a-9b3c-000000000001"`.
    `murmur2` of it, masked and taken modulo 64, is 26.
 5. The shuffler sends to `cohort_stream_events` partition 26 and records offset 9870001 as in flight for firehose partition 3.
@@ -228,7 +230,8 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 ## Optimizations
 
 - **Two-phase parsing.**
-  The gate parses two fields, and only survivors pay for a full parse.
+  The gate parses two fields, and only survivors pay for the forward parse.
+  The forward parse copies the property blobs as they arrived instead of unescaping and escaping them again.
   Most firehose events are discarded at the gate.
 - **Pipelined forwarding.**
   Consuming, producing and committing run independently.
@@ -244,7 +247,8 @@ The processor sees firehose offset 9870001 from partition 3 for p-1 a second tim
 - The shuffler and the processor each read their own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` at startup, and each polls Postgres on its own schedule.
   Both also let through the teams that a `cohort_realtime_team_access` row grants, and each reads that table about every 15 seconds.
   Only teams that both let through are processed, so a newly granted team can lose about half a minute of events until both have read the grant.
-  Merges also need the team in Node's merge allowlist.
+  Node ingestion produces merges only for the teams in its own `PERSON_MERGE_EVENTS_TEAM_ALLOWLIST`.
+  Set that list to `*`, because the processor drops the merges of teams it does not process.
 - The processor recognizes applied events with a high-water mark per source partition, not a set of offsets.
   The shuffler's producer does not guarantee ordering on retries, so an event that is overtaken by a later event from the same source partition is skipped as if it were a replay.
 - The broker timestamp on `cohort_stream_events` is the shuffler's send time, not the event's time.

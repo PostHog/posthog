@@ -216,7 +216,7 @@ export function buildFlagHistoryFacts(state: HealthInputsState): SetupFact[] {
             help: 'The flag-change checks compare the changes with the exposures only for an exposure event without property filters. Every change counts from the first one, of any kind, with an exposure before it.',
         },
         ...(history
-            ? [{ label: 'Launched at', value: `${formatTimestamp(history.launched_at)} (${history.team_timezone})` }]
+            ? [{ label: 'Start date', value: `${formatTimestamp(history.start_date)} (${history.team_timezone})` }]
             : []),
         ...(hasCountedChange && history
             ? [

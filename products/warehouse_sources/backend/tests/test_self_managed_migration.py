@@ -49,6 +49,7 @@ from products.warehouse_sources.backend.self_managed_migration import (
     MigrationOptions,
     TableMigrationState,
     abandon_tables,
+    backdate_migration_sources,
     evaluate_tables,
     merge_duplicate_sources,
     migrate_self_managed_tables,
@@ -140,7 +141,6 @@ class _MigrationTest(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         patches = [
-            patch(f"{MODULE}.source_feature_flag_missing", return_value=False),
             patch(f"{MODULE}.delete_external_data_schedule"),
             # The location check resolves the bucket host, and these example buckets don't exist.
             patch.object(source_base, "validate_warehouse_table_url_pattern", return_value=(True, "")),
@@ -148,7 +148,7 @@ class _MigrationTest(BaseTest):
         mocks = [p.start() for p in patches]
         for p in patches:
             self.addCleanup(p.stop)
-        self.flag_missing, self.delete_schedule, _ = mocks
+        self.delete_schedule, _ = mocks
         self.credential = self._credential("AKIAFIRST")
 
     def _credential(self, access_key: str, access_secret: str = "c2VjcmV0") -> DataWarehouseCredential:
@@ -233,8 +233,11 @@ class TestSelfManagedMigration(_MigrationTest):
         prefixes = [source_of(t).prefix or "" for t in (virtual_hosted, other_bucket, other_key)]
         assert prefixes.count("") == 1 and len(set(prefixes)) == 3
         assert set(prefixes) - {""} <= {"exports", "archive"}
-        assert source_of(other_bucket).job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/archive/"
-        assert source_of(other_key).job_inputs["access_key_id"] == "AKIASECOND"
+        assert (
+            SourceInputsStore.load(source_of(other_bucket))["url_pattern"]
+            == "https://s3.eu-west-1.amazonaws.com/archive/"
+        )
+        assert SourceInputsStore.load(source_of(other_key))["access_key_id"] == "AKIASECOND"
         marker = (source_of(virtual_hosted).connection_metadata or {})[MIGRATION_MARKER_KEY]
         assert marker["group_key"] == "s3/eu-west-1/exports"
         assert marker["credential_id"] == str(self.credential.pk)
@@ -265,6 +268,41 @@ class TestSelfManagedMigration(_MigrationTest):
         assert [o.action for o in outcomes] == ["linked", "linked"]
         assert (_schema_for(first).source_id == _schema_for(second).source_id) is shared
         assert ExternalDataSource.objects.filter(team=self.team).count() == (1 if shared else 2)
+
+    @parameterized.expand([("older_first", False), ("newer_first", True)])
+    def test_shared_source_uses_its_oldest_table_date_in_either_link_order(self, _name: str, newer_first: bool) -> None:
+        older_date = datetime(2024, 1, 1, tzinfo=UTC)
+        newer_date = datetime(2024, 2, 1, tzinfo=UTC)
+        older = self._table("orders", created_at=older_date)
+        newer = self._table(
+            "refunds", url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv", created_at=newer_date
+        )
+
+        for table in (newer, older) if newer_first else (older, newer):
+            [outcome] = self._migrate(table_ids=(str(table.pk),))
+            assert outcome.action == "linked"
+
+        older_schema = _schema_for(older)
+        newer_schema = _schema_for(newer)
+        assert older_schema.source_id == newer_schema.source_id
+        assert ExternalDataSource.objects.get(pk=older_schema.source_id).created_at == older_date
+        assert older_schema.created_at == older_date
+        assert newer_schema.created_at == newer_date
+
+    def test_a_newer_table_does_not_move_its_source_date_forward(self) -> None:
+        older_date = datetime(2024, 1, 1, tzinfo=UTC)
+        newer_date = datetime(2025, 1, 1, tzinfo=UTC)
+        older = self._table("orders", created_at=older_date)
+        self._migrate()
+        source_id = _schema_for(older).source_id
+        newer = self._table(
+            "refunds", url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv", created_at=newer_date
+        )
+
+        self._migrate(table_ids=(str(newer.pk),))
+
+        assert ExternalDataSource.objects.get(pk=source_id).created_at == older_date
+        assert _schema_for(newer).created_at == newer_date
 
     @parameterized.expand(
         [
@@ -328,9 +366,9 @@ class TestSelfManagedMigration(_MigrationTest):
         }
         assert expected_contract["preserve_column_names"] is True
         assert schema.source.source_type == "AmazonS3"
-        # A normal new source: its date is not moved to the table's.
-        assert schema.source.created_at > created_at
-        assert schema.source.job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
+        assert schema.created_at == created_at
+        assert schema.source.created_at == created_at
+        assert SourceInputsStore.load(schema.source)["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
         assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=schema.source).exists()
         assert not ExternalDataJob.objects.filter(team=self.team).exists()
         assert DataWarehouseTable.raw_objects.values().get(pk=table.pk) == before
@@ -451,16 +489,6 @@ class TestSelfManagedMigration(_MigrationTest):
         assert outcome.action == "none"
         assert not ExternalDataSchema.objects.filter(team=self.team).exists()
 
-    def test_teams_without_the_flag_are_skipped(self) -> None:
-        self.flag_missing.return_value = True
-        self._table()
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
-        assert not ExternalDataSchema.objects.filter(team=self.team).exists()
-
     def test_status_reports_every_state(self) -> None:
         pending = self._table("pending_table")
         self._table("skipped_table", url="https://minio.example.com/exports/a.csv")
@@ -546,7 +574,7 @@ class TestSelfManagedMigration(_MigrationTest):
         assert [o.action for o in outcomes] == [expected_action] * 2
         resolver.assert_called_once()
         if region is not None:
-            job_inputs = ExternalDataSource.objects.get(team=self.team).job_inputs
+            job_inputs = SourceInputsStore.load(ExternalDataSource.objects.get(team=self.team))
             assert job_inputs["url_pattern"] == f"https://s3.{region}.amazonaws.com/exports/"
 
     def test_an_adopted_table_is_queried_by_its_bare_name_before_and_after(self) -> None:
@@ -796,6 +824,142 @@ class TestMergeDuplicateSources(_MigrationTest):
         assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 3
 
 
+class TestBackdateMigrationSources(_MigrationTest):
+    def _legacy_tables(self) -> list[DataWarehouseTable]:
+        tables = [
+            self._table("orders", created_at=datetime(2024, 1, 1, tzinfo=UTC)),
+            self._table(
+                "refunds",
+                url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv",
+                created_at=datetime(2024, 2, 1, tzinfo=UTC),
+            ),
+        ]
+        self._migrate()
+        source_id = _schema_for(tables[0]).source_id
+        legacy_date = datetime(2030, 1, 1, tzinfo=UTC)
+        ExternalDataSource.objects.filter(pk=source_id).update(created_at=legacy_date)
+        ExternalDataSchema.objects.filter(source_id=source_id).update(created_at=legacy_date)
+        return tables
+
+    def test_dry_run_reports_the_date_without_changing_rows(self) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        schemas = [_schema_for(table) for table in tables]
+        source_updated_at = source.updated_at
+        schema_updated_at = [schema.updated_at for schema in schemas]
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=False)
+
+        assert (outcome.source_id, outcome.team_id, outcome.action) == (str(source.pk), self.team.pk, "would_backdate")
+        assert (outcome.old_created_at, outcome.new_created_at) == (source.created_at, tables[0].created_at)
+        source.refresh_from_db()
+        assert source.created_at == datetime(2030, 1, 1, tzinfo=UTC)
+        assert source.updated_at == source_updated_at
+        for schema, updated_at in zip(schemas, schema_updated_at):
+            schema.refresh_from_db()
+            assert schema.created_at == datetime(2030, 1, 1, tzinfo=UTC)
+            assert schema.updated_at == updated_at
+
+    def test_live_run_backdates_source_and_each_schema_using_deleted_tables(self) -> None:
+        tables = self._legacy_tables()
+        DataWarehouseTable.raw_objects.filter(pk=tables[0].pk).update(deleted=True)
+        source = _schema_for(tables[0]).source
+        source_updated_at = source.updated_at
+        schema_updated_at = {table.pk: _schema_for(table).updated_at for table in tables}
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.action, outcome.old_created_at, outcome.new_created_at) == (
+            "backdated",
+            datetime(2030, 1, 1, tzinfo=UTC),
+            tables[0].created_at,
+        )
+        source.refresh_from_db()
+        assert source.created_at == tables[0].created_at
+        assert source.updated_at == source_updated_at
+        for table in tables:
+            schema = _schema_for(table)
+            assert schema.created_at == table.created_at
+            assert schema.updated_at == schema_updated_at[table.pk]
+
+    def test_live_run_backdates_a_deleted_source_and_its_deleted_schemas(self) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        ExternalDataSchema.objects.filter(source_id=source.pk).update(deleted=True)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.source_id, outcome.action) == (str(source.pk), "backdated")
+        assert ExternalDataSource.objects.get(pk=source.pk).created_at == tables[0].created_at
+        assert {schema.created_at for schema in ExternalDataSchema.objects.filter(source_id=source.pk)} == {
+            table.created_at for table in tables
+        }
+
+    def test_source_at_its_oldest_table_date_is_unchanged(self) -> None:
+        table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        self._migrate()
+        source = _schema_for(table).source
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.source_id, outcome.action, outcome.new_created_at) == (str(source.pk), "unchanged", None)
+        assert ExternalDataSource.objects.get(pk=source.pk).created_at == table.created_at
+
+    def test_non_migration_source_is_not_touched(self) -> None:
+        table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        self._migrate()
+        migration_schema = _schema_for(table)
+        regular_source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        regular_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            source=regular_source,
+            name="regular",
+            sync_type_config=migration_schema.sync_type_config,
+        )
+        later = datetime(2030, 1, 1, tzinfo=UTC)
+        ExternalDataSource.objects.filter(pk=regular_source.pk).update(created_at=later)
+        ExternalDataSchema.objects.filter(pk=regular_schema.pk).update(created_at=later)
+
+        outcomes = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert len(outcomes) == 1
+        assert outcomes[0].source_id == str(migration_schema.source_id)
+        regular_source.refresh_from_db()
+        regular_schema.refresh_from_db()
+        assert regular_source.created_at == later
+        assert regular_schema.created_at == later
+
+    @parameterized.expand([("dry_run", False, "would_backdate"), ("live_run", True, "backdated")])
+    def test_command_reports_changed_sources_and_counts(self, _name: str, live_run: bool, action: str) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ExternalDataSource.objects.create(
+            team=other_team,
+            source_type="Postgres",
+            job_inputs={},
+            connection_metadata={MIGRATION_MARKER_KEY: {}},
+        )
+        out = StringIO()
+
+        call_command(
+            "migrate_self_managed_tables",
+            team_id=self.team.pk,
+            backfill_created_at=True,
+            live_run=live_run,
+            stdout=out,
+        )
+
+        assert out.getvalue().splitlines()[0] == (
+            f"source={source.pk} team={self.team.pk} {source.created_at.isoformat()} "
+            f"-> {tables[0].created_at.isoformat()} {action}"
+        )
+        assert f"1 source(s): 1 {action}" in out.getvalue()
+        source.refresh_from_db()
+        assert source.created_at == (tables[0].created_at if live_run else datetime(2030, 1, 1, tzinfo=UTC))
+
+
 class TestMigrateSelfManagedTablesCommand(BaseTest):
     @parameterized.expand(
         [
@@ -803,6 +967,7 @@ class TestMigrateSelfManagedTablesCommand(BaseTest):
             ("status_and_abandon", {"status": True, "abandon": "x"}, "only one"),
             ("status_and_merge", {"status": True, "merge_sources": True}, "only one"),
             ("abandon_and_merge", {"abandon": "x", "merge_sources": True}, "only one"),
+            ("status_and_backfill", {"status": True, "backfill_created_at": True}, "only one"),
             ("empty_abandon", {"abandon": " , "}, "at least one table id"),
         ]
     )
@@ -831,7 +996,6 @@ class TestDeletingAMigrationSchema(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         patches = [
-            patch(f"{MODULE}.source_feature_flag_missing", return_value=False),
             patch.object(source_base, "validate_warehouse_table_url_pattern", return_value=(True, "")),
             patch(f"{SOURCE_VIEWS}.base.bulk_delete_external_data_schedules", return_value=[]),
             patch(f"{SOURCE_VIEWS}.base.delete_external_data_schedule"),
@@ -893,6 +1057,19 @@ class TestUploadedTableMigration(_MigrationTest):
         )
         table.refresh_from_db()
         return table
+
+    def test_an_uploaded_table_sets_its_source_and_schema_dates(self) -> None:
+        created_at = datetime(2024, 3, 1, tzinfo=UTC)
+        table = self._uploaded("orders", "managed/team_{team}/orders.csv")
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(created_at=created_at)
+        table.refresh_from_db()
+
+        [outcome] = self._migrate()
+
+        schema = _schema_for(table)
+        assert outcome.action == "linked"
+        assert schema.created_at == created_at
+        assert schema.source.created_at == created_at
 
     @parameterized.expand(
         [
@@ -1038,23 +1215,13 @@ class TestUploadedTableMigration(_MigrationTest):
         assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []
         assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 2
 
-    def test_teams_without_the_flag_keep_their_uploaded_tables(self) -> None:
-        self.flag_missing.return_value = True
-        self._uploaded("orders", "file_uploads/team_{team}/{upload}/orders.csv")
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "dwh-object-storage-sources" in (outcome.status.reason or "")
-        assert not ExternalDataSource.objects.filter(team=self.team).exists()
-
     def test_selection_takes_only_the_teams_own_uploaded_tables(self) -> None:
         self._uploaded("uploaded", "file_uploads/team_{team}/{upload}/orders.csv")
         self._uploaded("legacy", "managed/team_{team}/orders.csv")
         self._uploaded("materialized_view", "dlt/team_{team}_model_abc/modeling/orders")
         self._uploaded("another_teams_file", "managed/team_999999/orders.csv")
         self._uploaded("nested_key", "managed/team_{team}/sub/orders.csv")
-        # A table made with the flag on links to its own file upload source and waits for its first sync.
+        # A table made from an upload links to its own file upload source and waits for its first sync.
         waiting = self._uploaded("waiting", "file_uploads/team_{team}/{upload}/waiting.csv")
         upload_source = ExternalDataSource.objects.create(team=self.team, source_type="FileUpload", job_inputs={})
         ExternalDataSchema.objects.create(name="waiting", team=self.team, source=upload_source, table=waiting)

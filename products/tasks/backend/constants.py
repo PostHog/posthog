@@ -60,6 +60,8 @@ PR_LOOP_ENABLED_STATE_KEY = "pr_loop_enabled"
 TIMED_OUT_INACTIVITY_STATE_KEY = "timed_out_inactivity"
 # The skills-store stubs the sandbox agent writes into its skill roots at session start.
 STORE_SKILLS_STATE_KEY = "store_skills"
+# Separate from `store_skills`, which is also empty when the store is on and the user owns no skills.
+STORE_SKILLS_BRIDGE_STATE_KEY = "store_skills_bridge"
 AGENT_INSTRUCTIONS_STATE_KEY = "agent_instructions"
 # Matches the cap PostHog Code applies to its local personalization.
 AGENT_INSTRUCTIONS_MAX_LENGTH = 20_000

@@ -23,7 +23,7 @@ import {
     UserType,
 } from '~/types'
 
-import { cleanSourceId, isManagedSourceId, isSelfManagedSourceId } from 'products/data_warehouse/frontend/utils'
+import { cleanSourceId, isManagedSourceId } from 'products/data_warehouse/frontend/utils'
 
 import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { AvailableFeature } from '../../../types'
@@ -368,7 +368,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
                     // TRICKY: Hacky place but this is where we handle "nonHogFunctionTemplates" to modify the linked url
 
-                    if (isManagedSourceId(template.id) || isSelfManagedSourceId(template.id)) {
+                    if (isManagedSourceId(template.id)) {
                         return urls.dataWarehouseSourceNew(cleanSourceId(template.id))
                     }
 

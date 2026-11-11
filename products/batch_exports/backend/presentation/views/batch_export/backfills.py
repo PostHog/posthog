@@ -101,6 +101,8 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
         "batch_export_id": PathParameter(type=UUID, description="The BatchExport this backfill belongs to."),
     }
     scope_object = "batch_export"
+    # batch_export is not an access-control resource, so no rule names one backfill.
+    records_have_object_access_rules = False
     serializer_class = BatchExportBackfillSerializer
     pagination_class = BackfillsCursorPagination
     # The paginator reads the ordering through this filter, and the facade applies it.
@@ -111,19 +113,11 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
     def _get_export_id(self) -> UUID:
         return self.kwargs["parent_lookup_batch_export_id"]
 
-    def dangerously_get_object(self) -> contracts.BatchExportBackfillDetail:
-        # The mixin's get_object() reads through a queryset, which this view no longer has, so the
-        # backfill is read through the facade instead. That skips the mixin's team filter and object
-        # permission check, so both happen here: the facade filters by team and export, and
-        # check_object_permissions runs on the contract.
+    def read_object(self) -> contracts.BatchExportBackfillDetail:
         try:
-            backfill = batch_exports_api.get_batch_export_backfill(
-                self.team_id, self._get_export_id(), self.kwargs["pk"]
-            )
+            return batch_exports_api.get_batch_export_backfill(self.team_id, self._get_export_id(), self.kwargs["pk"])
         except contracts.BatchExportBackfillNotFoundError as e:
             raise NotFound(*e.args) from e
-        self.check_object_permissions(self.request, backfill)
-        return backfill
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()

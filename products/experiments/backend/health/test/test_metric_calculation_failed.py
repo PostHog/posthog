@@ -33,7 +33,7 @@ from products.experiments.backend.health.context import (
     MetricCompileFailure,
     MetricCompiles,
 )
-from products.experiments.backend.health.skips import CheckSkip
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import MetricResultStore
@@ -89,7 +89,7 @@ def _limited(exposures_path: ExposuresPath | None, role: str = "primary") -> Met
 
 def _outcome(
     *failures: MetricCalculationFailure, completed: tuple[ExposuresPath | None, ...] = (), **changes: Any
-) -> ExperimentHealthFinding | CheckSkip | None:
+) -> CheckOutcome:
     calculation = LatestCalculation(
         metric_count=len(failures) + len(completed),
         finished_at=FINISHED_AT,

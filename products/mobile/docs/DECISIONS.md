@@ -4,19 +4,14 @@ Choices the build contract left open, with the reason for each.
 
 ## Toolchain and versions
 
-- **Expo SDK patch level.** `expo ~57.0.8` resolved to 57.0.26, the newest release older than
-  7 days. Its `bundledNativeModules.json` expects React Native 0.86.3, Reanimated 4.5.1 and
-  Worklets 0.10.1, so those are pinned instead of desktop's 0.86.0 / 4.5.0 / 0.10.0.
-  `react-native-gesture-handler` follows Expo's `~2.32.0`, not 3.x.
-- **React 19.2.6** matches desktop and sits in `expo.install.exclude` with `react-dom` and
-  `typescript`, the same way desktop does it.
-- **Release age.** `pnpm-workspace.yaml` sets `minimumReleaseAge: 10080` (7 days), the same as
-  the repo root. This is why `posthog-react-native` is `^4.78.0` (desktop's `^4.80.0` is newer
-  than 7 days) and why `expo-doctor` still lists patch releases from 2026-10-06. Bump them with
-  `npx expo install --fix` once they are a week old.
-- **Extra packages.** `@react-native-community/datetimepicker` (Expo's 9.1.0) for "Custom…"
-  snooze; `@react-native/jest-preset` and `@react-native/metro-config` 0.86.3 to settle peer
-  dependencies; `jest` 29 and `@types/jest` for `jest-expo` 57.
+- **Expo SDK 58.** The app pins React Native 0.88.1, Reanimated 4.7.1, Worklets 0.13.0,
+  and Gesture Handler 3.3.0 to the SDK's supported versions. The lockfile records the exact dependency set.
+- **React 19.3.0** and the matching test renderer keep the app and tests on the same runtime.
+  React, React DOM, and TypeScript remain in `expo.install.exclude`.
+- **Release age and trust.** The standalone workspace retains the repository's 7-day release age
+  and `trustPolicy: no-downgrade`. Exact trust exceptions stay in `pnpm-workspace.yaml` for review.
+- **Extra packages.** `@react-native-community/datetimepicker` 9.2.1 provides "Custom…" snooze.
+  React Native's Jest preset and Metro config follow 0.88.1; Jest 29 runs with `jest-expo` 58.
 - **No `metro.config.js`.** This directory is the workspace root, so Expo's default config
   resolves everything. No monorepo watch folders are needed.
 - **pnpm workspace.** `packages: ['.']` makes this a single-package workspace so pnpm never walks
@@ -24,7 +19,7 @@ Choices the build contract left open, with the reason for each.
 - **Typed routes off.** They need `expo start` to generate types before `tsc` passes. Expo removed
   the generated-type entries from `tsconfig.json#include` on first start for the same reason.
 - **EAS** uses Node 24.13.0, the repo's version.
-- **Charts.** `victory-native` 42.0.1 on `@shopify/react-native-skia` 2.6.2, the Skia version Expo SDK 57 pins.
+- **Charts.** `victory-native` 42.0.1 on `@shopify/react-native-skia` 2.14.0, the Skia version Expo SDK 58 pins.
   It is the only candidate with line and bar charts and scrubbing on the UI thread (`useChartPressState`).
   The runner-up, `react-native-gifted-charts`, was rejected because it scrubs on the JS thread.
   Skia's install script links its prebuilt binaries, so `pnpm-workspace.yaml` allows it in `onlyBuiltDependencies`.
@@ -242,6 +237,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Screens wait for the session.** `app/_layout.tsx` renders the stack only after `restore()`; until then the native splash stays up (web shows `BootSplash`). Feature hooks never see a missing token at launch.
   The native splash then also waits for the inbox's first load, data or error, so the logo hands over to a filled inbox with no spinner. Any other first screen releases it on mount. An 8 second cap (`SPLASH_TIMEOUT_MS` in `src/auth/bootGate.ts`) releases it if the load hangs.
 - **One redirect to sign in.** `useAuthRedirect()` sends every screen to `/sign-in` when the session ends and demo mode is off, including a refresh failure in the middle of a session.
+  A screen outside the tabs, such as a report a link opened, travels along as `next` and reopens after a successful sign-in. Anything else lands on the start page.
 - **In-place confirmation.** Sign out confirms inside Settings, and inside the inbox menu, instead of `Alert.alert`, which does nothing on react-native-web.
   Both use `SignOutConfirm` and `useSignOutAction`. A demo session without an account leaves the demo with no confirmation.
 - **OAuth sign in is native only.** The web build has no registered redirect, so Sign in on the web says to use the apps or the demo. The sign-in screen does not offer personal API keys, including in development builds.
@@ -294,7 +290,9 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **Submissions only from production builds on `master`.** Preview builds use ad hoc signing, which App Store Connect does not take, so TestFlight gets production builds. The Mobile Build workflow uses `--auto-submit` with `--no-wait`, so EAS submits the build it just made, not the previous one.
 - **eas-cli 24.8.0 is pinned in CI** instead of `latest`, so a new release does not change a release build without a review.
 - **Mobile CI reads Node from `.node-version` and pnpm from this `package.json`**, not from the repo root, so CI, EAS and local runs use the same versions. The check is not required, so it can use trigger paths.
-- **iOS 27 SDK scene life cycle.** Apps built with Xcode 27 do not launch without the UIScene life cycle, and the Expo SDK 57 template predates it. `plugins/withIosSceneLifecycle.js` applies the SDK 58 template's change (scene manifest, `SceneDelegate` on `ExpoAppSceneDelegate`, an AppDelegate that provides the React Native factory). It fails the prebuild if the template changes shape. Remove it when the app moves to SDK 58.
+- **Expo SDK 58 owns the iOS scene life cycle.** Its generated AppDelegate and scene delegate support Xcode 27 and Duo natively; the SDK 57 scene-life-cycle backport is removed. The system vertical-bar signal enables native tabs and toolbars with the existing icons and Chat action. Outside that rail, the app retains its original floating navigation. The same iOS navigator stays mounted across pose changes. `react-native-reserved-regions` provides scene-local fold and occlusion frames for content and overlays. The existing list/detail tree stays mounted through resizing; Expo Router's alpha SplitView is not used.
+- **Victory retains its gesture builder on RNGH 3.** The pinned `victory-native` patch names `LegacyComposedGesture` in the source and public declaration. It changes types only: RNGH 3's detector supports the existing gesture builder at runtime. Jest uses Reanimated's resolver for its JavaScript runtime.
+
 - **`EXPO_PUBLIC_DEMO_MODE=1` sets the first value of the demo flag.** The saved value wins after that, so leaving demo mode in Settings sticks.
 - **The demo walkthrough is an Argent flow** (`.argent/flows/demo-smoke.yaml`) that ends by tapping Exit demo, so it can run twice in a row. It uses `testID`s except for the hand-off scrim, which it taps by its "Close" label.
 
@@ -310,14 +308,15 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 
 ## Navigation pins
 
-- **Errors and Sessions are Views rows, not fixed tabs.** The Browse group lists Dashboards, Insights, Web analytics, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web.
-- **A pin adds one slot after Views.** Long-press the Views row, or use the list's More menu, for "Pin to navigation". Both changes confirm with the Views toast and Undo.
-- **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning the other list replaces the pin, the toast says "Pinned, replacing Errors", short enough for one line beside Undo on a 393pt phone, and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
+- **Errors, Sessions, Web analytics and Live are Views rows, not fixed tabs.** The Browse group lists Dashboards, Insights, Web analytics, Live, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web.
+- **A pin adds one slot after Views.** Long-press the Browse row, or use the pushed screen's More menu (More sheet on Web analytics), for "Pin to navigation". Both changes confirm with the Views toast and Undo.
+- **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning another list replaces the pin, the toast says "Pinned, replacing Errors" (or "Web analytics", the longest label), and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
 - **A device preference.** `navPinStore` keeps the pins in AsyncStorage for every project, and sign-out keeps them, like the pin hint: they hold no account data.
-- **Both tab routes are always registered.** `app/(tabs)/errors.tsx` and `app/(tabs)/replay.tsx` exist whether pinned or not; the bar draws a slot only for a pin. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to.
-- **`/errors` is the pushed screen.** The tab and the stack screen share the path, and Expo Router resolves a path without a group to the stack screen. `openNavTarget` reaches the tab as `/(tabs)/errors`. `navPinRoutes.test.tsx` checks both.
-- **The lists count their own opens.** The bar sends `mobile_inbox_opened` and `mobile_chats_opened` only; `mobile_errors_opened` and `mobile_replay_opened` come from the list screens with `chrome`, because the same screens also open pushed from Views.
-- **Rows are disabled in the demo**, as Recordings was, because the demo has no issues or recordings.
+- **Every tab route is always registered.** `app/(tabs)/errors/`, `replay/`, `web-analytics/` and `live/` exist whether pinned or not; the bar draws a slot only for a pin. A list unpinned from its own tab keeps its slot until the person leaves it, so Undo has a place to return to. The same rule shows the slot of a start page tab that is not pinned. While such a tab is focused, its tabs menu offers "Pin to navigation" and "Open on web". Route names are the folder names, so `tabRoutes.ts` maps the `web_analytics` key to the `web-analytics` route.
+- **`/errors` is the pushed screen.** The Errors and Sessions tabs share their path with the stack screens, and Expo Router resolves a path without a group to the stack screen. `openNavTarget` reaches the tab as `/(tabs)/errors`. Web analytics and Live keep their pushed `/views/web-analytics` and `/views/live` routes, which deep links open, so their tabs are `/web-analytics` and `/live` with no clash. `navPinRoutes.test.tsx` checks all four.
+- **Only Errors and Sessions have release flags.** Web analytics and Live have no flag, so `navPinEnabled` treats a pin without a flag as on.
+- **The lists count their own opens.** The bar sends `mobile_inbox_opened` and `mobile_chats_opened` only; `mobile_errors_opened`, `mobile_replay_opened`, `mobile_view_opened` (`view_type: web_analytics`) and `mobile_live_opened` come from the screens with `chrome`, because the same screens also open pushed from Views. A tab stays mounted, so each screen counts every visit: with a focus effect, or with `useTabVisit` for the Web analytics view event.
+- **Sessions and Errors rows are disabled in the demo**, as Recordings was, because the demo has no issues or recordings. Web analytics and Live have demo data.
 
 ## Errors
 
@@ -401,10 +400,23 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
 - **"Open full replay" appears once**, in the top-right pill. More holds "Share link at m:ss" (the native share sheet
   with the web URL at the linked `t`, else the key moment, else the start) and "Copy session ID". Open full replay
   opens at the same moment: a `t` from a report or link is what the person came to see.
+  With `mobile-replay-video` on, the pill button is Watch replay, and More starts with Open in PostHog for the web player.
+- **Watch replay plays a server-rendered MP4 in `expo-video`, behind `mobile-replay-video`.**
+  The video is the web's Export to MP4 render, so the app bundles no rrweb renderer, WebView page or build step.
+  It adds one Expo-owned native module, and the player is the platform's own, with fullscreen and Picture in Picture.
+  The costs: the first watch of a session waits for the render, usually a few minutes.
+  Each render counts against the team's monthly video export cap.
+  The file expires after 30 days, and the next watch renders it again.
+  Recordings longer than 3 hours do not render.
+  The render keeps going on the server when the player closes, so the next open picks it up.
+  Playback starts at the same moment as the share link, mapped onto the video through the export's inactivity periods, because the render skips idle time.
+  The error state offers Open in PostHog, and leads with it when the export cap or the length rules out a render.
+  With the flag off, the pill button opens the web player as before.
+  Events: `mobile_replay_video_requested`, `mobile_replay_video_ready` (wait and reuse), `mobile_replay_video_failed` (the error kind, `playback` for a player error) and `mobile_replay_video_closed` (the status at close).
 - **The Chat button matches the report's.** A round ink button with the compose glyph, bottom right, the one agent
   verb on the screen. It opens the chat with `RECORDING_OBJECT_TYPE` and the person label plus the date.
-- **No "Play from" in the frame sheet.** A play button would be a second way to the web player, and the phone has no
-  clip player yet. The sheet shows the frame, the chapter, Previous and Next.
+- **No "Play from" in the frame sheet.** A play button would be a second way to the replay, next to the one in the
+  chrome. The sheet shows the frame, the chapter, Previous and Next.
 - **Opening a session does not mark it viewed.** The web PATCHes `viewed`, which needs `session_recording:write`.
 - **"See the moment" replaces "Watch a session"** on the report's replay row, which now opens the session screen at the
   signal's `seek_seconds`. The demo keeps opening its `example.com` URL, because demo sessions exist in no project.

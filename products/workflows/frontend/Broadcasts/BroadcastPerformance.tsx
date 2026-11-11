@@ -14,7 +14,7 @@ import { BroadcastSendActivity } from './BroadcastSendActivity'
 import { BroadcastSendErrorAction, BroadcastSendErrorBanner } from './BroadcastSendErrorBanner'
 
 function share(part: number, whole: number): string {
-    return whole > 0 ? percentage(part / whole, 1) : '-'
+    return whole > 0 ? percentage(Math.min(part / whole, 1), 1) : '-'
 }
 
 export function BroadcastPerformance({
@@ -65,12 +65,17 @@ export function BroadcastPerformance({
             : [
                   { label: 'Opened', part: stats.opened, whole: stats.trackedSends },
                   { label: 'Clicked', part: stats.clicked, whole: stats.trackedSends },
-                  { label: 'Clicked to opened', part: stats.clicked, whole: stats.opened },
+                  ...(stats.engagementCountsPeople
+                      ? [{ label: 'Clicked to opened', part: stats.clicked, whole: stats.opened }]
+                      : []),
               ]),
         ...(hasGoal ? [{ label: 'Converted', part: stats.converted, whole: stats.sent }] : []),
     ]
     const footnote = [
         trackingOff ? null : 'Opens and clicks are counted against sends with tracking on.',
+        !trackingOff && !stats.engagementCountsPeople
+            ? 'This send counts every open and click, so one person can count more than once.'
+            : null,
         hasGoal ? 'Conversions are counted against all sends.' : null,
     ]
         .filter(Boolean)

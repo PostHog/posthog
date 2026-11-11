@@ -118,6 +118,9 @@ The server uses one shared `PostHogMCP` client from `src/lib/posthog/client.ts`.
 The `src/hono/analytics.ts` module calls SDK helpers for initialization, tool calls, and tool listings.
 Direct tool calls and inner exec calls use the same `trackToolCall()` path.
 The SDK creates the canonical `$mcp_*` event fields and applies its sanitization and truncation rules.
+Tool arguments and results reach `$mcp_parameters` and `$mcp_response` only under the capture policy and secret redaction that `$ai_span` uses, so a tool excluded from spans sends neither, and `execute-sql` sends its query but not its rows.
+An exec command that resolves no inner tool sends neither, since its raw command string has no tool name to apply the policy to.
+The result is the handler's raw object, redacted by key, not the formatted text the agent reads, and failed calls send no result because their text embeds upstream error bodies.
 New `$mcp_*` events and properties belong in the SDK, not in this server.
 
 Private scout credentials derive capture suppression from their server-issued OAuth scope.
