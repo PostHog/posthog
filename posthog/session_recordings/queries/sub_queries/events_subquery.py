@@ -29,7 +29,7 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS
 from posthog.dataclasses import frozen
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.ph_client import feature_enabled_or_false, get_feature_flag_or_none
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
@@ -130,6 +130,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         sample_factor: Optional[float] = None,
         events_timestamp_floor: Optional[datetime] = None,
         resolve_group_properties: ClickHouseUser | None = None,
+        user: User | None = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
@@ -140,6 +141,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         # since a truncated blocklist would under-exclude.
         self._events_timestamp_floor = events_timestamp_floor
         self._resolve_group_properties = resolve_group_properties
+        self._user = user
         self.emitted_sampled_subquery = False
 
     def _events_join(self, sample: bool = True, scope_session_ids: list[str] | None = None) -> ast.JoinExpr:
@@ -653,7 +655,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             if skip_negative_properties and is_negative_prop(p):
                 continue
             resolved = (
-                resolved_group_key_expr(self._team, p, self._resolve_group_properties)
+                resolved_group_key_expr(self._team, p, self._resolve_group_properties, self._user)
                 if self._resolve_group_properties is not None
                 else None
             )
@@ -1012,7 +1014,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def _resolved_hogql_group_filter(self, p: AnyPropertyFilter) -> ast.Expr | None:
         if self._resolve_group_properties is None or not isinstance(p, HogQLPropertyFilter):
             return None
-        return resolved_hogql_group_key_expr(self._team, p, self._resolve_group_properties)
+        return resolved_hogql_group_key_expr(self._team, p, self._resolve_group_properties, self._user)
 
     @property
     def event_properties(self):

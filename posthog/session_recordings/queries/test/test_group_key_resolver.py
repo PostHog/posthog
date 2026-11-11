@@ -10,6 +10,7 @@ from posthog.schema import GroupPropertyFilter, HogQLPropertyFilter, PropertyOpe
 from posthog.hogql import ast
 
 from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.models import User
 from posthog.session_recordings.queries.sub_queries.group_key_resolver import (
     MAX_RESOLVED_GROUP_KEYS,
     _resolution_predicate,
@@ -115,6 +116,15 @@ class TestGroupKeyResolver(BaseTest):
             assert resolved_group_key_expr(self.team, _filter(), _CH_USER) is None
         assert resolve.call_count == 1
 
+    def test_keys_resolve_as_the_requesting_user_and_are_cached_per_user(self) -> None:
+        other = User.objects.create(email="other@example.com")
+        with patch(_RESOLVER, return_value=["org-1"]) as resolve:
+            resolved_group_key_expr(self.team, _filter(), _CH_USER, self.user)
+            resolved_group_key_expr(self.team, _filter(), _CH_USER, other)
+            resolved_group_key_expr(self.team, _filter(), _CH_USER, self.user)
+        # The lookup applies each user's property restrictions, so one user's keys never answer another's listing.
+        assert [call.args[4] for call in resolve.call_args_list] == [self.user, other]
+
     @parameterized.expand(
         [
             ("one_group_type", "group_0.properties.is_owned = true OR toFloat(group_0.properties.mrr) > 1666", 0),
@@ -127,6 +137,7 @@ class TestGroupKeyResolver(BaseTest):
             ("or_tautology", "group_0.properties.plan = 'pro' OR 1 = 1", None),
             ("or_constant_in", "group_0.properties.plan = 'pro' OR 'a' IN ('a')", None),
             ("two_properties_compared", "group_0.properties.a = group_0.properties.b", None),
+            ("nested_comparison", "(group_0.properties.plan = 'pro') = false", None),
             # Anything outside one group type's properties needs the event row, so it keeps the join.
             ("mixes_event_properties", "group_0.properties.plan = 'pro' AND properties.$browser = 'Chrome'", None),
             ("two_group_types", "group_0.properties.plan = 'pro' OR group_1.properties.plan = 'pro'", None),
@@ -146,6 +157,6 @@ class TestGroupKeyResolver(BaseTest):
         assert isinstance(expr, ast.CompareOperation) and isinstance(expr.left, ast.Field)
         assert expr.left.chain == ["events", f"$group_{expected_group_type}"]
         # The predicate runs in a select over `groups`, where the property is read without the `group_N.` prefix.
-        _team, group_type_index, predicate, _ch_user = resolve.call_args.args
+        _team, group_type_index, predicate, _ch_user, _user = resolve.call_args.args
         assert group_type_index == expected_group_type
         assert "group_" not in str(predicate)

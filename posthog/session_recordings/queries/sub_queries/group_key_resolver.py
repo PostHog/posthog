@@ -26,7 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.client.connection import ClickHouseUser
-from posthog.models import Team
+from posthog.models import Team, User
 
 logger = structlog.get_logger(__name__)
 
@@ -68,7 +68,9 @@ _NUMERIC_OPERATORS = {
 _FALLBACK = "fallback"
 
 
-def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser) -> ast.Expr | None:
+def resolved_group_key_expr(
+    team: Team, prop: GroupPropertyFilter, ch_user: ClickHouseUser, user: User | None = None
+) -> ast.Expr | None:
     """`$group_N IN (keys)` for this filter, or None when the caller should keep the join."""
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
         return None
@@ -80,10 +82,13 @@ def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter, ch_user: Clic
         [prop.group_type_index, prop.key, prop.operator, prop.value],
         lambda: _resolution_predicate(team, prop),
         ch_user,
+        user,
     )
 
 
-def resolved_hogql_group_key_expr(team: Team, prop: HogQLPropertyFilter, ch_user: ClickHouseUser) -> ast.Expr | None:
+def resolved_hogql_group_key_expr(
+    team: Team, prop: HogQLPropertyFilter, ch_user: ClickHouseUser, user: User | None = None
+) -> ast.Expr | None:
     """`$group_N IN (keys)` for a HogQL filter that only reads one group type's properties, or None to keep the join.
 
     A HogQL filter like `group_0.properties.plan = 'pro' OR group_0.properties.mrr > 100` compiles to the same
@@ -107,6 +112,7 @@ def resolved_hogql_group_key_expr(team: Team, prop: HogQLPropertyFilter, ch_user
         ["hogql", group_type_index, prop.key],
         lambda: _GroupPrefixStripper().visit(expr),
         ch_user,
+        user,
     )
 
 
@@ -117,12 +123,14 @@ def _resolved_key_in(
     cache_parts: list[Any],
     predicate: Callable[[], ast.Expr],
     ch_user: ClickHouseUser,
+    user: User | None,
 ) -> ast.Expr | None:
     keys = _group_keys(
         team,
         property_key,
-        _cache_key(team, cache_parts),
-        lambda: _query_group_keys(team, group_type_index, predicate(), ch_user),
+        # Per user, because the lookup applies that user's property restrictions as the join would.
+        _cache_key(team, [*cache_parts, user.pk if user is not None else None]),
+        lambda: _query_group_keys(team, group_type_index, predicate(), ch_user, user),
     )
     return None if keys is None else _group_key_in(group_type_index, keys)
 
@@ -212,6 +220,9 @@ def _false_without_group(expr: ast.Expr) -> bool:
     if isinstance(expr, ast.Or):
         return all(_false_without_group(operand) for operand in expr.exprs)
     if isinstance(expr, ast.CompareOperation):
+        # A nested comparison such as `(group_0.properties.plan = 'pro') = false` is true when the group is missing.
+        if _has_nested_logic(expr.left) or _has_nested_logic(expr.right):
+            return False
         return _reads_fields(expr.left) != _reads_fields(expr.right)
     return False
 
@@ -220,6 +231,27 @@ def _reads_fields(expr: ast.Expr) -> bool:
     finder = _FieldFinder()
     finder.visit(expr)
     return finder.found
+
+
+def _has_nested_logic(expr: ast.Expr) -> bool:
+    finder = _LogicFinder()
+    finder.visit(expr)
+    return finder.found
+
+
+class _LogicFinder(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.found = False
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        self.found = True
+
+    def visit_and(self, node: ast.And) -> None:
+        self.found = True
+
+    def visit_or(self, node: ast.Or) -> None:
+        self.found = True
 
 
 class _FieldFinder(TraversingVisitor):
@@ -296,7 +328,9 @@ def _resolution_predicate(team: Team, prop: GroupPropertyFilter) -> ast.Expr:
     )
 
 
-def _query_group_keys(team: Team, group_type_index: int, predicate: ast.Expr, ch_user: ClickHouseUser) -> list[str]:
+def _query_group_keys(
+    team: Team, group_type_index: int, predicate: ast.Expr, ch_user: ClickHouseUser, user: User | None
+) -> list[str]:
     query = ast.SelectQuery(
         select=[ast.Field(chain=["key"])],
         select_from=ast.JoinExpr(table=ast.Field(chain=["groups"])),
@@ -318,9 +352,13 @@ def _query_group_keys(team: Team, group_type_index: int, predicate: ast.Expr, ch
         team=team,
         query_type=GROUP_KEY_RESOLUTION_QUERY_TYPE,
         ch_user=ch_user,
+        user=user,
         # Types `properties.x` from this group type's property definitions, as the join path types `group_N.properties.x`.
-        context=HogQLContext(team_id=team.pk, globals={"group_id": group_type_index}),
-        settings=HogQLGlobalSettings(max_execution_time=GROUP_KEY_RESOLUTION_MAX_SECONDS),
+        context=HogQLContext(team_id=team.pk, user=user, globals={"group_id": group_type_index}),
+        # Throw rather than break, so a lookup that runs out of time falls back instead of caching a partial key list.
+        settings=HogQLGlobalSettings(
+            max_execution_time=GROUP_KEY_RESOLUTION_MAX_SECONDS, timeout_overflow_mode="throw"
+        ),
     )
     return [row[0] for row in (response.results or []) if row[0]]
 

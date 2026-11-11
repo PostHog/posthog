@@ -22,7 +22,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.errors import CHQueryErrorTooManyBytes
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
@@ -212,20 +212,34 @@ def test_a_failed_exact_count_is_skipped_next_time_and_previews_reuse_their_resu
     scanner = _make_scanner()
     with patch(
         "products.replay_vision.backend.queries.scanner_volume_estimate.execute_hogql_query",
-        side_effect=[ClickHouseQueryTimeOut(), MagicMock(results=[[5, None]]), MagicMock(results=[[7, None]])],
+        side_effect=[
+            ClickHouseQueryTimeOut(),
+            MagicMock(results=[[5, None]]),
+            MagicMock(results=[[6, None]]),
+            MagicMock(results=[[7, None]]),
+        ],
     ) as mock_execute:
-        for _ in range(3):
+        for _ in range(2):
             estimate_scanner_session_volume(
                 team=scanner.team, query=_EVENT_FILTERED_AND_QUERY, budget=PREVIEW_ESTIMATE_BUDGET
             )
+        # Another user's preview misses the result cache but still skips the exact count that timed out.
+        estimate_scanner_session_volume(
+            team=scanner.team,
+            query=_EVENT_FILTERED_AND_QUERY,
+            user=User.objects.create(email="estimate-viewer@example.com"),
+            budget=PREVIEW_ESTIMATE_BUDGET,
+        )
         batch = estimate_scanner_session_volume(team=scanner.team, query=_EVENT_FILTERED_AND_QUERY)
 
     assert [call.kwargs["query_type"] for call in mock_execute.call_args_list] == [
         "ReplayVisionScannerEstimateExactQuery",
         "ReplayVisionScannerEstimateSampledQuery",
         "ReplayVisionScannerEstimateSampledQuery",
+        # A preview's timeout says nothing about the batch's longer budget, so the batch tries the exact count.
+        "ReplayVisionScannerEstimateExactQuery",
     ]
-    assert batch.matched_sessions == 70
+    assert batch.matched_sessions == 7
 
 
 @pytest.mark.django_db

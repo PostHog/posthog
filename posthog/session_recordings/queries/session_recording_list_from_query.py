@@ -712,6 +712,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             sample_factor=self._events_sample_factor,
             events_timestamp_floor=self._events_timestamp_floor,
             resolve_group_properties=self._resolve_group_properties,
+            user=self._user,
         )
         self._event_match_plan = events_sub_query_builder.get_session_id_match_plan(
             allow_combined_filters=self._allow_combined_event_filters
@@ -844,6 +845,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 sample_factor=self._events_sample_factor,
                 events_timestamp_floor=self._events_timestamp_floor,
                 resolve_group_properties=self._resolve_group_properties,
+                user=self._user,
             )
             for sub_q in test_account_events_builder.get_queries_for_session_id_matching():
                 exprs.append(
