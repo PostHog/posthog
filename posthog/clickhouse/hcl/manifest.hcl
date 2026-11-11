@@ -36,7 +36,7 @@ role "ops" {
 # self-contained roles/logs/local (extracted from the live node) for the legacy
 # logs32 family it still runs. The cloud logs nodes leave out
 # roles/logs/metrics/metrics4.hcl: metrics4 is read from and written to the metrics
-# cluster, and migration 0378 drops it from the logs cluster. The local stacks run
+# cluster, and migration 0379 drops it from the logs cluster. The local stacks run
 # every role on one node and keep it.
 role "logs" {
   env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local"] }

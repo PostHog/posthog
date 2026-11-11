@@ -84,7 +84,7 @@ enum Media {
     },
     SvgImage,
     Video,
-    /// A `source` under a `picture`. Its `type` can name a media type the fetcher does not store, such as AVIF.
+    /// A `source` under a `picture`. Its `type` can name a media type the fetcher does not store, such as JPEG XL.
     PictureSource {
         unfetched_type: bool,
     },

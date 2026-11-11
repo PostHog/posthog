@@ -149,10 +149,15 @@ def stripe_refresh_idempotency_key(refresh_token: str, config: Mapping[str, Any]
     return hashlib.sha256(seed.encode()).hexdigest()
 
 
+# Stripe saves the answer under the key only when the request started to run. A 400-class refusal of
+# the refresh itself (for example `invalid_grant`) is such an answer. A 401 or 403 comes before the
+# request runs, so nothing is saved, and a saved success can still replay under the old key. A 5xx
+# can come after the roll, and 409 and 429 are answers that Stripe does not save.
+_STRIPE_SAVED_REJECTION_STATUS_CODES = frozenset({400, 402, 404, 422})
+
+
 def _stripe_rejected_the_refresh(res: requests.Response) -> bool:
-    # A 4xx answer means Stripe did not roll the token, so a new key cannot lose rolled tokens. A
-    # 5xx can come after the roll, and 409 and 429 are answers that Stripe does not save.
-    return 400 <= res.status_code < 500 and res.status_code not in (409, 429)
+    return res.status_code in _STRIPE_SAVED_REJECTION_STATUS_CODES
 
 
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:

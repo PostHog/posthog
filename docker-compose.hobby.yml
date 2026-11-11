@@ -214,6 +214,8 @@ services:
             GRANIAN_WORKERS: ${GRANIAN_WORKERS:-2}
             # The workers share one copy of Django with the granian parent instead of loading their own.
             POSTHOG_GRANIAN_PRELOAD: ${POSTHOG_GRANIAN_PRELOAD:-true}
+            # See the same setting on feature-flags.
+            FLAGS_BILLING_COUNTERS_ENABLED: 'false'
             SITE_URL: https://$DOMAIN
             LIVESTREAM_HOST: 'https://${DOMAIN}/livestream'
             SECRET_KEY: $POSTHOG_SECRET
@@ -921,6 +923,9 @@ services:
             # Never fall back to POSTHOG_SECRET: this container faces the internet, and that
             # value is Django's SECRET_KEY.
             INTERNAL_REQUEST_TOKEN: ${INTERNAL_REQUEST_TOKEN:-}
+            # Only PostHog Cloud reads and deletes the flag request counters, so here they would
+            # grow in Redis forever. web sets the same variable.
+            FLAGS_BILLING_COUNTERS_ENABLED: 'false'
         depends_on:
             db:
                 condition: service_started
