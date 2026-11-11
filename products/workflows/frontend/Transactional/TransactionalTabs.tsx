@@ -9,14 +9,16 @@ import { comingSoonInterestLogic } from './comingSoon/comingSoonInterestLogic'
 import { ComingSoonInterestTag } from './comingSoon/ComingSoonInterestTag'
 import { SmtpInterestModal } from './comingSoon/SmtpInterestModal'
 import { SMTP_INTEREST_SURVEY } from './comingSoon/smtpInterestSurvey'
+import { useComingSoonInterestSurvey } from './comingSoon/useComingSoonInterestSurvey'
 import { TransactionalEmailLog } from './log/TransactionalEmailLog'
 import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 import { TransactionalRoute, TransactionalTab } from './transactionalRoute'
 
 export function TransactionalTabs({ currentTab }: { currentTab: TransactionalRoute }): JSX.Element {
-    const { hasRecordedInterest } = useValues(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
-    const { registerInterest } = useActions(comingSoonInterestLogic(SMTP_INTEREST_SURVEY))
+    const smtpInterestLogic = comingSoonInterestLogic(useComingSoonInterestSurvey(SMTP_INTEREST_SURVEY))
+    const { hasRecordedInterest } = useValues(smtpInterestLogic)
+    const { registerInterest } = useActions(smtpInterestLogic)
     const isTransactionalTab = currentTab === 'transactional' || currentTab === 'log' || currentTab === 'metrics'
 
     return (

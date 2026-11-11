@@ -11,11 +11,13 @@ import {
     BucketProxy,
     EmailQueueOfOneTest,
     PostgresProxy,
-    SesV2Fake,
     StoredFile,
     attachmentStoreConfig,
+    deliveredTo,
+    sesClientFor,
     uploadAttachment,
 } from '~/cdp/_tests/email-delivery-fakes'
+import { FakeSes, startFakeSes } from '~/cdp/_tests/fake-ses'
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -93,7 +95,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     let hogFlow: HogFlow
     let queueName: string
     let recipient: string
-    let ses: SesV2Fake
+    let ses: FakeSes
     let bucket: BucketProxy
     let cyclotron: PostgresProxy
     let workers: CdpCyclotronWorkerEmail[]
@@ -130,7 +132,10 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         workflowTableHolders = []
         routers = []
         team = (await createTestTeamFixture(hub.postgres)).team
-        ses = await SesV2Fake.start()
+        ses = await startFakeSes({
+            [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+            [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+        })
         bucket = await BucketProxy.start()
         cyclotron = await PostgresProxy.start(new URL(hub.CYCLOTRON_NODE_DATABASE_URL!))
         mockProducerObserver.resetKafkaProducer()
@@ -236,7 +241,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
 
     async function startWorker(
         limits: InFlightLimits | null,
-        sesClient: SESv2Client = ses.client(),
+        sesClient: SESv2Client = sesClientFor(ses),
         postgres: PostgresRouter = hub.postgres
     ): Promise<CdpCyclotronWorkerEmail> {
         const config = {
@@ -327,7 +332,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         })
 
     const delivered = (): string[][] =>
-        ses.deliveredTo(recipient).map((email) => email.attachments.map((file) => file.filename))
+        deliveredTo(ses, recipient).map((email) => email.attachments.map((file) => file.filename))
 
     // What the status API answers: the row of the message with the highest version.
     const emailStatusOf = (id: string): EmailStatus | undefined => {
@@ -516,7 +521,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         // source that never answers leaves the call running past its deadline. SES itself cannot do that: the
         // SDK aborts a request it has sent.
         const stalledSes = (askedForCredentials: () => void = () => undefined): SESv2Client =>
-            ses.client({
+            sesClientFor(ses, {
                 credentials: () => {
                     askedForCredentials()
                     return new Promise(() => undefined)
@@ -766,7 +771,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             }
             await startWorker(
                 room === null ? null : roomFor(room),
-                ses.client(),
+                sesClientFor(ses),
                 lookupsFail ? postgresThatStopsWaitingOnLocks() : hub.postgres
             )
 

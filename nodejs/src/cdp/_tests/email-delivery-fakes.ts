@@ -3,12 +3,12 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { IncomingMessage, Server, ServerResponse, createServer, request as httpRequest } from 'node:http'
 import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'node:net'
 
+import { FakeSes, FakeSesAttachment } from '~/cdp/_tests/fake-ses'
 import { getDefaultCdpConfig } from '~/cdp/config'
 import { EmailAttachmentMetadata } from '~/cdp/schema/cyclotron'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { AttachmentStore, buildAttachmentStore } from '~/cdp/services/messaging/attachment-store'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '~/cdp/types'
-import { parseJSON } from '~/common/utils/json-parse'
 
 export const attachmentStoreConfig = {
     ...getDefaultCdpConfig(),
@@ -51,14 +51,6 @@ export const uploadAttachment = async (
     return file
 }
 
-const readBody = async (request: IncomingMessage): Promise<Buffer> => {
-    const chunks: Buffer[] = []
-    for await (const chunk of request) {
-        chunks.push(chunk as Buffer)
-    }
-    return Buffer.concat(chunks)
-}
-
 const listen = async (server: Server): Promise<string> => {
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
@@ -69,128 +61,12 @@ const shutDown = async (server: Server): Promise<void> => {
     await new Promise((resolve) => server.close(resolve))
 }
 
-export type DeliveredAttachment = {
-    filename: string
-    contentType: string | undefined
-    contentId: string | undefined
-    inline: boolean
-    bytes: Buffer
-}
-export type DeliveredEmail = { to: string[]; attachments: DeliveredAttachment[] }
+export type DeliveredEmail = { to: string[]; attachments: FakeSesAttachment[] }
 
-const SEND_EMAIL_FIELDS = new Set([
-    'FromEmailAddress',
-    'FromEmailAddressIdentityArn',
-    'Destination',
-    'ReplyToAddresses',
-    'FeedbackForwardingEmailAddress',
-    'FeedbackForwardingEmailAddressIdentityArn',
-    'Content',
-    'EmailTags',
-    'ConfigurationSetName',
-    'EndpointId',
-    'TenantName',
-    'ListManagementOptions',
-])
-const ATTACHMENT_FIELDS = new Set([
-    'RawContent',
-    'ContentDisposition',
-    'FileName',
-    'ContentDescription',
-    'ContentId',
-    'ContentTransferEncoding',
-    'ContentType',
-])
-
-const deliveredBySes = (request: any): DeliveredEmail | string => {
-    const unknown = Object.keys(request).find((field) => !SEND_EMAIL_FIELDS.has(field))
-    if (unknown) {
-        return `Unknown field ${unknown}`
-    }
-    const simple = request.Content?.Simple
-    if (!request.FromEmailAddress || !request.Destination?.ToAddresses?.length || !simple?.Subject || !simple.Body) {
-        return 'A sender, a recipient, a subject and a body are required'
-    }
-    const attachments: DeliveredAttachment[] = []
-    for (const attachment of simple.Attachments ?? []) {
-        const unknownInAttachment = Object.keys(attachment).find((field) => !ATTACHMENT_FIELDS.has(field))
-        if (unknownInAttachment || !attachment.FileName || attachment.RawContent === undefined) {
-            return 'An attachment needs a FileName and RawContent, and nothing else SES does not know'
-        }
-        if (!['ATTACHMENT', 'INLINE', undefined].includes(attachment.ContentDisposition)) {
-            return `Unknown ContentDisposition ${attachment.ContentDisposition}`
-        }
-        attachments.push({
-            filename: attachment.FileName,
-            contentType: attachment.ContentType,
-            contentId: attachment.ContentId,
-            inline: attachment.ContentDisposition === 'INLINE',
-            bytes: Buffer.from(attachment.RawContent, 'base64'),
-        })
-    }
-    return { to: request.Destination.ToAddresses, attachments }
-}
-
-export type SesAnswer = 'accept' | 'reject' | 'throttle' | 'hold' | 'stallBody' | 'dropConnection'
-
-// Speaks the SES v2 SendEmail wire protocol, so the real SDK client serializes, signs, retries and parses
-// against it, and keeps what an accepted request would have delivered.
-export class SesV2Fake {
-    readonly delivered: DeliveredEmail[] = []
-    answer: SesAnswer = 'accept'
-    endpoint = ''
-    private readonly server = createServer((request, response) => void this.handle(request, response))
-
-    static async start(): Promise<SesV2Fake> {
-        const fake = new SesV2Fake()
-        fake.endpoint = await listen(fake.server)
-        return fake
-    }
-
-    client(overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]> = {}): SESv2Client {
-        return sesClientWith({ endpoint: this.endpoint, ...overrides })
-    }
-
-    deliveredTo(address: string): DeliveredEmail[] {
-        return this.delivered.filter((email) => email.to.some((to) => to.includes(address)))
-    }
-
-    close(): Promise<void> {
-        return shutDown(this.server)
-    }
-
-    private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
-        const body = await readBody(request)
-        const error = (status: number, type: string, message: string): void => {
-            response
-                .writeHead(status, { 'content-type': 'application/json', 'x-amzn-errortype': type })
-                .end(JSON.stringify({ message }))
-        }
-        if (request.method !== 'POST' || request.url !== '/v2/email/outbound-emails') {
-            return error(404, 'NotFoundException', `No route for ${request.method} ${request.url}`)
-        }
-        switch (this.answer) {
-            case 'hold':
-                return
-            case 'dropConnection':
-                request.socket.destroy()
-                return
-            case 'stallBody':
-                response.writeHead(200, { 'content-type': 'application/json' }).write('{"MessageId":')
-                return
-            case 'throttle':
-                return error(429, 'TooManyRequestsException', 'Maximum sending rate exceeded.')
-            case 'reject':
-                return error(400, 'MessageRejected', 'Email address is not verified.')
-        }
-        const delivered = deliveredBySes(parseJSON(body.toString()))
-        if (typeof delivered === 'string') {
-            return error(400, 'BadRequestException', delivered)
-        }
-        this.delivered.push(delivered)
-        response.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ MessageId: randomUUID() }))
-    }
-}
+export const deliveredTo = (ses: FakeSes, address: string): DeliveredEmail[] =>
+    ses.sent
+        .filter((message) => message.to.some((to) => to.includes(address)))
+        .map(({ to, attachments }) => ({ to, attachments }))
 
 export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdCopies' | 'holdFilesItHas' | 'stallFileBodies'
 
@@ -304,10 +180,14 @@ export class BucketProxy {
     }
 }
 
-export const sesClientWith = (overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]>): SESv2Client =>
+export const sesClientFor = (
+    ses: FakeSes,
+    overrides: Partial<ConstructorParameters<typeof SESv2Client>[0]> = {}
+): SESv2Client =>
     new SESv2Client({
         region: 'us-east-1',
-        credentials: { accessKeyId: 'AKIDEXAMPLE', secretAccessKey: 'example-secret' },
+        endpoint: ses.endpoint,
+        credentials: { accessKeyId: 'fake-ses', secretAccessKey: 'fake-ses' },
         ...overrides,
     })
 

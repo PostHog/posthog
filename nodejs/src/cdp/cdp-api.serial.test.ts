@@ -38,13 +38,15 @@ import {
     EmailQueueOfOneTest,
     HeldQuery,
     PostgresProxy,
-    SesV2Fake,
     StoredFile,
     attachmentFile,
     attachmentStoreConfig,
+    deliveredTo,
+    sesClientFor,
     uploadAttachment,
 } from './_tests/email-delivery-fakes'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { startFakeSes } from './_tests/fake-ses'
 import {
     insertHogFunction as _insertHogFunction,
     createHogFunction,
@@ -3070,7 +3072,10 @@ describe('CDP API', () => {
                     expect(job.stored).not.toContain(file.bytes.toString('base64'))
                 }
 
-                const ses = await SesV2Fake.start()
+                const ses = await startFakeSes({
+                    [hub.SES_TRACKED_CONFIGURATION_SET]: { tracking: true },
+                    [hub.SES_UNTRACKED_CONFIGURATION_SET]: { tracking: false },
+                })
                 const workerConfig = {
                     ...hub,
                     CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
@@ -3082,12 +3087,12 @@ describe('CDP API', () => {
                     new EmailQueueOfOneTest(queueName, workerConfig),
                     new InFlightRegistry({ budgetBytes: 2 ** 40, heapLimitBytes: 2 ** 40, maxInFlight: 1 }, () => 0)
                 )
-                worker.emailService.sesV2Client = ses.client()
+                worker.emailService.sesV2Client = sesClientFor(ses)
                 await worker.start()
                 try {
                     const delivered = await waitForExpect(() => {
-                        expect(ses.deliveredTo(recipient)).toHaveLength(1)
-                        return ses.deliveredTo(recipient)[0]
+                        expect(deliveredTo(ses, recipient)).toHaveLength(1)
+                        return deliveredTo(ses, recipient)[0]
                     })
                     expect(delivered.attachments).toEqual([
                         {
