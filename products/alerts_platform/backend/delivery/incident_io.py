@@ -14,6 +14,7 @@ incident.io, not here.
 
 from typing import Any, Final
 
+from products.alerts_platform.backend.delivery.discord import escape_markdown
 from products.alerts_platform.backend.delivery.message import AlertMessage
 from products.alerts_platform.backend.delivery.pagerduty import dedup_key
 from products.alerts_platform.backend.delivery.transport import DeliveryError, MessageHandle
@@ -59,7 +60,10 @@ def incident_io_body(message: AlertMessage) -> dict[str, Any]:
         },
     }
     if message.details:
-        body["description"] = "\n".join(f"**{detail.label}:** {detail.value}" for detail in message.details)
+        # A value can come from ingested data, such as a log's service name, so it must not render as a link.
+        body["description"] = "\n".join(
+            f"**{detail.label}:** {escape_markdown(detail.value)}" for detail in message.details
+        )
     return body
 
 

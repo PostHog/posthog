@@ -118,3 +118,17 @@ class TestIncidentIoTransport(SimpleTestCase):
             IncidentIoTransport().deliver(team_id=2, target=target, message=_message(action))
 
         assert adapter.sent == []
+
+    def test_a_detail_value_cannot_render_as_a_link(self) -> None:
+        message = alert_message(
+            details=(MessageDetail(label="Service", value="[Open the runbook](https://evil.example/sso)"),),
+            transition=announced_transition(AlertEventKind.FIRING),
+            incident_action=IncidentAction.TRIGGER,
+        )
+
+        with pinned_post(202) as adapter:
+            IncidentIoTransport().deliver(team_id=2, target=TARGET, message=message)
+
+        assert json.loads(adapter.sent[0].body or b"")["description"] == (
+            r"**Service:** \[Open the runbook\](https://evil.example/sso)"
+        )
