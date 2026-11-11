@@ -49,6 +49,12 @@ export interface Config {
 
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
+
+    /**
+     * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
+     * PEM file per caller. Unset means the service accepts no integrations token.
+     */
+    integrationCallerPublicKeysDir?: string
 }
 
 function intFromEnv(key: string, fallback: number, min = 0): number {
@@ -139,6 +145,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
+    }
+
+    const integrationKeysDir = process.env.CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR
+    if (integrationKeysDir) {
+        config.integrationCallerPublicKeysDir = integrationKeysDir
     }
 
     if (secretSourceFromEnv() === 'kubernetes') {

@@ -14,6 +14,7 @@ import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { FetchResponse } from '~/common/utils/request'
+import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CyclotronJobInvocationHogFlow } from '../../../types'
 import { createInvocationResult } from '../../../utils/invocation-utils'
@@ -22,9 +23,10 @@ import { ActionHandlerOptions } from '../../hogflows/actions/action.interface'
 import { SandboxEmailAction } from '../../hogflows/actions/email_sandbox'
 import { RateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
 import { RecipientTokensService } from '../recipient-tokens.service'
+import { capturedAnalytics, sandboxEventsCapturedInMemory } from './_tests/captured-analytics'
 import { SandboxFaults, useSandboxWorld } from './_tests/sandbox-world'
 import { SANDBOX_TEST_TIMEOUT_MS } from './sandbox-deadlines'
-import { SandboxEventProperties, SandboxTerminalOutcome } from './sandbox-email-events'
+import { SandboxEmailEvents } from './sandbox-email-events'
 import {
     SANDBOX_TEST_SEND_PATH,
     SandboxEmailTestRouteDeps,
@@ -33,14 +35,12 @@ import {
 } from './sandbox-email-test-route'
 import { SandboxEmailTester, SandboxEmailTesterDeps } from './sandbox-email-tester'
 
-type RecordedEvent = { teamId: number; outcome: SandboxTerminalOutcome; properties: SandboxEventProperties }
-
 describe('sandbox email test sends', () => {
     const world = useSandboxWorld()
     const secret = 'sandbox-test-secret'
     const workerJwt = new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_SANDBOX_EMAIL_TEST, secret)
     let hogFlow: HogFlow
-    let events: RecordedEvent[]
+    let events: SandboxEmailEvents
     let app: express.Application
     let server: Server
     let sesBucketKey: string
@@ -66,21 +66,20 @@ describe('sandbox email test sends', () => {
             sandboxEmailTestRouter({
                 jwt: workerJwt,
                 service: sendingOn ? world.service({ faults }) : null,
-                events: {
-                    capture: (teamId, outcome, properties) => {
-                        events.push({ teamId, outcome, properties })
-                        return Promise.resolve()
-                    },
-                },
+                events,
                 sesBucket: bucket,
             })
         )
         server = app.listen(0, () => {})
     }
 
+    beforeAll(() => {
+        events = sandboxEventsCapturedInMemory(world.postgres)
+    })
+
     beforeEach(async () => {
         await world.addMember(member())
-        events = []
+        capturedAnalytics.length = 0
         sesBucketKey = `@posthog/ses/test-${world.team.id}`
         serveWorker()
         hogFlow = new FixtureHogFlowBuilder()
@@ -171,13 +170,19 @@ describe('sandbox email test sends', () => {
                 }),
             }),
         ])
-        expect(events).toEqual([
-            {
-                teamId: world.team.id,
-                outcome: 'accepted',
-                properties: { workflow_id: hogFlow.id, action_id: 'email', is_test: true },
-            },
-        ])
+        await waitForExpect(() =>
+            expect(capturedAnalytics).toEqual([
+                expect.objectContaining({
+                    distinctId: world.team.uuid,
+                    event: 'workflows sandbox email sent',
+                    properties: { team: world.team.uuid, workflow_id: hogFlow.id, action_id: 'email', is_test: true },
+                    groups: expect.objectContaining({
+                        project: world.team.uuid,
+                        organization: world.team.organization_id,
+                    }),
+                }),
+            ])
+        )
     })
 
     it('sends a test of a workflow that is not saved yet', async () => {

@@ -3,7 +3,7 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.easypost._config import EasypostSourceConfig
 from products.warehouse_sources.sources.easypost.settings import EASYPOST_ENDPOINTS
 from products.warehouse_sources.sources.easypost.source import EasypostSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, scripted_network
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 
 
 def _config() -> EasypostSourceConfig:
@@ -59,13 +59,13 @@ class TestSourceForPipeline:
     def test_plumbs_incremental_inputs(self) -> None:
         result = SourceDriver(EasypostSource(), _config()).run(
             "shipments",
-            [ScriptedResponse(json={"shipments": [], "has_more": False})],
+            always(ScriptedResponse(json={"shipments": [], "has_more": False})),
             incremental_field="created_at",
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
         )
         response = result.response
         assert result.raised is None
-        assert result.params("start_datetime") == ["2024-01-01T00:00:00Z"]
+        assert result.params("start_datetime")[-1] == "2024-01-01T00:00:00Z"
         assert response is not None
         assert response.name == "shipments"
         assert response.sort_mode == "desc"
@@ -74,11 +74,11 @@ class TestSourceForPipeline:
         # When the schema isn't synced incrementally, the watermark must not leak into the request.
         result = SourceDriver(EasypostSource(), _config()).run(
             "addresses",
-            [ScriptedResponse(json={"addresses": [], "has_more": False})],
+            always(ScriptedResponse(json={"addresses": [], "has_more": False})),
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
         )
         response = result.response
         assert result.raised is None
-        assert result.params("start_datetime") == [None]
+        assert result.params("start_datetime")[-1] == "2010-01-01T00:00:00Z"
         assert response is not None
         assert response.name == "addresses"

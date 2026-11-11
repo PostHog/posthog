@@ -234,7 +234,8 @@ export class HogInputsService {
     // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
     private resolveIntegration(
         integration: IntegrationType | null | undefined,
-        teamId: HogFunctionType['team_id']
+        teamId: HogFunctionType['team_id'],
+        decryptFailed = false
     ): Record<string, any> | null {
         if (!integration || integration.team_id !== teamId) {
             return null
@@ -247,6 +248,11 @@ export class HogInputsService {
         }
         if (isWarehouseSourceIntegration(integration)) {
             return null
+        }
+        // An undecryptable field still holds ciphertext, so never hand out the secrets. The id stays so a
+        // per-channel push send can fail just this channel.
+        if (decryptFailed) {
+            return markServerResolvedIntegration({ $integration_id: integration.id, ...integration.config })
         }
         return markServerResolvedIntegration({
             $integration_id: integration.id,
@@ -297,6 +303,7 @@ export class HogInputsService {
                 .map((ref) => ref[INTEGRATION_REF_KEY])
         )
         const integrations = await this.integrationManager.getMany(ids)
+        const decryptFailures = await this.integrationManager.getDecryptFailures(ids)
 
         // An empty value would reach the third party as a request with no credentials, so a reference that
         // does not resolve fails the invocation.
@@ -307,6 +314,9 @@ export class HogInputsService {
             const resolved = isTrustedRef(key, value)
                 ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
                 : null
+            if (resolved && (decryptFailures[value[INTEGRATION_REF_KEY]]?.length ?? 0) > 0) {
+                throw new HogConfigurationError(decryptIntegrationMessage(key))
+            }
             if (!resolved) {
                 throw new HogConfigurationError(
                     `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
@@ -364,10 +374,11 @@ export class HogInputsService {
         }
 
         const integrations = await this.integrationManager.getMany(allIds)
+        const decryptFailures = await this.integrationManager.getDecryptFailures(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         const resolveIntegration = (id: number): Record<string, any> | null =>
-            this.resolveIntegration(integrations[id], hogFunction.team_id)
+            this.resolveIntegration(integrations[id], hogFunction.team_id, (decryptFailures[id]?.length ?? 0) > 0)
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
@@ -379,6 +390,9 @@ export class HogInputsService {
             }
             if (isUsed && isWarehouseSourceIntegration(integrations[id])) {
                 throw new HogConfigurationError(warehouseIntegrationMessage(key))
+            }
+            if (isUsed && (decryptFailures[id]?.length ?? 0) > 0) {
+                throw new HogConfigurationError(decryptIntegrationMessage(key))
             }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
@@ -453,6 +467,9 @@ const isWarehouseSourceIntegration = (integration: { config?: unknown } | null |
 
 const warehouseIntegrationMessage = (key: string): string =>
     `The integration for input '${key}' can't be used as a function input. Select a different integration for this input.`
+
+const decryptIntegrationMessage = (key: string): string =>
+    `The integration for input '${key}' could not be decrypted. Reconnect the integration.`
 
 export const formatHogInput = async (
     bytecode: any,
