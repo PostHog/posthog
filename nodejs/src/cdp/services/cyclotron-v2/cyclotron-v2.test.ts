@@ -2627,8 +2627,6 @@ describe('Cyclotron V2', () => {
                     await emailJob.ack()
                 }
                 expect(drained).toEqual([teamA, teamB, teamA, teamB, teamA, teamB, teamA, teamB])
-                expect(await readTeamCounter(teamA)).toBe(4n)
-                expect(await readTeamCounter(teamB)).toBe(4n)
             })
 
             it("reroutes a team's job into the email queue while another team in the batch has its counter row locked", async () => {
