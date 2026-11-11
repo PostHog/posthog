@@ -1166,8 +1166,6 @@ def _with_new_email_steps_on_the_sandbox_sender(data: Any, instance: Any, contex
 
 
 def _with_saved_template_content(action: dict, team: Team, context: dict) -> Optional[dict]:
-    """A copy of the step with its saved template's content filled in, or None when the reference doesn't
-    resolve, so the step stays as sent and normal validation reports it."""
     step = deepcopy(action)
     config = step["config"]
     try:
