@@ -4,12 +4,16 @@ import { Pool, PoolClient } from 'pg'
 import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
+import * as posthogUtils from '~/common/utils/posthog'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import { EncryptedFields } from '../../utils/encryption-utils'
+import { markServerResolvedIntegration, signIntegrationRef } from '../../utils/integration-input-refs'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 
 describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
+    const ENCRYPTION_SALT_KEYS = '00beef0000beef0000beef0000beef00'
     const baseInvocation = {
         teamId: 1,
         functionId: '0196a6b9-1104-0000-f099-9cf11985a307',
@@ -86,6 +90,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
     afterEach(async () => {
         jest.useRealTimers()
+        jest.restoreAllMocks()
         await Promise.all(proxies.map((proxy) => proxy.close()))
         for (const lock of locks) {
             await lock.client.query('ROLLBACK')
@@ -110,7 +115,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: 1000,
             CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: false,
             CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS: '',
-            ENCRYPTION_SALT_KEYS: '',
+            ENCRYPTION_SALT_KEYS,
         })
         queues.push(queue)
         await queue.startAsProducer()
@@ -413,6 +418,94 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         expect(late.count).toBe(1)
         expect(late.sum).toBeGreaterThanOrEqual(60)
     })
+
+    it.each([
+        ['on', true],
+        ['off', false],
+    ])(
+        'hands a deferred send with files back with its files, its queue metadata and its integration inputs as stored, with integration refs %s',
+        async (_name, integrationRefsOn) => {
+            jest.spyOn(posthogUtils, 'isFeatureFlagEnabled').mockResolvedValue(integrationRefsOn)
+            const queue = await startQueue()
+            await enqueue(queue, { queue: `${queueName}-flag-read` as CyclotronJobQueueKind })
+            await new Promise((resolve) => setImmediate(resolve))
+            const accessToken = `fake-access-token-${uuidv4()}`
+            const files = {
+                type: 'email' as const,
+                to: { email: 'test@example.com', name: 'Test User' },
+                from: { integrationId: 1 },
+                subject: 'Your invoice',
+                text: 'Attached',
+                html: '<p>Attached</p>',
+                attachments: [
+                    { filename: 'invoice.pdf', contentType: 'application/pdf', sizeBytes: 7, sha256: 'a'.repeat(64) },
+                ],
+            }
+            const id = await enqueue(queue, {
+                queueParameters: files,
+                queueMetadata: { attachmentLoadRetries: 2, teamBudgetClaimed: true },
+                state: {
+                    actionStepCount: 1,
+                    currentAction: {
+                        id: 'send-email',
+                        startedAtTimestamp: 0,
+                        hogFunctionState: {
+                            globals: {
+                                inputs: {
+                                    oauth: markServerResolvedIntegration({
+                                        $integration_id: 11,
+                                        access_token_raw: accessToken,
+                                    }),
+                                },
+                            },
+                            timings: [],
+                            attempts: 0,
+                        },
+                    },
+                },
+            })
+            const consumer = await consume(queue, queueName)
+            const [first] = await consumer.claimed()
+            const firstDueAt = Date.now()
+
+            await queue.deferInvocations([
+                {
+                    invocation: {
+                        ...first,
+                        queueMetadata: { ...first.queueMetadata, attachmentDeferrals: 1, attachmentDueAt: firstDueAt },
+                    },
+                    scheduledAt: new Date(Date.now() + 200),
+                },
+            ])
+            const [, again] = await consumer.claimed(2)
+            const { rows } = await db.query('SELECT state FROM cyclotron_jobs WHERE id = $1', [id])
+
+            expect(again).toMatchObject({
+                id,
+                queueParameters: files,
+                queueMetadata: {
+                    attachmentLoadRetries: 2,
+                    teamBudgetClaimed: true,
+                    attachmentDeferrals: 1,
+                    attachmentDueAt: firstDueAt,
+                },
+            })
+            expect(again.state!.currentAction.hogFunctionState.globals.inputs.oauth).toEqual(
+                integrationRefsOn
+                    ? {
+                          $integration_ref: 11,
+                          $integration_ref_sig: signIntegrationRef(
+                              new EncryptedFields(ENCRYPTION_SALT_KEYS),
+                              teamId,
+                              'oauth',
+                              11
+                          ),
+                      }
+                    : { $integration_id: 11, access_token_raw: accessToken }
+            )
+            expect(rows[0].state.toString('utf-8').includes(accessToken)).toBe(!integrationRefsOn)
+        }
+    )
 
     it('stops dequeuing, then returns once the batch in progress has written its results', async () => {
         const queue = await startQueue()
