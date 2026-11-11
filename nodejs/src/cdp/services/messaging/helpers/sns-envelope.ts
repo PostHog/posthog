@@ -27,6 +27,8 @@ const SnsEnvelopeSchema = z.object({
 
 export type SnsEnvelope = z.infer<typeof SnsEnvelopeSchema>
 
+export const parseSnsEnvelope = (raw: string): SnsEnvelope => SnsEnvelopeSchema.parse(parseJSON(raw))
+
 // Kept off `email_tracking_errors_total` because the SES webhook errors alert sums that counter, and an
 // SNS message that is not an SES event is acknowledged, not a fault.
 const sesIgnoredNotificationsCounter = new Counter({
@@ -44,6 +46,10 @@ export type SnsEnvelopeVerdict =
     | { kind: 'records'; records: SesEventRecord[]; fromEnvelope: boolean }
     | { kind: 'ack' }
     | { kind: 'reject'; status: number; error: string; certificateUnavailable?: boolean }
+
+type ParsedBody = { mode: 'raw'; records: SesEventRecord[] } | { mode: 'sns'; envelope: SnsEnvelope }
+
+export type SnsEnvelopeCheck = Exclude<SnsEnvelopeVerdict, { kind: 'records' }> | { kind: 'accepted'; parsed: ParsedBody }
 
 class SnsCertificateUnavailableError extends Error {}
 
@@ -138,9 +144,7 @@ export class SnsEnvelopeVerifier {
         }
     }
 
-    private parseIncomingBody(
-        body: unknown
-    ): { mode: 'raw'; records: SesEventRecord[] } | { mode: 'sns'; envelope: SnsEnvelope } {
+    private parseIncomingBody(body: unknown): ParsedBody {
         if (body && typeof body === 'object' && 'Type' in (body as any)) {
             return { mode: 'sns', envelope: SnsEnvelopeSchema.parse(body) }
         }
@@ -220,6 +224,19 @@ export class SnsEnvelopeVerifier {
         body: unknown,
         { verifySignature = true }: { verifySignature?: boolean } = {}
     ): Promise<SnsEnvelopeVerdict> {
+        const check = await this.verifyEnvelope(body, { verifySignature })
+        if (check.kind !== 'accepted') {
+            return check
+        }
+        const { parsed } = check
+        const records = parsed.mode === 'raw' ? parsed.records : this.parseNotificationRecords(parsed.envelope)
+        return { kind: 'records', records, fromEnvelope: parsed.mode === 'sns' }
+    }
+
+    protected async verifyEnvelope(
+        body: unknown,
+        { verifySignature }: { verifySignature: boolean }
+    ): Promise<SnsEnvelopeCheck> {
         const parsed = this.parseIncomingBody(body)
         logger.info('[SnsEnvelopeVerifier] verify', { mode: parsed.mode })
 
@@ -282,7 +299,6 @@ export class SnsEnvelopeVerifier {
             return { kind: 'ack' }
         }
 
-        const records = parsed.mode === 'raw' ? parsed.records : this.parseNotificationRecords(parsed.envelope)
-        return { kind: 'records', records, fromEnvelope: parsed.mode === 'sns' }
+        return { kind: 'accepted', parsed }
     }
 }

@@ -237,7 +237,13 @@ export class SandboxFeedbackService {
                         await this.suppression.recordGlobalHardBounces(nonexistent, record.bounce.timestamp, strict)
                     }
                 } else if (!isTest && record.bounce.bounceType === 'Transient') {
-                    await this.suppression.recordTransientBounces(teamId, addresses, diagnostic, strict)
+                    await this.suppression.recordTransientBounces(
+                        teamId,
+                        addresses,
+                        diagnostic,
+                        record.bounce.timestamp,
+                        strict
+                    )
                 }
                 count('processed')
                 return {
