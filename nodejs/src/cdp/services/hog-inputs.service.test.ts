@@ -516,6 +516,74 @@ describe('Hog Inputs', () => {
             }
         })
 
+        it('fails the inputs with the deadline error when the deadline passes while the rest of a hog input queues behind its own first leaf', async () => {
+            const leaf = ['_H', 1, 32, 'x']
+            const onlyHog = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: leaf } },
+                inputs_schema: [],
+            })
+            const manyLeaves = createHogFunction({
+                ...hogFunction,
+                inputs: { only: { value: 'x', templating: 'hog', bytecode: Array.from({ length: 5 }, () => leaf) } },
+                inputs_schema: [],
+            })
+            const threshold = getEventLoopYieldThresholdMs()
+            await new Promise((resolve) => setTimeout(resolve, 5))
+            configureEventLoopYield(0)
+            jest.useFakeTimers({
+                doNotFake: [
+                    'hrtime',
+                    'nextTick',
+                    'queueMicrotask',
+                    'setImmediate',
+                    'clearImmediate',
+                    'setInterval',
+                    'clearInterval',
+                    'Date',
+                ],
+            })
+            const nextTurn = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+            try {
+                let first: unknown
+                void hogInputsService.buildInputs(onlyHog, globals).then(
+                    () => (first = 'rendered'),
+                    (error: unknown) => (first = error)
+                )
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+                const deadline = new AbortController()
+                let queued: unknown
+                void hogInputsService.buildInputs(manyLeaves, globals, undefined, undefined, deadline.signal).then(
+                    () => (queued = 'rendered'),
+                    (error: unknown) => (queued = error)
+                )
+                for (let turn = 0; turn < 20; turn++) {
+                    await nextTurn()
+                }
+                for (let turn = 0; first === undefined && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
+                for (let turn = 0; jest.getTimerCount() === 0 && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+                expect(first).toBe('rendered')
+                expect(queued).toBeUndefined()
+
+                deadline.abort(new DOMException('The verification deadline passed', 'TimeoutError'))
+                for (let turn = 0; queued === undefined && turn < 1000; turn++) {
+                    await nextTurn()
+                }
+
+                expect(queued).toMatchObject({ name: 'TimeoutError' })
+            } finally {
+                jest.useRealTimers()
+                configureEventLoopYield(threshold)
+            }
+        })
+
         it.each<[string, Record<string, CyclotronInputType>]>([
             ['an input before the last', { next: { value: '{{ event.event }}', templating: 'liquid', order: 1 } }],
             ['the last input', {}],
