@@ -263,7 +263,6 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 })
                 .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
-            // The code-send key a transactional email is sent by. Delivery events report it.
             template_key: z.string().optional(),
             template_id: z.literal('template-email'),
             inputs: z.record(z.string(), CyclotronInputSchema),

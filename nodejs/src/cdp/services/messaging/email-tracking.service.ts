@@ -440,15 +440,23 @@ export class EmailTrackingService {
         // before a throw would count twice. The direct pixel and redirect are never retried, so for them a lost
         // engagement event beats a lost metric.
         try {
+            const emailStep = hogFlow?.actions.find((action) => action.id === actionId)
             await this.captureEngagementEvent({
                 teamId,
                 appSourceId,
-                hogFlow,
                 actionId,
                 invocationId,
                 distinctId,
                 metricName,
-                properties,
+                properties:
+                    properties?.$email_transactional === true
+                        ? {
+                              ...properties,
+                              ...transactionalEmailIdentity(
+                                  emailStep?.type === 'function_email' ? emailStep.config : undefined
+                              ),
+                          }
+                        : properties,
                 timestamp,
                 workflowVersion,
             })
@@ -511,7 +519,6 @@ export class EmailTrackingService {
     private async captureEngagementEvent({
         teamId,
         appSourceId,
-        hogFlow,
         actionId,
         invocationId,
         distinctId,
@@ -522,7 +529,6 @@ export class EmailTrackingService {
     }: {
         teamId: number
         appSourceId: string
-        hogFlow?: HogFlow | null
         actionId?: string
         invocationId: string
         distinctId?: string
@@ -539,7 +545,6 @@ export class EmailTrackingService {
         ) {
             return
         }
-        const emailStep = hogFlow?.actions.find((action) => action.id === actionId)
         await this.capturedEventsService.queueEvent({
             team_id: teamId,
             event: eventName,
@@ -551,9 +556,6 @@ export class EmailTrackingService {
                 $workflow_invocation_id: invocationId,
                 ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                 ...properties,
-                ...(properties?.$email_transactional === true
-                    ? transactionalEmailIdentity(emailStep?.type === 'function_email' ? emailStep.config : undefined)
-                    : {}),
             },
         })
     }
