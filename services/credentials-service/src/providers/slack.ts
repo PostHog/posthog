@@ -43,7 +43,11 @@ export const slack: ProviderSpec = {
         opaqueState: false,
     },
     token: { url: 'https://slack.com/api/oauth.v2.access', auth: 'client_secret_post' },
-    clientSecretKeys: { clientId: 'SLACK_APP_CLIENT_ID', clientSecret: 'SLACK_APP_CLIENT_SECRET' },
+    clientSecretKeys: {
+        clientId: '__PROVIDER_SLACK_APP_CLIENT_ID',
+        clientSecret: '__PROVIDER_SLACK_APP_CLIENT_SECRET',
+    },
+    identityConfigKeys: ['team'],
     tokenInfo: { idPath: 'team.id', namePath: 'team.name' },
     overrides: {
         environment: { dev: { authorize: { scope: [...SCOPES, ...SCOPES_IN_REVIEW].join(',') } } },

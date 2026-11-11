@@ -19,7 +19,16 @@ export const linear: ProviderSpec = {
         opaqueState: false,
     },
     token: { url: 'https://api.linear.app/oauth/token', auth: 'client_secret_post' },
-    clientSecretKeys: { clientId: 'LINEAR_APP_CLIENT_ID', clientSecret: 'LINEAR_APP_CLIENT_SECRET' },
+    clientSecretKeys: {
+        clientId: '__PROVIDER_LINEAR_APP_CLIENT_ID',
+        clientSecret: '__PROVIDER_LINEAR_APP_CLIENT_SECRET',
+    },
+    identityConfigKeys: [
+        'data',
+        'data.viewer.organization.id',
+        'data.viewer.organization.name',
+        'data.viewer.organization.urlKey',
+    ],
     tokenInfo: {
         idPath: 'data.viewer.organization.id',
         namePath: 'data.viewer.organization.name',

@@ -12,7 +12,11 @@ export const googleSheets: ProviderSpec = {
     },
     token: GOOGLE_TOKEN,
     // The Google sign-in app, not an app of its own.
-    clientSecretKeys: { clientId: 'SOCIAL_AUTH_GOOGLE_OAUTH2_KEY', clientSecret: 'SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET' },
+    clientSecretKeys: {
+        clientId: '__PROVIDER_SOCIAL_AUTH_GOOGLE_OAUTH2_KEY',
+        clientSecret: '__PROVIDER_SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET',
+    },
+    identityConfigKeys: ['sub', 'email'],
     tokenInfo: GOOGLE_TOKEN_INFO,
     refresh: { ...OAUTH_REFRESH, mode: 'static' },
     resolveExposes: ACCESS_TOKEN_ONLY,

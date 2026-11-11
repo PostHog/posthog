@@ -44,12 +44,12 @@ export function displayName(
 }
 
 /**
- * `https://<host>` from the config field that `instanceHost` names, or null when the value is not
+ * `https://<host>` from the config field that `tokenHost` names, or null when the value is not
  * a plain https URL on the allowed host suffix. The caller then uses the spec's fixed URLs.
  */
-export function instanceBaseUrl(token: TokenSpec, config: Readonly<Record<string, unknown>>): string | null {
-    const rule = token.instanceHost
-    const raw = rule ? config[rule.configField] : undefined
+export function tokenHostBaseUrl(token: TokenSpec, config: Readonly<Record<string, unknown>>): string | null {
+    const rule = token.tokenHost
+    const raw = rule ? config[rule.fromConfig] : undefined
     if (!rule || typeof raw !== 'string' || !raw) {
         return null
     }
@@ -65,9 +65,23 @@ export function instanceBaseUrl(token: TokenSpec, config: Readonly<Record<string
         return null
     }
     const host = url.hostname.toLowerCase()
-    return host.endsWith(rule.hostSuffix) ? `https://${host}` : null
+    return rule.allow.some((suffix) => host.endsWith(suffix)) ? `https://${host}` : null
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Whether a row's region may exist in this service environment. A region with no rule is allowed
+ * everywhere. A row with no region is never blocked.
+ */
+export function regionAllowed(spec: ProviderSpec, region: string | undefined, environment: string): boolean {
+    const rule = region ? spec.regions?.[region] : undefined
+    return !rule || rule.allowedIn.includes(environment)
+}
+
+/** The keys of a config `PATCH` that only create and exchange may set. The CRUD route refuses a non-empty result. */
+export function touchesIdentityConfig(spec: ProviderSpec, patch: Readonly<Record<string, unknown>>): string[] {
+    return Object.keys(patch).filter((key) => spec.identityConfigKeys.includes(key))
 }

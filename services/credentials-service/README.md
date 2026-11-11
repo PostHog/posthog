@@ -230,6 +230,28 @@ The registry is the source of truth for `posthog/integrations/catalogue_generate
 To add a kind, write `src/providers/<kind>.ts`, add it to `src/providers/index.ts`, and run `hogli build:projections --only credentials-catalogue`.
 `src/catalogue.ts` and everything it imports must not import an npm package, because the projection check bundles it in a CI job with no `node_modules`.
 
+### Safety rules in the spec
+
+The service enforces these rules on every exchange and refresh. A config write or a stray row cannot turn them off.
+
+- `token.tokenHost` names a config field and a list of allowed host suffixes. The service sends the client secret to that host only when the value is a plain https URL with no port, no credentials and an allowed host. Otherwise it uses the fixed `token.url`. Salesforce uses it with `instance_url` and `.salesforce.com`, the same check as `_salesforce_instance_host`.
+- `regions.<region>.allowedIn` lists the service environments where a row region may exist. The `posthog` kind will use it so that the `dev` region never runs in `prod-us` or `prod-eu`.
+- `identityConfigKeys` lists the config keys that name the account, installation or region of a row. Create and exchange set them. The `PATCH` route refuses them, because the AAD does not cover config. Use `identityConfigKeys(kind)` from `src/providers`.
+
+### Provider secret names
+
+Client secrets and minter keys use the reserved prefix `__PROVIDER_`. The secrets route never serves this prefix. Only the registry reads these names.
+After the prefix comes the name that Django settings and the platform secret mount use today.
+For example, `SLACK_APP_CLIENT_SECRET` becomes `__PROVIDER_SLACK_APP_CLIENT_SECRET`, and `GITHUB_APP_PRIVATE_KEY` becomes `__PROVIDER_GITHUB_APP_PRIVATE_KEY`.
+The Python catalogue keeps the old names, and Django settings do not change.
+The mount must keep `__PROVIDER_` entries for the registry in the exchange and refresh PR. Today it skips every `__` name.
+
+### Egress
+
+Every provider HTTP call goes through smokescreen. The chart sets `NODE_USE_ENV_PROXY=1` and an egress NetworkPolicy.
+The exchange and refresh PR must use the proxy-aware `fetch`, and must not open its own connection.
+KMS and the internal capture host are the only direct egress.
+
 ## Isolation
 
 This package must not depend on the rest of the monorepo. It shares the pnpm workspace only for

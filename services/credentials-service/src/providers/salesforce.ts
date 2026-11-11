@@ -19,14 +19,19 @@ export const salesforce: ProviderSpec = {
         // sandbox host. Its rows keep the `salesforce` kind.
         exchangeFallbackUrls: ['https://test.salesforce.com/services/oauth2/token'],
         // So a sandbox row refreshes and revokes at its own org, which the production host refuses.
-        instanceHost: {
-            configField: 'instance_url',
-            hostSuffix: '.salesforce.com',
+        // Port of `_salesforce_instance_host`: https, no port, no credentials, a `.salesforce.com` host.
+        tokenHost: {
+            fromConfig: 'instance_url',
+            allow: ['.salesforce.com'],
             tokenPath: '/services/oauth2/token',
             revokePath: '/services/oauth2/revoke',
         },
     },
-    clientSecretKeys: { clientId: 'SALESFORCE_CONSUMER_KEY', clientSecret: 'SALESFORCE_CONSUMER_SECRET' },
+    clientSecretKeys: {
+        clientId: '__PROVIDER_SALESFORCE_CONSUMER_KEY',
+        clientSecret: '__PROVIDER_SALESFORCE_CONSUMER_SECRET',
+    },
+    identityConfigKeys: ['instance_url'],
     tokenInfo: { idPath: 'instance_url', namePath: 'instance_url' },
     // Salesforce often sends no `expires_in`. Its tokens last 2 to 4 hours, so 1 hour is safe.
     // A connected app can turn on refresh token rotation, so the mode assumes it is on.

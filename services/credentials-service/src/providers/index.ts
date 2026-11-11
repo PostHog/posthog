@@ -28,6 +28,11 @@ export const PROVIDER_SPECS: readonly ProviderSpec[] = [
 const BY_KIND: ReadonlyMap<string, ProviderSpec> = new Map(PROVIDER_SPECS.map((spec) => [spec.kind, spec]))
 
 /** The spec of a kind, or undefined for a kind that the service does not serve yet. */
+/** The config keys of a kind that only create and exchange may set. Empty for an unknown kind. */
+export function identityConfigKeys(kind: string): readonly string[] {
+    return BY_KIND.get(kind)?.identityConfigKeys ?? []
+}
+
 export function providerSpec(kind: string): ProviderSpec | undefined {
     return BY_KIND.get(kind)
 }

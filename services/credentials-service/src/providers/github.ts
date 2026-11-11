@@ -17,10 +17,11 @@ export const github: ProviderSpec = {
     },
     mint: {
         type: 'github_installation_token',
-        appIdKey: 'GITHUB_APP_CLIENT_ID',
-        privateKeyKey: 'GITHUB_APP_PRIVATE_KEY',
+        appIdKey: '__PROVIDER_GITHUB_APP_CLIENT_ID',
+        privateKeyKey: '__PROVIDER_GITHUB_APP_PRIVATE_KEY',
         installationIdField: 'installation_id',
     },
+    identityConfigKeys: ['installation_id', 'account'],
     // Installation tokens last an hour. Minting again is always safe.
     refresh: { ...OAUTH_REFRESH, mode: 'static' },
     resolveExposes: ACCESS_TOKEN_ONLY,

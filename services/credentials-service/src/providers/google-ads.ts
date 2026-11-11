@@ -8,7 +8,11 @@ export const googleAds: ProviderSpec = {
     authTypes: { default: 'oauth', others: [] },
     authorize: { ...GOOGLE_AUTHORIZE, scope: `https://www.googleapis.com/auth/adwords ${GOOGLE_USERINFO_EMAIL_SCOPE}` },
     token: GOOGLE_TOKEN,
-    clientSecretKeys: { clientId: 'GOOGLE_ADS_APP_CLIENT_ID', clientSecret: 'GOOGLE_ADS_APP_CLIENT_SECRET' },
+    clientSecretKeys: {
+        clientId: '__PROVIDER_GOOGLE_ADS_APP_CLIENT_ID',
+        clientSecret: '__PROVIDER_GOOGLE_ADS_APP_CLIENT_SECRET',
+    },
+    identityConfigKeys: ['sub', 'email'],
     tokenInfo: GOOGLE_TOKEN_INFO,
     refresh: { ...OAUTH_REFRESH, mode: 'static' },
     resolveExposes: ACCESS_TOKEN_ONLY,

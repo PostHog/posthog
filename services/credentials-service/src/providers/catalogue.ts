@@ -2,6 +2,7 @@
 // it to list kinds and to build authorize URLs. It holds platform-secret names, never their values.
 
 import { type AuthorizeParam, authorizeParams } from './authorize'
+import { legacySecretName } from './defaults'
 import { applyOverrides, type SpecContext } from './overrides'
 import type { AuthType, ProviderSpec } from './schema'
 
@@ -80,7 +81,8 @@ function catalogueAuthorize(spec: ProviderSpec): CatalogueAuthorize | null {
         scope: authorize.scope,
         pkce: authorize.pkce,
         opaque_state: authorize.opaqueState,
-        client_id_key: spec.clientSecretKeys?.clientId ?? null,
+        // Django settings keep the unprefixed names, so the Python catalogue does too.
+        client_id_key: spec.clientSecretKeys ? legacySecretName(spec.clientSecretKeys.clientId) : null,
         url_values: authorize.urlValues ?? {},
     }
 }

@@ -18,8 +18,12 @@ const SECRET_KEY = /^(?!__)[A-Z][A-Z0-9_]*$/
 const PLACEHOLDER = /\{([a-z_]+)\}/g
 const HTTPS_URL = /^https:\/\/[^\s/?#]+[^\s#]*$/
 
+// A secret that only the provider registry reads. The secrets route never serves this prefix.
+const PROVIDER_SECRET_KEY = /^__PROVIDER_[A-Z][A-Z0-9_]*$/
+
 const kindName = z.string().regex(KIND, 'must be a lowercase kind name')
 const secretKey = z.string().regex(SECRET_KEY, 'must be an uppercase platform-secret name')
+const providerSecretKey = z.string().regex(PROVIDER_SECRET_KEY, 'must be a `__PROVIDER_` platform-secret name')
 const httpsUrl = z.string().regex(HTTPS_URL, 'must be an https URL')
 // A dot path into a JSON object, read like `common.dot_get`: a literal key with dots wins over traversal.
 const jsonPath = z.string().min(1)
@@ -60,15 +64,15 @@ const tokenSchema = z.strictObject({
     /** Token URLs to try in order when the code exchange at `url` fails (the Salesforce sandbox host). */
     exchangeFallbackUrls: z.array(httpsUrl).optional(),
     /**
-     * Refresh and revoke at the host that a config field names, when the host passes the check.
-     * Otherwise the service uses `url` and `revokeUrl`. This keeps a stray config write from
-     * sending the client secret to another origin.
+     * Refresh and revoke at the host that a config field names, only when the host passes the check.
+     * Otherwise the service uses `url` and `revokeUrl`. A config write then cannot send the client
+     * secret to another origin. The service enforces this on every exchange and refresh.
      */
-    instanceHost: z
+    tokenHost: z
         .strictObject({
-            configField: z.string().min(1),
-            /** The host must end with this, for example `.salesforce.com`. */
-            hostSuffix: z.string().regex(/^\.[a-z0-9.-]+$/),
+            fromConfig: z.string().min(1),
+            /** The host must end with one of these, for example `.salesforce.com`. The value must be a plain https URL with no port. */
+            allow: z.array(z.string().regex(/^\.[a-z0-9.-]+$/)).min(1),
             tokenPath: z.string().startsWith('/'),
             revokePath: z.string().startsWith('/'),
         })
@@ -76,14 +80,16 @@ const tokenSchema = z.strictObject({
 })
 
 const clientSecretKeysSchema = z.strictObject({
-    clientId: secretKey,
-    clientSecret: secretKey,
+    clientId: providerSecretKey,
+    clientSecret: providerSecretKey,
     /**
      * Credentials of a rotated or migrated app, tried in order after the primary pair fails, so
      * grants that only the old app can refresh keep working until the user reconnects. A fallback
      * is used only when its secret is set. A fallback without its own id uses the primary id.
      */
-    fallbacks: z.array(z.strictObject({ clientId: secretKey.optional(), clientSecret: secretKey })).optional(),
+    fallbacks: z
+        .array(z.strictObject({ clientId: providerSecretKey.optional(), clientSecret: providerSecretKey }))
+        .optional(),
 })
 
 const tokenInfoSchema = z.strictObject({
@@ -143,8 +149,8 @@ const mintSchema = z.discriminatedUnion('type', [
     z.strictObject({
         type: z.literal('github_installation_token'),
         /** GitHub accepts the App client id as the JWT issuer. */
-        appIdKey: secretKey,
-        privateKeyKey: secretKey,
+        appIdKey: providerSecretKey,
+        privateKeyKey: providerSecretKey,
         installationIdField: z.string().min(1),
     }),
     z.strictObject({
@@ -188,6 +194,18 @@ export const providerSpecSchema = z
                 region: z.record(z.string().min(1), overrideSchema).optional(),
             })
             .optional(),
+        /**
+         * Config keys that name the account, installation or region of the row. They are set at
+         * create and exchange only, and `PATCH` refuses them, because the AAD does not cover them.
+         */
+        identityConfigKeys: z.array(z.string().min(1)),
+        /**
+         * Rules for the row's region, by region. A region listed here exists only in the service
+         * environments in `allowedIn`, for example a DEV region that production must refuse.
+         */
+        regions: z
+            .record(z.string().min(1), z.strictObject({ allowedIn: z.array(z.string().min(1)).min(1) }))
+            .optional(),
         refresh: refreshSchema.optional(),
         mint: mintSchema.optional(),
         /** The secret fields that `/resolve` returns. Never a refresh token. */
@@ -218,6 +236,9 @@ export const providerSpecSchema = z
         }
         if (spec.token && !spec.tokenInfo) {
             issue('a code exchange needs `tokenInfo` to find the external id', ['tokenInfo'])
+        }
+        if (spec.token?.tokenHost && !spec.identityConfigKeys.includes(spec.token.tokenHost.fromConfig)) {
+            issue('the config field behind `tokenHost` must be an identity config key', ['identityConfigKeys'])
         }
         if (spec.refresh && !spec.token && !spec.mint) {
             issue('refresh needs a token endpoint or a minter', ['refresh'])

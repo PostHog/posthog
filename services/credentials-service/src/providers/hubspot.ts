@@ -42,7 +42,11 @@ export const hubspot: ProviderSpec = {
         opaqueState: false,
     },
     token: { url: 'https://api.hubapi.com/oauth/v1/token', auth: 'client_secret_post' },
-    clientSecretKeys: { clientId: 'HUBSPOT_APP_CLIENT_ID', clientSecret: 'HUBSPOT_APP_CLIENT_SECRET' },
+    clientSecretKeys: {
+        clientId: '__PROVIDER_HUBSPOT_APP_CLIENT_ID',
+        clientSecret: '__PROVIDER_HUBSPOT_APP_CLIENT_SECRET',
+    },
+    identityConfigKeys: ['hub_id', 'hub_domain', 'user', 'user_id'],
     tokenInfo: {
         idPath: 'hub_id',
         namePath: 'hub_domain',

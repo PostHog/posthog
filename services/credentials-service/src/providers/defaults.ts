@@ -13,5 +13,20 @@ export const OAUTH_REFRESH: Omit<RefreshSpec, 'mode'> = {
     terminalErrors: [],
 }
 
+/**
+ * Platform secrets that only the provider registry reads (client secrets, minter keys) carry this
+ * prefix. `/v1/secrets/resolve` never serves it. After the prefix comes the name that Django
+ * settings and the platform secret mount use today, for example `SLACK_APP_CLIENT_SECRET` becomes
+ * `__PROVIDER_SLACK_APP_CLIENT_SECRET`.
+ */
+export const PROVIDER_SECRET_PREFIX = '__PROVIDER_'
+
+/** The name of a provider secret in the Django settings, the Python catalogue and the old mount. */
+export function legacySecretName(providerSecretKey: string): string {
+    return providerSecretKey.startsWith(PROVIDER_SECRET_PREFIX)
+        ? providerSecretKey.slice(PROVIDER_SECRET_PREFIX.length)
+        : providerSecretKey
+}
+
 /** The one secret field that `/resolve` returns for a plain OAuth kind. */
 export const ACCESS_TOKEN_ONLY = ['access_token']

@@ -13,6 +13,8 @@ export const googleCloudStorage: ProviderSpec = {
         // The only token endpoints that Google writes into a key file. Any other value is hand-edited.
         tokenUriAllowlist: ['https://oauth2.googleapis.com/token', 'https://accounts.google.com/o/oauth2/token'],
     },
+    // The key file is a secret field, so the row has no identity config.
+    identityConfigKeys: [],
     // A new token is minted from the key file, so a retry is always safe.
     refresh: { ...OAUTH_REFRESH, mode: 'static' },
     // Callers get the minted token only. The key file stays in the service.

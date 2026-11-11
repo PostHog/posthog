@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { providerSpec } from '@/providers'
-import { displayName, dotGet, instanceBaseUrl } from '@/providers/paths'
+import { displayName, dotGet, regionAllowed, tokenHostBaseUrl, touchesIdentityConfig } from '@/providers/paths'
 import type { ProviderSpec, TokenSpec } from '@/providers/schema'
 
 function spec(kind: string): ProviderSpec {
@@ -100,12 +100,43 @@ describe('instance base URL', () => {
         ['not a string', 42, null],
         ['no value', undefined, null],
     ])('accepts or refuses %s', (_, instanceUrl, expected) => {
-        expect(instanceBaseUrl(token, { instance_url: instanceUrl })).toBe(expected)
+        expect(tokenHostBaseUrl(token, { instance_url: instanceUrl })).toBe(expected)
     })
 
     it('is null for a kind without an instance host rule', () => {
         expect(
-            instanceBaseUrl(spec('hubspot').token as TokenSpec, { instance_url: 'https://na1.salesforce.com' })
+            tokenHostBaseUrl(spec('hubspot').token as TokenSpec, { instance_url: 'https://na1.salesforce.com' })
         ).toBeNull()
+    })
+})
+
+describe('regionAllowed', () => {
+    // A fixture rule: the `posthog` kind is not ported yet, and its DEV region must never run in prod.
+    const fixture = {
+        ...spec('slack'),
+        regions: { dev: { allowedIn: ['dev', 'test'] }, us: { allowedIn: ['dev', 'test', 'prod-us', 'prod-eu'] } },
+    }
+
+    it.each<[string | undefined, string, boolean]>([
+        ['dev', 'dev', true],
+        ['dev', 'test', true],
+        ['dev', 'prod-us', false],
+        ['dev', 'prod-eu', false],
+        ['us', 'prod-eu', true],
+        ['eu', 'prod-us', true],
+        [undefined, 'prod-us', true],
+    ])('region %s in %s is %s', (region, environment, expected) => {
+        expect(regionAllowed(fixture, region, environment)).toBe(expected)
+    })
+})
+
+describe('touchesIdentityConfig', () => {
+    it.each<[string, Record<string, unknown>, string[]]>([
+        ['salesforce', { instance_url: 'https://evil.example.com', note: 'x' }, ['instance_url']],
+        ['salesforce', { note: 'x' }, []],
+        ['github', { installation_id: '1', account: {} }, ['installation_id', 'account']],
+        ['hubspot', {}, []],
+    ])('%s patch %j', (kind, patch, expected) => {
+        expect(touchesIdentityConfig(spec(kind), patch)).toEqual(expected)
     })
 })
