@@ -2602,6 +2602,7 @@ class NodeKind(StrEnum):
     ACCOUNT_USERS_QUERY = "AccountUsersQuery"
     ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
     ACCOUNT_AGENT_ACTIVITY_QUERY = "AccountAgentActivityQuery"
+    ACCOUNT_TOP_PAGES_QUERY = "AccountTopPagesQuery"
     BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
     BOOK_ACTIVITY_PEOPLE_QUERY = "BookActivityPeopleQuery"
     BOOK_ACTIVITY_FIRSTS_QUERY = "BookActivityFirstsQuery"

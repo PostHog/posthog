@@ -67,6 +67,7 @@ describe('AccountViewRenderer', () => {
         ['automations', FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET],
         ['dot_matrix', FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX],
         ['agent_activity', FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE],
+        ['top_pages', FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE],
     ] as const)('renders a saved %s widget only when its flag is enabled', (kind, flag) => {
         const view = {
             ...createView(''),
