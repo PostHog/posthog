@@ -33,6 +33,7 @@ from hogli.manifest import REPO_ROOT
 
 from ..check import CheckResult, Issue, WorkflowCheck
 from ..model import Workflow, parse_filters
+from ..tracked_files import TrackedFiles
 
 MCP_TSCONFIG = Path("services/mcp/tsconfig.json")
 
@@ -58,7 +59,7 @@ class McpFilterCoverageCheck(WorkflowCheck):
 
     def __init__(self, repo_root: Path | None = None) -> None:
         # Injected so tests can point at a fixture tree without monkeypatching env vars.
-        self._repo_root = repo_root or REPO_ROOT
+        self._files = TrackedFiles(repo_root or REPO_ROOT)
 
     @property
     def fix_hint(self) -> str | None:
@@ -73,9 +74,9 @@ class McpFilterCoverageCheck(WorkflowCheck):
         # A checkout without the MCP service has no filters to keep honest. Any
         # other unusable tsconfig is reported, because reading no aliases means
         # reading no imports, which would pass every filter by not looking.
-        if not (self._repo_root / MCP_TSCONFIG).is_file():
+        if not self._files.is_file(MCP_TSCONFIG.as_posix()):
             return result
-        aliases = _read_path_aliases(self._repo_root)
+        aliases = _read_path_aliases(self._files)
         if not aliases:
             result.issues.append(
                 Issue(
@@ -100,7 +101,7 @@ class McpFilterCoverageCheck(WorkflowCheck):
                 )
                 continue
             patterns = _positive_patterns(wf)
-            for target, needs_directory in sorted(_imported(self._repo_root, source_roots, aliases).items()):
+            for target, needs_directory in sorted(_imported(self._files, source_roots, aliases).items()):
                 if any(_covers(pattern, target, needs_directory) for pattern in patterns):
                     continue
                 result.issues.append(
@@ -116,10 +117,10 @@ class McpFilterCoverageCheck(WorkflowCheck):
         return result
 
 
-def _read_path_aliases(repo_root: Path) -> dict[str, list[str]]:
+def _read_path_aliases(files: TrackedFiles) -> dict[str, list[str]]:
     """``compilerOptions.paths`` from the MCP tsconfig, as repo-relative targets."""
     try:
-        raw = (repo_root / MCP_TSCONFIG).read_text(encoding="utf-8")
+        raw = files.read_text(MCP_TSCONFIG.as_posix())
     except OSError:
         return {}
     try:
@@ -153,17 +154,17 @@ def _repo_relative(base: Path, target: str) -> str | None:
     return "/".join(parts)
 
 
-def _imported(repo_root: Path, source_roots: tuple[str, ...], aliases: dict[str, list[str]]) -> dict[str, bool]:
+def _imported(files: TrackedFiles, source_roots: tuple[str, ...], aliases: dict[str, list[str]]) -> dict[str, bool]:
     """Paths outside MCP's own trees that these sources import, each with whether a
     directory pattern is required to cover it."""
     required: dict[str, bool] = {}
-    for source in _mcp_sources(repo_root, source_roots):
+    for source in _mcp_sources(files.repo_root, source_roots):
         try:
-            text = (repo_root / source).read_text(encoding="utf-8")
+            text = files.read_text(source)
         except OSError:
             continue
         for match in IMPORT.finditer(text):
-            for resolved in _resolve_from(repo_root, match.group("specifier"), source, aliases):
+            for resolved in _resolve_from(files, match.group("specifier"), source, aliases):
                 if OWN_MCP_TREE.match(resolved) or "node_modules" in resolved.split("/"):
                     continue
                 # A data file is a leaf. A module drags its own relative imports
@@ -171,12 +172,12 @@ def _imported(repo_root: Path, source_roots: tuple[str, ...], aliases: dict[str,
                 if resolved.endswith(DATA_SUFFIXES):
                     required.setdefault(resolved, False)
                     continue
-                for module in _relative_closure(repo_root, resolved):
+                for module in _relative_closure(files, resolved):
                     required[_enclosing_directory(module)] = True
     return required
 
 
-def _relative_closure(repo_root: Path, entry: str) -> set[str]:
+def _relative_closure(files: TrackedFiles, entry: str) -> set[str]:
     """``entry`` plus every module reachable from it through relative imports.
 
     A module that does not resolve on disk still counts, because a generated or
@@ -190,11 +191,11 @@ def _relative_closure(repo_root: Path, entry: str) -> set[str]:
         if current in reached:
             continue
         reached.add(current)
-        module = _resolve_on_disk(repo_root, current)
+        module = _resolve_on_disk(files, current)
         if module is None:
             continue
         reached.add(module)
-        for match in IMPORT.finditer((repo_root / module).read_text(encoding="utf-8")):
+        for match in IMPORT.finditer(files.read_text(module)):
             specifier = match.group("specifier")
             if not specifier.startswith("."):
                 continue
@@ -204,10 +205,10 @@ def _relative_closure(repo_root: Path, entry: str) -> set[str]:
     return reached
 
 
-def _resolve_on_disk(repo_root: Path, module: str) -> str | None:
+def _resolve_on_disk(files: TrackedFiles, module: str) -> str | None:
     """The file a TypeScript module specifier names, extension and index forms included."""
     for candidate in (module, f"{module}.ts", f"{module}.tsx", f"{module}/index.ts", f"{module}/index.tsx"):
-        if (repo_root / candidate).is_file():
+        if files.is_file(candidate):
             return candidate
     return None
 
@@ -240,7 +241,7 @@ def _under_any(path: str, roots: tuple[str, ...]) -> bool:
     return any(re.fullmatch(rf"{_to_regex(root)}/.*", path) for root in roots)
 
 
-def _resolve_from(repo_root: Path, specifier: str, source: str, aliases: dict[str, list[str]]) -> list[str]:
+def _resolve_from(files: TrackedFiles, specifier: str, source: str, aliases: dict[str, list[str]]) -> list[str]:
     """Repo-relative targets one import in ``source`` resolves to.
 
     A relative specifier can leave the MCP tree just as an alias can, and the MCP
@@ -255,7 +256,7 @@ def _resolve_from(repo_root: Path, specifier: str, source: str, aliases: dict[st
     """
     if specifier.startswith("."):
         target = _repo_relative(Path(_enclosing_directory(source)), specifier)
-        if target is None or _resolve_on_disk(repo_root, target) is None:
+        if target is None or _resolve_on_disk(files, target) is None:
             return []
         return [target]
     return _resolve(specifier, aliases)

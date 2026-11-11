@@ -42,6 +42,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_AT_CONFIG_KEY,
+    USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY,
     GitHubInstallRequest,
     ReauthorizationRequired,
     UserGitHubIntegration,
@@ -215,8 +216,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
     def test_github_repos_refresh_reports_unavailable_installation(self, mock_sync):
         mock_sync.side_effect = GitHubIntegrationError("token refresh after 401 failed")
         integration = _create_user_integration(self.user)
-        integration.config = {**integration.config, "installation_unavailable_since": 1704110400}
+        cached_at = timezone.now() - timedelta(days=1)
+        integration.config = {
+            **integration.config,
+            "installation_unavailable_since": 1704110400,
+            USER_SCOPED_REPOSITORY_CACHE_AT_CONFIG_KEY: cached_at.isoformat(),
+        }
         integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+        integration.repository_cache_updated_at = cached_at
         integration.save()
 
         response = self.client.post("/api/users/@me/integrations/github/12345/repos/refresh/")
@@ -225,6 +232,54 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         data = response.json()
         self.assertEqual(data["installation_status"], "unavailable")
         self.assertEqual(data["repositories"], [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}])
+
+    @parameterized.expand(
+        [
+            ("GET", "repos/", False),
+            ("GET", "repos/", True),
+            ("POST", "repos/refresh/", False),
+            ("POST", "repos/refresh/", True),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.sync_repository_cache")
+    def test_github_repos_ask_to_reconnect_when_the_user_token_is_unusable(
+        self, method, path, has_stale_snapshot, mock_sync
+    ):
+        mock_sync.side_effect = ReauthorizationRequired("GitHub rejected the stored user token.")
+        integration = _create_user_integration(self.user)
+        if has_stale_snapshot:
+            integration.repository_cache = [{"id": 1, "name": "repo1", "full_name": "octocat/repo1"}]
+            integration.repository_cache_updated_at = timezone.now() - timedelta(days=1)
+            integration.save()
+
+        response = self.client.generic(method, f"/api/users/@me/integrations/github/12345/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "Your GitHub connection has expired. Reconnect GitHub in settings.")
+
+    @parameterized.expand([("user_can_open_the_repository", 200, 200), ("user_cannot_open_it", 404, 404)])
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.list_cached_branches")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_github_branches_need_access_to_the_repository(
+        self,
+        _name,
+        github_status,
+        expected_status,
+        mock_github_request,
+        mock_client_request,
+        mock_list_cached_branches,
+    ):
+        mock_github_request.return_value = MagicMock(
+            status_code=github_status, headers={}, json=lambda: {"full_name": "octocat/repo1"}
+        )
+        mock_list_cached_branches.return_value = (["main"], "main", False)
+        _create_user_integration(self.user)
+
+        response = self.client.get("/api/users/@me/integrations/github/12345/branches/?repo=octocat/repo1")
+
+        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(mock_list_cached_branches.called, expected_status == 200)
 
     @parameterized.expand([("GET", "repos/"), ("POST", "repos/refresh/"), ("GET", "branches/?repo=octocat/repo1")])
     def test_github_installation_endpoints_reject_a_flagged_link(self, method, path):
@@ -1215,16 +1270,29 @@ class TestGetGithubLoginPrecedence(APIBaseTest):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="99", extra_data={"login": "ghuser"})
         self.assertEqual(self.user.get_github_login(), "ghuser")
 
-    def test_uses_team_integration_when_only_source(self):
+    @parameterized.expand(
+        [
+            ("own_row_in_current_team", "current", "self", "teamuser"),
+            ("own_row_in_another_organization", "other_org", "self", "teamuser"),
+            ("row_of_another_user", "current", "other", None),
+        ]
+    )
+    def test_uses_team_integration_when_only_source(self, _name, team_kind, creator, expected):
+        team = self.team
+        if team_kind == "other_org":
+            team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        created_by = self.user
+        if creator == "other":
+            created_by = User.objects.create_and_join(self.organization, "other@example.com", None)
         Integration.objects.create(
-            team=self.team,
+            team=team,
             kind="github",
             integration_id="inst-1",
             config={"connecting_user_github_login": "teamuser"},
             sensitive_config={},
-            created_by=self.user,
+            created_by=created_by,
         )
-        self.assertEqual(self.user.get_github_login(), "teamuser")
+        self.assertEqual(self.user.get_github_login(), expected)
 
     def test_user_integration_takes_precedence_over_social_auth(self):
         from social_django.models import UserSocialAuth
