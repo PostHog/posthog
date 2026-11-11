@@ -379,6 +379,10 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
             const batch = values.pendingDestinations
             const failed: PlatformAlertCreateDestinationApi[] = []
             for (const destination of batch) {
+                // A destination removed while the batch was saving is not sent.
+                if (!values.pendingDestinations.includes(destination)) {
+                    continue
+                }
                 try {
                     await platformAlertsDestinationsCreate(projectId, alertId, destination)
                     posthog.capture('alert destination added', {
@@ -389,12 +393,17 @@ export const platformAlertDestinationsLogic = kea<platformAlertDestinationsLogic
                     failed.push(destination)
                 }
             }
-            actions.setPendingDestinations([...failed, ...values.pendingDestinations.slice(batch.length)])
+            const stillPending = values.pendingDestinations
+            actions.setPendingDestinations([
+                // A failed one stays to retry, unless it was removed while the batch saved.
+                ...failed.filter((destination) => stillPending.includes(destination)),
+                ...stillPending.filter((destination) => !batch.includes(destination)),
+            ])
             actions.setSavingDestinations(false)
+            if (failed.length > 0) {
+                lemonToast.error('Could not add every notification destination. Check them and try again.')
+            }
             if (props.alertId) {
-                if (failed.length > 0) {
-                    lemonToast.error('Could not add every notification destination. Check them and try again.')
-                }
                 actions.loadDestinations()
             }
         },

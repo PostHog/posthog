@@ -405,7 +405,9 @@ export function AlertNotificationDestinationEditor<NotificationType extends stri
                 {url ? (
                     <div className="space-y-1">
                         <div className="flex flex-col sm:flex-row items-start gap-2">
+                            {/* The URL's path carries its secret, and autocapture records copied text. */}
                             <LemonInput
+                                className="ph-no-capture"
                                 placeholder={url.input.placeholder}
                                 value={url.value}
                                 onChange={url.onChange}
