@@ -13,7 +13,7 @@ import {
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { MetricsTableWidget } from './MetricsTableWidget'
-import { metricsTableWidgetSampleResult } from './metricsTableWidgetSampleData'
+import { metricsTableWidgetGroupedSampleResult, metricsTableWidgetSampleResult } from './metricsTableWidgetSampleData'
 
 const CATALOG = getDashboardWidgetCatalogEntry('metrics_table')
 const CONFIGURED = { ...(CATALOG.defaultConfig as Record<string, unknown>), groupBy: 'http.route' }
@@ -59,6 +59,10 @@ export default meta
 type Story = StoryObj<typeof StoryTile>
 
 export const Populated: Story = {}
+
+export const GroupedBySeveralLabels: Story = {
+    args: { config: { ...CONFIGURED, groupBy: ['method', 'view'] }, result: metricsTableWidgetGroupedSampleResult },
+}
 
 export const Loading: Story = {
     args: { loading: true, result: null },
