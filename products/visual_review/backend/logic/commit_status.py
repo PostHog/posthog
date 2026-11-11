@@ -42,9 +42,10 @@ def publishes_by_commit(repo: Repo) -> bool:
 
 
 def _newest_run(repo: Repo, commit_sha: str, run_type: str) -> Run | None:
+    # GitHub compares status contexts without case, so run types that differ only in case post to one context.
     return (
         Run.objects.using(WRITER_DB)
-        .filter(repo_id=repo.id, team_id=repo.team_id, commit_sha=commit_sha, run_type=run_type)
+        .filter(repo_id=repo.id, team_id=repo.team_id, commit_sha=commit_sha, run_type__iexact=run_type)
         .order_by("-created_at", "-id")
         .first()
     )
