@@ -109,6 +109,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_json_key_set_groups_split_by_their_message_field(self) -> None:
         key_set = "<JSON:fields,level,span,target,timestamp>"
+        other_key_set = "<JSON:fields,level,target>"
 
         def tracing(message: str | None, index: int) -> dict:
             fields = {"message": message} if message is not None else {"count": index}
@@ -127,6 +128,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [tracing("upstream refused", i) for i in range(30)]
             + [tracing(f"frame {i} too large", i) for i in range(20)]
             + [tracing(None, i) for i in range(5)]
+            + [{**tracing("upstream refused", i), "pattern": other_key_set} for i in range(10)]
             + [{**self._log("Archived 9 files"), "pattern": "Archived <N> files", "pattern_version": 6}] * 10
         )
 
@@ -136,13 +138,16 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results["source"] == "stored_patterns"
         assert set(patterns) == {"upstream refused", "frame <num> too large", "Archived <N> files", key_set}
-        assert patterns["upstream refused"]["count"] == 30
-        assert patterns["upstream refused"]["error_count"] == 30
+        assert [pattern["pattern"] for pattern in results["patterns"]].count("upstream refused") == 1
+        assert patterns["upstream refused"]["count"] == 40
+        assert patterns["upstream refused"]["error_count"] == 40
         assert patterns["frame <num> too large"]["count"] == 20
         assert patterns[key_set]["count"] == 5
         assert patterns[key_set]["match_patterns"] == [key_set]
+        assert patterns[key_set]["examples"]
+        assert all("message" not in example["body"] for example in patterns[key_set]["examples"])
         assert patterns["Archived <N> files"]["match_patterns"] == ["Archived <N> files"]
-        assert results["represented_count"] == 65
+        assert results["represented_count"] == 75
         assert results["remainder_count"] == 0
         assert [pattern["pattern"] for pattern in results["patterns"]][:2] == [
             "upstream refused",
@@ -165,7 +170,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ],
             }
         )
-        assert pivot["total_count"] == 30
+        assert pivot["total_count"] == 40
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_a_sampled_json_split_reports_its_counts_as_estimates(self) -> None:
@@ -192,7 +197,8 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["source"] == "stored_patterns"
         assert results["sampled"] is True
         assert [pattern["pattern"] for pattern in results["patterns"]] == ["frame <num> too large"]
-        assert results["patterns"][0]["count"] == 200
+        assert results["patterns"][0]["estimated_count"] == 200
+        assert 0 < results["patterns"][0]["count"] <= 50
 
     @parameterized.expand([(False, 100, "flag_disabled"), (True, 98, "insufficient_version_coverage")])
     @time_machine.travel(_FROZEN_NOW, tick=False)

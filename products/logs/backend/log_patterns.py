@@ -171,6 +171,10 @@ class MinedPattern:
     match_literal: str | None
     match_patterns: list[str] = field(default_factory=list)
     pattern_version: int | None = None
+    # Set when `count` and `error_count` are scaled up from a sample of a stored group: the raw
+    # sampled tallies they were scaled from. None when the counts are exact or body-mined.
+    sample_count: int | None = None
+    sample_error_count: int | None = None
 
 
 @dataclass(frozen=False)
@@ -622,6 +626,8 @@ def split_json_key_set_group(
             severity_counts={severity: scaled(count) for severity, count in pattern.severity_counts.items()},
             match_patterns=[],
             pattern_version=None,
+            sample_count=pattern.count,
+            sample_error_count=pattern.error_count,
         )
         for pattern in mine_patterns(with_message, buckets=buckets)
     ]
@@ -634,15 +640,66 @@ def split_json_key_set_group(
         for sample in residual:
             if (index := _bucket_index(buckets, sample.timestamp)) is not None:
                 bucket_counts[index] += 1
+        residual_errors = sum(severities.get(severity, 0) for severity in ERROR_SEVERITIES)
+        # Examples come from the sampled message-less rows. Fetching them by the stored pattern
+        # would also return the message-bearing rows that were split out.
+        examples: list[LogSample] = []
+        for sample in residual:
+            if len(examples) >= _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int):
+                break
+            if all(example.body != sample.body for example in examples):
+                examples.append(sample)
         split.append(
             replace(
                 group,
                 count=scaled(len(residual)),
-                error_count=scaled(sum(severities.get(severity, 0) for severity in ERROR_SEVERITIES)),
+                error_count=scaled(residual_errors),
                 first_seen=min(sample.timestamp for sample in residual),
                 last_seen=max(sample.timestamp for sample in residual),
                 bucket_counts=[scaled(count) for count in bucket_counts],
                 severity_counts={severity: scaled(count) for severity, count in severities.items()},
+                examples=examples,
+                sample_count=len(residual),
+                sample_error_count=residual_errors,
             )
         )
     return [pattern for pattern in split if pattern.count > 0]
+
+
+def merge_split_templates(patterns: list[MinedPattern]) -> list[MinedPattern]:
+    """Merge split patterns that mined the same template from different JSON key sets.
+
+    Two logger shapes can carry the same message, and each key-set group is mined on its own, so
+    the same template can come back twice. Patterns with stored members are left alone.
+    """
+    positions: dict[str, int] = {}
+    result: list[MinedPattern] = []
+    for pattern in patterns:
+        if pattern.match_patterns:
+            result.append(pattern)
+            continue
+        if pattern.pattern not in positions:
+            positions[pattern.pattern] = len(result)
+            result.append(pattern)
+            continue
+        existing = result[positions[pattern.pattern]]
+        severities = dict(existing.severity_counts)
+        for severity, count in pattern.severity_counts.items():
+            severities[severity] = severities.get(severity, 0) + count
+        combined = replace(
+            existing,
+            count=existing.count + pattern.count,
+            error_count=existing.error_count + pattern.error_count,
+            first_seen=min(existing.first_seen, pattern.first_seen),
+            last_seen=max(existing.last_seen, pattern.last_seen),
+            examples=[*existing.examples, *pattern.examples][: _env("LOGS_PATTERNS_MAX_EXAMPLES", 10, int)],
+            services=sorted({*existing.services, *pattern.services})[: _env("LOGS_PATTERNS_MAX_SERVICES", 4, int)],
+            bucket_counts=[a + b for a, b in zip(existing.bucket_counts, pattern.bucket_counts)],
+            severity_counts=severities,
+            match_regex=existing.match_regex or pattern.match_regex,
+            match_literal=existing.match_literal or pattern.match_literal,
+            sample_count=(existing.sample_count or 0) + (pattern.sample_count or 0),
+            sample_error_count=(existing.sample_error_count or 0) + (pattern.sample_error_count or 0),
+        )
+        result[positions[pattern.pattern]] = combined
+    return result

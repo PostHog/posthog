@@ -53,11 +53,11 @@ from products.logs.backend.count_ranges_query_runner import (
 )
 from products.logs.backend.group_by_query_runner import (
     DEFAULT_GROUP_LIMIT,
-    GROUP_SOURCES,
     MAX_GROUP_DIMENSIONS,
     MAX_GROUP_LIMIT,
     ORDER_FIELDS,
     LogsGroupByQueryRunner,
+    LogsGroupBySource,
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.impact_query_runner import ImpactQueryRunner
@@ -506,7 +506,7 @@ class _LogsImpactTopValueSerializer(serializers.Serializer):
 
 class _LogsImpactGroupKeySerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=list(GROUP_SOURCES),
+        choices=LogsGroupBySource.choices,
         help_text='Attribute map the key lives in, in the group-by endpoint\'s vocabulary: "log" or "resource".',
     )
     key = serializers.CharField(help_text="The attribute key that carries the ID on most matching logs.")
@@ -1320,7 +1320,7 @@ class _LogsGroupByDimensionSerializer(serializers.Serializer):
         ),
     )
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=list(GROUP_SOURCES),
+        choices=LogsGroupBySource.choices,
         default="log",
         help_text=(
             'Where this dimension\'s key lives: "log" for log-level attributes, "resource" for '
@@ -1364,7 +1364,7 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         ),
     )
     groupBySource = serializers.ChoiceField(
-        choices=list(GROUP_SOURCES),
+        choices=LogsGroupBySource.choices,
         default="log",
         help_text=(
             'Where the grouping key lives: "log" for log-level attributes, "resource" for '

@@ -221,16 +221,18 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
     // Estimated counts are rounded (not exact-comma-formatted) and prefixed with "~" so a
     // reader never mistakes an extrapolation for a measurement; the tooltip carries the raw
     // sample fact the estimate was derived from.
-    const renderEstimate = (row: _LogPatternApi, estimated: number, sampleCount: number): JSX.Element | string => {
+    const renderEstimate = (estimated: number, sampleCount: number): JSX.Element | string => {
         if (!sampled) {
             return humanFriendlyNumber(estimated)
         }
         if (patternsResponse.source === 'stored_patterns') {
-            if (row.match_patterns?.length) {
+            if (estimated === sampleCount) {
                 return humanFriendlyNumber(estimated)
             }
             return (
-                <Tooltip title="Estimated from a sample of this JSON pattern's lines">
+                <Tooltip
+                    title={`Estimated from ${humanFriendlyNumber(sampleCount)} sampled lines of this JSON pattern`}
+                >
                     <span>~{humanFriendlyLargeNumber(estimated)}</span>
                 </Tooltip>
             )
@@ -273,7 +275,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
         {
             title: 'Count',
             dataIndex: 'estimated_count',
-            render: (_, row) => renderEstimate(row, row.estimated_count, row.count),
+            render: (_, row) => renderEstimate(row.estimated_count, row.count),
             sorter: (a, b) => a.estimated_count - b.estimated_count,
             align: 'right',
         },
@@ -289,7 +291,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             dataIndex: 'estimated_error_count',
             render: (_, row) =>
                 row.estimated_error_count > 0 ? (
-                    <LemonTag type="danger">{renderEstimate(row, row.estimated_error_count, row.error_count)}</LemonTag>
+                    <LemonTag type="danger">{renderEstimate(row.estimated_error_count, row.error_count)}</LemonTag>
                 ) : (
                     <span className="text-muted">0</span>
                 ),

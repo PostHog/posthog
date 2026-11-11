@@ -228,10 +228,9 @@ def run_patterns_diff(
     version = versions.pop() if len(versions) == 1 else None
     if version is None:
         current_runner.use_stored_patterns = baseline_runner.use_stored_patterns = False
-    results = [
-        runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results for runner in (current_runner, baseline_runner)
-    ]
-    current_results, baseline_results = results
+    current_results = current_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
+    baseline_runner.json_split_members = current_runner.json_split_members_used
+    baseline_results = baseline_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS).results
 
     entries = diff_patterns(
         current_results["patterns"],
@@ -270,7 +269,7 @@ def run_patterns_diff(
         "window": window_echo((current_from, current_to), (baseline_from, baseline_to)),
         "source": "stored_patterns" if version else "body_mining",
         "pattern_version": version,
-        "sampled": not version,
+        "sampled": not version or bool(current_results["sampled"] or baseline_results["sampled"]),
         "truncated": truncated,
         "entries": entries,
         "current": _window_meta(current_results, current_from, current_to),

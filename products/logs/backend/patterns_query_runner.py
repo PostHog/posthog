@@ -29,6 +29,7 @@ from products.logs.backend.log_patterns import (
     encoded_pattern_member_size,
     group_stored_patterns,
     is_json_key_set_pattern,
+    merge_split_templates,
     mine_patterns,
     split_json_key_set_group,
 )
@@ -81,6 +82,11 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     _query_deadline: float | None = None
     request_deadline: float | None = None
     _request_deadline_binds: bool = False
+    # The stored members of the JSON key-set groups to split. None picks the largest groups. A
+    # comparison passes the current window's choice to the baseline, so a group whose rank moves
+    # between windows is split in both or neither.
+    json_split_members: frozenset[str] | None = None
+    json_split_members_used: frozenset[str] = frozenset()
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
@@ -88,6 +94,8 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         # stored-pattern runs keep their cache entries.
         if not self.use_stored_patterns:
             payload["use_stored_patterns"] = False
+        if self.json_split_members is not None:
+            payload["json_split_members"] = sorted(self.json_split_members)
         return payload
 
     @cached_property
@@ -324,7 +332,14 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             pattern
             for pattern in patterns
             if pattern.match_patterns and all(is_json_key_set_pattern(member) for member in pattern.match_patterns)
-        ][: _env("LOGS_PATTERNS_MAX_JSON_SPLITS", 5, int)]
+        ]
+        if self.json_split_members is None:
+            candidates = candidates[: _env("LOGS_PATTERNS_MAX_JSON_SPLITS", 5, int)]
+        else:
+            candidates = [
+                pattern for pattern in candidates if self.json_split_members.intersection(pattern.match_patterns)
+            ]
+        self.json_split_members_used = frozenset(member for pattern in candidates for member in pattern.match_patterns)
         if not candidates:
             return patterns, False
         per_group = max(1, self._sample_limit // len(candidates))
@@ -366,7 +381,9 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         }
         if not replacements:
             return patterns, False
-        split = [part for pattern in patterns for part in replacements.get(id(pattern), [pattern])]
+        split = merge_split_templates(
+            [part for pattern in patterns for part in replacements.get(id(pattern), [pattern])]
+        )
         split.sort(key=lambda pattern: (-pattern.count, pattern.pattern))
         sampled = any(divisor > 1 for pattern, divisor in zip(candidates, divisors) if id(pattern) in replacements)
         return [
@@ -381,7 +398,10 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
         if max_examples <= 0:
             return patterns
         member_groups = {
-            member: group_id for group_id, pattern in enumerate(patterns, start=1) for member in pattern.match_patterns
+            member: group_id
+            for group_id, pattern in enumerate(patterns, start=1)
+            if not pattern.examples
+            for member in pattern.match_patterns
         }
         if not member_groups:
             return patterns
@@ -417,7 +437,9 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 )
             )
         return [
-            replace(pattern, examples=examples.get(group_id, [])) if pattern.match_patterns else pattern
+            replace(pattern, examples=examples.get(group_id, []))
+            if pattern.match_patterns and not pattern.examples
+            else pattern
             for group_id, pattern in enumerate(patterns, start=1)
         ]
 
@@ -583,13 +605,16 @@ def _serialize(pattern: MinedPattern, *, total_count: int, scanned_count: int) -
             return sample_count
         return round(sample_count / scanned_count * total_count)
 
+    # A split stored group is already scaled to its exact total. `count` keeps the raw sampled
+    # tally, as body mining does, so confidence checks such as the diff's minimum samples read it.
+    split_sampled = pattern.sample_count is not None
     return {
         "pattern": pattern.pattern,
-        "count": pattern.count,
-        "estimated_count": estimate(pattern.count),
+        "count": pattern.sample_count if split_sampled else pattern.count,
+        "estimated_count": pattern.count if split_sampled else estimate(pattern.count),
         "volume_share_pct": pattern.volume_share_pct,
-        "error_count": pattern.error_count,
-        "estimated_error_count": estimate(pattern.error_count),
+        "error_count": (pattern.sample_error_count or 0) if split_sampled else pattern.error_count,
+        "estimated_error_count": pattern.error_count if split_sampled else estimate(pattern.error_count),
         "first_seen": pattern.first_seen.isoformat(),
         "last_seen": pattern.last_seen.isoformat(),
         "examples": [
