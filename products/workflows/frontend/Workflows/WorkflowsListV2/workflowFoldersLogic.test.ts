@@ -691,10 +691,43 @@ describe('workflowFoldersLogic', () => {
             expect(projectTreeDataLogic.values.pendingActions.map((action) => action.type)).toEqual(['delete'])
         )
         expect(logic.values.fileMoveDisabledReason).toBeUndefined()
+        expect(logic.values.folderMutationDisabledReason('Billing/Cards')).toEqual(
+            'Wait until this folder finishes deleting'
+        )
 
         await logic.asyncActions.dropFile('project/direct', 'project://Billing/Cards')
         await logic.asyncActions.dropFile('project/direct', 'project://Empty')
         await waitFor(() => expect(moves).toEqual(['Empty/Welcome']))
+    })
+
+    it.each([
+        [
+            'create',
+            { type: 'create', path: 'Billing/Drafts', item: { id: 'drafts', path: 'Billing/Drafts', type: 'folder' } },
+        ],
+        [
+            'link',
+            {
+                type: 'link',
+                path: 'Billing',
+                newPath: 'Shared/Billing',
+                item: { id: 'billing', path: 'Billing', type: 'folder' },
+            },
+        ],
+    ] as const)('keeps folder changes open while a project tree folder %s stalls', async (_, action) => {
+        await expectLogic(logic).toFinishAllListeners()
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/': () => new Promise(() => {}),
+                '/api/projects/:team_id/file_system/:id/link/': () => new Promise(() => {}),
+            },
+        })
+        projectTreeDataLogic.actions.queueAction({ ...action, item: { ...action.item } }, 'project-tree')
+        await waitFor(() =>
+            expect(projectTreeDataLogic.values.pendingActions.map((pending) => pending.type)).toEqual([action.type])
+        )
+
+        expect(logic.values.folderMutationDisabledReason('Billing')).toBeNull()
     })
 
     it('releases every move when counting a renamed folder stalls', async () => {
