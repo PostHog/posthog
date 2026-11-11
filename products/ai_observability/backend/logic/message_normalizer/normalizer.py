@@ -64,13 +64,23 @@ def merge_recipes(customs: Sequence[Recipe]) -> list[Recipe]:
 def compile_stored_recipe(stored: StoredRecipe) -> Recipe | None:
     # A team recipe that does not compile is skipped, so a bad edit can never break trace rendering.
     try:
-        recipe = compile_recipe(load_recipe_yaml(stored.source), stored.id)
+        recipe = _compile_stored_source(stored)
     except RecipeCompileError as error:
         logger.warning(
             "llma_team_recipe_skipped", recipe_id=stored.id, error_type=type(error.__cause__ or error).__name__
         )
         return None
-    return dataclasses.replace(recipe, id=stored.id)
+    return recipe
+
+
+def check_stored_recipe_source(source: str) -> None:
+    """Raises `RecipeCompileError` when `compile_stored_recipe` would skip this source."""
+    # A recipe being saved for the first time has no database id yet, and a stored recipe needs no `id:` of its own.
+    _compile_stored_source(StoredRecipe(id="unsaved", source=source))
+
+
+def _compile_stored_source(stored: StoredRecipe) -> Recipe:
+    return dataclasses.replace(compile_recipe(load_recipe_yaml(stored.source), stored.id), id=stored.id)
 
 
 class RecipeNormalizer:
