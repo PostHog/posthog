@@ -70,8 +70,24 @@ const DRAFT_PATTERN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
 // A token is complete when whitespace follows it, or when its quoted value is closed.
 const COMPLETE_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 
-const isInsideOpenQuote = (input: string, offset: number): boolean =>
-    (input.slice(0, offset).match(/(?<!\\)"/g)?.length ?? 0) % 2 === 1
+/**
+ * Answers, for offsets that only grow, whether the input there is inside an open quote, in one scan for all calls.
+ * A backslash escapes the next character, as the serializer writes it, so `\\"` still closes a quote.
+ */
+function createQuoteTracker(input: string): (offset: number) => boolean {
+    let index = 0
+    let open = false
+    return (offset) => {
+        for (; index < offset; index++) {
+            if (input[index] === '\\') {
+                index++
+            } else if (input[index] === '"') {
+                open = !open
+            }
+        }
+        return open
+    }
+}
 
 /** Takes every complete, known `facet:value` token out of the input. The rest stays as typed. */
 function extractCompleteFilters(
@@ -79,6 +95,7 @@ function extractCompleteFilters(
     facets: FacetDefinition<unknown>[]
 ): { filters: FacetFilter[]; remaining: string } {
     const filters: FacetFilter[] = []
+    const isInsideOpenQuote = createQuoteTracker(input)
     const remaining = input.replace(
         COMPLETE_TOKEN,
         (
@@ -93,7 +110,7 @@ function extractCompleteFilters(
             const facet = findFacet(facets, key)
             const value = facet && normalizeFacetValue(facet, tokenValue(quoted, bare))
             // A token inside a quoted value that is still being typed is part of that value.
-            if (!facet || !value || isInsideOpenQuote(input, offset)) {
+            if (!facet || !value || isInsideOpenQuote(offset)) {
                 return token
             }
             filters.push({ facet: facet.key, value, negated: minus === '-' })

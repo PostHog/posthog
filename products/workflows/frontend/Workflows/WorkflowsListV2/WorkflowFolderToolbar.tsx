@@ -20,6 +20,9 @@ import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 import { WorkflowsListV2ColumnsMenu } from './WorkflowsListV2ColumnsMenu'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 
+// The menu mounts every item it gets, so a large project lists the first matches and asks for a narrower search.
+const SHOWN_FOLDER_MATCHES = 50
+
 export function WorkflowFolderToolbar(): JSX.Element {
     const {
         currentFolder,
@@ -59,7 +62,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
                                     />
                                 ),
                             },
-                            ...folderJumpPaths.map((path) => ({
+                            ...folderJumpPaths.slice(0, SHOWN_FOLDER_MATCHES).map((path) => ({
                                 label: (
                                     <span
                                         className="flex gap-2 justify-between min-w-0 w-full"
@@ -75,6 +78,17 @@ export function WorkflowFolderToolbar(): JSX.Element {
                                 active: path === (currentFolder ?? ''),
                                 onClick: () => openFolder(path || null),
                             })),
+                            ...(folderJumpPaths.length > SHOWN_FOLDER_MATCHES
+                                ? [
+                                      {
+                                          label: () => (
+                                              <span className="block text-secondary text-xs px-2 py-1">
+                                                  {`Type to narrow down ${pluralize(folderJumpPaths.length - SHOWN_FOLDER_MATCHES, 'more folder')}`}
+                                              </span>
+                                          ),
+                                      },
+                                  ]
+                                : []),
                             ...(folderJumpPaths.length
                                 ? []
                                 : [{ label: 'No folders match', disabledReason: 'Try another folder name' }]),
