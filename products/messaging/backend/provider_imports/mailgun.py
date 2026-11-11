@@ -21,7 +21,6 @@ from typing import Any
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -44,6 +43,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.provider_imports.imported_senders import apply_sender
 from products.messaging.backend.provider_imports.mailgun_templates import ConvertedVersion, convert_version
 from products.messaging.backend.services.imported_data import (
@@ -453,18 +453,6 @@ def _missing_domain(target: _Target) -> SavedPage:
     )
 
 
-def _normalized_email(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    email = value.replace("\x00", "").strip().lower()
-    return email if email_domain(email) and not email.startswith("@") and len(email) <= 512 else None
-
-
-def _exact_email(value: Any) -> str | None:
-    # An opt-out matches the address a send names exactly, so the case stays as Mailgun has it.
-    return value.replace("\x00", "").strip() if _normalized_email(value) else None
-
-
 def _timestamp(value: Any) -> datetime | None:
     try:
         return parsedate_to_datetime(value) if isinstance(value, str) else None
@@ -501,7 +489,7 @@ def _save_bounces(context: ImportContext, target: _Target, items: list[dict[str,
     imported: dict[str, ImportedSuppression] = {}
     invalid = 0
     for item in items:
-        email = _normalized_email(item.get("address"))
+        email = normalized_email(item.get("address"))
         if email is None:
             invalid += 1
             continue
@@ -556,7 +544,7 @@ def _save_complaints(context: ImportContext, target: _Target, items: list[dict[s
     imported: dict[str, ImportedSuppression] = {}
     invalid = 0
     for item in items:
-        email = _normalized_email(item.get("address"))
+        email = normalized_email(item.get("address"))
         if email is None:
             invalid += 1
             continue
@@ -596,7 +584,7 @@ def _save_unsubscribes(
     tags_by_email: dict[str, set[str]] = {}
     invalid = 0
     for item in items:
-        email = _exact_email(item.get("address"))
+        email = exact_email(item.get("address"))
         if email is None:
             invalid += 1
             continue
@@ -632,7 +620,7 @@ def _save_unsubscribes(
 
 def _save_allowlist(context: ImportContext, target: _Target, items: list[dict[str, Any]], first: bool) -> SavedPage:
     addresses = [
-        email for item in items if item.get("type") != "domain" and (email := _normalized_email(item.get("value")))
+        email for item in items if item.get("type") != "domain" and (email := normalized_email(item.get("value")))
     ]
     domains = [_clean(item.get("value")) for item in items if item.get("type") == "domain"]
     also_suppressed = sorted(
@@ -724,7 +712,7 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
     left = {
         email: [result.ids_by_key[category.key]] if category.key in result.ids_by_key else []
         for item in items
-        if item.get("subscribed") is not True and (email := _exact_email(item.get("address")))
+        if item.get("subscribed") is not True and (email := exact_email(item.get("address")))
     }
     changed = import_opt_outs(context.team_id, left, context.created_by_id)
     members = int(target.details.get("members_count") or 0)
