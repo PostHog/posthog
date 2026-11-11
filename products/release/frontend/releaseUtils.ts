@@ -289,13 +289,16 @@ function conditionAudience(flag: FeatureFlagApi, optIn: boolean): ReleaseFlagAud
     if (groups.length === 1) {
         const percent = groups[0].rollout_percentage ?? 100
         const filterCount = groups[0].properties?.length ?? 0
+        const noun =
+            (groups[0].aggregation_group_type_index ?? filters.aggregation_group_type_index) != null
+                ? 'groups'
+                : 'users'
+        const matching = `${noun} that match ${filterCount} filter${filterCount > 1 ? 's' : ''}`
         return {
             flag,
             percent,
-            who: filterCount ? `Users that match ${filterCount} filter${filterCount > 1 ? 's' : ''}` : 'All users',
-            summary: filterCount
-                ? `${percent}% of users that match ${filterCount} filter${filterCount > 1 ? 's' : ''}`
-                : `${percent}% of all users`,
+            who: filterCount ? matching.charAt(0).toUpperCase() + matching.slice(1) : `All ${noun}`,
+            summary: filterCount ? `${percent}% of ${matching}` : `${percent}% of all ${noun}`,
             variants,
         }
     }
@@ -306,6 +309,79 @@ function conditionAudience(flag: FeatureFlagApi, optIn: boolean): ReleaseFlagAud
         summary: `${groups.length} condition sets decide who gets it`,
         variants,
     }
+}
+
+function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined): ReleaseEvent[] {
+    const label = scheduledChangeLabel(change)
+    const href = urls.featureFlag(Number(change.record_id))
+    const denied = hasDeniedApprovalRequest(change as never)
+    const base = { kind: 'schedule' as const, href }
+
+    if (change.is_recurring) {
+        const events: ReleaseEvent[] = []
+        if (change.last_executed_at) {
+            events.push({
+                ...base,
+                key: `change-${change.id}-last`,
+                date: change.last_executed_at,
+                title: `Last run: ${label}`,
+                detail: flagKey,
+            })
+        }
+        events.push(
+            change.executed_at
+                ? {
+                      ...base,
+                      key: `change-${change.id}`,
+                      date: change.executed_at,
+                      title: `Repeating change ended: ${label}`,
+                      detail: flagKey,
+                  }
+                : {
+                      ...base,
+                      key: `change-${change.id}`,
+                      date: change.scheduled_at,
+                      title: label,
+                      detail: flagKey,
+                      upcoming: true,
+                  }
+        )
+        return events
+    }
+
+    if (!change.executed_at) {
+        const pending = change.change_request?.state === 'pending'
+        const retrying = !!change.failure_reason
+        return [
+            {
+                ...base,
+                key: `change-${change.id}`,
+                date: change.scheduled_at,
+                title: pending ? `Needs approval: ${label}` : retrying ? `Retrying: ${label}` : label,
+                detail: pending
+                    ? `${flagKey}, skipped if nobody approves it in time`
+                    : retrying
+                      ? `${flagKey}, the last attempt failed and PostHog tries again`
+                      : flagKey,
+                href: pending && change.change_request ? urls.approval(change.change_request.id) : href,
+                upcoming: true,
+            },
+        ]
+    }
+
+    return [
+        {
+            ...base,
+            key: `change-${change.id}`,
+            date: change.executed_at,
+            title: denied || change.failure_reason ? `Not applied: ${label}` : label,
+            detail: denied
+                ? `${flagKey}, the approval was not given`
+                : change.failure_reason
+                  ? `${flagKey}, the change failed`
+                  : flagKey,
+        },
+    ]
 }
 
 export interface ReleaseIndex {
@@ -613,30 +689,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         }
     }
     for (const change of changes) {
-        const denied = hasDeniedApprovalRequest(change as never)
-        const failed = !denied && !!change.failure_reason && !!change.executed_at
-        const retrying = !denied && !!change.failure_reason && !change.executed_at
-        const flagKey = flagById.get(String(change.record_id))?.key
-        events.push({
-            key: `change-${change.id}`,
-            date: change.executed_at ?? change.scheduled_at,
-            kind: 'schedule',
-            title:
-                failed || denied
-                    ? `Not applied: ${scheduledChangeLabel(change)}`
-                    : retrying
-                      ? `Retrying: ${scheduledChangeLabel(change)}`
-                      : scheduledChangeLabel(change),
-            detail: denied
-                ? `${flagKey}, the approval was not given`
-                : failed
-                  ? `${flagKey}, the change failed`
-                  : retrying
-                    ? `${flagKey}, the last attempt failed and PostHog tries again`
-                    : flagKey,
-            href: urls.featureFlag(Number(change.record_id)),
-            upcoming: !change.executed_at,
-        })
+        events.push(...scheduleEvents(change, flagById.get(String(change.record_id))?.key))
     }
 
     const suggestions: ReleaseSuggestion[] = []
