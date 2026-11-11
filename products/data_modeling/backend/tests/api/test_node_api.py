@@ -1614,6 +1614,20 @@ class TestNodeWatching(WarehouseAccessControlTestMixin):
         subscribed = NodeSubscription.objects.for_team(self.team.id).filter(user=self.viewer_user, subscribed=True)
         assert not subscribed.exists()
 
+    def test_a_metric_hidden_after_access_loss_can_still_be_unwatched(self):
+        metric = Node.objects.create(
+            team=self.team, dag=self.dag, name="revenue", type=NodeType.METRIC, metric_id=uuid4()
+        )
+        self.client.force_login(self.viewer_user)
+        assert self.client.post(self._url(metric, "watch/")).status_code == status.HTTP_200_OK
+        self._create_access_control(self.viewer_user, resource="data_catalog", access_level="none")
+
+        response = self.client.post(self._url(metric, "unwatch/"))
+
+        assert (response.status_code, response.json()) == (status.HTTP_200_OK, {"watching": False})
+        subscribed = NodeSubscription.objects.for_team(self.team.id).filter(user=self.viewer_user, subscribed=True)
+        assert not subscribed.exists()
+
     def test_a_node_without_a_saved_query_can_be_watched(self):
         table_node = Node.objects.create(team=self.team, dag=self.dag, name="events", type=NodeType.TABLE)
         self.client.force_login(self.viewer_user)

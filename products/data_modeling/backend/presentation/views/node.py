@@ -208,6 +208,7 @@ class NodeListSerializer(serializers.ListSerializer):
         nodes = list(data.all() if isinstance(data, models.Manager) else data)
         # Load every description for the page at once, to avoid one annotation query per node.
         cast(NodeSerializer, self.child).preload_descriptions(nodes)
+        cast(NodeSerializer, self.child).preload_watching(nodes)
         return super().to_representation(nodes)
 
 
@@ -400,8 +401,15 @@ class NodeSerializer(serializers.ModelSerializer):
         )
     )
     def get_watching(self, node: Node) -> bool:
-        read_watched = self.context.get("watched_node_ids")
-        return read_watched is not None and node.id in read_watched()
+        if node.id not in getattr(self, "_watching_checked_node_ids", ()):
+            # A detail response has no list serializer to preload this one node.
+            self.preload_watching([node])
+        return node.id in self._watched
+
+    def preload_watching(self, nodes: list[Node]) -> None:
+        read_watched = self.context.get("read_watched_node_ids")
+        self._watched = read_watched([node.id for node in nodes]) if read_watched else frozenset()
+        self._watching_checked_node_ids = {node.id for node in nodes}
 
     def preload_descriptions(self, nodes: list[Node]) -> None:
         read_descriptions = self.context.get("read_node_descriptions")
@@ -644,16 +652,12 @@ class NodeViewSet(
             **super().get_serializer_context(),
             "hidden_node_types": self._hidden_node_types(),
             "read_node_descriptions": self._readable_node_descriptions,
-            "watched_node_ids": self._watched_node_ids,
+            "read_watched_node_ids": self._watched_among,
         }
 
-    _watched: frozenset[UUID] | None = None
-
-    def _watched_node_ids(self) -> frozenset[UUID]:
-        """The nodes the caller watches. One query per request, and none for a response that does not ask."""
-        if self._watched is None:
-            self._watched = watched_node_ids(self.team_id, self.request.user.pk)
-        return self._watched
+    def _watched_among(self, node_ids: list[UUID]) -> frozenset[UUID]:
+        """Which of these nodes the caller watches, in one query for the whole page."""
+        return watched_node_ids(self.team_id, self.request.user.pk, node_ids)
 
     def _readable_node_descriptions(self, nodes: list[Node]) -> dict[UUID, NodeDescription]:
         """Descriptions of the nodes this caller may read, by the same rule that names them."""
@@ -812,6 +816,10 @@ class NodeViewSet(
         return response.Response(serializer.data)
 
     def safely_get_queryset(self, queryset):
+        if self.action == "unwatch":
+            # Hidden nodes stay unwatchable, so someone who lost access to a metric or view can still opt out.
+            # `set_watching` rejects a deleted view.
+            return queryset.filter(team_id=self.team_id)
         return _annotate_latest_job(self._exclude_hidden_nodes(queryset.filter(team_id=self.team_id))).order_by(
             self.ordering
         )
@@ -1015,7 +1023,8 @@ class NodeViewSet(
     @action(methods=["POST"], detail=True)
     def unwatch(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Stop getting failure notifications for this node, including the ones you get as its creator."""
-        # No read check here, so someone who lost access to a view can still turn its notifications off.
+        # No read check here, and `safely_get_queryset` keeps hidden nodes, so someone who lost access
+        # to a view or metric can still turn its notifications off.
         node = self.get_object()
         return self._set_node_watching(node, req, watching=False)
 
