@@ -207,7 +207,7 @@ type Holder = { pid: string; answered: boolean }
 
 async function runnerHolding(address: string): Promise<Holder | undefined> {
     const answer = await holderOf(address)
-    if (answer) {
+    if (/^\d+$/.test(answer)) {
         return { pid: answer, answered: true }
     }
     const silent = listenerOf(address)
