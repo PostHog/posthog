@@ -9,14 +9,15 @@ describe('WorkflowsActivationReporter', () => {
     let getTeam: jest.Mock
     let capture: jest.Mock
     let reporter: WorkflowsActivationReporter
-    const unreachablePostgres = {
-        query: () => Promise.reject(new Error('connect ECONNREFUSED')),
-    } as unknown as PostgresRouter
+    let unreachablePostgres: PostgresRouter & { query: jest.Mock }
 
     beforeEach(() => {
         jest.useFakeTimers({ now: new Date('2026-10-03T10:00:00Z') })
         getTeam = jest.fn((teamId: number) => Promise.resolve([team, otherTeam].find((t) => t.id === teamId) ?? null))
         capture = jest.fn()
+        unreachablePostgres = {
+            query: jest.fn(() => Promise.reject(new Error('connect ECONNREFUSED'))),
+        } as unknown as PostgresRouter & { query: jest.Mock }
         reporter = new WorkflowsActivationReporter({ getTeam }, unreachablePostgres, capture)
     })
 
@@ -94,12 +95,16 @@ describe('WorkflowsActivationReporter', () => {
         expect(capture).not.toHaveBeenCalled()
     })
 
-    it('reports no email sent when the organization members cannot be read', async () => {
-        jest.useRealTimers()
+    it('reports no email sent and reads the organization members once a minute while they cannot be read', async () => {
+        jest.useFakeTimers({ now: new Date('2026-10-03T10:00:00Z'), doNotFake: ['setTimeout', 'clearTimeout'] })
 
         await reporter.reportEmailSent(2, 'flow-1', ['outsider@example.com'])
+        await reporter.reportEmailSent(2, 'flow-2', ['outsider@example.com'])
+        jest.setSystemTime(new Date('2026-10-03T10:01:00Z'))
+        await reporter.reportEmailSent(2, 'flow-3', ['outsider@example.com'])
 
         expect(capture).not.toHaveBeenCalled()
+        expect(unreachablePostgres.query).toHaveBeenCalledTimes(2)
     })
 
     it('reports no email sent beyond the pending limit while the organization members load', async () => {

@@ -2263,6 +2263,15 @@ describe('EmailService', () => {
                     }),
                     false,
                 ],
+                [
+                    'a member cc whose quoted local part holds angle brackets',
+                    () => ({
+                        to: `"member<${team.id}>"@example.com`,
+                        cc: `"member<${team.id}>"@example.com`,
+                        storedMemberEmail: `"member<${team.id}>"@example.com`,
+                    }),
+                    false,
+                ],
             ])('reports an accepted workflow email to %s', async (_name, recipients, recipientOutsideOrg) => {
                 const { to, cc, bcc, suppressed, storedMemberEmail } = {
                     cc: undefined,

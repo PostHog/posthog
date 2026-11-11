@@ -16,11 +16,13 @@ type WorkflowsActivationEvents = {
 const REPORT_INTERVAL_MS = 60 * 60 * 1000
 const ORGANIZATION_MEMBERS_REFRESH_MS = 10 * 60 * 1000
 export const MAX_PENDING_EMAIL_REPORTS = 1000
+const ORGANIZATION_MEMBERS_RETRY_MS = 60 * 1000
 
 export class WorkflowsActivationReporter {
     private lastReportedAt = new LRUCache<string, number>({ max: 50_000 })
     private organizationMemberEmails: LazyLoader<ReadonlySet<string>>
     private pendingEmailReports = 0
+    private organizationMembersUnavailableUntil = 0
 
     constructor(
         private teamManager: { getTeam(teamId: number): Promise<Team | null> },
@@ -90,6 +92,9 @@ export class WorkflowsActivationReporter {
     }
 
     private async isAnyRecipientOutsideOrganization(teamId: number, recipients: string[]): Promise<boolean | null> {
+        if (Date.now() < this.organizationMembersUnavailableUntil) {
+            return null
+        }
         try {
             const team = await this.teamManager.getTeam(teamId)
             if (!team) {
@@ -98,7 +103,10 @@ export class WorkflowsActivationReporter {
             const memberEmails = await this.organizationMemberEmails.get(team.organization_id)
             return recipients.some((recipient) => !memberEmails?.has(recipient.toLowerCase()))
         } catch (error) {
-            logger.warn('Failed to read organization members for a workflows activation event', { teamId, error })
+            if (Date.now() >= this.organizationMembersUnavailableUntil) {
+                logger.warn('Failed to read organization members for a workflows activation event', { teamId, error })
+            }
+            this.organizationMembersUnavailableUntil = Date.now() + ORGANIZATION_MEMBERS_RETRY_MS
             return null
         }
     }
