@@ -131,7 +131,7 @@ class FakeCdpApi:
                 if self._releases_a_conflicting_key:
                     del self._idempotency_keys[key]
                 return 422, {}, json.dumps({"error": "idempotency_key_reused"})
-            return 202, {}, json.dumps({**reply, "replayed": True})
+            return 202, {}, json.dumps({"status": "queued", "invocation_id": reply["invocation_id"], "replayed": True})
         self._queued.append(payload)
         reply = {"invocation_id": f"invocation-{len(self._queued)}", **self._sender_kind(send)}
         if key is not None:
