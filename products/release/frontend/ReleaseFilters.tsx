@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconPlus, IconSearch } from '@posthog/icons'
 import {
@@ -114,17 +114,15 @@ export function NewReleaseDialog(): JSX.Element {
     const [name, setName] = useState('')
     const [description, setDescription] = useState('')
 
+    useEffect(() => {
+        if (!newReleaseOpen) {
+            setName('')
+            setDescription('')
+        }
+    }, [newReleaseOpen])
+
     return (
-        <Dialog
-            open={newReleaseOpen}
-            onOpenChange={(open: boolean) => {
-                setNewReleaseOpen(open)
-                if (!open) {
-                    setName('')
-                    setDescription('')
-                }
-            }}
-        >
+        <Dialog open={newReleaseOpen} onOpenChange={(open: boolean) => setNewReleaseOpen(open)}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>New release</DialogTitle>

@@ -8,7 +8,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { releaseLogic } from './releaseLogic'
-import { ReleaseSpan, STAGE_TONE } from './releaseUtils'
+import { ReleaseEvent, ReleaseSpan, STAGE_TONE } from './releaseUtils'
 
 const DAY = 30
 const BEFORE = 17
@@ -25,6 +25,29 @@ const SPAN_LOOK: Record<ReleaseSpan['kind'], { top: number; height: number; badg
         experiment: { top: 12, height: 24, badge: 'info' },
         experiment_done: { top: 12, height: 24, badge: 'default' },
     }
+
+function markersByDay(
+    events: ReleaseEvent[],
+    start: dayjs.Dayjs,
+    total: number
+): { day: string; events: ReleaseEvent[] }[] {
+    const end = start.add(total, 'day')
+    const days = new Map<string, ReleaseEvent[]>()
+    for (const event of events) {
+        const date = dayjs(event.date)
+        if (!event.upcoming || date.isBefore(start) || !date.isBefore(end)) {
+            continue
+        }
+        const day = date.format('YYYY-MM-DD')
+        const dayEvents = days.get(day)
+        if (dayEvents) {
+            dayEvents.push(event)
+        } else {
+            days.set(day, [event])
+        }
+    }
+    return [...days].map(([day, dayEvents]) => ({ day, events: dayEvents }))
+}
 
 export function ReleaseTimeline(): JSX.Element {
     const { filteredRows, dataLoading, search, stageFilter, decisionOnly } = useValues(releaseLogic)
@@ -184,25 +207,23 @@ export function ReleaseTimeline(): JSX.Element {
                                     </div>
                                 ) : null
                             })}
-                            {row.events
-                                .filter(
-                                    (event) =>
-                                        event.upcoming &&
-                                        !dayjs(event.date).isBefore(start) &&
-                                        dayjs(event.date).isBefore(start.add(total, 'day'))
-                                )
-                                .map((event) => (
-                                    <div
-                                        key={event.key}
-                                        title={`${dayjs(event.date).format('D MMM')}: ${event.title} (${event.detail})`}
-                                        className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
-                                        style={{ left: x(event.date) + DAY / 2 - 5, top: 16 }}
-                                        data-attr="release-timeline-marker"
-                                    >
-                                        <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
-                                        {event.title}
-                                    </div>
-                                ))}
+                            {markersByDay(row.events, start, total).map(({ day, events }) => (
+                                <div
+                                    key={day}
+                                    title={events
+                                        .map(
+                                            (event) =>
+                                                `${dayjs(event.date).format('D MMM')}: ${event.title} (${event.detail})`
+                                        )
+                                        .join('\n')}
+                                    className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
+                                    style={{ left: x(events[0].date) + DAY / 2 - 5, top: 16 }}
+                                    data-attr="release-timeline-marker"
+                                >
+                                    <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
+                                    {events.length === 1 ? events[0].title : `${events.length} changes`}
+                                </div>
+                            ))}
                         </div>
                     </div>
                 ))}
