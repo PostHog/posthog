@@ -1146,7 +1146,6 @@ describe('Tool Filtering - Feature Flags', () => {
             'marketing-analytics-conversion-setup-ai',
             'marketing-analytics-recommendations',
             'insight-data-checks',
-            'logs-agent-tools',
             'workflows-transactional-email-api',
             'workflows-email-from-code',
             'activity-summary',
