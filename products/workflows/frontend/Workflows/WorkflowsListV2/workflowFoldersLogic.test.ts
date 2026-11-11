@@ -645,12 +645,13 @@ describe('workflowFoldersLogic', () => {
 
     it('releases file moves when deleting a folder stalls', async () => {
         await expectLogic(logic).toFinishAllListeners()
-        const signals: AbortSignal[] = []
+        let answerLate: () => void = () => {}
+        const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
         useMocks({
             delete: {
-                '/api/projects/:team_id/file_system/:id/': ({ request }) => {
-                    signals.push(request.signal)
-                    return new Promise(() => {})
+                '/api/projects/:team_id/file_system/:id/': async () => {
+                    await lateAnswer
+                    return [204]
                 },
             },
         })
@@ -662,10 +663,13 @@ describe('workflowFoldersLogic', () => {
             await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
             await deleted
             expect(logic.values.fileMoveDisabledReason).toBeUndefined()
-            expect(signals.map((signal) => signal.aborted)).toEqual([true])
+            answerLate()
+            await jest.advanceTimersByTimeAsync(0)
         } finally {
             jest.useRealTimers()
         }
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.folderPaths).toContain('Empty')
     })
 
     it('releases every move when counting a renamed folder stalls', async () => {

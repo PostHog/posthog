@@ -1358,13 +1358,14 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
     })
 
-    it('aborts a stalled delete at its deadline so it cannot remove the view later', async () => {
-        const signals: AbortSignal[] = []
+    it('keeps a view whose stalled delete answers after the deadline', async () => {
+        let answerLate: () => void = () => {}
+        const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
         useMocks({
             delete: {
-                '/api/projects/:team_id/workflow_views/:id/': ({ request }) => {
-                    signals.push(request.signal)
-                    return new Promise(() => {})
+                '/api/projects/:team_id/workflow_views/:id/': async () => {
+                    await lateAnswer
+                    return [204]
                 },
             },
         })
@@ -1377,10 +1378,12 @@ describe('workflowsSavedViewsLogic', () => {
             const deleted = logic.asyncActions.deleteView(VIEW_ID)
             await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
             await deleted
+            answerLate()
+            await jest.advanceTimersByTimeAsync(0)
         } finally {
             jest.useRealTimers()
         }
-        expect(signals.map((signal) => signal.aborted)).toEqual([true])
+        await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.saving).toBe(false)
         expect(logic.values.views.some((view) => view.id === VIEW_ID)).toBe(true)
     })
