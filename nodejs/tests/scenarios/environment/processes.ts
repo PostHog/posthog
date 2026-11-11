@@ -35,30 +35,38 @@ const isMarked = (entry: ProcEntry): boolean =>
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
 const NODE_LAUNCHERS = ['node', 'tsx']
 const SHELLS = ['sh', 'bash', 'dash', 'zsh']
-const OPTIONS_WITH_VALUES = ['-r', '--require', '--import', '--loader', '--experimental-loader', '-C', '--conditions']
-const TSX_SUBCOMMANDS = ['watch']
+const LOADER_OPTIONS = ['-r', '--require', '--import', '--loader', '--experimental-loader']
+const SCRIPT_FILE = /\.[cm]?[jt]s$/
 
 const entryPointsOf = (nodejsDir: string): string[] => [
     path.join(path.dirname(nodejsDir), 'bin', 'posthog-node'),
     ...ENTRY_POINTS.map((entryPoint) => path.join(nodejsDir, entryPoint)),
 ]
 
-function operandsOf(args: string[]): string[] {
-    const index = args.findIndex(
-        (arg, at) => !arg.startsWith('-') && !(at > 0 && OPTIONS_WITH_VALUES.includes(args[at - 1]))
-    )
-    const operands = index === -1 ? [] : args.slice(index)
-    return TSX_SUBCOMMANDS.includes(operands[0]) ? operandsOf(operands.slice(1)) : operands
-}
+const isTsx = (arg: string): boolean =>
+    path.basename(arg) === 'tsx' || arg.endsWith(path.join('tsx', 'dist', 'cli.mjs'))
+
+const isForeignScript = (arg: string, previous: string | undefined): boolean =>
+    !arg.startsWith('-') &&
+    !isTsx(arg) &&
+    !LOADER_OPTIONS.includes(previous ?? '') &&
+    (SCRIPT_FILE.test(arg) || arg.split('/').includes('bin'))
 
 function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
     const args = entry.cmdline.split(' ')
     const entryPoints = entryPointsOf(nodejsDir)
     const isEntryPoint = (arg: string): boolean =>
         entryPoints.includes(entry.cwd === null ? arg : path.resolve(entry.cwd, arg))
-    const runsEntryPoint = ([program = '', ...rest]: string[]): boolean =>
-        isEntryPoint(program) || (NODE_LAUNCHERS.includes(path.basename(program)) && runsEntryPoint(operandsOf(rest)))
-    return runsEntryPoint(SHELLS.includes(path.basename(args[0])) ? args.slice(1) : args)
+    const [program = '', ...rest] = SHELLS.includes(path.basename(args[0])) ? args.slice(1) : args
+    if (isEntryPoint(program)) {
+        return true
+    }
+    const at = rest.findIndex(isEntryPoint)
+    return (
+        (NODE_LAUNCHERS.includes(path.basename(program)) || isTsx(program)) &&
+        at !== -1 &&
+        !rest.slice(0, at).some((arg, index) => isForeignScript(arg, rest[index - 1]))
+    )
 }
 
 function servesCdp(environ: string[]): boolean {
@@ -111,7 +119,7 @@ export async function strangerConflict(strangers: ProcEntry[]): Promise<StackCon
     ).flat()
     const sentences = held.map(({ runner, holder }) => {
         const roles = strangers.filter((entry) => runnerOf(entry) === runner)
-        const silence = holder.answered ? '' : ' but does not answer and may be suspended'
+        const silence = holder.answered ? '' : ' but does not answer with a pid and may be suspended'
         return `Roles of scenario runner ${holder.pid}, which uses ${runner}${silence}, are running: ${listed(roles)}. That runner restarts roles that are killed, so run \`${stopCommand(holder, roles)}\``
     })
     const killable = strangers.filter((entry) => !held.some(({ runner }) => runner === runnerOf(entry)))
@@ -241,9 +249,9 @@ export async function holdRunLock(stateDir: string, retried = false): Promise<()
         if (holder) {
             const state = holder.answered
                 ? `is already running from ${stateDir}`
-                : `holds ${stateDir} but does not answer; it may be suspended (resume it with fg)`
+                : `holds ${stateDir} but does not answer with a pid; it may be a suspended scenario runner (resume it with fg)`
             throw new StackConflictError(
-                `Scenario runner ${holder.pid} ${state}. Run \`${stopCommand(holder)}\`, then run the scenario again.`
+                `${holder.answered ? 'Scenario runner' : 'Process'} ${holder.pid} ${state}. Run \`${stopCommand(holder)}\`, then run the scenario again.`
             )
         }
         if (retried) {
