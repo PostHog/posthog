@@ -12,7 +12,7 @@ import {
     strictLocalMatches,
     tokenTypos,
 } from './commandKRanking'
-import { REMOTE_SOURCES, RESULTS_LIMIT, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
+import { REMOTE_SOURCES, RESULTS_LIMIT, RemotePage, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
 
 export const RECENTS_LIMIT = 5
 export const SUGGESTIONS_LIMIT = 8
@@ -89,6 +89,8 @@ export interface ViewAll {
 export interface RemoteSlot {
     cache: Record<string, SearchItem[]>
     failed?: Record<string, true>
+    /** Queries the API said match more than it returned, so their section ends with a See all row. */
+    more?: Record<string, true>
 }
 
 export type RemoteSlots = Record<RemoteSource, RemoteSlot>
@@ -170,23 +172,35 @@ const loadingSection = (key: Exclude<CommandKSectionKey, `group-${string}`>): Co
 
 const isSettled = (slot: RemoteSlot, query: string | undefined): boolean => !query || query in slot.cache
 
-// The persons API returns no total, so a full page is the only sign that more people match.
-const seeAllRows = (source: RemoteSource, found: SearchItem[]): CommandKRow[] =>
-    source === 'persons' && found.length >= SECONDARY_LIMIT
-        ? [{ kind: 'scope', key: 'persons/see-all', type: 'person', label: 'See all persons' }]
-        : []
+/** The `is:` type a source's See all row scopes the search to. Only sources whose API reports more have one. */
+const SEE_ALL_TYPES: Partial<Record<RemoteSource, string>> = { persons: 'person' }
 
 function remoteSection(
     source: RemoteSource,
-    items: SearchItem[],
-    state: CommandKSection['state'],
-    found: SearchItem[] = items
+    { items, more }: RemotePage,
+    state: CommandKSection['state']
 ): CommandKSection | null {
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
-    // When ranking moves every found item into Results, the section keeps only its See all row.
-    const rows = [...itemRows(source, items, limit), ...seeAllRows(source, found)]
+    const type = SEE_ALL_TYPES[source]
+    const seeAll: CommandKRow[] =
+        more && type
+            ? [
+                  {
+                      kind: 'scope',
+                      key: `${source}/see-all`,
+                      type,
+                      label: `See all ${SECTION_LABELS[source].toLowerCase()}`,
+                  },
+              ]
+            : []
+    // When ranking moves every item into Results, the section keeps only its See all row.
+    const rows = [...itemRows(source, items, limit), ...seeAll]
     return rows.length > 0 ? { ...readySection(source, rows), state } : null
 }
+
+/** A cached query's page, as the request returned it. */
+export const cachedPage = (slot: RemoteSlot, query: string): RemotePage =>
+    slot.more?.[query] ? { items: slot.cache[query], more: true } : { items: slot.cache[query] }
 
 export interface SuggestionsLoading {
     members: boolean
@@ -394,12 +408,19 @@ function rankedResultsSections(
     })
 }
 
+interface LowerSectionsContext {
+    ranked: boolean
+    state: CommandKSection['state']
+    /** Item IDs already shown above, so no item repeats. */
+    shown: Set<string>
+    settingsRanked: boolean
+    /** Section keys already placed above. Persons lead an email search, and then own their section there. */
+    placedAbove: Set<string>
+}
+
 function lowerSections(
     input: SectionsInput,
-    ranked: boolean,
-    state: CommandKSection['state'],
-    shown: Set<string>,
-    settingsRanked: boolean
+    { ranked, state, shown, settingsRanked, placedAbove }: LowerSectionsContext
 ): CommandKSection[] {
     const { local, remote, remoteQueries, localQuery } = input
     const sections: (CommandKSection | null)[] = []
@@ -409,7 +430,7 @@ function lowerSections(
             ? loaded()
             : [...loaded(), readySection('loading-more', [{ kind: 'loading-more', key: 'loading-more/row' }])]
     const appendInOrder = (sources: RemoteSource[]): boolean => {
-        for (const source of sources) {
+        for (const source of sources.filter((source) => !placedAbove.has(source))) {
             const query = remoteQueries[source]
             if (!isSettled(remote[source], query)) {
                 return false
@@ -418,9 +439,11 @@ function lowerSections(
                 query
                     ? remoteSection(
                           source,
-                          remote[source].cache[query].filter((item) => !shown.has(item.id)),
-                          state,
-                          remote[source].cache[query]
+                          {
+                              ...cachedPage(remote[source], query),
+                              items: remote[source].cache[query].filter((item) => !shown.has(item.id)),
+                          },
+                          state
                       )
                     : null
             )
@@ -535,8 +558,8 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
         return sections.filter((section): section is CommandKSection => section !== null)
     }
     const leadingPersons = personsQuery ? remote.persons.cache[personsQuery] : []
-    if (!ranked && leadingPersons.length) {
-        sections.push(remoteSection('persons', leadingPersons, state))
+    if (!ranked && personsQuery && leadingPersons.length) {
+        sections.push(remoteSection('persons', cachedPage(remote.persons, personsQuery), state))
     }
     if (ranked && results && resultsQuery) {
         const rankedSections = rankedResultsSections(
@@ -558,7 +581,7 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
                 : [...rankedSections, withViewAll(null, input.viewAll)])
         )
     } else {
-        sections.push(withViewAll(results ? remoteSection('results', results, state) : null, input.viewAll))
+        sections.push(withViewAll(results ? remoteSection('results', { items: results }, state) : null, input.viewAll))
     }
     if (mode !== 'value') {
         const themeItem = input.themeItem
@@ -595,7 +618,8 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
         const settingsRanked = sections.some(
             (section) => section?.rows.some((row) => row.kind === 'item' && row.item.category === 'settings') ?? false
         )
-        sections.push(...lowerSections(input, ranked, state, shown, settingsRanked))
+        const placedAbove = new Set(sections.flatMap((section) => (section ? [section.key] : [])))
+        sections.push(...lowerSections(input, { ranked, state, shown, settingsRanked, placedAbove }))
     }
     return sections.filter((section): section is CommandKSection => section !== null)
 }

@@ -39,7 +39,11 @@ When a change disagrees with this file, change this file in the same PR or don't
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Placeholder: `Search or ask PostHog AI… try is:dashboard`.
+Placeholder: `Search or ask PostHog AI… try createdBy:me`.
+The example changes every 2.5 s, in this order: each other filter's `example` in `FILTER_DEFINITIONS`, then the first of those negated (`-createdBy:me`), then every type in the `is:` list.
+It uses quill's `quill-fade-cycle`, and the first example shows at once without fading in.
+A native placeholder cannot animate, so the hint is a node passed to quill's `InputGroupInput` `placeholder`, which lays it out in the input's own box, where the caret sits.
+With reduced motion it stays on the first example.
 
 Input controls, carried over from the current palette:
 

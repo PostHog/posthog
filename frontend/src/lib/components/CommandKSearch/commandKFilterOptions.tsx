@@ -80,22 +80,21 @@ let cachedTypeOptions: ValueOption[] | null = null
 const typeOptions = (): ValueOption[] => {
     if (cachedTypeOptions === null) {
         cachedTypeOptions = Object.entries(COMMAND_K_TYPES)
-            .flatMap(([type, definition]) =>
-                definition.name
-                    ? [
-                          {
-                              value: type,
-                              label: definition.name,
-                              aliases: [
-                                  type,
-                                  definition.name.toLowerCase().replace(/\s+/g, '-'),
-                                  ...(TYPE_ALIASES[type] ?? []),
-                              ],
-                              iconType: definition.iconType ?? type,
-                          },
-                      ]
-                    : []
-            )
+            .flatMap(([type, definition]) => {
+                if (!definition.name) {
+                    return []
+                }
+                const typedValue = definition.name.toLowerCase().replace(/\s+/g, '-')
+                return [
+                    {
+                        value: type,
+                        label: definition.name,
+                        typedValue,
+                        aliases: [type, typedValue, ...(TYPE_ALIASES[type] ?? [])],
+                        iconType: definition.iconType ?? type,
+                    },
+                ]
+            })
             .sort((a, b) => a.label.localeCompare(b.label))
     }
     return cachedTypeOptions

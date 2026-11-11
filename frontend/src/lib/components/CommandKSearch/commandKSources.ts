@@ -62,7 +62,14 @@ export const REMOTE_SOURCES = [
 ] as const
 export type RemoteSource = (typeof REMOTE_SOURCES)[number]
 
-export type RemoteResults = Partial<Record<RemoteSource, SearchItem[]>>
+/** What one source's request returned. */
+export interface RemotePage {
+    items: SearchItem[]
+    /** The API said more results match than it returned. */
+    more?: true
+}
+
+export type RemoteResults = Partial<Record<RemoteSource, RemotePage>>
 
 export interface RemoteContext {
     currentTeamId: number | null
@@ -86,7 +93,7 @@ async function searchPersons(
     limit: number,
     signal: AbortSignal,
     context: RemoteContext
-): Promise<SearchItem[]> {
+): Promise<RemotePage> {
     const clientQueryId = uuid()
     let finished = false
     // Aborting the request does not stop the ClickHouse query, so cancel it by id.
@@ -102,7 +109,8 @@ async function searchPersons(
             { search: term || undefined, limit, client_query_id: clientQueryId },
             { signal }
         )
-        return (response.results ?? []).filter((person) => !!person.uuid).map(personToSearchItem)
+        const items = (response.results ?? []).filter((person) => !!person.uuid).map(personToSearchItem)
+        return response.next ? { items, more: true } : { items }
     } finally {
         finished = true
         signal.removeEventListener('abort', cancel)
@@ -130,14 +138,18 @@ const fetchGroups = async (term: string, signal: AbortSignal, context: RemoteCon
         signal.throwIfAborted()
     }
     return {
-        groups: settled.flatMap((result, index) => {
-            if (result.status !== 'fulfilled') {
-                return []
-            }
-            const groupTypeIndex = context.groupTypes[index].group_type_index as GroupTypeIndex
-            const noun = context.aggregationLabel(groupTypeIndex).singular
-            return mapGroupQueryResponse(result.value).map((group) => groupToSearchItem(group, groupTypeIndex, noun))
-        }),
+        groups: {
+            items: settled.flatMap((result, index) => {
+                if (result.status !== 'fulfilled') {
+                    return []
+                }
+                const groupTypeIndex = context.groupTypes[index].group_type_index as GroupTypeIndex
+                const noun = context.aggregationLabel(groupTypeIndex).singular
+                return mapGroupQueryResponse(result.value).map((group) =>
+                    groupToSearchItem(group, groupTypeIndex, noun)
+                )
+            }),
+        },
     }
 }
 
@@ -218,8 +230,8 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
     },
     endpoints: unifiedTypeSearch('endpoint', 'endpoints'),
     person: async ({ text }, signal, context) => {
-        const persons = await searchPersons(text, RESULTS_LIMIT, signal, context)
-        return persons.map((person) => ({ ...person, category: 'results' }))
+        const { items } = await searchPersons(text, RESULTS_LIMIT, signal, context)
+        return items.map((person) => ({ ...person, category: 'results' }))
     },
     product_tour: async ({ text }, signal, context) => {
         const response = await productToursList(
@@ -351,7 +363,7 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
         fetch: async (search, signal, context) => {
             const typeResults = await fetchTypeResults(search, signal, context)
             if (typeResults) {
-                return { results: typeResults }
+                return { results: { items: typeResults } }
             }
             const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
             const searches = fileSystemSearches(search)
@@ -359,8 +371,12 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
                 searches.map((each) => fetchFileSystemResults(each, signal, context, featureFlags, searches.length > 1))
             )
             return {
-                results:
-                    batches.length === 1 ? batches[0] : mergeFileSystemResults(batches, freeWords(search).length > 0),
+                results: {
+                    items:
+                        batches.length === 1
+                            ? batches[0]
+                            : mergeFileSystemResults(batches, freeWords(search).length > 0),
+                },
             }
         },
     },
@@ -373,10 +389,13 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
                 { q, entities: ['event_definition', 'property_definition', 'hog_flow'], include_counts: false },
                 { signal }
             )
-            const results: RemoteResults = { events: [], properties: [], workflows: [] }
+            const results: RemoteResults = {
+                events: { items: [] },
+                properties: { items: [] },
+                workflows: { items: [] },
+            }
             for (const result of response.results) {
-                const source = UNIFIED_TYPES[result.type]
-                results[source]?.push(unifiedSearchResultToSearchItem(result))
+                results[UNIFIED_TYPES[result.type]]?.items.push(unifiedSearchResultToSearchItem(result))
             }
             return results
         },
@@ -392,7 +411,7 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
                 { search, limit: SECONDARY_LIMIT },
                 { signal }
             )
-            return { accounts: response.results.map(accountToSearchItem) }
+            return { accounts: { items: response.results.map(accountToSearchItem) } }
         },
     },
     {
@@ -406,7 +425,7 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
                 { search, limit: SECONDARY_LIMIT },
                 { signal }
             )
-            return { tickets: response.results.map(ticketToSearchItem) }
+            return { tickets: { items: response.results.map(ticketToSearchItem) } }
         },
     },
     { id: 'persons', query: 'text', sources: ['persons'], fetch: fetchPersons },
@@ -421,7 +440,7 @@ export const REMOTE_REQUESTS: RemoteRequest[] = [
 
 /** Results for every source of a request, empty where the response held none. */
 export const settleSources = (request: RemoteRequest, results: RemoteResults): RemoteResults =>
-    Object.fromEntries(request.sources.map((source) => [source, results[source] ?? []]))
+    Object.fromEntries(request.sources.map((source) => [source, results[source] ?? { items: [] }]))
 
 export function settleRequest(
     request: RemoteRequest,

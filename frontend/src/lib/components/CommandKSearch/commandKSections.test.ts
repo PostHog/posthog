@@ -299,10 +299,10 @@ describe('buildSections', () => {
     })
 
     test.each([
-        ['ends with a See all persons row when the person search fills its page', SECONDARY_LIMIT, 'scope'],
-        ['ends with the last person when fewer people match', SECONDARY_LIMIT - 1, 'item'],
-    ])('Persons %s', (_, count, lastKind) => {
-        const persons = Array.from({ length: count }, (_, index) => ({
+        ['ends with a See all persons row when the person search says more match', true, 'scope'],
+        ['ends with the last person when the person search found every match', false, 'item'],
+    ])('Persons %s', (_, more, lastKind) => {
+        const persons = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
             id: `person-${index}`,
             name: `person${index}@example.com`,
             category: 'persons',
@@ -310,13 +310,13 @@ describe('buildSections', () => {
         }))
         const remote = emptyRemoteSlots()
         remote.results = { cache: { 'type:dashboard': [dashboard('a', '1')] } }
-        remote.persons = { cache: { acme: persons } }
+        remote.persons = { cache: { acme: persons }, more: more ? { acme: true } : {} }
         const sections = buildSections(
             input('search', { remote, remoteQueries: { results: 'type:dashboard', persons: 'acme' } })
         )
         const personRows = sections.find((section) => section.key === 'persons')?.rows ?? []
         expect(personRows.at(-1)).toMatchObject({ kind: lastKind })
-        expect(personRows.filter((row) => row.kind === 'item')).toHaveLength(count)
+        expect(personRows.filter((row) => row.kind === 'item')).toHaveLength(SECONDARY_LIMIT)
     })
 
     it('ranks a person who matches every word of an email search above results that match fewer', () => {
@@ -345,6 +345,34 @@ describe('buildSections', () => {
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'persons', item: { id: 'person-1' } }])
     })
 
+    it('shows one Persons section when a full page of persons leads the list', () => {
+        const persons: SearchItem[] = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
+            id: `person-${index}`,
+            name: `person${index}@example.com`,
+            category: 'persons',
+            record: { type: 'person', ref: String(index) },
+        }))
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { 'type:dashboard': [] } }
+        remote.persons = { cache: { '@': persons }, more: { '@': true } }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'type:dashboard', persons: '@' },
+                personsFirst: true,
+            })
+        )
+
+        expect(sections.filter((section) => section.key === 'persons')).toEqual([
+            expect.objectContaining({
+                rows: [
+                    ...persons.map(() => expect.objectContaining({ kind: 'item' })),
+                    expect.objectContaining({ kind: 'scope' }),
+                ],
+            }),
+        ])
+    })
+
     it('keeps the See all persons row when every person of a full page ranks into Best matches', () => {
         const persons: SearchItem[] = Array.from({ length: SECONDARY_LIMIT }, (_, index) => ({
             id: `person-${index}`,
@@ -355,7 +383,7 @@ describe('buildSections', () => {
         }))
         const remote = emptyRemoteSlots()
         remote.results = { cache: { 'ada.l': [] } }
-        remote.persons = { cache: { 'ada.l': persons } }
+        remote.persons = { cache: { 'ada.l': persons }, more: { 'ada.l': true } }
         const sections = buildSections(
             input('search', {
                 remote,
