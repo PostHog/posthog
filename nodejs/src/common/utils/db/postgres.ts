@@ -74,9 +74,8 @@ const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'conflict with recovery',
 ]
 
-// Matching on the SQLSTATE covers every message variant of a code, also from servers with a localized lc_messages.
-// 57014 (query_canceled) is not in the set because it also reports a statement timeout.
-// A statement timeout can occur again for each retry of the same slow query, so retrying it never ends.
+// A SQLSTATE covers every message variant of its code, also from servers with a localized lc_messages.
+// 57014 (query_canceled) stays out because a statement timeout can repeat on each retry of the same slow query.
 const POSTGRES_UNAVAILABLE_SQLSTATES = new Set([
     '53300', // too_many_connections
     '57P01', // admin_shutdown
