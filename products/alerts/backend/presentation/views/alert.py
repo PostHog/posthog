@@ -2525,7 +2525,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
-                user=owner,
+                owner=owner,
                 actor=cast(User, request.user),
                 was_impersonated=get_was_impersonated(),
             )
@@ -2570,7 +2570,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
-                user=owner,
+                owner=owner,
                 actor=requester,
                 was_impersonated=get_was_impersonated(),
             )

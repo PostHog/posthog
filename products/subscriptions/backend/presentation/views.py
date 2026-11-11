@@ -1016,7 +1016,7 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
                 owner=owner,
                 team=self.team,
                 organization=self.organization,
-                user=cast(User, request.user),
+                actor=cast(User, request.user),
                 viewer=self.user_access_control,
                 subscription_id=subscription.id,
                 analytics_props=get_request_analytics_properties(request),

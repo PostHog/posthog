@@ -1048,24 +1048,23 @@ def take_subscription_ownership(
     *,
     team: Team,
     organization: Organization,
-    user: User,
+    actor: User,
     viewer: UserAccessControl,
     subscription_id: int,
     analytics_props: AnalyticsProps,
-    owner: User | None = None,
+    owner: User,
 ) -> SubscriptionRecord:
-    """Make `owner` (defaulting to `user`) the owner and enable the subscription, so deliveries run with their access.
+    """Make `owner` the owner and enable the subscription, so deliveries run with their access.
 
     Every refusal comes before the owner changes, so a refused takeover leaves the subscription as
     it was: the new owner must be able to view the dashboard or insight and read every table the
     subscription delivers, and the enable must pass its usual checks as the new owner.
     """
-    owner = owner or user
-    owner_denial = "you don't" if owner.pk == user.pk else "the new owner doesn't"
-    owner_requirement = "You need" if owner.pk == user.pk else "The new owner needs"
-    owner_access = viewer if owner.pk == user.pk else UserAccessControl(user=owner, team=team)
+    owner_denial = "you don't" if owner.pk == actor.pk else "the new owner doesn't"
+    owner_requirement = "You need" if owner.pk == actor.pk else "The new owner needs"
+    owner_access = viewer if owner.pk == actor.pk else UserAccessControl(user=owner, team=team)
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
-    if owner.pk != user.pk and not viewer.is_organization_admin:
+    if owner.pk != actor.pk and not viewer.is_organization_admin:
         raise SubscriptionPermissionDeniedError(
             "Only an organization admin can assign a subscription to another person. "
             "Take ownership yourself or ask an admin to transfer it."
@@ -1118,7 +1117,7 @@ def take_subscription_ownership(
     log_activity(
         organization_id=team.organization_id,
         team_id=team.id,
-        user=user,
+        user=actor,
         was_impersonated=get_was_impersonated(),
         item_id=updated.id,
         scope="Subscription",

@@ -320,13 +320,13 @@ def take_subscription_ownership(
     *,
     team: Team,
     organization: Organization,
-    user: User,
+    actor: User,
     viewer: UserAccessControl,
     subscription_id: int,
     analytics_props: AnalyticsProps,
-    owner: User | None = None,
+    owner: User,
 ) -> contracts.SubscriptionRecord:
-    """Make `owner` (defaulting to `user`) the owner of the subscription and enable it. Deliveries then run with their access.
+    """Make `owner` the owner of the subscription and enable it. Deliveries then run with their access.
 
     Raises the same errors as `update_subscription`.
     """
@@ -334,7 +334,7 @@ def take_subscription_ownership(
         owner=owner,
         team=team,
         organization=organization,
-        user=user,
+        actor=actor,
         viewer=viewer,
         subscription_id=subscription_id,
         analytics_props=analytics_props,
