@@ -1,4 +1,5 @@
 import json
+import socket
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
 from copy import deepcopy
@@ -21,7 +22,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.tagged_item import set_tags_on_object
-from posthog.clickhouse.client import execute
+from posthog.clickhouse.client.connection import ClickHouseClient
 from posthog.clickhouse.workload import Workload
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
@@ -7539,15 +7540,28 @@ class TestHogFlowGlobalStats(ClickhouseTestMixin, APIBaseTest):
         PersonalAPIKey.objects.create(
             label="poller", user=self.user, secure_value=hash_key_value(key), scopes=["hog_flow:read"]
         )
-        workloads = {}
+        # The offline cluster gets its own name for the test ClickHouse, so the host each query connects to
+        # shows which cluster served it.
+        offline_host = socket.gethostbyname(settings.CLICKHOUSE_HOST)
+        assert offline_host != settings.CLICKHOUSE_HOST
+        real_execute = ClickHouseClient.execute
+        hosts: dict[str, set[str]] = {}
+
         for caller, headers in (("app", {}), ("api_key", {"authorization": f"Bearer {key}"})):
-            with patch(
-                "posthog.clickhouse.client.execute.get_client_from_pool", wraps=execute.get_client_from_pool
-            ) as pool:
+            served_by = hosts.setdefault(caller, set())
+
+            def recording_execute(client, *args, served_by=served_by, **kwargs):
+                result = real_execute(client, *args, **kwargs)
+                served_by.add(client.connection.host)
+                return result
+
+            with (
+                override_settings(CLICKHOUSE_OFFLINE_CLUSTER_HOST=offline_host),
+                patch.object(ClickHouseClient, "execute", recording_execute),
+            ):
                 res = self.client.get(f"/api/projects/{self.team.id}/hog_flows/metrics/global/", headers=headers)
             assert res.status_code == status.HTTP_200_OK, res.json()
-            workloads[caller] = {call.args[0] for call in pool.call_args_list}
-        assert workloads == {"app": {Workload.ONLINE}, "api_key": {Workload.OFFLINE}}
+        assert hosts == {"app": {settings.CLICKHOUSE_HOST}, "api_key": {offline_host}}
 
 
 class TestHogFlowSecretInputs(APIBaseTest):
