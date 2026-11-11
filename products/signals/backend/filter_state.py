@@ -21,6 +21,9 @@ class SignalSourceFilterState(TeamScopedRootMixin, UUIDModel):
     )
     source_product = models.CharField(max_length=100)
     source_type = models.CharField(max_length=100)
+    # Each warehouse schema has its own sync cursor, so two connections of one source keep separate windows.
+    # Not a foreign key: schemas belong to another product.
+    schema_id = models.UUIDField()
     pending_window_start = models.DateTimeField(null=True, blank=True)
     last_error_code = models.CharField(max_length=64, blank=True, default="")
     # Only messages the filter code wrote. A query error stores its type, because its text can carry row values.
@@ -37,6 +40,6 @@ class SignalSourceFilterState(TeamScopedRootMixin, UUIDModel):
         default_manager_name = "all_teams"
         constraints = [
             models.UniqueConstraint(
-                fields=["team", "source_product", "source_type"], name="signals_source_filter_state_unique"
+                fields=["team", "source_product", "source_type", "schema_id"], name="signals_source_filter_state_unique"
             ),
         ]

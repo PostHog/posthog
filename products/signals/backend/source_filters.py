@@ -1,7 +1,9 @@
 from collections.abc import Mapping
 from datetime import datetime
+from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
@@ -117,18 +119,24 @@ def saved_filter_predicate(
     return bindings.predicate(saved.expression)
 
 
-def pending_window_start(*, team_id: int, source_product: str, source_type: str) -> datetime | None:
-    return (
-        SignalSourceFilterState.objects.for_team(team_id)
-        .filter(source_product=source_product, source_type=source_type)
-        .values_list("pending_window_start", flat=True)
-        .first()
-    )
+@frozen
+class FilterStateKey:
+    team_id: int
+    source_product: str
+    source_type: str
+    schema_id: UUID
+
+    def rows(self) -> QuerySet[SignalSourceFilterState]:
+        return SignalSourceFilterState.objects.for_team(self.team_id).filter(
+            source_product=self.source_product, source_type=self.source_type, schema_id=self.schema_id
+        )
 
 
-def record_fetch_failure(
-    *, team_id: int, source_product: str, source_type: str, window_start: datetime, error: Exception
-) -> None:
+def pending_window_start(key: FilterStateKey) -> datetime | None:
+    return key.rows().values_list("pending_window_start", flat=True).first()
+
+
+def record_fetch_failure(key: FilterStateKey, *, window_start: datetime, error: Exception) -> None:
     """Keep the earliest window that failed to fetch, so the next fetch reads it again."""
     if isinstance(error, FilterValidationError):
         code, message = error.code, str(error)
@@ -136,9 +144,14 @@ def record_fetch_failure(
         code, message = "query_failed", type(error).__name__
     with transaction.atomic():
         state, _ = (
-            SignalSourceFilterState.objects.for_team(team_id)
+            key.rows()
             .select_for_update()
-            .get_or_create(team_id=team_id, source_product=source_product, source_type=source_type)
+            .get_or_create(
+                team_id=key.team_id,
+                source_product=key.source_product,
+                source_type=key.source_type,
+                schema_id=key.schema_id,
+            )
         )
         if state.pending_window_start is None or window_start < state.pending_window_start:
             state.pending_window_start = window_start
@@ -148,16 +161,24 @@ def record_fetch_failure(
         state.save()
 
 
-def record_fetch_success(*, team_id: int, source_product: str, source_type: str, malformed_count: int) -> None:
-    SignalSourceFilterState.objects.for_team(team_id).update_or_create(
-        team_id=team_id,
-        source_product=source_product,
-        source_type=source_type,
-        defaults={
-            "pending_window_start": None,
-            "last_error_code": "",
-            "last_error_message": "",
-            "last_malformed_count": malformed_count,
-            "last_success_at": timezone.now(),
-        },
+def record_window_processed(key: FilterStateKey, *, window_start: datetime | None, malformed_count: int) -> None:
+    """Record a processed window, and clear the stored one only when that window covered it.
+
+    Another emission run can store an earlier failed window after this run read its bound, so the clear is
+    a conditional update rather than a read followed by a write.
+    """
+    now = timezone.now()
+    state, created = key.rows().get_or_create(
+        team_id=key.team_id,
+        source_product=key.source_product,
+        source_type=key.source_type,
+        schema_id=key.schema_id,
+        defaults={"last_malformed_count": malformed_count, "last_success_at": now},
     )
+    rows = key.rows().filter(pk=state.pk)
+    if not created:
+        rows.update(last_malformed_count=malformed_count, last_success_at=now)
+    covered = Q(pending_window_start__isnull=True)
+    if window_start is not None:
+        covered |= Q(pending_window_start__gte=window_start)
+    rows.filter(covered).update(pending_window_start=None, last_error_code="", last_error_message="")

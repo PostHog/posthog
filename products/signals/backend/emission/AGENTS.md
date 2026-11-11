@@ -68,7 +68,8 @@ Each source defines how to fetch records via its `record_fetcher` on the config:
   A saved `hogql_filter` (`contracts.HOGQL_FILTER_KEY`) is bound to the filter catalog version it was saved against and ANDed into the same query before the limit (`source_filters.py`).
   A row with a malformed value in a field the filter uses never passes: the fetcher drops it and logs the count.
   Unlike a malformed scope list, a saved filter that cannot be read or bound raises, so emission stops rather than reading unfiltered rows.
-  The emit activity calls the fetcher through `fetch_window.fetch_records`, which keeps that failed window: a filtered source's failed fetch stores its window start on `SignalSourceFilterState`, the next fetch reads from there instead of `last_synced_at`, and a successful fetch clears it.
+  The emit activity calls the fetcher through `fetch_window.fetch_records`, which keeps that failed window per warehouse schema: a filtered source's failed fetch stores its window start on `SignalSourceFilterState`, and the next fetch reads from there instead of `last_synced_at`.
+  The activity calls `complete_fetch` only after the pipeline succeeds, and it clears the stored window only when the processed window covered it.
 - **Grouped warehouse fetcher** (`fetchers/grouped_warehouse.py`) — for high-volume tables that store one row per occurrence (Datadog error spans and logs).
   The generic fetcher has no `GROUP BY`, so it would emit one signal per row.
   The grouped fetcher reads a fixed trailing window of event time (`GROUPED_WINDOW_DAYS`) and ignores `last_synced_at`.
