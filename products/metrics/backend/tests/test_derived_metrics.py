@@ -285,11 +285,51 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
             names = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
         with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG):
+            held = {row["name"] for row in list_metric_picker_names(team=self.team)}
+
+        with (
+            time_machine.travel(DATE_TO + dt.timedelta(minutes=1, seconds=1), tick=False),
+            _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+        ):
             retried = {row["name"] for row in list_metric_picker_names(team=self.team)}
 
         assert LOG_RECORDS in names
         assert REQUESTS not in names
+        # A failed answer is held for a minute, so polling does not re-run a probe that is timing out.
+        assert REQUESTS not in held
         assert REQUESTS in retried
+
+    def test_presence_answers_are_cached_by_outcome(self) -> None:
+        empty_team = Team.objects.create(organization=self.organization, name="no telemetry yet")
+        probes: list[dict] = []
+
+        def record(*args, **kwargs):
+            probes.append(kwargs)
+            return execute_hogql_query(*args, **kwargs)
+
+        def names_at(team: Team, at: dt.datetime) -> set[str]:
+            with (
+                time_machine.travel(at, tick=False),
+                _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
+                patch("products.metrics.backend.derived.execute_hogql_query", side_effect=record),
+            ):
+                return {row["name"] for row in list_metric_picker_names(team=team)}
+
+        empty = names_at(empty_team, DATE_TO)
+        _insert_spans(empty_team.id)
+        held = names_at(empty_team, DATE_TO + dt.timedelta(seconds=59))
+        arrived = names_at(empty_team, DATE_TO + dt.timedelta(minutes=1, seconds=1))
+        probes_after_arrival = len(probes)
+        kept = names_at(empty_team, DATE_TO + dt.timedelta(minutes=5))
+
+        # An empty answer is re-checked after a minute, so new spans reach the picker without a five-minute wait.
+        assert REQUESTS not in empty
+        assert REQUESTS not in held
+        assert REQUESTS in arrived
+        # An answer with data keeps the longer TTL.
+        assert REQUESTS in kept
+        assert len(probes) == probes_after_arrival == 4
+        assert {probe["settings"].max_execution_time for probe in probes} == {10}
 
     @parameterized.expand(
         [
