@@ -165,7 +165,6 @@ export interface DataTableProps<TData, TValue> {
     selectable?: boolean | ((row: TData) => boolean)
     /** Controls the selection, as `true` by row id. Pass `getRowId` so that a selection survives a change of `data`. */
     rowSelection?: RowSelectionState
-    /** Called with the next selection when the user checks or clears a row. */
     onRowSelectionChange?: (rowSelection: RowSelectionState) => void
     /** The id of a row, for `rowSelection`. Defaults to the row's index in `data`. */
     getRowId?: (row: TData, index: number) => string
