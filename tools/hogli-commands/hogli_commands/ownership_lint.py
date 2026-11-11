@@ -17,9 +17,7 @@ HINT = (
 
 
 def _teamless_tests(against: str, committed_only: bool) -> list[str]:
-    # hogli imports `owners_yaml` from the main clone, also when it runs in a linked worktree, and
-    # that copy can be older than this module. The import is here so that preflight then skips this
-    # check. At the top of the module it stops every preflight run.
+    # A linked worktree gets the main clone's `owners_yaml`. Imported here, an older copy skips only this check.
     from owners_yaml import newly_unowned
 
     return newly_unowned(REPO_ROOT, against, committed_only=committed_only, teams_only=True, include=runner_for_path)
@@ -44,9 +42,8 @@ def cmd_lint_test_owners(against: str, committed: bool) -> None:
         raise click.ClickException(f"could not compare with {against!r}: {reason}") from error
     if not tests:
         return
-    # The pull request author controls each path, and the GitHub Actions runner reads `::` at the
-    # start of a line and `##[` anywhere in a line as a workflow command. The prefix and the quoting
-    # keep a path, and a newline in it, off a line start, and the space breaks up each `##[`.
+    # The pull request author controls each path. The GitHub Actions runner reads a workflow command
+    # from `::` at the start of a line and from `##[` anywhere in it, so a path must not put one there.
     for path in tests:
         click.echo(f"no team owner: {path!r}".replace("##[", "## ["))
     click.echo(HINT)
