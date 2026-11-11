@@ -85,8 +85,7 @@ if TYPE_CHECKING:
 
     from posthog.models import Organization, Team, User
 
-    from products.dashboards.backend.models.dashboard import Dashboard
-    from products.dashboards.backend.models.dashboard_tile import DashboardTile
+    from products.dashboards.backend.facade.contracts import AppliedDashboard
     from products.feature_flags.backend.sdk_cache_provider import HyperCacheFlagProvider
     from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
 
@@ -2105,7 +2104,7 @@ def _with_saved_metric_variables(request_filters: dict, dashboard_filters: dict)
 
 
 def filters_override_requested_by_client(
-    request: Request, dashboard: Optional["Dashboard"], is_shared: bool = False
+    request: Request, dashboard: Optional["AppliedDashboard"], is_shared: bool = False
 ) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
@@ -2171,7 +2170,7 @@ def validate_filters_override(request_filters: Any) -> None:
 
 def variables_override_requested_by_client(
     request: Optional[Request],
-    dashboard: Optional["Dashboard"],
+    dashboard: Optional["AppliedDashboard"],
     variables: list["InsightVariableDefinition"],
     is_shared: bool = False,
 ) -> Optional[dict[str, dict]]:
@@ -2207,11 +2206,11 @@ def variables_override_requested_by_client(
 
 
 def tile_filters_override_requested_by_client(
-    request: Request, tile: Optional["DashboardTile"], is_shared: bool = False
+    request: Request, tile_filters: dict | None, is_shared: bool = False
 ) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
 
-    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
+    tile_filters = tile_filters or {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: never honor client-supplied overrides for shared/embedded access. The

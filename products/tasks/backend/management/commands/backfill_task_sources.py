@@ -5,10 +5,14 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import connection
 
-from posthog.dataclasses import frozen
-
-NIL_UUID = "00000000-0000-0000-0000-000000000000"
-MAX_BATCH_SIZE = 5000
+from products.tasks.backend.management.backfill import (
+    MAX_BATCH_SIZE,
+    NIL_UUID,
+    BackfillBatch,
+    add_backfill_arguments,
+    backfill_options,
+    report_backfill,
+)
 
 _LOOP_COLUMN_EXISTS_SQL = (
     "SELECT EXISTS ("
@@ -51,12 +55,6 @@ _UPDATE_SQL = (
 _LOOP_PRESENT = " OR p.loop_id IS NOT NULL"
 _LOOP_KIND = " WHEN t.loop_id IS NOT NULL THEN 'loop'"
 _LOOP_ID = " WHEN t.loop_id IS NOT NULL THEN t.loop_id::text"
-
-
-@frozen
-class BackfillBatch:
-    tasks: int
-    cursor: str
 
 
 def _loop_column_exists() -> bool:
@@ -109,22 +107,7 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
-        parser.add_argument("--team-id", type=int, metavar="ID", help="Only tasks in this team")
-        parser.add_argument("--batch-size", type=int, default=1000)
-        parser.add_argument("--after", help="Resume after this task id, as printed by an earlier run")
-        parser.add_argument("--sleep-seconds", type=float, default=0.1, help="Pause between batches")
-        parser.add_argument("--dry-run", action="store_true", help="Count the tasks without writing")
+        add_backfill_arguments(parser)
 
     def handle(self, *args: Any, **options: Any) -> None:
-        verb = "Would fill" if options["dry_run"] else "Filled"
-        total = 0
-        for batch in backfill_task_sources(
-            team_id=options["team_id"],
-            batch_size=options["batch_size"],
-            after=options["after"],
-            dry_run=options["dry_run"],
-            sleep_seconds=options["sleep_seconds"],
-        ):
-            total += batch.tasks
-            self.stdout.write(f"{verb} {total} tasks; resume after {batch.cursor}")
-        self.stdout.write(f"{verb} {total} tasks in all")
+        report_backfill(self.stdout, backfill_task_sources(**backfill_options(options)), dry_run=options["dry_run"])
