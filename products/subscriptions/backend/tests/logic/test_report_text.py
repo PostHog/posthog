@@ -35,13 +35,11 @@ def test_findings_have_one_bullet(prefix: str) -> None:
     assert rendered == "## Traffic\n\n- `12 requests`\n\n### Requests\n\n- `12 requests`"
     tokens = MarkdownIt("commonmark").parse(rendered)
     assert len([token for token in tokens if token.type == "list_item_open"]) == 2
-    assert ReportSummary(findings=[finding]).render(slack_formatting=True) == "• `12 requests`"
-
     assert ReportSummary(findings=[finding]).render() == "- `12 requests`"
 
 
 @pytest.mark.parametrize(("direction", "triangle"), [("increase", "▲"), ("decrease", "▼")])
-def test_measured_changes_keep_their_direction_in_each_format(direction: str, triangle: str) -> None:
+def test_measured_changes_keep_their_direction(direction: str, triangle: str) -> None:
     finding = ReportText.model_validate(
         {
             "items": [
@@ -54,7 +52,6 @@ def test_measured_changes_keep_their_direction_in_each_format(direction: str, tr
     summary = ReportSummary(findings=[finding])
 
     assert summary.render() == f"- `Requests` changed by `{triangle} 12%`"
-    assert summary.render(slack_formatting=True) == f"• `Requests` changed by `{triangle} 12%`"
 
 
 def _visual(text: str) -> ReportText:
@@ -106,7 +103,4 @@ def test_styled_items_keep_their_spaces_outside_the_markers() -> None:
         }
     )
 
-    assert (
-        ReportSummary(findings=[finding]).render(slack_formatting=True)
-        == "• `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day."
-    )
+    assert ReportSummary(findings=[finding]).render() == "- `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day."

@@ -125,7 +125,6 @@ For event lists, the first finding must state the query window and any limits on
 Do not use the subscription schedule or title as the data window.
 Keep each event type's time range separate. Never apply the overall returned time span to every event type.
 An event-table image can show only the newest rows. Its missing older rows do not contradict full-result event counts or time ranges.
-Tag every name, measured value, change and date with its kind; the renderer styles them.
 Use sentence case and direct language. Remove repetition, generic introductions, sign-offs, and concluding recaps.
 State uncertainty once, beside the affected fact. Do not infer causes, business impact, or tracking failures from missing evidence.
 Before returning the findings, remove filler, stock phrases, inflated claims, and duplicate observations.
@@ -152,14 +151,15 @@ TREND_FIELD_INSTRUCTIONS = """Trend series fields:
 - When you compare deliveries, compare latest with latest."""
 
 
-SUMMARY_TAGGING_INSTRUCTIONS = """Start each finding with the exact insight name from the data headers as a kind=name item; do not paraphrase it.
-Every number with its unit is a kind=value item, including approximate ones ("about 30%"). A difference against the previous point is a kind=change item. Every date and window ("November 10", "30-day window") is a kind=time item.
-Example items for one finding: [{"kind":"name","text":"Signup conversion"},{"kind":"text","text":" fell "},{"kind":"change","text":"12%","direction":"decrease"},{"kind":"text","text":" to "},{"kind":"value","text":"31%"},{"kind":"text","text":" on "},{"kind":"time","text":"November 10"},{"kind":"text","text":", the lowest point in the "},{"kind":"time","text":"30-day window"},{"kind":"text","text":"."}]"""
+SUMMARY_OUTPUT_INSTRUCTIONS = f"""{REPORT_TEXT_INSTRUCTIONS}
+Return one finding per bullet. Include the time window when describing a trend.
+Start each finding with the exact insight name from the data headers as a kind=name item; do not paraphrase it.
+Approximate numbers ("about 30%") are kind=value items too, and windows ("30-day window") are kind=time items.
+Example items for one finding: [{{"kind":"name","text":"Signup conversion"}},{{"kind":"text","text":" fell "}},{{"kind":"change","text":"12%","direction":"decrease"}},{{"kind":"text","text":" to "}},{{"kind":"value","text":"31%"}},{{"kind":"text","text":" on "}},{{"kind":"time","text":"November 10"}},{{"kind":"text","text":", the lowest point in the "}},{{"kind":"time","text":"30-day window"}},{{"kind":"text","text":"."}}]"""
 
-SUMMARY_OUTPUT_INSTRUCTIONS = (
-    f"{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend.\n"
-    f"{SUMMARY_TAGGING_INSTRUCTIONS}"
-)
+# Managed prompts can still reference these variables, and _compile_template leaves an unknown
+# variable in the text as written, so each one is set to an empty string.
+_RETIRED_TEMPLATE_VARIABLES = {"formatting_instructions": ""}
 
 
 def _compile_template(template: str, variables: dict[str, str]) -> str:
@@ -315,8 +315,7 @@ def build_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No current data"),
             "annotations_section": annotations_section,
-            # Managed prompts can still reference this variable. The instructions go in the system message.
-            "formatting_instructions": "",
+            **_RETIRED_TEMPLATE_VARIABLES,
         },
     )
 
@@ -348,7 +347,7 @@ def build_initial_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": "",
+            **_RETIRED_TEMPLATE_VARIABLES,
         },
     )
 
@@ -446,7 +445,6 @@ def generate_change_summary(
     insight_images: dict[int, bytes] | None = None,
     core_memory_text: str = "",
     annotations_section: str = "",
-    slack_formatting: bool = False,
 ) -> str:
     team_id = team.id if team else 0
 
@@ -526,7 +524,7 @@ def generate_change_summary(
     if result.choices and result.choices[0].message.content:
         content = result.choices[0].message.content
     if content:
-        content = ReportSummary.model_validate_json(content).render(slack_formatting=slack_formatting)
+        content = ReportSummary.model_validate_json(content).render()
 
     logger.info(
         "change_summary_generated",
