@@ -31,8 +31,10 @@ import { register } from '@/metrics'
 const WEB = 'posthog-web-django'
 const WORKER = 'temporal-worker-data-warehouse'
 const CDP = 'cdp-api'
+const REVERSE_SYNC = 'posthog-integrations-reverse-sync'
 const BATCH_EXPORTS = 'temporal-worker-batch-exports'
-const DEPLOYMENTS = [WEB, WORKER, CDP, BATCH_EXPORTS]
+const TASKS_AGENT = 'temporal-worker-tasks-agent'
+const DEPLOYMENTS = [WEB, WORKER, CDP, REVERSE_SYNC, BATCH_EXPORTS, TASKS_AGENT]
 const PAIRS: Record<string, { privateKey: KeyObject; publicKey: KeyObject }> = Object.fromEntries(
     DEPLOYMENTS.map((deployment) => [deployment, generateKeyPairSync('ed25519')])
 )
@@ -53,6 +55,7 @@ const platformLoader = {
 
 const TEAM_A = 101
 const TEAM_B = 202
+const TEAM_C = 303
 const REF_PATTERN = /^(0|[1-9][0-9]{0,18}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
 
 // Obviously fake values. The tests search every response and log line for them.
@@ -66,6 +69,7 @@ let container: StartedPostgreSqlContainer
 let pool: Pool
 let audit: AuditQueue
 let app: Hono
+let kms: Kms
 const logLines: string[] = []
 let jti = 0
 
@@ -194,7 +198,7 @@ async function create(overrides: Record<string, unknown> = {}, opts: CallOptions
     return res.json
 }
 
-function buildApp(kms: Kms, replay?: ReplayStore): Hono {
+function buildApp(kms: Kms, replay?: ReplayStore, changesSettleSeconds = 0): Hono {
     const verifier = replay
         ? new IntegrationVerifier(integrationLoader, { replay })
         : new IntegrationVerifier(integrationLoader)
@@ -204,7 +208,7 @@ function buildApp(kms: Kms, replay?: ReplayStore): Hono {
         secrets: () => null,
         integrations: {
             verifier,
-            service: new IntegrationsService({ pool, envelope: new Envelope(kms), audit }),
+            service: new IntegrationsService({ pool, envelope: new Envelope(kms), audit, changesSettleSeconds }),
         },
     })
 }
@@ -222,7 +226,8 @@ beforeAll(async () => {
     await runMigrations({ databaseUrl: container.getConnectionUri(), direction: 'up' })
     pool = new Pool({ connectionString: container.getConnectionUri(), max: 5 })
     audit = new AuditQueue(pool, { flushIntervalMs: 60_000 })
-    app = buildApp(new LocalKms([randomBytes(32)]))
+    kms = new LocalKms([randomBytes(32)])
+    app = buildApp(kms)
     for (const level of ['debug', 'info', 'warn', 'error', 'audit'] as const) {
         vi.spyOn(logger, level).mockImplementation((event: string, fields?: Record<string, unknown>) => {
             logLines.push(JSON.stringify({ event, fields }))
@@ -240,7 +245,12 @@ afterEach(() => {
     const logged = logLines.splice(0)
     // Every response and every log line of every test, not only the read routes.
     for (const { path, text } of seen) {
-        const forbidden = path === '/resolve' ? NEVER_RETURNED : [ACCESS_TOKEN, ...NEVER_RETURNED]
+        // Resolve returns the access token. The change feed returns every secret, and no other route does.
+        const forbidden = path.startsWith('/changes')
+            ? []
+            : path === '/resolve'
+              ? NEVER_RETURNED
+              : [ACCESS_TOKEN, ...NEVER_RETURNED]
         for (const secret of forbidden) {
             expect(text, `${path} returned a secret`).not.toContain(secret)
         }
@@ -1125,5 +1135,490 @@ describe('KMS outage', () => {
             body: newIntegration({ integration_id: 'plain', sensitive_config: {} }),
         })
         expect(plain.status).toBe(201)
+    })
+})
+
+const BY_EXTERNAL_ID_OPS: IntegrationOp[] = ['read_by_external_id', 'write_by_external_id', 'delete_by_external_id']
+
+function sharedPath(kind: string, externalId: string, query = ''): string {
+    return `/by-external-id/${kind}/${encodeURIComponent(externalId)}${query}`
+}
+
+async function byExternalId(method: string, path: string, opts: CallOptions = {}): Promise<CallResult> {
+    return call(method, path, { team: null, ops: BY_EXTERNAL_ID_OPS, ...opts })
+}
+
+async function rowCount(where: string, values: unknown[] = []): Promise<number> {
+    const result = await pool.query(`SELECT count(*)::int AS n FROM integrations WHERE ${where}`, values)
+    return result.rows[0].n
+}
+
+describe('by external id', () => {
+    // Two teams share the installation, a third has it only as a source row. Other kinds and ids stay out.
+    async function seed(): Promise<Record<string, any>> {
+        return {
+            a: await create({ integration_id: 'shared' }, { team: TEAM_A }),
+            b: await create({ integration_id: 'shared' }, { team: TEAM_B }),
+            c: await create({ integration_id: 'shared', is_source_row: true }, { team: TEAM_C }),
+            otherId: await create({ integration_id: 'other' }, { team: TEAM_A }),
+            otherKind: await create({ kind: 'slack', integration_id: 'shared' }, { team: TEAM_A }),
+        }
+    }
+
+    it.each([
+        ['the live rows of every team, without source rows', '', ['a', 'b']],
+        ['source rows too, when asked', '?source_rows=include', ['a', 'b', 'c']],
+        ['only the teams named', '?team_id=202', ['b']],
+    ])('lists %s', async (_label, query, expected) => {
+        const rows = await seed()
+        const res = await byExternalId('GET', sharedPath('hubspot', 'shared', query))
+        expect(res.status).toBe(200)
+        expect(res.json.results.map((r: any) => r.id)).toEqual(expected.map((name) => rows[name].id))
+        expect(res.json.results[0]).not.toHaveProperty('sensitive_config')
+    })
+
+    it.each([['?source_rows=only'], ['?source_rows=include']])(
+        'refuses source rows to a deployment with no grant (%s)',
+        async (query) => {
+            await create({ kind: 'slack', integration_id: 'shared', is_source_row: true }, { team: TEAM_A })
+
+            const res = await byExternalId('GET', sharedPath('slack', 'shared', query), { deployment: TASKS_AGENT })
+
+            expect(res.status).toBe(403)
+            expect(res.json.error.code).toBe('forbidden_kind')
+        }
+    )
+
+    it('lists only the ordinary rows for a deployment with no source row grant', async () => {
+        const plain = await create({ kind: 'slack', integration_id: 'shared' }, { team: TEAM_A })
+        await create({ kind: 'slack', integration_id: 'shared', is_source_row: true }, { team: TEAM_B })
+
+        const res = await byExternalId('GET', sharedPath('slack', 'shared'), { deployment: TASKS_AGENT })
+
+        expect(res.json.results.map((r: any) => r.id)).toEqual([plain.id])
+    })
+
+    it('pages with a cursor', async () => {
+        const rows = await seed()
+        const first = await byExternalId('GET', sharedPath('hubspot', 'shared', '?limit=1'))
+        const second = await byExternalId('GET', sharedPath('hubspot', 'shared', `?limit=1&after=${first.json.next}`))
+        expect([...first.json.results, ...second.json.results].map((r: any) => r.id)).toEqual([rows.a.id, rows.b.id])
+        expect(second.json.next).toBeNull()
+    })
+
+    it('refuses a token that also names an owner', async () => {
+        await seed()
+        const res = await call('GET', sharedPath('hubspot', 'shared'), { team: TEAM_A, ops: BY_EXTERNAL_ID_OPS })
+        expect(res.status).toBe(401)
+    })
+
+    it.each([
+        ['the web deployment', WEB, 200],
+        ['a worker deployment', WORKER, 403],
+        ['a cdp deployment', CDP, 403],
+    ])('allows or refuses a read from %s', async (_label, deployment, status) => {
+        const res = await byExternalId('GET', sharedPath('hubspot', 'shared'), { deployment })
+        expect(res.status).toBe(status)
+    })
+
+    it.each([
+        ['GET', 'read_by_external_id', undefined],
+        ['PATCH', 'write_by_external_id', { config_patch: { region: 'eu' } }],
+        ['DELETE', 'delete_by_external_id', undefined],
+    ])('refuses a %s whose token lacks %s, or whose deployment is not web', async (method, op, body) => {
+        await seed()
+        const others = BY_EXTERNAL_ID_OPS.filter((candidate) => candidate !== op)
+        const path = sharedPath('hubspot', 'shared')
+        expect((await byExternalId(method, path, { ops: others, body })).status).toBe(403)
+        for (const deployment of [WORKER, CDP]) {
+            expect((await byExternalId(method, path, { deployment, body })).status).toBe(403)
+        }
+        expect(await rowCount('deleted_at IS NULL')).toBe(5)
+    })
+
+    it('refuses a kind that the token does not name', async () => {
+        await seed()
+        const res = await byExternalId('DELETE', sharedPath('hubspot', 'shared'), { kinds: ['slack'] })
+        expect(res.status).toBe(403)
+        expect(res.json.error.code).toBe('forbidden_kind')
+        expect(await rowCount('deleted_at IS NULL')).toBe(5)
+    })
+
+    it('refuses a token that names refs, because no ref is known', async () => {
+        const rows = await seed()
+        const res = await byExternalId('GET', sharedPath('hubspot', 'shared'), { refs: [rows.a.id] })
+        expect(res.status).toBe(403)
+    })
+
+    it('patches the rows of every team, secrets included, and writes nothing for an identical patch', async () => {
+        const rows = await seed()
+        const patch = {
+            config_patch: { refreshed_at: 1_800_000_500 },
+            sensitive_config_patch: { access_token: 'fake-rotated-token' },
+            errors: 'TOKEN_REFRESH_FAILED',
+        }
+        const res = await byExternalId('PATCH', sharedPath('hubspot', 'shared'), { body: patch, userId: 9 })
+        expect(res.status).toBe(200)
+        expect(res.json).toEqual({ matched: 2, updated: 2 })
+
+        for (const name of ['a', 'b']) {
+            const row = await call('GET', `/${rows[name].id}`, { team: name === 'a' ? TEAM_A : TEAM_B })
+            expect(row.json).toMatchObject({
+                version: 2,
+                errors: 'TOKEN_REFRESH_FAILED',
+                config: { refreshed_at: 1_800_000_500 },
+            })
+            const resolved = await call('POST', '/resolve', {
+                team: name === 'a' ? TEAM_A : TEAM_B,
+                body: { refs: [rows[name].id] },
+            })
+            expect(resolved.json.records[rows[name].id].credentials).toEqual({ access_token: 'fake-rotated-token' })
+        }
+        // Other ids, kinds and source rows are untouched.
+        for (const name of ['c', 'otherId', 'otherKind']) {
+            expect(await rowCount('id = $1 AND version = 1', [rows[name].id])).toBe(1)
+        }
+
+        const again = await byExternalId('PATCH', sharedPath('hubspot', 'shared'), { body: patch })
+        expect(again.json).toEqual({ matched: 2, updated: 0 })
+        expect(await rowCount('version = 2')).toBe(2)
+
+        const audited = (
+            await pool.query(
+                `SELECT outcome, owner_id, fields, user_id FROM audit_log
+             WHERE operation = 'write_by_external_id' ORDER BY occurred_at, owner_id`
+            )
+        ).rows
+        expect(audited.map((row) => [row.outcome, row.owner_id])).toEqual([
+            ['ok', String(TEAM_A)],
+            ['ok', String(TEAM_B)],
+            ['unchanged', String(TEAM_A)],
+            ['unchanged', String(TEAM_B)],
+        ])
+        expect(audited[0].fields).toEqual(['access_token'])
+        expect(audited[0].user_id).toBe('9')
+    })
+
+    it.each([
+        ['an unknown field', { owner: 5 }],
+        ['a team id', { team_id: 5 }],
+    ])('rejects a patch with %s', async (_label, body) => {
+        await seed()
+        const res = await byExternalId('PATCH', sharedPath('hubspot', 'shared'), { body })
+        expect(res.status).toBe(400)
+    })
+
+    it('rejects a bad kind, a bad source_rows and an unknown parameter', async () => {
+        for (const path of [
+            sharedPath('Not A Kind', 'shared'),
+            sharedPath('hubspot', 'shared', '?source_rows=all'),
+            sharedPath('hubspot', 'shared', '?owner=1'),
+        ]) {
+            expect((await byExternalId('GET', path)).status).toBe(400)
+        }
+    })
+
+    it('deletes the rows of every team and their secrets, once, and audits each row', async () => {
+        const rows = await seed()
+        const res = await byExternalId('DELETE', sharedPath('hubspot', 'shared'))
+        expect(res.status).toBe(200)
+        expect(res.json).toEqual({ deleted: 2 })
+
+        expect(await rowCount('deleted_at IS NOT NULL')).toBe(2)
+        expect(await rowCount('deleted_at IS NOT NULL AND id = ANY($1::uuid[])', [[rows.a.id, rows.b.id]])).toBe(2)
+        const secrets = await pool.query('SELECT integration_id FROM integration_secrets')
+        expect(secrets.rows.map((row) => row.integration_id).sort()).toEqual(
+            [rows.c.id, rows.otherId.id, rows.otherKind.id].sort()
+        )
+
+        // A second call finds no live row.
+        expect((await byExternalId('DELETE', sharedPath('hubspot', 'shared'))).json).toEqual({ deleted: 0 })
+
+        const audited = (
+            await pool.query(
+                `SELECT owner_id, kind, integration_id FROM audit_log
+             WHERE operation = 'delete_by_external_id' ORDER BY owner_id`
+            )
+        ).rows
+        expect(audited.map((row) => [row.owner_id, row.kind, row.integration_id])).toEqual([
+            [String(TEAM_A), 'hubspot', rows.a.id],
+            [String(TEAM_B), 'hubspot', rows.b.id],
+        ])
+
+        // The unique key is free again.
+        await create({ integration_id: 'shared' }, { team: TEAM_A })
+    })
+
+    it('deletes source rows only when asked', async () => {
+        const rows = await seed()
+        const res = await byExternalId('DELETE', sharedPath('hubspot', 'shared', '?source_rows=only'))
+        expect(res.json).toEqual({ deleted: 1 })
+        expect(await rowCount('id = $1 AND deleted_at IS NOT NULL', [rows.c.id])).toBe(1)
+    })
+
+    it('audits every row a list returns, with its own owner', async () => {
+        await seed()
+        await byExternalId('GET', sharedPath('hubspot', 'shared'))
+        const rows = (await auditRows()).filter((row) => row.operation === 'read_by_external_id')
+        expect(rows.map((row) => row.owner_id).sort()).toEqual([String(TEAM_A), String(TEAM_B)])
+    })
+})
+
+describe('delete owner', () => {
+    const ownerOps: IntegrationOp[] = ['delete_owner']
+
+    it('deletes every row and secret of the owner and no other, then does nothing the second time', async () => {
+        const a1 = await create({ integration_id: 'a1' }, { team: TEAM_A })
+        const a2 = await create({ kind: 'slack', integration_id: 'a2', is_source_row: true }, { team: TEAM_A })
+        const b1 = await create({ integration_id: 'a1' }, { team: TEAM_B })
+        await call('POST', '/', {
+            body: newIntegration({ integration_id: 'keyed' }),
+            headers: { 'Idempotency-Key': 'owner-delete-key' },
+        })
+
+        const res = await call('DELETE', `/?owner=${TEAM_A}`, { ops: ownerOps })
+        expect(res.status).toBe(200)
+        expect(res.json).toEqual({ deleted: 3 })
+
+        expect(await rowCount('owner_id = $1 AND deleted_at IS NULL', [TEAM_A])).toBe(0)
+        expect(await rowCount('owner_id = $1 AND deleted_at IS NULL', [TEAM_B])).toBe(1)
+        const secrets = await pool.query('SELECT integration_id FROM integration_secrets')
+        expect(secrets.rows.map((row) => row.integration_id)).toEqual([b1.id])
+        expect((await pool.query('SELECT 1 FROM idempotency_keys')).rowCount).toBe(0)
+        expect((await call('GET', `/${a1.id}`)).status).toBe(404)
+        expect((await call('GET', `/${a2.id}`)).status).toBe(404)
+
+        expect((await call('DELETE', `/?owner=${TEAM_A}`, { ops: ownerOps })).json).toEqual({ deleted: 0 })
+
+        const audited = (await auditRows()).filter((row) => row.operation === 'delete_owner')
+        expect(audited).toHaveLength(3)
+        expect(audited.every((row) => row.owner_id === String(TEAM_A))).toBe(true)
+    })
+
+    it('deletes more rows than one batch holds', async () => {
+        await pool.query(
+            `INSERT INTO integrations (owner_type, owner_id, kind, external_id, auth_type)
+             SELECT 'team', $1, 'hubspot', 'bulk-' || n, 'oauth' FROM generate_series(1, 1100) AS n`,
+            [TEAM_A]
+        )
+        const res = await call('DELETE', `/?owner=${TEAM_A}`, { ops: ownerOps })
+        expect(res.json).toEqual({ deleted: 1100 })
+        expect(await rowCount('deleted_at IS NULL')).toBe(0)
+        expect((await auditRows()).filter((row) => row.operation === 'delete_owner')).toHaveLength(1100)
+    })
+
+    it.each([
+        ['another owner than the token', `/?owner=${TEAM_B}`, {}, 403],
+        ['no owner', '/', {}, 400],
+        ['a bad owner', '/?owner=abc', {}, 400],
+        ['an unknown parameter', `/?owner=${TEAM_A}&kind=hubspot`, {}, 400],
+        ['a token that names kinds', `/?owner=${TEAM_A}`, { kinds: ['hubspot'] }, 403],
+        ['a worker deployment', `/?owner=${TEAM_A}`, { deployment: WORKER }, 403],
+        ['a cdp deployment', `/?owner=${TEAM_A}`, { deployment: CDP }, 403],
+        ['a token without the op', `/?owner=${TEAM_A}`, { ops: ['write'] as IntegrationOp[] }, 403],
+        ['a token without an owner', `/?owner=${TEAM_A}`, { team: null }, 401],
+    ])('refuses %s and deletes nothing', async (_label, path, opts: CallOptions, status) => {
+        await create({}, { team: TEAM_A })
+        await create({}, { team: TEAM_B })
+        const res = await call('DELETE', path, { ops: ownerOps, ...opts })
+        expect(res.status).toBe(status)
+        expect(await rowCount('deleted_at IS NULL')).toBe(2)
+    })
+})
+
+describe('reverse_sync', () => {
+    const changeOps: IntegrationOp[] = ['reverse_sync']
+
+    async function changes(query = '', opts: CallOptions = {}): Promise<CallResult> {
+        return call('GET', `/changes${query}`, { deployment: REVERSE_SYNC, team: null, ops: changeOps, ...opts })
+    }
+
+    it.each([
+        ['the reverse-sync deployment', REVERSE_SYNC, 200],
+        ['the web deployment', WEB, 403],
+        ['a worker deployment', WORKER, 403],
+        ['a cdp deployment', CDP, 403],
+    ])('is allowed or refused for %s', async (_label, deployment, status) => {
+        expect((await changes('', { deployment })).status).toBe(status)
+    })
+
+    it('refuses a token without the op, and a token that names refs', async () => {
+        const created = await create()
+        expect((await changes('', { ops: ['read'], team: TEAM_A })).status).toBe(403)
+        expect((await changes('', { refs: [created.id] })).status).toBe(403)
+    })
+
+    it('returns the rows of every team in change order, with the whole secret blob, and audits each row', async () => {
+        const a = await create({ integration_id: 'a' }, { team: TEAM_A })
+        const b = await create({ integration_id: 'b' }, { team: TEAM_B })
+        const bare = await create({ integration_id: 'bare', sensitive_config: {} }, { team: TEAM_A })
+
+        const res = await changes()
+        expect(res.status).toBe(200)
+        expect(res.headers.get('Cache-Control')).toBe('no-store')
+        expect(res.json.results.map((item: any) => item.record.id)).toEqual([a.id, b.id, bare.id])
+        expect(res.json.results[0]).toMatchObject({
+            deleted: false,
+            secret: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN, client_secret: CLIENT_SECRET },
+            secret_error: null,
+        })
+        expect(res.json.results[2].secret).toEqual({})
+        expect(res.json.next).toEqual(expect.any(String))
+
+        const audited = (await auditRows()).filter((row) => row.operation === 'reverse_sync')
+        expect(audited.map((row) => [row.owner_id, row.fields])).toEqual([
+            [String(TEAM_A), ['access_token', 'client_secret', 'refresh_token']],
+            [String(TEAM_B), ['access_token', 'client_secret', 'refresh_token']],
+            [String(TEAM_A), []],
+        ])
+    })
+
+    it('returns the current secret on every live row, and tombstones for deletes', async () => {
+        const a = await create({ integration_id: 'a' }, { team: TEAM_A })
+        const b = await create({ integration_id: 'b' }, { team: TEAM_A })
+        const c = await create({ integration_id: 'c' }, { team: TEAM_A })
+        const first = await changes()
+        expect(first.json.results).toHaveLength(3)
+
+        await call('PATCH', `/${a.id}`, { body: { config_patch: { refreshed_at: 1_800_000_500 } } })
+        await call('PATCH', `/${b.id}`, { body: { sensitive_config_patch: { access_token: 'fake-rotated-token' } } })
+        await call('PATCH', `/${c.id}`, {
+            body: { sensitive_config_remove: ['access_token', 'refresh_token', 'client_secret'] },
+        })
+        const deleted = await create({ integration_id: 'd' })
+        await call('DELETE', `/${deleted.id}`)
+
+        const second = await changes(`?since=${first.json.next}`)
+        const byId = Object.fromEntries(second.json.results.map((item: any) => [item.record.id, item]))
+        expect(Object.keys(byId).sort()).toEqual([a.id, b.id, c.id, deleted.id].sort())
+        expect(byId[a.id]).toMatchObject({
+            secret: { access_token: ACCESS_TOKEN, refresh_token: REFRESH_TOKEN, client_secret: CLIENT_SECRET },
+            deleted: false,
+        })
+        expect(byId[a.id].record.config.refreshed_at).toBe(1_800_000_500)
+        expect(byId[b.id].secret).toEqual({
+            access_token: 'fake-rotated-token',
+            refresh_token: REFRESH_TOKEN,
+            client_secret: CLIENT_SECRET,
+        })
+        // A removed secret reads as an empty blob, so the reader can clear its copy.
+        expect(byId[c.id].secret).toEqual({})
+        expect(byId[deleted.id]).toMatchObject({ deleted: true, secret: {} })
+
+        // With nothing new, the cursor stays.
+        const third = await changes(`?since=${second.json.next}`)
+        expect(third.json).toEqual({ results: [], next: second.json.next })
+    })
+
+    it('reports a deleted team as tombstones', async () => {
+        await create({ integration_id: 'a' }, { team: TEAM_A })
+        const first = await changes()
+        await call('DELETE', `/?owner=${TEAM_A}`, { ops: ['delete_owner'] })
+        const second = await changes(`?since=${first.json.next}`)
+        expect(second.json.results.map((item: any) => item.deleted)).toEqual([true])
+    })
+
+    it('pages without gaps or repeats, also when many rows share one timestamp', async () => {
+        await pool.query(
+            `INSERT INTO integrations (owner_type, owner_id, kind, external_id, auth_type)
+             SELECT 'team', $1, 'hubspot', 'same-' || n, 'oauth' FROM generate_series(1, 7) AS n`,
+            [TEAM_A]
+        )
+        const seen: string[] = []
+        let since = ''
+        for (let page = 0; page < 10; page++) {
+            const res = await changes(`?limit=3${since}`)
+            const ids = res.json.results.map((item: any) => item.record.id)
+            seen.push(...ids)
+            since = `&since=${res.json.next}`
+            if (ids.length < 3) {
+                break
+            }
+        }
+        const stored = await pool.query('SELECT id FROM integrations')
+        expect(seen).toHaveLength(7)
+        expect(new Set(seen)).toEqual(new Set(stored.rows.map((row) => row.id)))
+    })
+
+    it('does not pass a row that a slower transaction has not committed yet', async () => {
+        const slow = await create({ integration_id: 'slow' })
+        const fast = await create({ integration_id: 'fast' })
+        const settling = buildApp(kms, undefined, 2)
+        await new Promise((resolve) => setTimeout(resolve, 2100))
+        const baseline = await changes('', { target: settling })
+        expect(baseline.json.results).toHaveLength(2)
+
+        // The transaction starts first, so its updated_at is the older one. It commits last.
+        const client = await pool.connect()
+        try {
+            await client.query('BEGIN')
+            await client.query('UPDATE integrations SET updated_at = now(), version = version + 1 WHERE id = $1', [
+                slow.id,
+            ])
+            await call('PATCH', `/${fast.id}`, { body: { config_patch: { refreshed_at: 1_800_000_500 } } })
+
+            // The fast row is newer than the open transaction. The feed must not return it yet.
+            const during = await changes(`?since=${baseline.json.next}`, { target: settling })
+            expect(during.json).toEqual({ results: [], next: baseline.json.next })
+            await client.query('COMMIT')
+        } finally {
+            client.release()
+        }
+
+        await new Promise((resolve) => setTimeout(resolve, 2100))
+        const after = await changes(`?since=${baseline.json.next}`, { target: settling })
+        expect(after.json.results.map((item: any) => item.record.id)).toEqual([slow.id, fast.id])
+    })
+
+    it('limits a request to the kinds it names, and to the kinds of the token', async () => {
+        const hubspot = await create({ integration_id: 'h' })
+        const slack = await create({ kind: 'slack', integration_id: 's' })
+        const ids = (res: CallResult): string[] => res.json.results.map((item: any) => item.record.id)
+
+        expect(ids(await changes('?kind=slack'))).toEqual([slack.id])
+        expect(ids(await changes('', { kinds: ['hubspot'] }))).toEqual([hubspot.id])
+        expect((await changes('?kind=slack', { kinds: ['hubspot'] })).status).toBe(403)
+    })
+
+    it.each([
+        ['a bad limit', '?limit=0'],
+        ['a limit over the maximum', '?limit=501'],
+        ['a bad cursor', '?since=not-a-cursor'],
+        ['an unknown parameter', '?team_id=1'],
+    ])('rejects %s', async (_label, query) => {
+        expect((await changes(query)).status).toBe(400)
+    })
+
+    it('reports a secret that cannot be opened for its row and keeps the feed going', async () => {
+        const broken = await create({ integration_id: 'broken' })
+        const fine = await create({ integration_id: 'fine' })
+        await pool.query(`UPDATE integration_secrets SET ciphertext = '\\x00'::bytea WHERE integration_id = $1`, [
+            broken.id,
+        ])
+        const res = await changes()
+        expect(res.status).toBe(200)
+        expect(res.json.results[0]).toMatchObject({ secret: null, secret_error: 'unreadable_secret' })
+        expect(res.json.results[1]).toMatchObject({ secret_error: null })
+        expect(res.json.results[1].record.id).toBe(fine.id)
+        const audited = (await auditRows()).filter((row) => row.operation === 'reverse_sync')
+        expect(audited.map((row) => row.outcome)).toEqual(['unreadable_secret', 'ok'])
+    })
+
+    it('answers kms_unavailable when the key service is down, so the poller retries', async () => {
+        await create()
+        class DownKms implements Kms {
+            readonly provider = 'local'
+            async generateDataKey(): Promise<never> {
+                throw new KmsError('unavailable', 'KMS did not answer')
+            }
+            async decrypt(): Promise<never> {
+                throw new KmsError('unavailable', 'KMS did not answer')
+            }
+            async rewrap(): Promise<never> {
+                throw new KmsError('unavailable', 'KMS did not answer')
+            }
+        }
+        const res = await changes('', { target: buildApp(new DownKms()) })
+        expect(res.status).toBe(503)
     })
 })
