@@ -22,8 +22,8 @@ from products.managed_warehouse.backend.facade.staff import (
     preview_provision_for_staff,
     provision_for_staff,
     retry_view_translation_for_staff,
-    start_view_translation_for_staff,
     start_trino_compile_check,
+    start_view_translation_for_staff,
 )
 
 MANAGED_WAREHOUSE = Owner(name="Managed warehouse", crest="managed-warehouse")
