@@ -88,6 +88,8 @@ interface UseTaskCreationOptions {
   repositories?: string[];
   githubIntegrationId?: number;
   githubUserIntegrationId?: string;
+  /** GitLab integration when `selectedRepository` is a GitLab project path. */
+  repositoryIntegrationId?: number;
   workspaceMode: WorkspaceMode;
   branch?: string | null;
   editorIsEmpty: boolean;
@@ -171,7 +173,11 @@ async function trackTaskCreated(
       task_id: taskId,
       auto_run: !!input.executionMode,
       created_from: "command-menu",
-      repository_provider: input.repository ? "github" : "none",
+      repository_provider: input.repository
+        ? input.repositoryIntegrationId !== undefined
+          ? "gitlab"
+          : "github"
+        : "none",
       workspace_mode: workspaceMode,
       has_branch: !!input.branch,
       has_environment_setup:
@@ -210,6 +216,7 @@ export function useTaskCreation({
   repositories,
   githubIntegrationId,
   githubUserIntegrationId,
+  repositoryIntegrationId,
   workspaceMode,
   branch,
   editorIsEmpty,
@@ -475,6 +482,7 @@ export function useTaskCreation({
             repositories,
             githubIntegrationId,
             githubUserIntegrationId,
+            repositoryIntegrationId,
             workspaceMode,
             branch,
             allowRemoteBranchCheckout,
@@ -696,6 +704,7 @@ export function useTaskCreation({
       repositories,
       githubIntegrationId,
       githubUserIntegrationId,
+      repositoryIntegrationId,
       workspaceMode,
       branch,
       executionMode,
