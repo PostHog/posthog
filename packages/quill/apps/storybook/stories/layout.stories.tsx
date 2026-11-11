@@ -135,7 +135,7 @@ const NavRail = (): React.ReactElement => (
 
 const Sidebar = (): React.ReactElement => (
     <aside className="flex w-[272px] shrink-0 flex-col gap-2 border-border border-r p-2">
-        <Button elevated variant="outline" size="lg" className="mb-1 w-full">
+        <Button variant="outline" size="lg" className="mb-1 w-full">
             <PlusIcon /> New task
         </Button>
         <Button left className="w-full">
