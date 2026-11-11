@@ -127,6 +127,7 @@ So an empty string, or a value in the right format that Postgres cannot read as 
 A message whose JSON has a string `type` field is a control record, not a change.
 The sweep produces one kind, the [floor record](#the-floor-record).
 The consumer skips it, whatever the type, and its offset still counts toward the consumer's progress.
+An image from before that skip fails every batch that holds a floor record, so do not roll the consumer back past it while a floor is in retention.
 Any other message that fails validation fails the whole batch every time.
 There is no dead-letter queue, so a malformed message stops the feed until it is skipped or the code is fixed.
 
@@ -173,7 +174,7 @@ A ledger row per `(run, cohort)` tracks the process.
    The **threshold** is the lower of the snapshot minimum and the marker minimum.
    The first claim freezes it in the ledger row's `floor_threshold`, and every later claim of the run uses that value.
    The sweeper produces a [floor record](#the-floor-record) to every partition named in the captured ends, and waits until the broker acknowledges each one.
-   If any produce fails, the sweeper deletes nothing and the run goes back to `ready`.
+   If any produce fails or times out, the sweeper deletes nothing and the run goes back to `ready`.
    Then the sweeper deletes the cohort's rows with a version below the threshold, in small pages, skipping rows another writer has locked.
    A row the consumer refreshed in the meantime has a newer version and survives.
 5. **Swept.**
@@ -212,11 +213,13 @@ It means that the cohort's rows with a version below `threshold` are void.
 
 The sweeper produces every copy after it captured those ends, so in each partition the copy comes after every row of the run's snapshot.
 A reader that applies the floor only when it holds a copy from each of `partitions` distinct partitions has read every row the run re-asserted by then.
+One run covers several cohorts, so a reader matches copies on `cohort_id` and `run_id` together.
 A reader that applies it earlier can hide a person whose reconcile row is in a partition the reader has not reached.
 
 A failed publish puts some copies on the topic and deletes nothing.
 The next claim publishes the same frozen threshold again, so one partition can hold several copies, always with the same value.
 So a reader counts distinct partitions, not copies.
+Floors of two runs of one cohort can arrive in either order, so a reader keeps the highest threshold it has applied.
 
 A run with a frozen threshold is never abandoned for its age, and the gate does not hold it back again, so the delete follows its floor even after the consumer moves to another feed.
 

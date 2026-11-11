@@ -51,6 +51,13 @@ const MAX_RUNS_PER_TICK = 10
  */
 const MAX_CANDIDATES_PER_TICK = 200
 
+/**
+ * In a broker outage the producer waits for librdkafka's `message.timeout.ms`, 300 s by default,
+ * and the claim and pod shutdown would wait with it. A copy acked after this limit does no harm,
+ * because the next claim publishes the same floor again.
+ */
+const FLOOR_PUBLISH_TIMEOUT_MS = 10_000
+
 const ReconcileCompleteMarkerSchema = z.object({
     type: z.literal('reconcile_complete'),
     team_id: z.number(),
@@ -420,17 +427,12 @@ export class CohortMembershipSweeper {
                 continue
             }
 
-            const outcome = await this.sweep(claimed)
-            if (outcome === 'unpublished') {
-                // Every run publishes to the same partitions, so the runs after this one would fail
-                // the same way, each holding its claim until the producer gives up.
-                break
-            }
-            if (outcome === 'refused') {
+            const deleted = await this.sweep(claimed)
+            if (deleted === null) {
                 continue
             }
 
-            result.rowsDeleted += outcome
+            result.rowsDeleted += deleted
             result.swept += 1
             sweepsExecuted.inc()
         }
@@ -563,8 +565,8 @@ export class CohortMembershipSweeper {
         return result.rows[0] ?? null
     }
 
-    /** Returns the deleted row count, or why the run was not swept. */
-    private async sweep(run: ClaimableRun): Promise<number | 'refused' | 'unpublished'> {
+    /** Returns the deleted row count, or null when the run was not swept. */
+    private async sweep(run: ClaimableRun): Promise<number | null> {
         if (!run.threshold) {
             return await this.abandonThresholdless(run)
         }
@@ -573,7 +575,7 @@ export class CohortMembershipSweeper {
         // publishes the same frozen floor again.
         if (!(await this.publishFloor(run, run.threshold))) {
             await this.finishSweep(run, 0, false)
-            return 'unpublished'
+            return null
         }
 
         const { deleted, claimLost, interrupted } = await this.deleteStaleRowsInPages(run)
@@ -594,7 +596,7 @@ export class CohortMembershipSweeper {
      * at or to delete below. Abandoning gives the row a terminal state instead of leaving it
      * wedged in 'sweeping'.
      */
-    private async abandonThresholdless(run: ClaimableRun): Promise<'refused'> {
+    private async abandonThresholdless(run: ClaimableRun): Promise<null> {
         logger.error('Refusing to sweep a run with no threshold', {
             run_id: run.run_id,
             cohort_id: run.cohort_id,
@@ -611,7 +613,7 @@ export class CohortMembershipSweeper {
             'abandonThresholdlessCohortMembershipSweep'
         )
         sweepsAbandoned.inc({ reason: 'no_threshold' })
-        return 'refused'
+        return null
     }
 
     /**
@@ -633,12 +635,21 @@ export class CohortMembershipSweeper {
             })
         )
 
+        let timer: NodeJS.Timeout | undefined
         try {
-            await Promise.all(
-                partitions.map((partition) =>
-                    this.kafka.producer.produce({ topic: this.kafka.topic, partition, key: null, value })
-                )
-            )
+            await Promise.race([
+                Promise.all(
+                    partitions.map((partition) =>
+                        this.kafka.producer.produce({ topic: this.kafka.topic, partition, key: null, value })
+                    )
+                ),
+                new Promise((_, reject) => {
+                    timer = setTimeout(
+                        () => reject(new Error(`Not every copy was acked within ${FLOOR_PUBLISH_TIMEOUT_MS} ms`)),
+                        FLOOR_PUBLISH_TIMEOUT_MS
+                    )
+                }),
+            ])
         } catch (error) {
             floorPublishes.inc({ outcome: 'failed' })
             logger.error('Failed to publish a sweep floor, deleting nothing', {
@@ -647,6 +658,8 @@ export class CohortMembershipSweeper {
                 cohort_id: run.cohort_id,
             })
             return false
+        } finally {
+            clearTimeout(timer)
         }
 
         floorPublishes.inc({ outcome: 'published' })

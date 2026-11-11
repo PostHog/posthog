@@ -258,6 +258,7 @@ Most of these are not enforced by a single test, and a violation usually shows u
 - Kept by: the sweeper produces the run's floor record to every partition named in the run's captured ends, and waits for every acknowledgment, before its first delete page.
   A run with a frozen threshold is never abandoned for its age, and the gate does not hold it back again, so the delete follows its floor.
   Any other code that deletes member rows, including a manual cleanup, has to publish a floor first.
+  A sweeper image from before floors deletes without one, so a reader of the topic starts from a copy of Postgres taken after every sweeper publishes floors, and sweeping goes off before a rollback to such an image.
   Deleting non-member rows, or rows of teams nobody reads, changes no member set and needs no floor.
 - If broken: a reader of the topic keeps members that Postgres deleted.
 - See [membership output and readers](membership-output-and-readers.md#the-floor-record).
