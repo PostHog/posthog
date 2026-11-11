@@ -3022,6 +3022,167 @@ describe('Cyclotron V2', () => {
             expect(row.janitor_touch_count).toBe(1)
         })
 
+        it('resetStalledJobs resets at most the batch size per run, longest stalled first, and the next run resets the rest', async () => {
+            const stalledFor = (minutes: number): Date => new Date(Date.now() - minutes * 60_000)
+            const [oldest, middle, newest] = [uuidv7(), uuidv7(), uuidv7()]
+            await insertRawJob({ id: newest, status: 'running', lock_id: uuidv7(), last_heartbeat: stalledFor(1) })
+            await insertRawJob({ id: oldest, status: 'running', lock_id: uuidv7(), last_heartbeat: stalledFor(3) })
+            await insertRawJob({ id: middle, status: 'running', lock_id: uuidv7(), last_heartbeat: stalledFor(2) })
+
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, stallResetBatchSize: 2 })
+            const first = await janitor.runOnce()
+            const statusesAfterFirstRun = await Promise.all(
+                [oldest, middle, newest].map(async (id) => (await queryJob(id)).status)
+            )
+            const second = await janitor.runOnce()
+            await janitor.stop()
+
+            expect(first.stalled).toBe(2)
+            expect(statusesAfterFirstRun).toEqual(['available', 'available', 'running'])
+            expect(second.stalled).toBe(1)
+            expect((await queryJob(newest)).status).toBe('available')
+        })
+
+        it('a failing stage does not skip the stages after it', async () => {
+            const failingTeam = 424242
+            await insertRawJob({
+                id: uuidv7(),
+                team_id: failingTeam,
+                status: 'completed',
+                last_transition: new Date(Date.now() - 60_000),
+            })
+            const stalledId = uuidv7()
+            await insertRawJob({
+                id: stalledId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+            })
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION refuse_janitor_stage_test_delete() RETURNS trigger AS $$
+                BEGIN
+                    IF OLD.team_id = ${failingTeam} THEN
+                        RAISE EXCEPTION 'terminal cleanup refused for the stage isolation test';
+                    END IF;
+                    RETURN OLD;
+                END
+                $$ LANGUAGE plpgsql`)
+            await assertPool.query(`
+                CREATE TRIGGER refuse_janitor_stage_test_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION refuse_janitor_stage_test_delete()`)
+            const failuresBefore = await counterValue('cdp_cyclotron_v2_janitor_stage_failures_total', {
+                stage: 'terminal_cleanup',
+            })
+            const janitor = createJanitor({ stallTimeoutMs: 1_000 })
+            try {
+                const result = await janitor.runOnce()
+
+                expect(result.stalled).toBe(1)
+                expect(result.depths.get('hogflow')).toBe(1)
+                expect((await queryJob(stalledId)).status).toBe('available')
+                expect(
+                    await counterValue('cdp_cyclotron_v2_janitor_stage_failures_total', { stage: 'terminal_cleanup' })
+                ).toBe(failuresBefore + 1)
+            } finally {
+                await janitor.stop()
+                await assertPool.query('DROP TRIGGER refuse_janitor_stage_test_delete ON cyclotron_jobs')
+                await assertPool.query('DROP FUNCTION refuse_janitor_stage_test_delete()')
+            }
+        })
+
+        const holdJanitorRunsOnATerminalRow = async (): Promise<{
+            stalledId: string
+            release: () => Promise<void>
+        }> => {
+            const heldTeam = 434343
+            const holdKey = 434343
+            await insertRawJob({
+                id: uuidv7(),
+                team_id: heldTeam,
+                status: 'completed',
+                last_transition: new Date(Date.now() - 60_000),
+            })
+            const stalledId = uuidv7()
+            await insertRawJob({
+                id: stalledId,
+                status: 'running',
+                lock_id: uuidv7(),
+                last_heartbeat: new Date(Date.now() - 60_000),
+            })
+            await assertPool.query(`
+                CREATE OR REPLACE FUNCTION hold_janitor_run_test_delete() RETURNS trigger AS $$
+                BEGIN
+                    IF OLD.team_id = ${heldTeam} THEN
+                        PERFORM pg_advisory_lock(${holdKey});
+                        PERFORM pg_advisory_unlock(${holdKey});
+                    END IF;
+                    RETURN OLD;
+                END
+                $$ LANGUAGE plpgsql`)
+            await assertPool.query(`
+                CREATE OR REPLACE TRIGGER hold_janitor_run_test_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION hold_janitor_run_test_delete()`)
+            const holder = await assertPool.connect()
+            await holder.query('SELECT pg_advisory_lock($1)', [holdKey])
+            let released = false
+            return {
+                stalledId,
+                release: async () => {
+                    if (released) {
+                        return
+                    }
+                    released = true
+                    await holder.query('SELECT pg_advisory_unlock($1)', [holdKey])
+                    holder.release()
+                },
+            }
+        }
+        const dropJanitorRunHold = async (): Promise<void> => {
+            await assertPool.query('DROP TRIGGER IF EXISTS hold_janitor_run_test_delete ON cyclotron_jobs')
+            await assertPool.query('DROP FUNCTION IF EXISTS hold_janitor_run_test_delete()')
+        }
+
+        it('resets no stalled job while the previous run is still going, and resets it once that run ends', async () => {
+            const { stalledId, release } = await holdJanitorRunsOnATerminalRow()
+            const skippedBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 10 })
+            const started = janitor.start()
+            try {
+                await waitForExpect(
+                    async () =>
+                        expect(
+                            await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
+                        ).toBeGreaterThanOrEqual(skippedBefore + 5),
+                    2000,
+                    10
+                )
+                expect((await queryJob(stalledId)).status).toBe('running')
+                await release()
+                await waitForExpect(async () => expect((await queryJob(stalledId)).status).toBe('available'), 3000)
+            } finally {
+                await release()
+                await started
+                await janitor.stop()
+                await dropJanitorRunHold()
+            }
+        })
+
+        it('resets a stalled job in a new run while the previous run is stuck past its limit', async () => {
+            const { stalledId, release } = await holdJanitorRunsOnATerminalRow()
+            const stuckBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 10, stuckRunAfterMs: 200 })
+            const started = janitor.start()
+            try {
+                await waitForExpect(async () => expect((await queryJob(stalledId)).status).toBe('available'), 3000)
+                expect(await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')).toBeGreaterThan(stuckBefore)
+            } finally {
+                await release()
+                await started
+                await janitor.stop()
+                await dropJanitorRunHold()
+            }
+        })
+
         // Backoff on the reset job's next scheduled time, keyed on
         // janitor_touch_count. The FIRST stall retries within the small jittered
         // spread (~5s), not the full base — the exponential term is shifted

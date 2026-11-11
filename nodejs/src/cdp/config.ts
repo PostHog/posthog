@@ -249,6 +249,8 @@ export type CdpConfig = ClickhouseConfig & {
     // max caps the per-strike wait.
     CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: number
     CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: number
+    // Most stalled jobs one janitor run resets; the rest wait for the next run. 0 resets them all.
+    CYCLOTRON_NODE_JANITOR_STALL_RESET_BATCH_SIZE: number
     // Timing-edit reschedule sweep (CyclotronV2Manager.rescheduleParkedJobs)
     // Scoped JWT keys authenticating Django's calls to the reschedule_parked route — comma-separated,
     // newest first (first signs, all verify). Deliberately NOT the fleet-wide INTERNAL_API_SECRET
@@ -499,6 +501,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CYCLOTRON_NODE_POISON_PILL_RECOVERY_ENABLED: true,
         CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_BASE_MS: 60000,
         CYCLOTRON_NODE_JANITOR_STALL_BACKOFF_MAX_MS: 600000,
+        CYCLOTRON_NODE_JANITOR_STALL_RESET_BATCH_SIZE: 0,
         // Floor > the hog flow cache's worst-case staleness (~6 min), so swept jobs
         // always wake against post-edit config. Rate sized well under hogflow worker
         // steady-state throughput: the past incident class here is an instantaneous
