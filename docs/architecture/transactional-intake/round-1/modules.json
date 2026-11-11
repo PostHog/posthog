@@ -1,0 +1,358 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "apps",
+                    "name": "API callers",
+                    "note": "customer apps, our own resets and codes",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "hooks",
+                    "name": "Webhook callers",
+                    "note": "weekly digest, customer triggers",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "gap": 50,
+            "modules": [
+                {
+                    "id": "django",
+                    "name": "Django send service",
+                    "note": "messaging/backend/services/transactional_email.py",
+                    "used": 2,
+                    "change": "changed",
+                    "flex": 1.2,
+                    "seam": [
+                        "send_transactional_email",
+                        "send_code_email",
+                        {
+                            "name": "409 \u2192 retry mapping",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "hookroute",
+                    "name": "Webhook route",
+                    "note": "CdpSourceWebhooksConsumer, stays synchronous",
+                    "used": 3,
+                    "change": "changed",
+                    "seam": ["processWebhook", "processManualTrigger"]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "sendroute",
+                    "name": "Send route",
+                    "note": "CdpApi \u2026/transactional_email/send",
+                    "used": 1,
+                    "change": "changed",
+                    "seam": [
+                        "POST send",
+                        {
+                            "name": "202 on broker ack",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "intake",
+                    "name": "Run intake",
+                    "note": "accept a run once per key",
+                    "change": "added",
+                    "q": "Q3",
+                    "seam": ["launch(runs)"]
+                },
+                {
+                    "id": "valkeyk",
+                    "name": "IdempotencyKeys",
+                    "note": "Valkey pending lock",
+                    "used": 2,
+                    "change": "removed",
+                    "seam": ["reserve", "markQueued", "release"]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "queue",
+                    "name": "Cyclotron job queue",
+                    "note": "JobQueue, CyclotronV2Manager",
+                    "used": 15,
+                    "change": "changed",
+                    "seam": [
+                        "queueInvocations",
+                        {
+                            "name": "createJobsIdempotently",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "topic",
+                    "name": "Intake topic",
+                    "note": "key: invocation id",
+                    "external": true,
+                    "change": "added",
+                    "seam": []
+                },
+                {
+                    "id": "crypto",
+                    "name": "EncryptedFields",
+                    "note": "Fernet, ENCRYPTION_SALT_KEYS",
+                    "used": 8,
+                    "change": "changed",
+                    "seam": ["encrypt", "decrypt"]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "pg",
+                    "name": "Cyclotron Postgres",
+                    "note": "jobs, plus idempotency rows from #132891",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "consumer",
+                    "name": "Intake consumer",
+                    "note": "batch insert",
+                    "change": "added",
+                    "seam": ["eachBatch"]
+                },
+                {
+                    "id": "dlq",
+                    "name": "Dead-letter topic",
+                    "note": "can never insert",
+                    "external": true,
+                    "change": "added",
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "gap": 50,
+            "modules": [
+                {
+                    "id": "worker",
+                    "name": "Email worker \u2192 SES",
+                    "note": "untouched",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "ops",
+                    "name": "Operator",
+                    "note": "replays the dead-letter topic",
+                    "external": true,
+                    "change": "added",
+                    "followUp": true,
+                    "seam": []
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "apps",
+            "to": "django-seam",
+            "label": "send"
+        },
+        {
+            "from": "hooks",
+            "to": "hookroute-seam",
+            "label": "POST /public/webhooks"
+        },
+        {
+            "from": "django",
+            "to": "sendroute-seam",
+            "toAt": 0.4,
+            "label": "HTTP",
+            "labelAt": 0.4
+        },
+        {
+            "from": "hookroute",
+            "to": "valkeyk-seam",
+            "fromAt": 0.8,
+            "toAt": 0.5,
+            "change": "removed",
+            "label": "reserve",
+            "labelAt": 0.35,
+            "crossAt": 0.6
+        },
+        {
+            "from": "sendroute",
+            "fromSide": "top",
+            "fromAt": 0.85,
+            "to": "valkeyk-seam",
+            "toSide": "top",
+            "toAt": 0.15,
+            "change": "removed",
+            "label": "reserve",
+            "bend": 26,
+            "labelAt": 0.2,
+            "crossAt": 0.75
+        },
+        {
+            "from": "sendroute",
+            "fromSide": "right",
+            "fromAt": 0.7,
+            "to": "intake",
+            "toSide": "left",
+            "toAt": 0.7,
+            "change": "added",
+            "q": "Q3",
+            "bend": 10
+        },
+        {
+            "from": "hookroute",
+            "fromAt": 0.3,
+            "to": "intake-seam",
+            "toAt": 0.5,
+            "change": "added",
+            "q": "Q3",
+            "labelAt": 0.6
+        },
+        {
+            "from": "intake",
+            "fromAt": 0.6,
+            "to": "topic",
+            "toAt": 0.6,
+            "change": "added",
+            "label": "produce",
+            "labelAt": 0.5,
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "intake",
+            "fromAt": 0.15,
+            "to": "queue-seam",
+            "toAt": 0.8,
+            "change": "added",
+            "label": "sync",
+            "labelAt": 0.55,
+            "labelAlign": "end",
+            "labelOffset": [-4, 0]
+        },
+        {
+            "from": "intake",
+            "fromSide": "right",
+            "fromAt": 0.8,
+            "to": "crypto-seam",
+            "toAt": 0.3,
+            "change": "added",
+            "q": "Q4",
+            "label": "encrypt",
+            "bend": 30,
+            "labelAt": 0.6
+        },
+        {
+            "from": "sendroute",
+            "fromAt": 0.2,
+            "to": "queue-seam",
+            "toAt": 0.2,
+            "change": "removed",
+            "label": "queueInvocations",
+            "labelAlign": "start",
+            "labelOffset": [6, 0],
+            "crossAt": 0.7,
+            "labelAt": 0.25
+        },
+        {
+            "from": "topic",
+            "to": "consumer-seam",
+            "label": "consume",
+            "change": "added",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "consumer",
+            "fromSide": "left",
+            "fromAt": 0.5,
+            "to": "queue",
+            "toSide": "bottom",
+            "toAt": 0.85,
+            "change": "added",
+            "label": "createJobsIdempotently",
+            "labelAt": 0.55,
+            "labelAlign": "start",
+            "labelOffset": [10, 0]
+        },
+        {
+            "from": "consumer",
+            "fromSide": "right",
+            "to": "dlq",
+            "toSide": "left",
+            "change": "added"
+        },
+        {
+            "from": "queue",
+            "fromAt": 0.3,
+            "to": "pg",
+            "toAt": 0.3,
+            "label": "one transaction",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "pg",
+            "fromAt": 0.5,
+            "to": "worker",
+            "toAt": 0.3,
+            "label": "dequeue",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "ops",
+            "fromSide": "top",
+            "to": "dlq",
+            "toSide": "bottom",
+            "change": "added",
+            "followUp": true,
+            "label": "replay",
+            "straight": "to",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        }
+    ],
+    "untouched": [
+        {
+            "name": "CdpDeadLetterService",
+            "seam": ["deadLetter"],
+            "note": "cdp_events_dlq, events only"
+        },
+        {
+            "name": "Janitor",
+            "seam": ["sweep"],
+            "note": "gains the key sweep in #132891"
+        },
+        {
+            "name": "Invocation results",
+            "seam": ["queueLifecycleRow"],
+            "note": "reached through a 7-symbol chain in 10 files"
+        },
+        {
+            "name": "CdpConsumerBase",
+            "seam": ["start", "stop"],
+            "used": 22,
+            "note": "builds ~25 services per consumer"
+        }
+    ]
+}

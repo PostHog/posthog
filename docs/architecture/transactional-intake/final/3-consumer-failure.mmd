@@ -1,0 +1,29 @@
+sequenceDiagram
+  autonumber
+  participant K as Intake topic
+  participant C as Intake consumer
+  participant X as Dead-letter writer
+  participant DLQ as cdp_intake_dlq
+  participant Q as Job queue
+  K->>C: batch
+  C->>C: parse each message
+  alt can never insert: not JSON, schema invalid
+    C->>X: message, fixed reason code
+    X->>X: breaker: 3+ and over 10% of batch?
+    alt breaker trips
+      X-->>C: throw, partition stalls, lag alert
+    else under the breaker
+      X->>DLQ: original bytes + dlq_* headers, no error text
+      DLQ-->>X: ack, any write alerts
+    end
+  end
+  C->>Q: createJobsIdempotently(rest)
+  alt Postgres error or timeout
+    Q-->>C: throw
+    C->>C: retry in-process with backoff, bounded, no offsets stored
+    C-->>K: still failing: throw, restart, batch redelivered
+    Note over C,Q: redelivered claims return replayed for rows that committed
+  else committed
+    Q-->>C: outcomes
+    C-->>K: store offsets
+  end

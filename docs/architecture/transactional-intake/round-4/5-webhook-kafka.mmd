@@ -1,0 +1,26 @@
+sequenceDiagram
+  autonumber
+  participant Cl as Webhook caller
+  participant W as Webhook route
+  participant I as Run intake
+  participant K as Webhook intake topic (Q2)
+  participant C as Intake consumer
+  participant Q as Job queue
+  Cl->>W: POST /public/webhooks/:id (≤ 512 KB)
+  W->>W: run trigger template: method, auth, parse
+  alt template rejects
+    W-->>Cl: its own 4xx, nothing queued
+  else template captures an event
+    W->>I: recall(run) when keyed (Q4: after auth)
+    alt replayed
+      I-->>W: replayed
+      W-->>Cl: 200 duplicate
+    else absent
+      W->>I: launch acked
+      I->>K: encrypted run, key runId (Q5: size)
+      K-->>I: ack
+      W-->>Cl: the template's response, or 200 ok
+      K->>C: batch
+      C->>Q: createJobsIdempotently, keyless runs on runId (Q3)
+    end
+  end

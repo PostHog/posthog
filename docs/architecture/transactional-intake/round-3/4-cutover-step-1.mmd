@@ -1,0 +1,28 @@
+sequenceDiagram
+  autonumber
+  participant Rt as Route (send or webhook)
+  participant I as Run intake (step 1)
+  participant Q as Job queue
+  participant V as Valkey
+  Rt->>I: recall(run)
+  I->>Q: findIdempotencyKey, claim's expiry rule
+  alt committed row
+    Q-->>I: replayed or mismatch
+    I-->>Rt: answer now, before refusals
+  else absent
+    I->>V: reserve(key, random lease token)
+    alt Valkey unavailable
+      V-->>I: error
+      I-->>Rt: 503, as today (Q6)
+    else queued marker from a master pod
+      V-->>I: replayed (old random id)
+      I-->>Rt: replayed with that id
+    else reserved
+      Rt->>Rt: refusals
+      Rt->>I: launch committed
+      I->>Q: createJobsIdempotently (key row + job)
+      Q-->>I: created
+      I->>V: markQueued(token)
+      I-->>Rt: created
+    end
+  end

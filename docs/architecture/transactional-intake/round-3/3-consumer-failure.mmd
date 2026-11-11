@@ -1,0 +1,28 @@
+sequenceDiagram
+  autonumber
+  participant K as Intake topic
+  participant C as Intake consumer
+  participant X as Dead-letter writer
+  participant DLQ as Dead-letter topic
+  participant Q as Job queue
+  K->>C: batch of 200
+  C->>C: decode each message
+  alt can never insert (Q3): no key decrypts, bad JSON, schema invalid
+    C->>X: message, fixed reason code
+    X->>X: breaker: 3+ and over 10% of batch? (Q4)
+    alt breaker trips
+      X-->>C: throw, partition stalls, alert
+    else under the breaker
+      X->>DLQ: original encrypted bytes + dlq_* headers
+      DLQ-->>X: ack
+    end
+  end
+  C->>Q: createJobsIdempotently(rest)
+  alt Postgres error or timeout
+    Q-->>C: throw
+    C-->>K: no offsets stored, process restarts, batch redelivered
+    Note over C,Q: redelivered claims return replayed for rows that committed
+  else committed
+    Q-->>C: outcomes
+    C-->>K: store offsets
+  end

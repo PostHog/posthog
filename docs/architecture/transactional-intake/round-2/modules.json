@@ -1,0 +1,376 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "sendroute",
+                    "name": "Send route",
+                    "note": "CdpApi, HTTP only",
+                    "used": 1,
+                    "change": "changed",
+                    "seam": ["POST send"],
+                    "chips": [
+                        {
+                            "id": "sr-map",
+                            "text": "Outcome \u2192 202 / 4xx / 413",
+                            "change": "added"
+                        },
+                        {
+                            "id": "sr-old",
+                            "text": "195-line closure",
+                            "change": "removed"
+                        },
+                        {
+                            "id": "sr-leak",
+                            "text": "lifecycle chain: 7 symbols, 10 files",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "valkeyk",
+                    "name": "IdempotencyKeys",
+                    "note": "Valkey",
+                    "used": 2,
+                    "change": "removed",
+                    "seam": ["reserve", "markQueued", "release"]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "tx",
+                    "name": "TransactionalEmail",
+                    "note": "what a send means",
+                    "change": "added",
+                    "q": "Q5",
+                    "seam": ["accept(request) \u2192 Outcome"],
+                    "chips": [
+                        {
+                            "text": "validate, size cap"
+                        },
+                        {
+                            "id": "tx-replay",
+                            "text": "recall before refusals"
+                        },
+                        {
+                            "text": "refusals"
+                        },
+                        {
+                            "id": "tx-fp",
+                            "text": "fingerprint: HMAC",
+                            "q": "Q7"
+                        }
+                    ]
+                },
+                {
+                    "id": "hookroute",
+                    "name": "Webhook route",
+                    "note": "stays synchronous",
+                    "used": 3,
+                    "change": "changed",
+                    "seam": ["processWebhook"],
+                    "chips": [
+                        {
+                            "id": "hr-fn",
+                            "text": "trigger function"
+                        },
+                        {
+                            "id": "hr-dup",
+                            "text": "200 duplicate on replayed"
+                        },
+                        {
+                            "id": "hr-old",
+                            "text": "reserve / markQueued / release",
+                            "change": "removed"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "intake",
+                    "name": "Run intake",
+                    "note": "accept a run once per key",
+                    "change": "added",
+                    "flex": 1.7,
+                    "seam": [
+                        {
+                            "name": "recall(run)",
+                            "change": "added"
+                        },
+                        {
+                            "name": "launch(runs, { wait })",
+                            "change": "added",
+                            "q": "Q1 A",
+                            "fork": true
+                        },
+                        {
+                            "name": "claim(runs) \u00b7 submit(runs)",
+                            "change": "added",
+                            "q": "Q1 B",
+                            "fork": true
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "in-produce",
+                            "text": "acked: encrypt, produce",
+                            "wide": true
+                        },
+                        {
+                            "id": "in-dlq",
+                            "text": "dead-letter writer: can never insert",
+                            "q": "Q3",
+                            "wide": true
+                        },
+                        {
+                            "id": "in-consumer",
+                            "text": "consumer: reads intake topic; dedupe, decrypt, claim",
+                            "q": "Q2",
+                            "wide": true
+                        },
+                        {
+                            "id": "in-id",
+                            "text": "runId(team, scope, key)",
+                            "q": "Q6"
+                        },
+                        {
+                            "id": "in-claim",
+                            "text": "committed: claim"
+                        },
+                        {
+                            "id": "in-life",
+                            "text": "lifecycle row after created",
+                            "q": "Q6"
+                        }
+                    ]
+                },
+                {
+                    "id": "kafka",
+                    "name": "Kafka",
+                    "external": true,
+                    "flex": 0.6,
+                    "seam": [],
+                    "chips": [
+                        {
+                            "id": "k-topic",
+                            "text": "intake topic",
+                            "change": "added"
+                        },
+                        {
+                            "id": "k-dlq",
+                            "text": "dead-letter topic",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "queue",
+                    "name": "Cyclotron job queue",
+                    "note": "CyclotronV2Manager",
+                    "used": 15,
+                    "change": "changed",
+                    "flex": 1.3,
+                    "seam": [
+                        "createJobsIdempotently",
+                        {
+                            "name": "findIdempotencyKey",
+                            "change": "added"
+                        }
+                    ],
+                    "chips": [
+                        {
+                            "id": "q-txn",
+                            "text": "key row + job, one transaction"
+                        },
+                        {
+                            "id": "q-codec",
+                            "text": "job codec + row encryption",
+                            "change": "added",
+                            "q": "Q4"
+                        },
+                        {
+                            "id": "q-cycle",
+                            "text": "codec \u21ba janitor",
+                            "cycle": true,
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "crypto",
+                    "name": "EncryptedFields",
+                    "used": 8,
+                    "flex": 0.8,
+                    "seam": ["encrypt", "decrypt"]
+                },
+                {
+                    "id": "results",
+                    "name": "Invocation results",
+                    "note": "lifecycle rows",
+                    "flex": 0.9,
+                    "seam": ["queueLifecycleRow"]
+                }
+            ]
+        },
+        {
+            "gap": 50,
+            "modules": [
+                {
+                    "id": "pg",
+                    "name": "Cyclotron Postgres",
+                    "note": "jobs and idempotency rows",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "sendroute",
+            "fromAt": 0.5,
+            "to": "tx-seam",
+            "toAt": 0.5,
+            "change": "added",
+            "q": "Q5",
+            "label": "accept",
+            "labelAt": 0.45
+        },
+        {
+            "from": "sr-old",
+            "fromSide": "right",
+            "to": "valkeyk-seam",
+            "toSide": "left",
+            "toAt": 0.5,
+            "change": "removed",
+            "crossAt": 0.4,
+            "bend": 20
+        },
+        {
+            "from": "hr-old",
+            "to": "valkeyk-seam",
+            "change": "removed",
+            "crossAt": 0.5,
+            "fromSide": "top",
+            "toSide": "bottom",
+            "toAt": 0.5
+        },
+        {
+            "from": "tx",
+            "fromAt": 0.4,
+            "to": "intake-seam",
+            "toAt": 0.25,
+            "change": "added",
+            "label": "recall, launch acked",
+            "labelAlign": "start",
+            "labelOffset": [6, 0],
+            "labelAt": 0.5
+        },
+        {
+            "from": "hookroute",
+            "fromAt": 0.2,
+            "to": "intake-seam",
+            "toAt": 0.8,
+            "change": "added",
+            "label": "launch committed",
+            "labelAt": 0.5,
+            "labelAlign": "end",
+            "labelOffset": [-6, 0]
+        },
+        {
+            "from": "in-produce",
+            "fromSide": "right",
+            "to": "k-topic",
+            "toSide": "left",
+            "change": "added"
+        },
+        {
+            "from": "in-dlq",
+            "fromSide": "right",
+            "to": "k-dlq",
+            "toSide": "left",
+            "change": "added",
+            "q": "Q3"
+        },
+        {
+            "from": "intake",
+            "fromAt": 0.2,
+            "to": "queue-seam",
+            "toAt": 0.4,
+            "change": "added",
+            "label": "createJobsIdempotently",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "intake",
+            "fromAt": 0.62,
+            "to": "crypto-seam",
+            "toAt": 0.4,
+            "change": "added",
+            "label": "encrypt"
+        },
+        {
+            "from": "intake",
+            "fromAt": 0.92,
+            "to": "results-seam",
+            "toAt": 0.4,
+            "change": "added",
+            "q": "Q6"
+        },
+        {
+            "from": "q-codec",
+            "fromSide": "right",
+            "to": "crypto",
+            "toSide": "left",
+            "toAt": 0.75,
+            "change": "added",
+            "q": "Q4"
+        },
+        {
+            "from": "queue",
+            "fromAt": 0.5,
+            "to": "pg",
+            "toAt": 0.3,
+            "label": "one transaction",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        }
+    ],
+    "untouched": [
+        {
+            "name": "Django send service",
+            "seam": ["send_transactional_email", "send_code_email"],
+            "used": 2,
+            "note": "already expects 202, maps 413; drops 409 after step 2"
+        },
+        {
+            "name": "CdpDeadLetterService",
+            "seam": ["deadLetter"],
+            "note": "header names copied, service not reused"
+        },
+        {
+            "name": "Email worker \u2192 SES",
+            "seam": ["dequeue", "send"],
+            "note": "decrypts through the codec"
+        },
+        {
+            "name": "CdpConsumerBase",
+            "seam": ["start", "stop"],
+            "used": 22,
+            "note": "the intake consumer doesn't extend it"
+        }
+    ]
+}

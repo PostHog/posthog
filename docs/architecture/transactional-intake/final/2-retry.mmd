@@ -1,0 +1,29 @@
+sequenceDiagram
+  autonumber
+  participant D as Django
+  participant T as TransactionalEmail
+  participant I as Run intake
+  participant K as Intake topic
+  participant C as Intake consumer
+  participant Q as Job queue
+  Note over D,Q: Retry after the first send was claimed
+  D->>T: same key, same body
+  T->>I: recall(run)
+  I->>Q: findIdempotencyKey(runId)
+  Q-->>I: fingerprint matches
+  I-->>T: replayed
+  T-->>D: 202 replayed (before refusals)
+  Note over D,Q: Retry while the first is still in Kafka
+  D->>T: same key, same body
+  T->>I: recall(run)
+  I-->>T: absent
+  T->>I: launch acked
+  I->>K: produce again
+  T-->>D: 202, replayed false
+  K->>C: both messages, same or later batch
+  C->>Q: createJobsIdempotently
+  Q-->>C: created, then replayed
+  Note over D,Q: Same key, changed body, async
+  C->>Q: createJobsIdempotently
+  Q-->>C: mismatch
+  C->>C: failed row: idempotency_key_reused (no job, no dead letter)

@@ -1,0 +1,24 @@
+sequenceDiagram
+  autonumber
+  participant D as Django
+  participant T as Route + TransactionalEmail
+  participant I as Run intake
+  participant K as Intake topic
+  participant C as Intake consumer
+  participant Q as Job queue
+  D->>T: POST send
+  T->>T: validate, size cap, SHA-256 fingerprint
+  T->>I: recall(run) when keyed
+  I->>Q: findIdempotencyKey(runId)
+  Q-->>I: absent
+  T->>T: refusals, time budget
+  T->>I: launch acked
+  I->>K: run, key runId, acks=all, deadline = message.timeout.ms
+  K-->>I: ack
+  I-->>T: accepted
+  T-->>D: 202 invocation_id
+  K->>C: batch
+  C->>C: parse, dedupe by runId
+  C->>Q: createJobsIdempotently (keyless runs claim on runId)
+  Q-->>C: created / replayed / mismatch
+  C->>C: lifecycle rows, then store offsets

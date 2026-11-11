@@ -1,0 +1,222 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "sendroute",
+                    "name": "Send route",
+                    "note": "CdpApi, HTTP only",
+                    "used": 1,
+                    "change": "changed",
+                    "seam": ["POST send"],
+                    "chips": [
+                        { "id": "sr-map", "text": "Outcome → 202 / 4xx / 413 / 503", "change": "added" },
+                        { "id": "sr-old", "text": "195-line closure", "change": "removed" },
+                        { "id": "sr-leak", "text": "lifecycle chain: 7 symbols, 10 files", "change": "removed" }
+                    ]
+                },
+                {
+                    "id": "valkeyk",
+                    "name": "IdempotencyKeys",
+                    "note": "Valkey",
+                    "used": 2,
+                    "change": "removed",
+                    "seam": ["reserve", "markQueued", "release"]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "tx",
+                    "name": "TransactionalEmail",
+                    "note": "what a send means",
+                    "change": "added",
+                    "seam": ["accept(request) → Outcome"],
+                    "chips": [
+                        { "text": "validate, size cap" },
+                        { "text": "fingerprint: SHA-256" },
+                        { "text": "recall before refusals" },
+                        { "text": "refusals" }
+                    ]
+                },
+                {
+                    "id": "hookroute",
+                    "name": "Webhook route",
+                    "note": "template sync, insert on Kafka",
+                    "used": 3,
+                    "change": "changed",
+                    "seam": ["processWebhook"],
+                    "chips": [
+                        { "text": "trigger template: method, auth" },
+                        { "text": "then recall, then launch acked" },
+                        { "id": "hr-old", "text": "reserve / markQueued / release", "change": "removed" }
+                    ]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "intake",
+                    "name": "Run intake",
+                    "note": "accept a run once, per key or per run",
+                    "change": "added",
+                    "flex": 1.7,
+                    "seam": ["recall(run)", "launch(runs, { wait })"],
+                    "chips": [
+                        {
+                            "id": "in-produce",
+                            "text": "acked: produce; cdp-intake-kafka picks off, shadow or async",
+                            "wide": true
+                        },
+                        { "id": "in-dlq", "text": "dead-letter writer: fixed reason codes, breaker", "wide": true },
+                        {
+                            "id": "in-consumer",
+                            "text": "consumer: dedupe, claim, lifecycle rows, then offsets",
+                            "wide": true
+                        },
+                        { "text": "runId(team, scope, key)" },
+                        { "text": "committed: claim" },
+                        { "text": "every Kafka run claims a row" }
+                    ]
+                },
+                {
+                    "id": "kafka",
+                    "name": "Kafka",
+                    "external": true,
+                    "flex": 0.65,
+                    "seam": [],
+                    "chips": [
+                        { "id": "k-tx", "text": "cdp_intake_transactional_email", "change": "added" },
+                        { "id": "k-wh", "text": "cdp_intake_workflow_webhook", "change": "added" },
+                        { "id": "k-dlq", "text": "cdp_intake_dlq", "change": "added" }
+                    ]
+                }
+            ]
+        },
+        {
+            "gap": 60,
+            "modules": [
+                {
+                    "id": "queue",
+                    "name": "Cyclotron job queue",
+                    "note": "CyclotronV2Manager",
+                    "used": 15,
+                    "change": "changed",
+                    "flex": 1.3,
+                    "seam": ["createJobsIdempotently", { "name": "findIdempotencyKey", "change": "added" }],
+                    "chips": [
+                        { "text": "key row + job, one transaction" },
+                        { "text": "codec ↺ janitor", "cycle": true, "followUp": true }
+                    ]
+                },
+                {
+                    "id": "results",
+                    "name": "Invocation results",
+                    "note": "lifecycle rows",
+                    "seam": ["queueLifecycleRow"]
+                }
+            ]
+        },
+        {
+            "gap": 50,
+            "modules": [
+                {
+                    "id": "pg",
+                    "name": "Cyclotron Postgres",
+                    "note": "jobs and idempotency rows",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        }
+    ],
+    "wires": [
+        { "from": "sendroute", "fromAt": 0.5, "to": "tx-seam", "toAt": 0.5, "change": "added", "label": "accept" },
+        {
+            "from": "sr-old",
+            "fromSide": "right",
+            "to": "valkeyk-seam",
+            "toSide": "left",
+            "toAt": 0.5,
+            "change": "removed",
+            "crossAt": 0.4,
+            "bend": 20
+        },
+        {
+            "from": "hr-old",
+            "fromSide": "top",
+            "to": "valkeyk",
+            "toSide": "bottom",
+            "toAt": 0.5,
+            "change": "removed",
+            "crossAt": 0.5
+        },
+        {
+            "from": "tx",
+            "fromAt": 0.4,
+            "to": "intake-seam",
+            "toAt": 0.25,
+            "change": "added",
+            "label": "recall, launch acked",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "hookroute",
+            "fromAt": 0.2,
+            "to": "intake-seam",
+            "toAt": 0.8,
+            "change": "added",
+            "label": "recall, launch acked",
+            "labelAt": 0.5,
+            "labelAlign": "end",
+            "labelOffset": [-6, 0]
+        },
+        { "from": "in-produce", "fromSide": "right", "to": "k-tx", "toSide": "left", "change": "added" },
+        { "from": "in-dlq", "fromSide": "right", "to": "k-dlq", "toSide": "left", "change": "added" },
+        {
+            "from": "intake",
+            "fromAt": 0.2,
+            "to": "queue-seam",
+            "toAt": 0.4,
+            "change": "added",
+            "label": "createJobsIdempotently",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "intake",
+            "fromAt": 0.85,
+            "to": "results-seam",
+            "toAt": 0.4,
+            "change": "added",
+            "label": "after created",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        },
+        {
+            "from": "queue",
+            "fromAt": 0.5,
+            "to": "pg",
+            "toAt": 0.3,
+            "label": "one transaction",
+            "labelAlign": "start",
+            "labelOffset": [6, 0]
+        }
+    ],
+    "untouched": [
+        {
+            "name": "Django send service",
+            "seam": ["send_transactional_email", "send_code_email"],
+            "used": 2,
+            "note": "drops the 409 mapping after step 2"
+        },
+        { "name": "CdpDeadLetterService", "seam": ["deadLetter"], "note": "header names copied, service not reused" },
+        { "name": "Email worker → SES", "seam": ["dequeue", "send"], "note": "unchanged" },
+        { "name": "EncryptedFields", "seam": ["encrypt", "decrypt"], "used": 8, "note": "stays for credentials only" }
+    ]
+}
