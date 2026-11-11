@@ -374,11 +374,7 @@ export class HogInputsService {
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
         const resolveIntegration = (id: number): Record<string, any> | null =>
-            this.resolveIntegration(
-                integrations[id],
-                hogFunction.team_id,
-                (decryptFailures[id]?.length ?? 0) > 0
-            )
+            this.resolveIntegration(integrations[id], hogFunction.team_id, (decryptFailures[id]?.length ?? 0) > 0)
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
