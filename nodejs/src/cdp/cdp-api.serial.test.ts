@@ -33,6 +33,7 @@ import {
     insertIntegration,
 } from './_tests/fixtures'
 import { insertHogFlow as _insertHogFlow, hideHogFlowsFromReplica } from './_tests/fixtures-hogflows'
+import { postgresThatDropsConnections } from './_tests/postgres-that-drops-connections'
 import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -41,6 +42,8 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { IntegrationManagerService } from './services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from './services/managers/postgres-integration-source'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
@@ -1151,6 +1154,90 @@ describe('CDP API', () => {
                 }
             }
         )
+    })
+
+    describe('hogflow test invocation of a step whose integration lookup fails', () => {
+        let integrationsDb: Awaited<ReturnType<typeof postgresThatDropsConnections>>
+        let failingApp: express.Application
+        let failingServer: Server
+
+        beforeAll(async () => {
+            integrationsDb = await postgresThatDropsConnections(hub.DATABASE_URL, (message) =>
+                message.toString('latin1').includes('fetchIntegrations')
+            )
+            const failingApi = new CdpApi(
+                hub,
+                {
+                    ...cdpDeps,
+                    integrationManager: new IntegrationManagerService(
+                        hub.pubSub,
+                        new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
+                    ),
+                    idempotencyValkey: createIdempotencyValkeyPool(hub),
+                },
+                { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+            )
+            failingApp = setupExpressApp()
+            failingApp.use('/', failingApi.router())
+            failingServer = failingApp.listen(0, () => {})
+        })
+
+        afterAll(async () => {
+            failingServer.close()
+            await integrationsDb.close()
+        })
+
+        it('reports the step as an error, not a success', async () => {
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                config: {},
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('fake-access-token-value') },
+            })
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-cdp-api-flow-integration-fetch',
+                name: 'Flow integration fetch',
+                code: `fetch('https://example.com/hook', {'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})`,
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+            })
+
+            const res = await supertest(failingApp)
+                .post(`/api/projects/${team.id}/hog_flows/new/invocations`)
+                .send({
+                    globals,
+                    mock_async_functions: false,
+                    current_action_id: 'function_node',
+                    configuration: {
+                        name: 'Integration flow',
+                        team_id: team.id,
+                        actions: [
+                            {
+                                id: 'trigger_node',
+                                name: 'Trigger',
+                                type: 'trigger',
+                                config: { type: 'event', filters: {} },
+                            },
+                            {
+                                id: 'function_node',
+                                name: 'Fetch',
+                                type: 'function',
+                                config: {
+                                    template_id: 'template-cdp-api-flow-integration-fetch',
+                                    inputs: { oauth: { value: integration.id } },
+                                },
+                            },
+                            { id: 'exit_node', name: 'Exit', type: 'exit', config: {} },
+                        ],
+                        edges: [
+                            { from: 'trigger_node', to: 'function_node', type: 'continue' },
+                            { from: 'function_node', to: 'exit_node', type: 'continue' },
+                        ],
+                    },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('error')
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
     })
 
     describe('hogflow wait_until_condition test invocations', () => {
