@@ -3141,7 +3141,15 @@ describe('EmailService', () => {
                 )
             })
 
-            it.each([
+            it.each<{
+                case: string
+                trackingEnabled: boolean
+                allowlisted: boolean
+                isTest: boolean
+                sensitive: boolean
+                send?: { sensitive: boolean }
+                tagged: boolean
+            }>([
                 {
                     case: 'tags the links of a tracked send',
                     trackingEnabled: true,
@@ -3182,13 +3190,32 @@ describe('EmailService', () => {
                     sensitive: true,
                     tagged: false,
                 },
+                {
+                    case: "leaves the links of a code send marked sensitive on a workflow that isn't sensitive",
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: false,
+                    send: { sensitive: true },
+                    tagged: false,
+                },
+                {
+                    case: 'tags the links of a code send marked not sensitive on a sensitive workflow',
+                    trackingEnabled: true,
+                    allowlisted: true,
+                    isTest: false,
+                    sensitive: true,
+                    send: { sensitive: false },
+                    tagged: true,
+                },
             ])(
                 '$case with the workflow run id',
-                async ({ trackingEnabled, allowlisted, isTest, sensitive, tagged }) => {
+                async ({ trackingEnabled, allowlisted, isTest, sensitive, send, tagged }) => {
                     const taggingService = createService({
                         workflowRunLinkTagTeams: allowlisted ? String(team.id) : '',
                     })
                     invocation.hogFunction.metadata = { tracking_enabled: trackingEnabled, sensitive }
+                    invocation.state.send = send && { ...send, tracking: { captureEngagement: true } }
                     invocation.queueParameters = createEmailParams({
                         from: { integrationId: 1 },
                         html: '<a href="https://app.posthog-test.com/">a</a><a href="https://example.com/">b</a>',
