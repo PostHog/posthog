@@ -41,6 +41,9 @@ export interface hogFunctionBackfillsLogicActions {
     setConfigurationValues: (values: DeepPartial<HogFunctionConfigurationType>) => {
         values: DeepPartial<HogFunctionConfigurationType>
     } // hogFunctionConfigurationLogic
+    setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => {
+        configuration: HogFunctionConfigurationType | null
+    } // hogFunctionConfigurationLogic
     enableHogFunctionBackfills: () => boolean
     enableHogFunctionBackfillsFailure: () => boolean
     setLoading: (loading: boolean) => {
@@ -76,7 +79,7 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
         ],
         actions: [
             hogFunctionConfigurationLogic(props),
-            ['setConfigurationValues', 'loadHogFunction', 'loadHogFunctionSuccess'],
+            ['setConfigurationValues', 'setUnsavedConfiguration', 'loadHogFunction', 'loadHogFunctionSuccess'],
         ],
     })),
     actions({
@@ -103,7 +106,6 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 enableHogFunctionBackfills: () => false,
                 enableHogFunctionBackfillsFailure: () => true,
                 loadHogFunctionSuccess: (state, { hogFunction }) => (hogFunction?.batch_export_id ? false : state),
-                setConfigurationValues: (state, { values }) => (values.batch_export_id ? false : state),
             },
         ],
     }),
@@ -133,10 +135,12 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 )
                 if (hogFunction?.batch_export_id) {
                     if (values.configurationChanged) {
-                        actions.setConfigurationValues({ batch_export_id: hogFunction.batch_export_id })
-                    } else {
-                        actions.loadHogFunction()
+                        actions.setUnsavedConfiguration({
+                            ...values.configuration,
+                            batch_export_id: hogFunction.batch_export_id,
+                        })
                     }
+                    actions.loadHogFunction()
                 }
             } finally {
                 actions.setLoading(false)
