@@ -35,7 +35,7 @@ VERSION_LINE = re.compile(rb"""(?P<name>[ \t]+(['"]?)[A-Za-z0-9@/._-]+\2: )[~^]?
 # A package name with `*` wildcards. pnpm reads more pattern syntax, such as a leading `!`, and that is refused.
 PACKAGE_PATTERN = re.compile(r"(@[A-Za-z0-9._~*-]+/)?[A-Za-z0-9._~*-]+")
 SAFE_PATH = re.compile(r"^[A-Za-z0-9._@-]+(/[A-Za-z0-9._@-]+)*$")
-PNPM_VERSION = re.compile(r"^pnpm@(\d+\.\d+\.\d+)$")
+PNPM_VERSION = re.compile(r"^pnpm@((\d+)\.\d+\.\d+)$")
 
 
 class Refused(Exception):
@@ -327,6 +327,8 @@ def pnpm_version(path: str, manifest: Mapping[str, Any]) -> str:
     match = PNPM_VERSION.match(str(manifest.get("packageManager", "")))
     if match is None:
         raise Refused(f"{path} does not pin an exact pnpm version in packageManager")
+    if int(match[2]) < 11:
+        raise Refused(f"{path} pins a pnpm older than 11, which can run install scripts for packages no setting names")
     return match[1]
 
 

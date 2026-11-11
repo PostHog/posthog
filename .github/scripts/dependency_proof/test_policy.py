@@ -382,17 +382,18 @@ def test_settings_paths() -> None:
 
 
 @pytest.mark.parametrize(
-    ("manifest", "version"),
+    ("manifest", "version", "refused"),
     [
-        ({"packageManager": "pnpm@11.28.5"}, "11.28.5"),
-        ({"packageManager": "pnpm@11.28.5+sha512.abc"}, None),
-        ({"packageManager": "yarn@4.0.0"}, None),
-        ({}, None),
+        ({"packageManager": "pnpm@11.28.5"}, "11.28.5", None),
+        ({"packageManager": "pnpm@10.33.0"}, None, "package.json pins a pnpm older than 11"),
+        ({"packageManager": "pnpm@11.28.5+sha512.abc"}, None, "package.json does not pin an exact pnpm version"),
+        ({"packageManager": "yarn@4.0.0"}, None, "package.json does not pin an exact pnpm version"),
+        ({}, None, "package.json does not pin an exact pnpm version"),
     ],
 )
-def test_pnpm_version(manifest: dict, version: str | None) -> None:
-    if version is None:
-        with pytest.raises(Refused, match="package.json does not pin an exact pnpm version"):
+def test_pnpm_version(manifest: dict, version: str | None, refused: str | None) -> None:
+    if refused is not None:
+        with pytest.raises(Refused, match=refused):
             policy.pnpm_version("package.json", manifest)
     else:
         assert policy.pnpm_version("package.json", manifest) == version
