@@ -1751,29 +1751,32 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._assure_parent_folders(restore_path, created_by_user, team)
 
-        update_count = FileSystem.objects.filter(
-            surface_q(self.file_system_surface), team=team, type=payload["type"], ref=payload["ref"]
-        ).update(
-            path=restore_path,
-            depth=len(split_path(restore_path)),
+        fs_data: FileSystemRepresentation | None = (
+            instance.get_file_system_representation() if hasattr(instance, "get_file_system_representation") else None
         )
+        # The restore's save signal files the object under its canonical ref, which can differ from the sent
+        # ref (`+42` against `42`), so both refs match, and a row is created only when neither has one.
+        refs = {payload["ref"], fs_data.ref} if fs_data else {payload["ref"]}
+        restored = FileSystem.objects.filter(
+            surface_q(self.file_system_surface), team=team, type=payload["type"], ref__in=refs
+        ).update(path=restore_path, depth=len(split_path(restore_path)))
+        if restored or fs_data is None:
+            return
 
-        if update_count == 0 and hasattr(instance, "get_file_system_representation"):
-            fs_data: FileSystemRepresentation = instance.get_file_system_representation()
-            segments = split_path(restore_path) or [*split_path(fs_data.base_folder), fs_data.name]
-            FileSystem.objects.create(
-                team=team,
-                path=join_path(segments),
-                depth=len(segments),
-                type=fs_data.type,
-                ref=fs_data.ref,
-                href=fs_data.href,
-                meta=fs_data.meta,
-                shortcut=False,
-                surface=self.file_system_surface,
-                created_by_id=fs_data.meta.get("created_by"),
-                created_at=fs_data.meta.get("created_at") or timezone.now(),
-            )
+        segments = split_path(restore_path) or [*split_path(fs_data.base_folder), fs_data.name]
+        FileSystem.objects.create(
+            team=team,
+            path=join_path(segments),
+            depth=len(segments),
+            type=fs_data.type,
+            ref=fs_data.ref,
+            href=fs_data.href,
+            meta=fs_data.meta,
+            shortcut=False,
+            surface=self.file_system_surface,
+            created_by_id=fs_data.meta.get("created_by"),
+            created_at=fs_data.meta.get("created_at") or timezone.now(),
+        )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
         """
