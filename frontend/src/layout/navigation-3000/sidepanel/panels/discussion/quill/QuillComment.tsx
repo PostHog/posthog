@@ -17,6 +17,7 @@ import {
 
 import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { getCommentAuthorName, getCommentText } from 'lib/components/Comments/commentUtils'
+import { QuillMemberHoverCard } from 'lib/components/QuillMemberHoverCard/QuillMemberHoverCard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
@@ -30,11 +31,13 @@ import { QuillCommentReactions } from './QuillCommentReactions'
 
 interface QuillCommentProps {
     comment: CommentType
+    /** A follow-up from the same author moments later drops its avatar and header, as in a chat feed. */
+    isContinuation?: boolean
     /** Rendered at the end of the content column, such as a thread's reply summary. */
     children?: ReactNode
 }
 
-export function QuillComment({ comment, children }: QuillCommentProps): JSX.Element {
+export function QuillComment({ comment, isContinuation = false, children }: QuillCommentProps): JSX.Element {
     const { editingComment, selectedCommentId, commentContexts } = useValues(commentsLogic)
     const { setSelectedComment, completeComment, reopenComment } = useActions(commentsLogic)
     const ref = useRef<HTMLElement | null>(null)
@@ -63,27 +66,48 @@ export function QuillComment({ comment, children }: QuillCommentProps): JSX.Elem
             onClick={isEditing ? undefined : () => setSelectedComment(comment.source_comment ?? comment.id)}
         >
             <ThreadItemGutter>
-                <QuillCommentAvatar comment={comment} size="sm" />
+                {isContinuation ? (
+                    comment.created_at && (
+                        <ThreadItemTimestamp dateTime={comment.created_at} className="text-xs leading-5">
+                            <TZLabel
+                                time={comment.created_at}
+                                timestampStyle="absolute"
+                                formatDate=""
+                                formatTime="h:mm"
+                            />
+                        </ThreadItemTimestamp>
+                    )
+                ) : (
+                    <QuillMemberHoverCard user={comment.created_by}>
+                        <QuillCommentAvatar comment={comment} size="default" />
+                    </QuillMemberHoverCard>
+                )}
             </ThreadItemGutter>
             <ThreadItemContent>
-                <ThreadItemHeader className="flex-wrap">
-                    <ThreadItemAuthor className="ph-no-capture truncate">
-                        {getCommentAuthorName(comment)}
-                    </ThreadItemAuthor>
-                    {fromSlack && <Badge>Via Slack</Badge>}
-                    {comment.is_task && (
-                        <Badge variant={isCompleted ? 'completed' : 'warning'} className="ph-no-capture">
-                            {isCompleted
-                                ? `Completed by ${comment.completed_by?.first_name ?? 'Unknown user'}`
-                                : 'Task'}
-                        </Badge>
-                    )}
-                    {comment.created_at && (
-                        <ThreadItemTimestamp dateTime={comment.created_at}>
-                            <TZLabel time={comment.created_at} />
-                        </ThreadItemTimestamp>
-                    )}
-                </ThreadItemHeader>
+                {isContinuation ? (
+                    <span className="sr-only">{getCommentAuthorName(comment)}</span>
+                ) : (
+                    <ThreadItemHeader className="flex-wrap">
+                        <QuillMemberHoverCard user={comment.created_by}>
+                            <ThreadItemAuthor className="ph-no-capture truncate">
+                                {getCommentAuthorName(comment)}
+                            </ThreadItemAuthor>
+                        </QuillMemberHoverCard>
+                        {fromSlack && <Badge>Via Slack</Badge>}
+                        {comment.is_task && (
+                            <Badge variant={isCompleted ? 'completed' : 'warning'} className="ph-no-capture">
+                                {isCompleted
+                                    ? `Completed by ${comment.completed_by?.first_name ?? 'Unknown user'}`
+                                    : 'Task'}
+                            </Badge>
+                        )}
+                        {comment.created_at && (
+                            <ThreadItemTimestamp dateTime={comment.created_at}>
+                                <TZLabel time={comment.created_at} />
+                            </ThreadItemTimestamp>
+                        )}
+                    </ThreadItemHeader>
+                )}
                 {quotedText && !isEditing && (
                     <Text
                         size="xs"

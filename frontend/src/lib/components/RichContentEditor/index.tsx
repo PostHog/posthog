@@ -2,10 +2,11 @@ import './RichContentEditor.scss'
 
 import { EditorContent, Extensions, useEditor } from '@tiptap/react'
 import { BindLogic } from 'kea'
-import { PropsWithChildren, useEffect } from 'react'
+import { PropsWithChildren, useEffect, useRef } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { CommandEnterExtension } from './CommandEnterExtension'
 import { richContentEditorLogic } from './richContentEditorLogic'
 import { JSONContent, TTEditor } from './types'
 
@@ -14,6 +15,7 @@ type RichContentEditorProps = {
     onCreate?: (editor: TTEditor) => void
     onUpdate?: (content: JSONContent) => void
     onSelectionUpdate?: () => void
+    onPressCmdEnter?: () => void
     extensions: Extensions
     disabled?: boolean
     autoFocus?: boolean
@@ -62,11 +64,23 @@ export const useRichContentEditor = ({
     onCreate = () => {},
     onUpdate = () => {},
     onSelectionUpdate = () => {},
+    onPressCmdEnter,
     autoFocus = false,
 }: RichContentEditorProps): TTEditor => {
+    // Extensions are fixed when the editor is created, so Cmd+Enter reads the latest callback through a ref.
+    // A callback captured at creation would see the state of the first render, such as an empty composer.
+    const onPressCmdEnterRef = useRef(onPressCmdEnter)
+    onPressCmdEnterRef.current = onPressCmdEnter
+
     const editor = useEditor({
         shouldRerenderOnTransaction: false,
-        extensions,
+        // Only editors that submit on Cmd+Enter take the shortcut, because the extension swallows the keypress.
+        extensions: onPressCmdEnter
+            ? [
+                  ...extensions,
+                  CommandEnterExtension.configure({ onPressCmdEnter: () => onPressCmdEnterRef.current?.() }),
+              ]
+            : extensions,
         editable: !disabled,
         content: initialContent,
         autofocus: autoFocus,

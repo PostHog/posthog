@@ -421,3 +421,31 @@ export const Textarea: Story = {
         )
     },
 } satisfies Story
+
+/** A rich text editor as the control: a contenteditable stands in for the textarea, and an addon click focuses it. */
+export const RichTextEditor: Story = {
+    render: () => (
+        <div className="w-full max-w-md">
+            <InputGroup>
+                <div
+                    contentEditable
+                    suppressContentEditableWarning
+                    role="textbox"
+                    aria-multiline="true"
+                    aria-label="Comment"
+                    className="min-h-16 w-full px-2.5 pt-2 text-sm outline-none"
+                >
+                    Write here, or click the empty space beside the buttons.
+                </div>
+                <InputGroupAddon align="block-end">
+                    <InputGroupButton size="icon-xs" aria-label="Copy">
+                        <CopyIcon />
+                    </InputGroupButton>
+                    <InputGroupButton size="sm" className="ml-auto" variant="primary">
+                        Send
+                    </InputGroupButton>
+                </InputGroupAddon>
+            </InputGroup>
+        </div>
+    ),
+}

@@ -5,7 +5,7 @@ import { gravatarUrl } from 'lib/utils/gravatar'
 
 import { CommentType } from '~/types'
 
-export function QuillCommentAvatar({ comment, size }: { comment: CommentType; size: 'sm' | 'xs' }): JSX.Element {
+export function QuillCommentAvatar({ comment, size }: { comment: CommentType; size: 'default' | 'xs' }): JSX.Element {
     const email = comment.created_by?.email
 
     return (

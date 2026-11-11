@@ -25,7 +25,6 @@ import { IconCode, IconCopy, IconDocument, IconImage, IconList, IconTerminal } f
 
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
-import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import { EmojiSuggestionExtension } from 'lib/components/RichContentEditor/EmojiSuggestionExtension'
 import { LinkExtension } from 'lib/components/RichContentEditor/LinkExtension'
 import { MentionsExtension } from 'lib/components/RichContentEditor/MentionsExtension'
@@ -528,12 +527,6 @@ export function SupportEditor({
         linkShortcutCallbackRef.current()
     }, [])
 
-    // Extension options are fixed when the editor is created, so the shortcut reads the latest callback from a ref
-    const cmdEnterCallbackRef = useRef(onPressCmdEnter)
-    cmdEnterCallbackRef.current = onPressCmdEnter
-    const handlePressCmdEnter = useCallback(() => {
-        cmdEnterCallbackRef.current?.()
-    }, [])
     const onInsertMacroRef = useRef(onInsertMacro)
     onInsertMacroRef.current = onInsertMacro
 
@@ -541,12 +534,12 @@ export function SupportEditor({
         extensions: [
             ...SUPPORT_EXTENSIONS,
             Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter: handlePressCmdEnter }),
             LinkShortcutExtension.configure({ onLinkShortcut: handleLinkShortcut }),
             ...(enableMacros
                 ? [MacroSuggestionExtension.configure({ getOnInsert: () => onInsertMacroRef.current })]
                 : []),
         ],
+        onPressCmdEnter,
         disabled,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
         onCreate: (editor) => {

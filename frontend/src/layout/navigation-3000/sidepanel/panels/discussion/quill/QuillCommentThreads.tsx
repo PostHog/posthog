@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { IconChat, IconWarning } from '@posthog/icons'
 import {
@@ -16,11 +16,18 @@ import {
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CommentsLogicProps, commentsLogic } from 'lib/components/Comments/commentsLogic'
 
+import { getContinuationIds } from './commentGrouping'
 import { QuillCommentThread } from './QuillCommentThread'
 
 export function QuillCommentThreads({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element {
-    const { key, comments, commentsWithReplies, commentsLoadFailed, commentsLoading } = useValues(commentsLogic)
+    const { key, comments, commentsWithReplies, commentsLoadFailed, commentsLoading, expandedThreadIds } =
+        useValues(commentsLogic)
     const { loadComments, setReplyingComment, clearRichContentEditor } = useActions(commentsLogic)
+
+    const continuationIds = useMemo(
+        () => getContinuationIds(commentsWithReplies, expandedThreadIds),
+        [commentsWithReplies, expandedThreadIds]
+    )
 
     useEffect(() => {
         loadComments()
@@ -79,9 +86,14 @@ export function QuillCommentThreads({ logicProps }: { logicProps: CommentsLogicP
     }
 
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col">
             {commentsWithReplies.map((thread) => (
-                <QuillCommentThread key={thread.id} thread={thread} logicProps={logicProps} />
+                <QuillCommentThread
+                    key={thread.id}
+                    thread={thread}
+                    logicProps={logicProps}
+                    continuationIds={continuationIds}
+                />
             ))}
         </div>
     )

@@ -32,7 +32,7 @@ export function QuillDiscussion({ logicProps }: { logicProps: CommentsLogicProps
             <div className="flex min-h-0 flex-1 flex-col">
                 <div
                     ref={setCommentsListRef}
-                    className="min-h-0 flex-1 overflow-y-auto scroll-mask-y-4 scroll-py-4 p-3"
+                    className="min-h-0 flex-1 overflow-y-auto scroll-mask-y-4 scroll-py-4 px-1 py-3"
                     data-attr="discussions-threads"
                 >
                     <QuillCommentThreads logicProps={logicProps} />

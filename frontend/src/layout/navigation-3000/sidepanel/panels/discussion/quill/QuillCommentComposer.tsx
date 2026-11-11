@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, Kbd, KbdGroup, Toggle, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
+import { Button, Kbd, KbdGroup } from '@posthog/quill'
 
 import { humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { CommentsLogicProps, commentsLogic } from 'lib/components/Comments/commentsLogic'
@@ -74,24 +74,17 @@ export function QuillCommentComposer({ logicProps }: { logicProps: CommentsLogic
                 disabled={isSendingComment}
                 toolbarActions={
                     showSlackToggle && (
-                        <Tooltip>
-                            <TooltipTrigger
-                                delay={0}
-                                render={
-                                    <Toggle
-                                        size="icon"
-                                        className="size-7"
-                                        aria-label="Send to a Slack channel"
-                                        pressed={composerSendToSlack}
-                                        onPressedChange={setComposerSendToSlack}
-                                        data-attr="discussions-comment-send-to-slack-toggle"
-                                    />
-                                }
-                            >
-                                <IconSlack />
-                            </TooltipTrigger>
-                            <TooltipContent>Send to a Slack channel</TooltipContent>
-                        </Tooltip>
+                        <Button
+                            size="icon-sm"
+                            aria-label="Send to a Slack channel"
+                            tooltip="Send to a Slack channel"
+                            aria-pressed={composerSendToSlack}
+                            className="aria-pressed:bg-fill-selected aria-pressed:text-foreground"
+                            onClick={() => setComposerSendToSlack(!composerSendToSlack)}
+                            data-attr="discussions-comment-send-to-slack-toggle"
+                        >
+                            <IconSlack />
+                        </Button>
                     )
                 }
             />

@@ -65,7 +65,12 @@ const InputGroupAddon = React.forwardRef<
                 if ((e.target as HTMLElement).closest('button')) {
                     return
                 }
-                e.currentTarget.parentElement?.querySelector('input')?.focus()
+                // A rich text editor is a contenteditable, not an input, but it is the group's control all the same.
+                e.currentTarget.parentElement
+                    ?.querySelector<HTMLElement>(
+                        "[data-slot='input-group-control'], [contenteditable='true'], input:not([type='hidden'], [type='file'])"
+                    )
+                    ?.focus()
             }}
             {...props}
         />

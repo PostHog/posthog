@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis, IconPencil, IconShare, IconTrash } from '@posthog/icons'
+import { IconComment, IconEllipsis, IconPencil, IconTrash } from '@posthog/icons'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -48,11 +48,11 @@ export function QuillCommentActions({ comment }: { comment: CommentType }): JSX.
                 trigger={<ThreadItemAction label="Add reaction" data-attr="comment-react-button" />}
             />
             <ThreadItemAction
-                label="Reply"
+                label="Reply in thread"
                 onClick={() => setReplyingComment(comment.source_comment ?? comment.id)}
                 data-attr="comment-reply-button"
             >
-                <IconShare />
+                <IconComment />
             </ThreadItemAction>
             <DropdownMenu>
                 <DropdownMenuTrigger

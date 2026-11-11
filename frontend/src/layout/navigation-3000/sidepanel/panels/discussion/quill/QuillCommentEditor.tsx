@@ -6,10 +6,9 @@ import posthog from 'posthog-js'
 import { ReactNode, useRef, useState } from 'react'
 
 import { IconEye, IconImage } from '@posthog/icons'
-import { Button, Toggle, Tooltip, TooltipContent, TooltipTrigger, cn, toast } from '@posthog/quill'
+import { Button, InputGroup, InputGroupAddon, cn, toast } from '@posthog/quill'
 
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
-import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
 import {
     DEFAULT_EXTENSIONS,
     DEFAULT_INITIAL_CONTENT,
@@ -54,11 +53,8 @@ export function QuillCommentEditor({
     const fileInputRef = useRef<HTMLInputElement>(null)
 
     const editor = useRichContentEditor({
-        extensions: [
-            ...DEFAULT_EXTENSIONS,
-            Placeholder.configure({ placeholder }),
-            CommandEnterExtension.configure({ onPressCmdEnter }),
-        ],
+        extensions: [...DEFAULT_EXTENSIONS, Placeholder.configure({ placeholder })],
+        onPressCmdEnter,
         disabled,
         autoFocus,
         initialContent: initialContent ?? DEFAULT_INITIAL_CONTENT,
@@ -90,11 +86,9 @@ export function QuillCommentEditor({
     const previewText = ttEditor?.getText(serializationOptions)
 
     return (
-        <div
-            className={cn(
-                'flex flex-col rounded-md border border-input bg-background focus-within:border-ring',
-                disabled && 'opacity-60'
-            )}
+        <InputGroup
+            aria-disabled={disabled || undefined}
+            className="items-stretch"
             onDragOver={(event) => {
                 if (!uploadDisabledReason) {
                     event.preventDefault()
@@ -109,29 +103,29 @@ export function QuillCommentEditor({
             }}
         >
             {previewShown ? (
-                <div className="min-h-16 px-2.5 py-2 text-xs">
+                <div className="min-h-16 w-full px-2.5 pt-2 text-[length:var(--text-ui,0.8125rem)]">
                     <LemonMarkdown lowKeyHeadings>{previewText || '_Nothing to preview_'}</LemonMarkdown>
                 </div>
             ) : (
                 <EditorContent
                     editor={editor}
                     className={cn(
-                        'RichContentEditor min-h-16 px-2.5 py-2 text-xs',
-                        '[&_.ProseMirror]:outline-none [&_p]:m-0'
+                        'RichContentEditor w-full cursor-text text-[length:var(--text-ui,0.8125rem)]',
+                        '[&_.ProseMirror]:min-h-16 [&_.ProseMirror]:px-2.5 [&_.ProseMirror]:pt-2 [&_.ProseMirror]:outline-none [&_p]:m-0'
                     )}
                 />
             )}
-            <div className="flex items-center gap-0.5 p-1">
-                <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={(event) => {
-                        setFilesToUpload(Array.from(event.target.files ?? []))
-                        event.target.value = ''
-                    }}
-                />
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(event) => {
+                    setFilesToUpload(Array.from(event.target.files ?? []))
+                    event.target.value = ''
+                }}
+            />
+            <InputGroupAddon align="block-end" className="w-full gap-0.5 px-1 pb-1">
                 <Button
                     size="icon-sm"
                     aria-label="Add image"
@@ -160,26 +154,19 @@ export function QuillCommentEditor({
                 />
                 <div className="ms-auto flex items-center gap-0.5">
                     {toolbarActions}
-                    <Tooltip>
-                        <TooltipTrigger
-                            delay={0}
-                            render={
-                                <Toggle
-                                    size="icon"
-                                    className="size-7"
-                                    aria-label="Preview"
-                                    pressed={previewShown}
-                                    onPressedChange={setPreviewShown}
-                                    data-attr="discussions-comment-preview"
-                                />
-                            }
-                        >
-                            <IconEye />
-                        </TooltipTrigger>
-                        <TooltipContent>Preview</TooltipContent>
-                    </Tooltip>
+                    <Button
+                        size="icon-sm"
+                        aria-label="Preview"
+                        tooltip="Preview"
+                        aria-pressed={previewShown}
+                        className="aria-pressed:bg-fill-selected aria-pressed:text-foreground"
+                        onClick={() => setPreviewShown(!previewShown)}
+                        data-attr="discussions-comment-preview"
+                    >
+                        <IconEye />
+                    </Button>
                 </div>
-            </div>
-        </div>
+            </InputGroupAddon>
+        </InputGroup>
     )
 }

@@ -3,18 +3,18 @@ import { useEffect, useRef } from 'react'
 
 import {
     AvatarGroup,
-    Button,
     Text,
     ThreadItemGroup,
     ThreadItemReplies,
     ThreadItemRepliesLabel,
     ThreadItemRepliesMeta,
-    cn,
 } from '@posthog/quill'
 
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from 'lib/components/Comments/commentsLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
+
+import { CommentType } from '~/types'
 
 import { QuillComment } from './QuillComment'
 import { QuillCommentAvatar } from './QuillCommentAvatar'
@@ -26,9 +26,10 @@ interface QuillCommentThreadProps {
     thread: CommentWithRepliesType
     /** The reply composer mounts at the thread's end while this thread is the reply target. */
     logicProps: CommentsLogicProps
+    continuationIds: Set<CommentType['id']>
 }
 
-export function QuillCommentThread({ thread, logicProps }: QuillCommentThreadProps): JSX.Element {
+export function QuillCommentThread({ thread, logicProps, continuationIds }: QuillCommentThreadProps): JSX.Element {
     const { replyingCommentId, expandedThreadIds } = useValues(commentsLogic)
     const { setReplyingComment, setThreadExpanded } = useActions(commentsLogic)
     const { comment, replies } = thread
@@ -37,26 +38,37 @@ export function QuillCommentThread({ thread, logicProps }: QuillCommentThreadPro
     // The reply target always resolves to the thread root, and it is always expanded.
     const isReplyTarget = replyingCommentId === thread.id
     const isExpanded = expandedThreadIds.has(thread.id)
+    const showReplies = isExpanded && replies.length > 0
     const latestReply = replies[replies.length - 1]
     const replyAuthors = replies.filter(
         (reply, index) =>
             replies.findIndex((other) => other.created_by?.id === reply.created_by?.id) === index && reply.created_by
     )
 
+    const collapse = (): void => {
+        if (isReplyTarget) {
+            setReplyingComment(null)
+        }
+        setThreadExpanded(thread.id, false)
+    }
+
     const replySummary =
-        replies.length > 0 && !isExpanded ? (
+        replies.length > 0 ? (
             <ThreadItemReplies
-                onClick={() => setThreadExpanded(thread.id, true)}
-                aria-expanded={false}
-                data-attr="comment-thread-toggle"
+                className="mt-1.5"
+                onClick={isExpanded ? collapse : () => setThreadExpanded(thread.id, true)}
+                aria-expanded={isExpanded}
+                data-attr={isExpanded ? 'comment-thread-collapse' : 'comment-thread-toggle'}
             >
                 <AvatarGroup size="xs">
                     {replyAuthors.slice(0, MAX_REPLY_AVATARS).map((reply) => (
                         <QuillCommentAvatar key={reply.id} comment={reply} size="xs" />
                     ))}
                 </AvatarGroup>
-                <ThreadItemRepliesLabel>{pluralize(replies.length, 'reply', 'replies')}</ThreadItemRepliesLabel>
-                {latestReply?.created_at && (
+                <ThreadItemRepliesLabel>
+                    {isExpanded ? 'Hide replies' : pluralize(replies.length, 'reply', 'replies')}
+                </ThreadItemRepliesLabel>
+                {!isExpanded && latestReply?.created_at && (
                     <ThreadItemRepliesMeta>
                         <TZLabel time={latestReply.created_at} />
                     </ThreadItemRepliesMeta>
@@ -71,48 +83,38 @@ export function QuillCommentThread({ thread, logicProps }: QuillCommentThreadPro
         }
     }, [isReplyTarget])
 
-    const collapse = (): void => {
-        if (isReplyTarget) {
-            setReplyingComment(null)
-        }
-        setThreadExpanded(thread.id, false)
-    }
-
     return (
-        <section
-            aria-label="Comment thread"
-            className={cn(
-                'flex flex-col rounded-lg border border-border bg-card text-card-foreground',
-                isReplyTarget && 'border-ring'
-            )}
-            data-attr="discussions-thread"
-        >
-            <ThreadItemGroup className="p-1">
-                {comment ? (
-                    <QuillComment comment={comment}>{replySummary}</QuillComment>
-                ) : (
-                    <div className="flex flex-col gap-1 px-2 py-1.5">
-                        <Text size="xs" variant="muted" render={<span className="m-0 italic" />}>
-                            This comment was deleted
-                        </Text>
-                        {replySummary}
-                    </div>
-                )}
-                {isExpanded && replies.map((reply) => <QuillComment key={reply.id} comment={reply} />)}
-            </ThreadItemGroup>
-            {isExpanded && replies.length > 0 && !isReplyTarget && (
-                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-2 py-1">
-                    <Button variant="link-muted" size="sm" onClick={collapse} data-attr="comment-thread-collapse">
-                        Hide replies
-                    </Button>
-                    <Button size="sm" onClick={() => setReplyingComment(thread.id)} data-attr="comment-thread-reply">
-                        Reply
-                    </Button>
+        <section aria-label="Comment thread" className="flex flex-col" data-attr="discussions-thread">
+            {comment ? (
+                <QuillComment comment={comment} isContinuation={continuationIds.has(comment.id)}>
+                    {replySummary}
+                </QuillComment>
+            ) : (
+                <div className="flex flex-col gap-1 py-1.5 ps-14 pe-2">
+                    <Text size="xs" variant="muted" render={<span className="m-0 italic" />}>
+                        This comment was deleted
+                    </Text>
+                    {replySummary}
                 </div>
             )}
-            {isReplyTarget && (
-                <div ref={composerRef} className="border-t border-border p-2">
-                    <QuillCommentComposer logicProps={logicProps} />
+            {(showReplies || isReplyTarget) && (
+                <div className="ms-8 flex flex-col border-l border-border ps-2">
+                    {showReplies && (
+                        <ThreadItemGroup>
+                            {replies.map((reply) => (
+                                <QuillComment
+                                    key={reply.id}
+                                    comment={reply}
+                                    isContinuation={continuationIds.has(reply.id)}
+                                />
+                            ))}
+                        </ThreadItemGroup>
+                    )}
+                    {isReplyTarget && (
+                        <div ref={composerRef} className="ps-14 pe-2 pt-1">
+                            <QuillCommentComposer logicProps={logicProps} />
+                        </div>
+                    )}
                 </div>
             )}
         </section>
