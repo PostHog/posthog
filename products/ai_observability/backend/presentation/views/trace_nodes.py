@@ -10,8 +10,6 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.models import Team, User
 
-from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH
-
 from ...facade import api, contracts
 from .trace_ids import MalformedTraceIdSegmentError, decode_trace_id_segment
 from .trace_resource import THROTTLED_RESPONSE, TRACE_ID_PARAMETER, TraceQuerySerializer, TraceResourceViewSet
@@ -34,7 +32,7 @@ class TraceNodeParserTestRequestSerializer(serializers.Serializer):
     source = serializers.CharField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         # Preserve the YAML verbatim
         trim_whitespace=False,
-        max_length=MAX_SOURCE_LENGTH,
+        max_length=api.PARSER_RECIPE_MAX_SOURCE_LENGTH,
         help_text="The parser recipe to test, as raw YAML in the custom parser DSL.",
     )
 
