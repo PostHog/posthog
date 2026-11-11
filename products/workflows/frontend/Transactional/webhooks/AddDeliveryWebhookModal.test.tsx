@@ -113,6 +113,17 @@ describe('AddDeliveryWebhookModal', () => {
         await waitFor(() => expect(isDialogOpen()).toBe(false))
     })
 
+    it('keeps a half-filled form open on an overlay click', () => {
+        openModal()
+        const input = screen.getByPlaceholderText('https://example.com/webhooks/email')
+        fireEvent.change(input, { target: { value: 'https://example.com/hooks' } })
+
+        fireEvent.click(document.querySelector('.LemonModal__overlay')!)
+
+        expect(isDialogOpen()).toBe(true)
+        expect(input).toHaveValue('https://example.com/hooks')
+    })
+
     it('shows a bad URL as a field error, without a failure toast', async () => {
         openModal()
         submitUrl('http://example.com/hooks')
