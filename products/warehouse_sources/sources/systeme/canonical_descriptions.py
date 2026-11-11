@@ -127,4 +127,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "state": "Whether the step is active, and its position in the campaign.",
         },
     },
+    "funnels": {
+        "description": "Marketing funnels with their status and linked sale settings.",
+        "docs_url": "https://developer.systeme.io/reference/api_funnels_get_collection",
+        "columns": {
+            "id": "Unique funnel identifier.",
+            "name": "Funnel name.",
+            "isActive": "Whether the funnel is active.",
+            "saleSettingsId": "Identifier of the sale settings linked to the funnel, or null when none are linked.",
+        },
+    },
+    "course_modules_with_lectures": {
+        "description": "Curriculum of each course: its modules in order, with the lectures of each module.",
+        "docs_url": "https://developer.systeme.io/reference/api_schoolcourses_courseidmodules-with-lectures_get_collection",
+        "columns": {
+            "courseId": "Identifier of the course the curriculum belongs to.",
+            "courseType": "Course type: light_course or classic_course.",
+            "modules": "Course modules with their identifier, name, position, and lectures (identifier, name, active state, position, and delay after the previous lecture).",
+        },
+    },
 }
