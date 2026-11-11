@@ -2,9 +2,12 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { SESv2Client } from '@aws-sdk/client-sesv2'
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import http from 'http'
+import { AddressInfo } from 'net'
 import { KafkaConsumer } from 'node-rdkafka'
 import os from 'os'
 import path from 'path'
+import { Registry, collectDefaultMetrics } from 'prom-client'
 import { stringify } from 'yaml'
 
 import { insertHogFunctionTemplate } from '~/cdp/_tests/fixtures'
@@ -52,6 +55,21 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
     profile: { ...SMOKE.profile, settings },
 })
 
+let processMetrics: { url: string; server: http.Server }
+
+beforeAll(async () => {
+    const registry = new Registry()
+    collectDefaultMetrics({ register: registry })
+    const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
+})
+
+afterAll(async () => {
+    processMetrics.server.closeAllConnections()
+    await new Promise<void>((resolve) => processMetrics.server.close(() => resolve()))
+})
+
 const failNextDisconnect = (): void => {
     const disconnect = KafkaProducerWrapper.prototype.disconnect
     jest.spyOn(KafkaProducerWrapper.prototype, 'disconnect').mockImplementationOnce(async function (
@@ -73,7 +91,7 @@ describe('runner', () => {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
-        role: (name) => ({ name, metricsUrl: '' }),
+        role: (name) => ({ name, metricsUrl: processMetrics.url }),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         health: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
@@ -396,7 +414,7 @@ describe('runner through seed, drive and judge', () => {
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, metricsUrl: '' }),
+        role: (name) => ({ name, metricsUrl: processMetrics.url }),
         actuate(action) {
             exits.push(...killExits(action.role))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
