@@ -67,14 +67,14 @@ def resolved_group_key_expr(team: Team, prop: GroupPropertyFilter, ch_user: Clic
     if prop.operator not in _RESOLVABLE_OPERATORS or prop.group_type_index is None:
         return None
 
-    group_type_index = prop.group_type_index
-    keys = _group_keys(
+    return _resolved_key_in(
         team,
         prop.key,
-        _cache_key(team, [group_type_index, prop.key, prop.operator, prop.value]),
-        lambda: _query_group_keys(team, group_type_index, _resolution_predicate(team, prop), ch_user),
+        prop.group_type_index,
+        [prop.group_type_index, prop.key, prop.operator, prop.value],
+        lambda: _resolution_predicate(team, prop),
+        ch_user,
     )
-    return None if keys is None else _group_key_in(group_type_index, keys)
 
 
 def resolved_hogql_group_key_expr(team: Team, prop: HogQLPropertyFilter, ch_user: ClickHouseUser) -> ast.Expr | None:
@@ -83,6 +83,9 @@ def resolved_hogql_group_key_expr(team: Team, prop: HogQLPropertyFilter, ch_user
     A HogQL filter like `group_0.properties.plan = 'pro' OR group_0.properties.mrr > 100` compiles to the same
     events-to-groups join as a group property filter, so it pays the same per-shard scan of every group row.
     """
+    # Most HogQL filters read only event properties, so skip the parse for those.
+    if "group_" not in prop.key:
+        return None
     try:
         expr = parse_expr(prop.key)
     except Exception:
@@ -91,12 +94,29 @@ def resolved_hogql_group_key_expr(team: Team, prop: HogQLPropertyFilter, ch_user
     if group_type_index is None:
         return None
 
-    predicate = _GroupPrefixStripper().visit(expr)
-    keys = _group_keys(
+    return _resolved_key_in(
         team,
         prop.key,
-        _cache_key(team, ["hogql", group_type_index, prop.key]),
-        lambda: _query_group_keys(team, group_type_index, predicate, ch_user),
+        group_type_index,
+        ["hogql", group_type_index, prop.key],
+        lambda: _GroupPrefixStripper().visit(expr),
+        ch_user,
+    )
+
+
+def _resolved_key_in(
+    team: Team,
+    property_key: str,
+    group_type_index: int,
+    cache_parts: list[Any],
+    predicate: Callable[[], ast.Expr],
+    ch_user: ClickHouseUser,
+) -> ast.Expr | None:
+    keys = _group_keys(
+        team,
+        property_key,
+        _cache_key(team, cache_parts),
+        lambda: _query_group_keys(team, group_type_index, predicate(), ch_user),
     )
     return None if keys is None else _group_key_in(group_type_index, keys)
 

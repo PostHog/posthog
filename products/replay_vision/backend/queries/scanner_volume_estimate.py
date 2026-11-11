@@ -6,10 +6,8 @@ import dataclasses
 from dataclasses import dataclass
 from typing import Any
 
-from django.core.cache import cache
 from django.utils import timezone
 
-import structlog
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import FilterLogicalOperator, RecordingsQuery
@@ -28,6 +26,7 @@ from posthog.exceptions import (
 )
 from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
+from posthog.utils import get_safe_cache, safe_cache_set
 
 from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerType
@@ -35,8 +34,6 @@ from products.replay_vision.backend.queries.scanner_candidate_query import (
     eligibility_predicates,
     surfacing_score_predicate,
 )
-
-logger = structlog.get_logger(__name__)
 
 # The estimate always projects to a calendar month.
 ESTIMATE_WINDOW_DAYS = ESTIMATE_MONTH_DAYS
@@ -228,8 +225,8 @@ def estimate_scanner_session_volume(
     scan_window_days = budget.window_days(unsampled=unsampled)
 
     filter_key = _filter_cache_key(team, query, sampling_mode, scan_window_days)
-    result_key = f"{filter_key}:result:{user.pk if user is not None else '-'}:{budget.sampled_only}"
-    if budget.result_cache_seconds and (cached := _cache_get(result_key)) is not None:
+    result_key = f"{filter_key}:result:{user.pk if user is not None else '-'}"
+    if budget.result_cache_seconds and (cached := get_safe_cache(result_key)) is not None:
         return ScannerVolumeEstimate(**cached)
     estimate = _estimate_scanner_session_volume(
         team=team,
@@ -243,7 +240,7 @@ def estimate_scanner_session_volume(
         exact_skip_key=f"{filter_key}:exact-skip",
     )
     if budget.result_cache_seconds:
-        _cache_set(result_key, dataclasses.asdict(estimate), budget.result_cache_seconds)
+        safe_cache_set(result_key, dataclasses.asdict(estimate), budget.result_cache_seconds)
     return estimate
 
 
@@ -278,7 +275,7 @@ def _estimate_scanner_session_volume(
     )
 
     tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
-    if not sampled_plan.sampled or budget.sampled_only or _cache_get(exact_skip_key):
+    if not sampled_plan.sampled or budget.sampled_only or get_safe_cache(exact_skip_key):
         # Nothing was sampled, so a fallback would rerun the identical query.
         return _execute_estimate_query(
             sampled_plan,
@@ -320,7 +317,7 @@ def _estimate_scanner_session_volume(
         ClickHouseQueryMemoryLimitExceeded,
         CHQueryErrorTooManyBytes,
     ):
-        _cache_set(exact_skip_key, True, EXACT_ESTIMATE_SKIP_TTL_SECONDS)
+        safe_cache_set(exact_skip_key, True, EXACT_ESTIMATE_SKIP_TTL_SECONDS)
         # Full budget: halving it fails teams whose sampled count needs more than half.
         return _execute_estimate_query(
             sampled_plan,
@@ -537,22 +534,6 @@ def _filter_cache_key(
     filter_json = query.model_dump_json(exclude={"date_from", "date_to"}, exclude_none=True)
     payload = json.dumps([filter_json, str(sampling_mode), scan_window_days])
     return f"replay-vision-estimate:{team.pk}:{hashlib.sha256(payload.encode()).hexdigest()}"
-
-
-def _cache_get(key: str) -> Any:
-    # A broken cache must cost a query, never fail the estimate.
-    try:
-        return cache.get(key)
-    except Exception:
-        logger.exception("replay_vision.estimate_cache_read_failed")
-        return None
-
-
-def _cache_set(key: str, value: Any, ttl_seconds: int) -> None:
-    try:
-        cache.set(key, value, ttl_seconds)
-    except Exception:
-        logger.exception("replay_vision.estimate_cache_write_failed")
 
 
 def _clamp_window_days(earliest: object, scan_window_days: int) -> int:
