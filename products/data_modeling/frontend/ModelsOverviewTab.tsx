@@ -53,8 +53,8 @@ export function ModelsOverviewTab(): JSX.Element {
 
     return (
         <div data-quill className="flex flex-col gap-6">
-            <ModelsOverviewIssues />
             <OverviewSuggestions />
+            <ModelsOverviewIssues />
         </div>
     )
 }
