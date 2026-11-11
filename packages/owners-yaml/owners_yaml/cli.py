@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import sys
 import json
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import cast
@@ -17,6 +18,7 @@ import click
 
 from .census import census
 from .codeowners import project_repo
+from .coverage import newly_unowned
 from .github import GitHubLookupError, GitHubOrg
 from .matcher import compile_pattern, normalize_path
 from .resolver import OWNERS_FILENAME, OwnersResolver, Purpose, RepoRootNotFound, read_stdin_paths, resolution_to_wire
@@ -156,9 +158,26 @@ def cmd_codeowners(output: str | None, org: str | None, repo_root: Path | None) 
 
 @click.command(name="owners:unowned", help="List unowned tracked files (respecting owners: null exemptions)")
 @repo_root_option
+@click.option(
+    "--against",
+    metavar="REF",
+    default=None,
+    help="List only the files that were not already unowned at the merge base of HEAD and REF",
+)
 @click.argument("prefix", required=False)
-def cmd_unowned(repo_root: Path | None, prefix: str | None) -> None:
+def cmd_unowned(repo_root: Path | None, against: str | None, prefix: str | None) -> None:
     resolver = _resolver(repo_root)
+    if against is not None:
+        if prefix:
+            raise click.UsageError("--against lists the whole repository, so it takes no PREFIX")
+        try:
+            paths = newly_unowned(resolver.repo_root, against)
+        except subprocess.CalledProcessError as exc:
+            reason = exc.stderr.strip() or "no merge base"
+            raise click.ClickException(f"could not compare with {against!r}: {reason}") from exc
+        for path in paths:
+            click.echo(path)
+        return
     files = resolver.tracked_files(prefix)
     unowned = resolver.unowned(files)
     for path in unowned:
