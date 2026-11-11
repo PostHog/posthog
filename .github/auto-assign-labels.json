@@ -40,6 +40,7 @@
                 "nodejs/src/ingestion/pipelines/ai/costs/scripts/",
                 "packages/agent/",
                 "posthog/**/*llm_gateway*",
+                "products/ai_gateway/",
                 "products/tasks/",
                 "services/agent-proxy/",
                 "services/llm-gateway/"
