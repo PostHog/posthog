@@ -298,6 +298,7 @@ describe('CRUD', () => {
 
         const resolved = await call('POST', '/resolve', { body: { refs: [created.id] } })
         expect(resolved.json.records[created.id].credentials).toEqual({ access_token: 'fake-rotated-token' })
+        expect(resolved.headers.get('Cache-Control')).toBe('no-store')
 
         expect((await call('DELETE', `/${created.id}`, { headers: { 'If-Match': '2' } })).status).toBe(204)
         expect((await call('GET', `/${created.id}`)).status).toBe(404)

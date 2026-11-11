@@ -116,6 +116,8 @@ export function createIntegrationRoutes(opts: IntegrationRoutesOptions): Hono<En
     app.use('*', async (c, next) => {
         const header = c.req.header('X-Request-Id')
         c.set('requestId', header && REQUEST_ID.test(header) ? header : randomUUID())
+        // Responses can carry decrypted credentials, so no cache may store them.
+        c.header('Cache-Control', 'no-store')
         await next()
     })
 

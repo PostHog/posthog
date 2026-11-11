@@ -85,7 +85,7 @@ export interface Config {
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
 
-    /** Unset until CREDENTIALS_SERVICE_KMS_PROVIDER is set: no route needs a KMS yet. */
+    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
     kms?: KmsConfig
 
     /**
