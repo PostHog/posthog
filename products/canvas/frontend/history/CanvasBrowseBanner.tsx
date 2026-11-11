@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconClock, IconPencil } from '@posthog/icons'
 import { Button, Text } from '@posthog/quill'
 
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
@@ -13,6 +14,7 @@ import { canvasHistoryLogic } from './canvasHistoryLogic'
 export function CanvasBrowseBanner(): JSX.Element | null {
     const { browseVersionId, browsedDraft, browsedVersion, versionLabels } = useValues(canvasHistoryLogic)
     const { setBrowseVersion, requestConfirmation } = useActions(canvasHistoryLogic)
+    const inExperiment = useInCanvasExperiment()
 
     if (!browseVersionId) {
         return null
@@ -54,16 +56,21 @@ export function CanvasBrowseBanner(): JSX.Element | null {
                 >
                     {browsedDraft ? 'Back to live' : 'Back to latest'}
                 </Button>
-                <Button
-                    size="xs"
-                    variant="primary"
-                    onClick={() =>
-                        requestConfirmation({ kind: browsedDraft ? 'promote' : 'revert', versionId: browseVersionId })
-                    }
-                    data-attr={browsedDraft ? 'canvas-browse-promote' : 'canvas-browse-revert'}
-                >
-                    {browsedDraft ? 'Publish draft…' : 'Revert to this version…'}
-                </Button>
+                {!inExperiment && (
+                    <Button
+                        size="xs"
+                        variant="primary"
+                        onClick={() =>
+                            requestConfirmation({
+                                kind: browsedDraft ? 'promote' : 'revert',
+                                versionId: browseVersionId,
+                            })
+                        }
+                        data-attr={browsedDraft ? 'canvas-browse-promote' : 'canvas-browse-revert'}
+                    >
+                        {browsedDraft ? 'Publish draft…' : 'Revert to this version…'}
+                    </Button>
+                )}
             </div>
         </div>
     )

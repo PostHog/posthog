@@ -3,12 +3,19 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconPencil } from '@posthog/icons'
 import { Button, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
+
 import { canvasEditLogic } from './canvasEditLogic'
 
-/** Enters edit mode, where the canvas's blocks can be selected, moved and changed by hand, and leaves it. */
-export function CanvasEditToggle(): JSX.Element {
+/** Enters edit mode, where the canvas's blocks can be selected, moved and changed by hand, and leaves it. The canvas experiment hides it. */
+export function CanvasEditToggle(): JSX.Element | null {
     const { editing, editUnavailableReason, entry } = useValues(canvasEditLogic)
     const { setEditing, finishEditing } = useActions(canvasEditLogic)
+    const inExperiment = useInCanvasExperiment()
+
+    if (inExperiment) {
+        return null
+    }
 
     if (editing) {
         return (

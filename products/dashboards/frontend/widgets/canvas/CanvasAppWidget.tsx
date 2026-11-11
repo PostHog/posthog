@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { themeLogic } from 'lib/logic/themeLogic'
@@ -237,6 +238,7 @@ export function CanvasAppWidget({
     onUpdateConfig,
 }: DashboardWidgetComponentProps): JSX.Element {
     const payload = result as CanvasAppWidgetResult | null | undefined
+    const inExperiment = useInCanvasExperiment()
 
     if (loading && !payload) {
         return <CanvasAppLoadingSkeleton />
@@ -248,22 +250,28 @@ export function CanvasAppWidget({
             return (
                 <CanvasAppWidgetMessage
                     title="No canvases yet"
-                    message="Build an app on your PostHog data, then show it on this dashboard."
+                    message={
+                        inExperiment
+                            ? 'Ask your agent to build an app with the PostHog MCP server, then show it on this dashboard.'
+                            : 'Build an app on your PostHog data, then show it on this dashboard.'
+                    }
                     cta={
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={urls.canvasNew()}
-                            targetBlank
-                            onClick={() =>
-                                posthog.capture('dashboard widget create canvas clicked', {
-                                    widget_type: 'canvas_app',
-                                    tile_id: tileId,
-                                })
-                            }
-                        >
-                            New canvas
-                        </LemonButton>
+                        inExperiment ? undefined : (
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                to={urls.canvasNew()}
+                                targetBlank
+                                onClick={() =>
+                                    posthog.capture('dashboard widget create canvas clicked', {
+                                        widget_type: 'canvas_app',
+                                        tile_id: tileId,
+                                    })
+                                }
+                            >
+                                New canvas
+                            </LemonButton>
+                        )
                     }
                 />
             )

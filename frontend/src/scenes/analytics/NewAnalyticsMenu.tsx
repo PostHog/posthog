@@ -12,6 +12,8 @@ import {
     ItemTitle,
 } from '@posthog/quill'
 
+import { useInCanvasExperiment } from 'lib/hooks/useInCanvasExperiment'
+
 import { AnalyticsTypeIcon } from './AnalyticsTypeIcon'
 import { ANALYTICS_TYPES } from './analyticsUtils'
 import { NewAnalyticsSource, newAnalyticsLogic } from './newAnalyticsLogic'
@@ -26,12 +28,14 @@ interface NewAnalyticsMenuProps {
 /** Asks which type of analysis to create, then hands off to that type's own create flow. */
 export function NewAnalyticsMenu({ trigger, source, children }: NewAnalyticsMenuProps): JSX.Element {
     const { pickNewAnalyticsType } = useActions(newAnalyticsLogic)
+    const inExperiment = useInCanvasExperiment()
+    const creatableTypes = ANALYTICS_TYPES.filter((info) => !(inExperiment && info.type === 'canvas'))
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger render={trigger}>{children}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="min-w-72">
-                {ANALYTICS_TYPES.map((info) => (
+                {creatableTypes.map((info) => (
                     <DropdownMenuItem
                         key={info.type}
                         className="h-auto cursor-pointer items-start py-1.5 whitespace-normal"

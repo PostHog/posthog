@@ -4,6 +4,7 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { inCanvasExperiment } from 'lib/utils/canvasExperiment'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -35,6 +36,9 @@ export const TABS_PERSISTED_ACROSS_NAVIGATION = [SidePanelTab.Max, SidePanelTab.
 
 /** The tabs a canvas scene shows instead of the general ones, in order. */
 export const CANVAS_SIDE_PANEL_TABS = [SidePanelTab.CanvasChat, SidePanelTab.CanvasBlocks, SidePanelTab.CanvasTimeline]
+
+/** The canvas tabs that start or change a canvas, which the canvas experiment hides. Keep in step with CANVAS_AUTHORING_PANEL_TABS in the canvas product. */
+const CANVAS_AUTHORING_SIDE_PANEL_TABS = [SidePanelTab.CanvasChat, SidePanelTab.CanvasBlocks]
 
 /**
  * Closes the panel when the context it described goes away — a tab like activity logs or access
@@ -109,7 +113,8 @@ export interface sidePanelLogicMeta {
             scenePanelIsPresent: boolean,
             isCloudOrDev: boolean | undefined,
             hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean, // userLogic
-            isAccessControlSettings: boolean
+            isAccessControlSettings: boolean,
+            featureFlags: FeatureFlagsSet
         ) => SidePanelTab[]
         deprecatedTabs: (featureFlags: FeatureFlagsSet) => SidePanelTab[]
         defaultTab: (scenePanelIsPresent: boolean, deprecatedTabs: SidePanelTab[]) => SidePanelTab
@@ -170,6 +175,7 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 s.isCloudOrDev,
                 s.hasAvailableFeature,
                 s.isAccessControlSettings,
+                s.featureFlags,
             ],
             (
                 sceneSidePanelContext: import('./types').SidePanelSceneContext,
@@ -177,13 +183,17 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                 scenePanelIsPresent: boolean,
                 isCloudOrDev: boolean | undefined,
                 hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean,
-                isAccessControlSettings: boolean
+                isAccessControlSettings: boolean,
+                featureFlags: FeatureFlagsSet
             ) => {
                 if (sceneSidePanelContext.canvas_id && currentTeam) {
+                    const experiment = inCanvasExperiment(featureFlags)
                     // Support stays openable from the help menu, but the canvas tabs take the bar.
                     return [
                         ...CANVAS_SIDE_PANEL_TABS.filter(
-                            (tab) => tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks
+                            (tab) =>
+                                (tab !== SidePanelTab.CanvasBlocks || sceneSidePanelContext.canvas_blocks) &&
+                                !(experiment && CANVAS_AUTHORING_SIDE_PANEL_TABS.includes(tab))
                         ),
                         SidePanelTab.Exports,
                         ...(isCloudOrDev ? [SidePanelTab.Support] : []),
