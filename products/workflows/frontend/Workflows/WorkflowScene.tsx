@@ -118,7 +118,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
     const isSavedWorkflow = !!props.id && props.id !== 'new'
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
-    const { aiComposerAvailable, composerFolder } = useValues(newWorkflowLogic)
+    const { aiComposerAvailable } = useValues(newWorkflowLogic)
     // Deep links that carry a starting point, and the escape hatch, land in the editor instead (see `aiComposerAvailable`).
     const showAiComposer = workflowSceneProps.id === 'new' && aiComposerAvailable
     // The email takeover reflects its state into the URL (?editor=email beside the step's ?node=);
@@ -133,7 +133,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
     const agentContextItems = useMemo(
         () =>
             showAiComposer
-                ? buildNewWorkflowComposerContext(composerFolder)
+                ? buildNewWorkflowComposerContext()
                 : sceneIntegrationEnabled
                   ? buildWorkflowAgentContext(
                         debouncedAgentSource.workflow,
@@ -142,14 +142,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                         editingEmailActionId
                     )
                   : null,
-        [
-            showAiComposer,
-            composerFolder,
-            sceneIntegrationEnabled,
-            debouncedAgentSource,
-            hogFunctionTemplatesById,
-            editingEmailActionId,
-        ]
+        [showAiComposer, sceneIntegrationEnabled, debouncedAgentSource, hogFunctionTemplatesById, editingEmailActionId]
     )
     useSceneAgentPanel({
         sceneKey: 'workflow',
