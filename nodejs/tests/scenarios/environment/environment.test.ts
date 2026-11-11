@@ -134,9 +134,18 @@ describe('scenario environment', () => {
                 'an unmarked node whose options take separate values before the entry point is a stranger',
                 [
                     proc(323, 323, 'node --title cdp dist/index.js', PLAIN_ENV),
-                    proc(324, 324, 'node --env-file .env dist/index.js', PLAIN_ENV),
+                    proc(324, 324, 'node --env-file ../.env dist/index.js', PLAIN_ENV),
+                    proc(325, 325, 'node --inspect-port 9230 --import tsx src/index.ts', PLAIN_ENV),
+                    proc(
+                        326,
+                        326,
+                        'node --max-old-space-size 4096 --redirect-warnings /tmp/cdp.log dist/index.js',
+                        PLAIN_ENV
+                    ),
+                    proc(327, 327, 'tsx --tsconfig tsconfig.json src/index.ts', PLAIN_ENV),
+                    proc(328, 328, 'tsx watch --include src src/index.ts', PLAIN_ENV),
                 ],
-                { groups: [], pids: [], strangers: [323, 324] },
+                { groups: [], pids: [], strangers: [323, 324, 325, 326, 327, 328] },
             ],
             [
                 'an editor open on the entry point in the nodejs dir is not a stranger',
