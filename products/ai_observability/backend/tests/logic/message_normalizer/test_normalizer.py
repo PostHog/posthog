@@ -66,6 +66,20 @@ def test_a_run_logs_non_text_content_once_with_a_count_per_type() -> None:
     ]
 
 
+def test_probing_for_matches_never_serializes_an_unmatched_value() -> None:
+    too_deep_to_serialize: dict = {}
+    cursor = too_deep_to_serialize
+    for _ in range(100_000):
+        cursor["a"] = {}
+        cursor = cursor["a"]
+    normalizer = RecipeNormalizer([*default_recipes(), ECHO])
+
+    with pytest.raises(RecipeRuntimeError):
+        normalizer.normalize_messages(too_deep_to_serialize, "user")
+    assert normalizer.matched_recipe_ids(too_deep_to_serialize, "user") == frozenset()
+    assert normalizer.matched_recipe_ids([{"say": "hi"}], "user") >= {"echo"}
+
+
 def test_custom_recipe_ids_leave_out_the_bundled_recipes() -> None:
     assert RecipeNormalizer([*default_recipes(), ECHO]).custom_recipe_ids == frozenset({"echo"})
     assert RecipeNormalizer().custom_recipe_ids == frozenset()

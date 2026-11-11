@@ -40,6 +40,8 @@ TIME_LIMIT_SECONDS: Final = 1.0
 
 @frozen
 class _RunRecord:
+    # A probe only asks which recipes match, so it skips the salvage fallback, which serializes whole values.
+    salvages: bool = True
     matched_recipe_ids: set[str] = dataclasses.field(default_factory=set)
     non_text_content_types: Counter[str] = dataclasses.field(default_factory=Counter)
 
@@ -153,8 +155,8 @@ class RecipePipeline:
         self.coercer = SlotCoercer()
         self.time_limit_seconds = time_limit_seconds
 
-    def run(self, value: Value, default_role: str) -> RunOutcome:
-        run = _RunRecord()
+    def run(self, value: Value, default_role: str, *, salvages: bool = True) -> RunOutcome:
+        run = _RunRecord(salvages=salvages)
         token = _active_run.set(run)
         try:
             with run_limits(self.time_limit_seconds):
@@ -163,7 +165,7 @@ class RecipePipeline:
                     return RunOutcome(
                         messages=tuple(matched), recognized=True, matched_recipe_ids=frozenset(run.matched_recipe_ids)
                     )
-                salvaged = self._salvage(value, default_role)
+                salvaged = self._salvage(value, default_role) if salvages else NO_MATCH
         except RecursionError as error:
             raise RecipeRuntimeError("RecipeNormalizer: the input nests too deeply to normalize") from error
         finally:
@@ -178,7 +180,10 @@ class RecipePipeline:
 
     def dispatch(self, value: Value, inherited_role: str, depth: int) -> DispatchResult:
         matched = self._match(value, inherited_role, depth)
-        return matched if not isinstance(matched, NoMatch) else self._salvage(value, inherited_role)
+        if not isinstance(matched, NoMatch):
+            return matched
+        run = _active_run.get()
+        return self._salvage(value, inherited_role) if run is None or run.salvages else NO_MATCH
 
     def _match(self, value: Value, inherited_role: str, depth: int) -> DispatchResult:
         if depth > MAX_DEPTH:

@@ -94,6 +94,11 @@ class RecipeNormalizer:
             return RunOutcome(messages=(), recognized=True)
         return self._pipeline.run(value, default_role)
 
+    def matched_recipe_ids(self, value: Value, default_role: str) -> frozenset[str]:
+        if not (isinstance(value, str) or is_object_like(value)):
+            return frozenset()
+        return self._pipeline.run(value, default_role, salvages=False).matched_recipe_ids
+
     def normalize_messages(self, value: Value, default_role: str, tools: Value = MISSING) -> RunOutcome:
         # The run inside joins these limits, so copying the tools and normalizing the messages share one budget and
         # one deadline.

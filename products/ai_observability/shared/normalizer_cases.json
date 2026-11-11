@@ -2111,7 +2111,7 @@
             }
         },
         {
-            "name": "LangChain envelope keeps a tool result id",
+            "name": "LangChain envelope keeps a tool result as a tool message",
             "call": "normalizeMessages",
             "input": {
                 "lc": 1,
@@ -2126,7 +2126,7 @@
             "expected": {
                 "messages": [
                     {
-                        "role": "user",
+                        "role": "tool",
                         "content": "42",
                         "tool_call_id": "c1"
                     }

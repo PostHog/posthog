@@ -4,6 +4,7 @@ from typing import Any
 
 from unittest.mock import MagicMock, patch
 
+import structlog
 from parameterized import parameterized
 
 from products.ai_observability.backend.facade import contracts
@@ -105,6 +106,25 @@ def test_a_span_prompt_value_renders_its_system_prompt_as_system():
     assert texts(content.input) == ["Be brief."]
 
 
+def test_a_serialized_tool_result_folds_into_its_tool_call():
+    def serialized(cls: str, kwargs: dict[str, Any]) -> dict[str, Any]:
+        return {"lc": 1, "type": "constructor", "id": ["langchain_core", "messages", cls], "kwargs": kwargs}
+
+    call = {"name": "search", "args": {"q": "x"}, "id": "c1", "type": "tool_call"}
+    conversation = [
+        serialized("AIMessage", {"content": "", "tool_calls": [call]}),
+        serialized("ToolMessage", {"content": [{"type": "text", "text": "42"}], "tool_call_id": "c1"}),
+    ]
+
+    content = content_of("span", {"k": 1}, conversation)
+
+    assert isinstance(content.output, contracts.TraceMessagesSide)
+    [message] = content.output.messages
+    [part] = message.parts
+    assert isinstance(part, contracts.TraceToolCallPart)
+    assert (part.name, part.result) == ("search", "42")
+
+
 def test_a_generation_wrapping_messages_is_not_unwrapped():
     content = content_of("generation", {"messages": CONVERSATION}, "Hello")
 
@@ -194,6 +214,20 @@ def test_a_team_recipe_check_that_runs_out_the_deadline_leaves_the_other_sides_c
 
     assert content.input == contracts.TraceJsonSide(kind="json", value=slow_input)
     assert texts(content.output) == ["Hello"]
+
+
+def test_a_team_recipe_check_on_an_unmatched_side_builds_no_fallback_text():
+    too_deep_to_serialize: dict[str, Any] = {}
+    cursor = too_deep_to_serialize
+    for _ in range(100_000):
+        cursor["a"] = {}
+        cursor = cursor["a"]
+
+    with structlog.testing.capture_logs() as logs:
+        content = content_of("span", too_deep_to_serialize, {"j": 2}, with_team_recipe(AGENT_RECIPE))
+
+    assert content.input.kind == "json"
+    assert [log["event"] for log in logs if log["event"] == "trace_step_content_fallback"] == []
 
 
 def test_a_team_recipe_match_that_renders_nothing_leaves_the_span_side_json():
