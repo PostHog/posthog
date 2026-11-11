@@ -37,7 +37,7 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
         self,
         trace_id: str,
         at: datetime,
-        answer: str = "Here is the summary.",
+        answer: str | None = "Here is the summary.",
         *,
         messages: list[dict[str, Any]] | None = None,
         properties: dict[str, Any] | None = None,
@@ -65,7 +65,11 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
                     "properties": {
                         **light,
                         "$ai_input": messages or [{"role": "user", "content": "Summarize my notes"}],
-                        "$ai_output_choices": [{"role": "assistant", "content": answer}],
+                        **(
+                            {"$ai_output_choices": [{"role": "assistant", "content": answer}]}
+                            if answer is not None
+                            else {}
+                        ),
                         **({"$ai_output_state": output_state} if output_state is not None else {}),
                     },
                 }
@@ -106,6 +110,16 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
 
         [sampled] = sample.traces
         assert len(sampled.trace.events[0].properties["$ai_output_state"]) == MAX_STATE_BYTES
+
+    def test_a_generation_answering_only_through_a_long_state_is_not_sampled(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._generation("short", end - timedelta(hours=4))
+        self._generation("state_only", end - timedelta(hours=3), answer=None, output_state="s" * (MAX_STATE_BYTES + 1))
+        window = ProfileWindow(start=end - timedelta(days=7), end=end)
+
+        sample = fetch_sample(self.team, window, fetch_profile(self.team, window))
+
+        assert [s.trace.id for s in sample.traces] == ["short"]
 
     def test_hydration_stops_once_the_sample_passes_its_byte_budget(self) -> None:
         end = timezone.now() - timedelta(minutes=30)

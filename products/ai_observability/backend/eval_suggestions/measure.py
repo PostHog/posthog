@@ -47,8 +47,8 @@ DISCOVERY_OVERSAMPLE = 20
 EVENTS_PER_TRACE = 40
 MAX_OUTPUT_BYTES = 16384
 MAX_INPUT_MESSAGE_BYTES = 8192
-# Agent frameworks such as LangGraph send their whole graph state on every span. Checks don't read it, so a long
-# state is cut rather than dropping the trace, which would leave only short traces in the sample.
+# Agent frameworks such as LangGraph send their whole graph state on every span. Checks don't read a span's state, so
+# a long one is cut rather than dropping the trace, which would leave only short traces in the sample.
 MAX_STATE_BYTES = 16384
 # Hydration reads traces in batches and stops once the sample holds this much text, since each row can be
 # ~130 KB and the per-column caps alone would let a sample grow to gigabytes.
@@ -142,6 +142,10 @@ FROM (
         left(output_state, {max_state}) AS output_state,
         length(ai_events.output_choices) > {max_output}
             OR length(ai_events.output) > {max_output}
+            -- A generation with no other output answers through its state, so a cut there would grade half an answer.
+            OR (event = '$ai_generation' AND empty(coalesce(ai_events.output_choices, ''))
+                AND empty(coalesce(ai_events.output, ''))
+                AND length(ai_events.output_state) > {max_state})
             OR length(ai_events.properties) > {max_properties} AS unreadable
     FROM posthog.ai_events AS ai_events
     WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
