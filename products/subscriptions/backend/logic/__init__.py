@@ -7,7 +7,7 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 
-from products.exports.backend.models.subscription import Subscription
+from products.subscriptions.backend.models.subscription import Subscription
 
 if TYPE_CHECKING:
     from products.subscriptions.backend.temporal.types import NoExportableInsightsContext
@@ -91,6 +91,7 @@ def _capture_delivery_failed_event(
         distinct_id=str(distinct_id),
         event="subscription_delivery_failed",
         properties={
+            "$update_person_last_seen_at": False,
             "subscription_id": subscription.id,
             "team_id": subscription.team_id,
             "target_type": subscription.target_type,

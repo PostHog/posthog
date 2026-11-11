@@ -5,7 +5,7 @@ from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
+from products.error_tracking.backend.logic.recommendations.source_maps import PLATFORM_LABELS, SourceMapsRecommendation
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 
 RECOMMENDATIONS_PATH = "/error-tracking?activeTab=recommendations"
@@ -15,7 +15,7 @@ WIZARD_COMMAND = "npx -y @posthog/wizard@latest upload-source-maps"
 
 
 class MissingSourceMapsCheck(HealthCheck):
-    """Flags teams whose JavaScript stack traces are mostly unresolved for lack of source maps.
+    """Flags teams whose stack frames on any one platform mostly miss the symbols they need.
 
     Reads the persisted `source_maps` recommendation rows rather than recomputing, so the
     Health page and the error tracking recommendations tab can never disagree — clicking
@@ -46,12 +46,16 @@ class MissingSourceMapsCheck(HealthCheck):
     def render_alert(cls, issue: HealthIssue) -> AlertContent:
         pct = round((issue.payload.get("unresolved_pct") or 0) * 100)
         lookback_hours = issue.payload.get("lookback_hours") or 24
+        # Payloads written before per-platform scoring counted JavaScript frames only.
+        platform, symbols = PLATFORM_LABELS.get(
+            issue.payload.get("platform") or "javascript", PLATFORM_LABELS["javascript"]
+        )
         return AlertContent(
             title="Missing source maps",
             summary=(
-                f"{pct}% of JavaScript stack frames were unresolved in the last {lookback_hours} hours. "
-                "Unresolved frames also degrade issue grouping. Upload source maps so stack traces "
-                "show your original source code and errors group correctly."
+                f"{pct}% of {platform} stack frames that need {symbols} were missing them in the last "
+                f"{lookback_hours} hours. Unresolved frames also degrade issue grouping. Upload {symbols} so "
+                "stack traces show your original source code and errors group correctly."
             ),
             link=RECOMMENDATIONS_PATH,
         )

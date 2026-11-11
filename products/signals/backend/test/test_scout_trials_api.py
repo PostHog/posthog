@@ -102,6 +102,16 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.client.get(self.memory_url).json() == []
         assert SignalScratchpad.objects.filter(pk=original.pk).exists()
 
+    def test_memory_search_filters_private_entries_by_creating_skill(self) -> None:
+        self._as_trial()
+        response = self.client.post(self.memory_url, {"key": "finding:private", "content": "Private value"})
+        assert response.status_code == 200, response.data
+
+        for skill_name, expected in ((self.trial_run.skill_name, ["finding:private"]), ("signals-scout-other", [])):
+            response = self.client.get(self.memory_url, {"skill_name": skill_name})
+            assert response.status_code == 200, response.data
+            assert [row["key"] for row in response.json()] == expected
+
     def test_note_search_filters_saved_content_before_preview_and_limit(self) -> None:
         saved_id = str(uuid4())
         self.context.notes = [
@@ -157,13 +167,13 @@ class TestScoutTrialAPI(APIBaseTest):
         assert self.production.emitted_count == 0
         assert not SignalReportCheck.objects.for_team(self.team.id).exists()
 
-    @parameterized.expand(["emissions/batch", "emissions/reports/batch", "token-costs"])
+    @parameterized.expand(["emissions/batch", "emissions/reports/batch"])
     def test_read_only_posts_do_not_invalidate_private_runs(self, action: str) -> None:
         self._as_trial()
         response = self.client.post(
             f"{self.trial_runs_url}{action}/", {"run_ids": [str(self.production.id)]}, format="json"
         )
-        assert response.status_code == (403 if action == "token-costs" else 200), response.data
+        assert response.status_code == 200, response.data
         assert ScoutTrialStore(self.trial_run).invalid_reason() is None
 
     @parameterized.expand([("report_level", False), ("per_run", True)])

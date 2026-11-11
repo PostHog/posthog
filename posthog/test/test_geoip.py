@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.geoip import _lookup_location, get_geoip_location
+from posthog.geoip import _lookup_location, get_geoip_location, get_geoip_properties
 
 
 class TestGeoipLocation(SimpleTestCase):
@@ -19,19 +19,33 @@ class TestGeoipLocation(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("rfc1918_10", "10.0.0.5"),
-            ("rfc1918_172", "172.16.3.4"),
-            ("rfc1918_192", "192.168.1.1"),
-            ("ipv6_loopback", "::1"),
-            ("link_local", "169.254.0.1"),
+            (f"{lookup.__name__}_{name}", lookup, ip)
+            for lookup in (get_geoip_location, get_geoip_properties)
+            for name, ip in [
+                ("rfc1918_10", "10.0.0.5"),
+                ("rfc1918_172", "172.16.3.4"),
+                ("rfc1918_192", "192.168.1.1"),
+                ("ipv6_loopback", "::1"),
+                ("ipv6_unique_local", "fd00::1"),
+                ("link_local", "169.254.0.1"),
+                ("malformed", "not-an-ip"),
+            ]
         ]
     )
     @patch("posthog.geoip.geoip")
-    def test_returns_empty_for_non_public_ip(self, _name, ip, mock_geoip):
+    def test_returns_empty_for_non_public_ip(self, _name, lookup, ip, mock_geoip):
         # geoip is mocked truthy, so an empty result can only come from the private/reserved guard,
         # not a missing DB — and city() must never be reached for these ranges.
-        self.assertEqual(get_geoip_location(ip), {})
+        self.assertEqual(lookup(ip), {})
         mock_geoip.city.assert_not_called()
+
+    @parameterized.expand([("ipv4", "8.8.8.8"), ("ipv4_mapped_ipv6", "::ffff:8.8.8.8")])
+    @patch("posthog.geoip.geoip")
+    def test_properties_for_public_ip(self, _name, ip, mock_geoip):
+        # A mapped address takes the flags of its embedded IPv4 on our Python, so the guard must let it through.
+        mock_geoip.city.return_value = {"city": "NYC", "country_code": "US", "latitude": 40.7}
+        self.assertEqual(get_geoip_properties(ip), {"$geoip_city_name": "NYC", "$geoip_country_code": "US"})
+        mock_geoip.city.assert_called_once_with(ip)
 
     @patch("posthog.geoip.geoip")
     def test_returns_coordinates_and_country(self, mock_geoip):

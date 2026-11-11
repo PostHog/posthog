@@ -1,4 +1,3 @@
-import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { PostgresUse, handlePostgresError, isTransientPgError } from '~/common/utils/db/postgres'
 
 describe('isTransientPgError', () => {
@@ -16,6 +15,7 @@ describe('isTransientPgError', () => {
         ['connect ETIMEDOUT 10.0.0.1:5432'],
         ['query_wait_timeout'],
         ['server login has been failing, try again later (server_login_retry)'],
+        ['Canceling statement due to conflict with recovery.'],
     ])('returns true for transient error "%s"', (message) => {
         expect(isTransientPgError(new Error(message))).toBe(true)
     })
@@ -52,14 +52,12 @@ describe('handlePostgresError', () => {
         ['connect ETIMEDOUT 10.0.0.1:5432'],
         ['query_wait_timeout'],
         ['server login has been failing, try again later (server_login_retry)'],
+        ['canceling statement due to conflict with recovery'],
+        ['Canceling statement due to conflict with recovery.'],
     ])('throws retriable DependencyUnavailableError for "%s"', (message) => {
-        try {
-            handlePostgresError(new Error(message), PostgresUse.COMMON_WRITE)
-            fail('expected to throw')
-        } catch (e) {
-            expect(e).toBeInstanceOf(DependencyUnavailableError)
-            expect((e as DependencyUnavailableError).isRetriable).toBe(true)
-        }
+        expect(() => handlePostgresError(new Error(message), PostgresUse.COMMON_WRITE)).toThrow(
+            expect.objectContaining({ name: 'DependencyUnavailableError', isRetriable: true })
+        )
     })
 
     it.each([
@@ -68,5 +66,14 @@ describe('handlePostgresError', () => {
         ['syntax error at or near "SELECT"'],
     ])('does not throw for non-transient error "%s"', (message) => {
         expect(() => handlePostgresError(new Error(message), PostgresUse.COMMON_WRITE)).not.toThrow()
+    })
+
+    it.each([
+        ['could not serialize access due to concurrent update', '40001'],
+        ['canceling statement due to statement timeout', '57014'],
+    ])('does not throw for "%s", which shares SQLSTATE %s with a recovery conflict', (message, code) => {
+        const error = Object.assign(new Error(message), { code })
+
+        expect(() => handlePostgresError(error, PostgresUse.COMMON_WRITE)).not.toThrow()
     })
 })

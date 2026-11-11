@@ -3,7 +3,16 @@ import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonModal, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonDialog,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTag,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { detailedTime, humanFriendlyDetailedTime } from 'lib/utils/datetime'
@@ -14,6 +23,7 @@ import { userLogic } from 'scenes/userLogic'
 import { DeleteOrganizationModal } from '../organization/OrganizationDangerZone'
 import { TagList } from './PersonalAPIKeys'
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'
+import { ScopeGroupSummary } from './scopes/ScopeGroupSummary'
 import { userDangerZoneLogic } from './userDangerZoneLogic'
 
 const DELETE_CONFIRMATION_TEXT = 'permanently delete data'
@@ -52,6 +62,7 @@ export function DeleteUserModal({
                             disabledReason={userLoading && 'Loading...'}
                             type="secondary"
                             onClick={() => setIsOpen(false)}
+                            data-attr="delete-user-cancel"
                         >
                             Cancel
                         </LemonButton>
@@ -199,7 +210,11 @@ export function DeleteUserModal({
                                                 key.scopes[0] === '*' ? (
                                                     <LemonTag type="warning">All access</LemonTag>
                                                 ) : (
-                                                    <TagList tags={key.scopes} onMoreClick={() => {}} />
+                                                    <TagList
+                                                        tags={key.scopes}
+                                                        tooltip={<ScopeGroupSummary scopes={key.scopes} />}
+                                                        onMoreClick={() => {}}
+                                                    />
                                                 ),
                                         },
                                     ]}
@@ -233,6 +248,7 @@ export function DeleteUserModal({
 }
 
 export function UserDangerZone(): JSX.Element {
+    const { user } = useValues(userLogic)
     const { setDeleteUserModalOpen } = useActions(userDangerZoneLogic)
     const { deleteUserModalOpen } = useValues(userDangerZoneLogic)
 
@@ -241,8 +257,14 @@ export function UserDangerZone(): JSX.Element {
             <div className="text-danger">
                 <div className="mt-4">
                     <p className="text-danger">
-                        This is <b>irreversible</b>. Please be certain.
+                        This deletes your personal PostHog account. This is <b>irreversible</b>.
                     </p>
+                    {user?.organization && (
+                        <p className="text-default">
+                            To delete an organization instead, go to{' '}
+                            <Link to={urls.settings('organization-danger-zone')}>Delete organization</Link>.
+                        </p>
+                    )}
                     <LemonButton
                         status="danger"
                         type="secondary"
@@ -250,7 +272,7 @@ export function UserDangerZone(): JSX.Element {
                         data-attr="delete-user-button"
                         icon={<IconTrash />}
                     >
-                        Delete your account
+                        Delete my PostHog account
                     </LemonButton>
                 </div>
             </div>

@@ -1,0 +1,15 @@
+version: 1
+filters:
+  dataWarehouseMetadata: &metadata
+    - worker/**
+    - added|modified: [pyproject.toml, uv.lock]
+    - '!worker/tests/**'
+  metadataAlias: *metadata
+  dataWarehouse:
+    - products/warehouse_sources/backend/**
+images:
+  posthog-cloud:
+    channels:
+      dw-metadata:
+        repository: posthog-temporal-workers/data-warehouse-metadata
+        filter: dataWarehouseMetadata

@@ -126,7 +126,8 @@ def extract_event(event_tuple) -> dict | None:
     return {
         "uuid": str(event_tuple[0]),
         "distinct_id": str(event_tuple[1]),
-        "timestamp": str(event_tuple[2]),
+        # Keep ISO 8601, because the issue page copies this into its `timestamp` URL param for the replay player.
+        "timestamp": event_tuple[2].isoformat(),
         "properties": event_tuple[3],
     }
 

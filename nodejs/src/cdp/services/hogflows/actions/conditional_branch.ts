@@ -3,7 +3,7 @@ import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
-import { CyclotronJobInvocationHogFlow, HogFunctionFilters } from '~/cdp/types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult, HogFunctionFilters } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 
 import { findContinueAction, findNextAction, isEvaluableCondition } from '../hogflow-utils'
@@ -40,6 +40,26 @@ export const counterHogflowRekeyWake = new Counter({
     help: 'wait_until_condition re-checks triggered by a merge re-key wake, by outcome.',
     labelNames: ['outcome'],
 })
+
+// Outcome of a failed cohort membership lookup. 'retried' re-runs the step after a backoff;
+// 'aborted' means every attempt failed and the run stopped. Sustained 'aborted' readings mean the
+// behavioral cohorts DB is unreachable from the workers, and every cohort branch is stopping runs.
+// 'exit_check_skipped' is a cohort trigger's exit check that could not run, so the run carried on.
+export const counterHogflowCohortLookupFailure = new Counter({
+    name: 'cdp_hogflow_cohort_lookup_failure_total',
+    help: 'Cohort membership lookups that failed in a conditional_branch, a wait or a cohort trigger exit check, by outcome.',
+    labelNames: ['outcome'],
+})
+
+// Seconds to wait before each retry. One more attempt than there are delays: the first try runs inline.
+export const COHORT_LOOKUP_RETRY_DELAYS_SECONDS = [10, 60]
+
+export class CohortMembershipLookupFailedError extends Error {
+    constructor(cause: unknown) {
+        super(`Cohort membership lookup failed: ${String(cause)}`, { cause })
+        this.name = 'CohortMembershipLookupFailedError'
+    }
+}
 
 export class ConditionalBranchHandler implements ActionHandler {
     constructor(private cohortMembershipRepository: CohortMembershipRepository) {}
@@ -118,14 +138,26 @@ export class ConditionalBranchHandler implements ActionHandler {
                       },
                   }
 
-        const conditionResult = await checkConditions(
-            invocation,
-            conditionalAction,
-            this.createMemberCohortIdsLoader(invocation),
-            action.type === 'wait_until_condition' && action.config.max_wait_duration
-                ? { maxWaitDuration: action.config.max_wait_duration }
-                : undefined
-        )
+        let conditionResult: Awaited<ReturnType<typeof checkConditions>>
+        try {
+            conditionResult = await checkConditions(
+                invocation,
+                conditionalAction,
+                this.createMemberCohortIdsLoader(invocation),
+                action.type === 'wait_until_condition' && action.config.max_wait_duration
+                    ? { maxWaitDuration: action.config.max_wait_duration }
+                    : undefined
+            )
+        } catch (error) {
+            if (error instanceof CohortMembershipLookupFailedError) {
+                return retryOrFailCohortLookup(invocation, result, error)
+            }
+            throw error
+        }
+        if (invocation.state.currentAction) {
+            delete invocation.state.currentAction.cohortLookupAttempts
+            delete invocation.state.currentAction.cohortLookupFailed
+        }
 
         const isWait = action.type === 'wait_until_condition'
 
@@ -159,12 +191,46 @@ export class ConditionalBranchHandler implements ActionHandler {
             if (!loaded) {
                 const personUuid = invocation.person?.id ?? invocation.state.personId
                 loaded = personUuid
-                    ? this.cohortMembershipRepository.getMemberCohortIds(invocation.hogFlow.team_id, personUuid)
+                    ? this.cohortMembershipRepository
+                          .getMemberCohortIds(invocation.hogFlow.team_id, personUuid)
+                          .catch((error) => {
+                              throw new CohortMembershipLookupFailedError(error)
+                          })
                     : Promise.resolve([])
             }
             return loaded
         }
     }
+}
+
+// A failed lookup must not route the person: no answer is not the same as "not a member". The step
+// re-runs after a backoff, and once the attempts run out it marks cohortLookupFailed and rethrows, so
+// the executor aborts the run instead of following on_error's default continue edge.
+function retryOrFailCohortLookup(
+    invocation: CyclotronJobInvocationHogFlow,
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+    error: CohortMembershipLookupFailedError
+): ActionHandlerResult {
+    const currentAction = invocation.state.currentAction
+    const failedAttempts = (currentAction?.cohortLookupAttempts ?? 0) + 1
+    const retryDelaySeconds = COHORT_LOOKUP_RETRY_DELAYS_SECONDS[failedAttempts - 1]
+
+    if (currentAction && retryDelaySeconds !== undefined) {
+        currentAction.cohortLookupAttempts = failedAttempts
+        counterHogflowCohortLookupFailure.labels('retried').inc()
+        result.logs.push({
+            level: 'warn',
+            timestamp: DateTime.now(),
+            message: `Could not look up cohort membership (${String(error.cause)}). Retrying in ${retryDelaySeconds}s`,
+        })
+        return { scheduledAt: DateTime.now().plus({ seconds: retryDelaySeconds }) }
+    }
+
+    if (currentAction) {
+        currentAction.cohortLookupFailed = true
+    }
+    counterHogflowCohortLookupFailure.labels('aborted').inc()
+    throw error
 }
 
 // Operation.CALL_GLOBAL from @posthog/hogvm, which is a const enum and can't be imported
@@ -228,7 +294,7 @@ export async function checkConditions(
     for (const [index, condition] of action.config.conditions.entries()) {
         // Loaded only when evaluation actually reaches a cohort condition, so a run whose earlier
         // condition matches never touches the behavioral cohorts DB. A lookup failure throws here
-        // on purpose (following the action's on_error) instead of guessing non-membership; the
+        // on purpose, and the handler retries and then aborts instead of guessing non-membership; the
         // inCohort/notInCohort STL functions read the resulting cohort_ids global. The matcher does
         // not watch cohort membership, so a wait gated on a cohort advances at its deadline.
         const cohortGlobals =

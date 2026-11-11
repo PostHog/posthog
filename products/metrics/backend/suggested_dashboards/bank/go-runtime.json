@@ -1,6 +1,20 @@
 {
     "name": "Go runtime",
     "description": "Goroutines, heap, CPU and file descriptors of Go services that export Prometheus client metrics.",
+    "variables": [
+        {
+            "name": "service",
+            "label": "Service",
+            "source": "sql",
+            "query": "SELECT DISTINCT service_name FROM posthog.metric_names WHERE time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "goroutines",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "go_goroutines",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -35,7 +56,14 @@
                     {
                         "name": "a",
                         "metricName": "go_memstats_heap_inuse_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -60,7 +88,14 @@
                     {
                         "name": "a",
                         "metricName": "process_resident_memory_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -85,7 +120,14 @@
                     {
                         "name": "a",
                         "metricName": "process_cpu_seconds_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -114,6 +156,13 @@
                             {
                                 "key": "service_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -137,12 +186,26 @@
                     {
                         "name": "allocated",
                         "metricName": "go_memstats_heap_alloc_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     },
                     {
                         "name": "in_use",
                         "metricName": "go_memstats_heap_inuse_bytes",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -170,6 +233,13 @@
                         "groupBy": [
                             {
                                 "key": "service_name"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
                             }
                         ]
                     }
@@ -200,6 +270,13 @@
                             {
                                 "key": "service_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -228,6 +305,13 @@
                             {
                                 "key": "service_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
                         ]
                     }
                 ],
@@ -251,12 +335,26 @@
                     {
                         "name": "open",
                         "metricName": "process_open_fds",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     },
                     {
                         "name": "limit",
                         "metricName": "process_max_fds",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "service_name",
+                                "op": "eq",
+                                "value": "$service"
+                            }
+                        ]
                     }
                 ],
                 "display": {

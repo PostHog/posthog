@@ -14,7 +14,11 @@ from posthog.temporal.common.utils import asyncify
 
 from products.context_layer.backend.facade import api as context_layer_facade
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
-from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
+from products.tasks.backend.temporal.observability import (
+    emit_agent_log,
+    log_activity_execution,
+    log_with_activity_context,
+)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 
 MOUNT_TIMEOUT_SECONDS = 120
@@ -113,9 +117,8 @@ def materialize_context_layer_in_sandbox(input: MaterializeContextLayerInput) ->
                 f"Could not mount the context wiki; continuing without it: {result.stderr}",
             )
             return MaterializeContextLayerOutput(mounted=False)
-        emit_agent_log(
-            ctx.run_id,
-            "debug",
+        log_with_activity_context(
             f"Mounted the context wiki at {context_layer_facade.SANDBOX_MOUNT_PATH} ({mount.head_sha[:12]})",
+            run_id=ctx.run_id,
         )
         return MaterializeContextLayerOutput(mounted=True)

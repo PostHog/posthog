@@ -163,6 +163,7 @@ describe('definitionPopoverLogic', () => {
                 type: TaxonomicFilterGroupType | string
                 definition: TaxonomicDefinitionTypes
                 url?: string
+                payload?: Record<string, unknown>
                 dispatchActions: any[]
             }[] = [
                 {
@@ -208,6 +209,8 @@ describe('definitionPopoverLogic', () => {
                     type: TaxonomicFilterGroupType.Cohorts,
                     definition: mockCohort,
                     url: `api/projects/${MOCK_TEAM_ID}/cohorts/${mockCohort.id}`,
+                    // The full cohort carries its query, which would re-populate a static cohort
+                    payload: { description: 'new and improved description' },
                     dispatchActions: [cohortsModel, ['updateCohort']],
                 },
                 {
@@ -240,7 +243,7 @@ describe('definitionPopoverLogic', () => {
                     if (group.url) {
                         expect(api.update).toHaveBeenCalledWith(
                             group.url,
-                            expect.objectContaining({ description: 'new and improved description' })
+                            group.payload ?? expect.objectContaining({ description: 'new and improved description' })
                         )
                     }
                 })
@@ -284,6 +287,20 @@ describe('definitionPopoverLogic', () => {
     })
 
     describe('view mode', () => {
+        it.each([
+            ['a saved event definition', { id: 'uuid-pageview', name: '$pageview' }, true],
+            ['a hidden event stand-in with no definition', { name: '$feature_flag_called' }, false],
+        ])('offers Edit for %s', async (_label, definition, isEditable) => {
+            logic = definitionPopoverLogic({ type: TaxonomicFilterGroupType.Events })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setDefinition(definition)
+            })
+                .toDispatchActions(['setDefinitionSuccess'])
+                .toMatchValues({ isEditable })
+        })
+
         it('hydrates data warehouse fields from the selected filter before applying defaults', async () => {
             logic = definitionPopoverLogic({
                 type: TaxonomicFilterGroupType.DataWarehouse,

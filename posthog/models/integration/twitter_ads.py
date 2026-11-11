@@ -2,7 +2,6 @@ import hashlib
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlencode
 
-from django.conf import settings
 from django.core.cache import cache
 from django.utils.http import url_has_allowed_host_and_scheme
 
@@ -10,6 +9,9 @@ import requests
 from requests_oauthlib import OAuth1
 from rest_framework.exceptions import ValidationError
 
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.settings_fallback import get_many_or_settings
+from posthog.models.integration.common import OauthClientCredentials
 from posthog.models.integration.model import Integration
 from posthog.models.integration.oauth import OauthIntegration
 
@@ -25,9 +27,16 @@ class TwitterAdsIntegration:
         return f"twitter_ads_oauth:{hashlib.sha256(token.encode()).hexdigest()}"
 
     @staticmethod
-    def require_configured() -> None:
-        if not settings.TWITTER_ADS_CONSUMER_KEY or not settings.TWITTER_ADS_CONSUMER_SECRET:
+    def consumer_credentials() -> OauthClientCredentials:
+        """PostHog's X app consumer key and secret, read at use time and never cached."""
+        values = get_many_or_settings(
+            ["TWITTER_ADS_CONSUMER_KEY", "TWITTER_ADS_CONSUMER_SECRET"], CredentialsCaller.INTEGRATIONS
+        )
+        if not values["TWITTER_ADS_CONSUMER_KEY"] or not values["TWITTER_ADS_CONSUMER_SECRET"]:
             raise ValidationError("Kind not configured")
+        return OauthClientCredentials(
+            client_id=values["TWITTER_ADS_CONSUMER_KEY"], client_secret=values["TWITTER_ADS_CONSUMER_SECRET"]
+        )
 
     @staticmethod
     def _exchange(endpoint: str, auth: OAuth1, required: tuple[str, ...]) -> dict[str, str]:
@@ -50,7 +59,7 @@ class TwitterAdsIntegration:
 
     @classmethod
     def authorize_url(cls, team_id: int, user_id: int, next_url: str) -> str:
-        cls.require_configured()
+        consumer = cls.consumer_credentials()
         if next_url and (
             not next_url.startswith("/") or not url_has_allowed_host_and_scheme(next_url, allowed_hosts=set())
         ):
@@ -58,8 +67,8 @@ class TwitterAdsIntegration:
         tokens = cls._exchange(
             "request_token",
             OAuth1(
-                settings.TWITTER_ADS_CONSUMER_KEY,
-                settings.TWITTER_ADS_CONSUMER_SECRET,
+                consumer.client_id,
+                consumer.client_secret,
                 callback_uri=OauthIntegration.redirect_uri("twitter-ads"),
             ),
             ("oauth_token", "oauth_token_secret", "oauth_callback_confirmed"),
@@ -80,7 +89,7 @@ class TwitterAdsIntegration:
 
     @classmethod
     def integration_from_callback(cls, team_id: int, user: "User", config: dict[str, object]) -> Integration:
-        cls.require_configured()
+        consumer = cls.consumer_credentials()
         token = config.get("oauth_token")
         verifier = config.get("oauth_verifier")
         if not isinstance(token, str) or not token or not isinstance(verifier, str) or not verifier:
@@ -97,8 +106,8 @@ class TwitterAdsIntegration:
         tokens = cls._exchange(
             "access_token",
             OAuth1(
-                settings.TWITTER_ADS_CONSUMER_KEY,
-                settings.TWITTER_ADS_CONSUMER_SECRET,
+                consumer.client_id,
+                consumer.client_secret,
                 token,
                 binding["oauth_token_secret"],
                 verifier=verifier,

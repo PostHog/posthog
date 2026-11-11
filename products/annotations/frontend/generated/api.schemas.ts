@@ -94,6 +94,7 @@ export const AnnotationScopeEnumApi = {
 } as const
 
 export interface AnnotationApi {
+    /** Unique ID of the annotation. */
     readonly id: number
     /**
      * Annotation text shown on charts to describe the change, release, or incident.
@@ -121,17 +122,34 @@ export interface AnnotationApi {
      * @nullable
      */
     dashboard_id?: number | null
-    /** @nullable */
+    /**
+     * Name of the dashboard in `dashboard_id`, or null when there is none.
+     * @nullable
+     */
     readonly dashboard_name: string | null
-    /** @nullable */
+    /**
+     * Short ID of the insight in `dashboard_item`, or null when there is none.
+     * @nullable
+     */
     readonly insight_short_id: string | null
-    /** @nullable */
+    /**
+     * Name of the insight in `dashboard_item`, or null when it has none.
+     * @nullable
+     */
     readonly insight_name: string | null
-    /** @nullable */
+    /**
+     * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+     * @nullable
+     */
     readonly insight_derived_name: string | null
+    /** User who created the annotation. */
     readonly created_by: UserBasicApi
-    /** @nullable */
+    /**
+     * When the annotation was created.
+     * @nullable
+     */
     readonly created_at: string | null
+    /** When the annotation was last changed. */
     readonly updated_at: string
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
@@ -166,6 +184,7 @@ export interface PaginatedAnnotationListApi {
 }
 
 export interface PatchedAnnotationApi {
+    /** Unique ID of the annotation. */
     readonly id?: number
     /**
      * Annotation text shown on charts to describe the change, release, or incident.
@@ -193,17 +212,34 @@ export interface PatchedAnnotationApi {
      * @nullable
      */
     dashboard_id?: number | null
-    /** @nullable */
+    /**
+     * Name of the dashboard in `dashboard_id`, or null when there is none.
+     * @nullable
+     */
     readonly dashboard_name?: string | null
-    /** @nullable */
+    /**
+     * Short ID of the insight in `dashboard_item`, or null when there is none.
+     * @nullable
+     */
     readonly insight_short_id?: string | null
-    /** @nullable */
+    /**
+     * Name of the insight in `dashboard_item`, or null when it has none.
+     * @nullable
+     */
     readonly insight_name?: string | null
-    /** @nullable */
+    /**
+     * Generated name of the insight in `dashboard_item`, shown when the insight has no name.
+     * @nullable
+     */
     readonly insight_derived_name?: string | null
+    /** User who created the annotation. */
     readonly created_by?: UserBasicApi
-    /** @nullable */
+    /**
+     * When the annotation was created.
+     * @nullable
+     */
     readonly created_at?: string | null
+    /** When the annotation was last changed. */
     readonly updated_at?: string
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
@@ -286,6 +322,7 @@ export interface ChangeFeedApi {
 export type AnnotationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -308,9 +345,28 @@ export type ChangeFeedListParams = {
      */
     date_to?: string
     /**
+     * Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.
+     */
+    kinds?: ChangeFeedListKindsItem[]
+    /**
      * Maximum number of changes to return, newest first. Defaults to 100, at most 500.
      * @minimum 1
      * @maximum 500
      */
     limit?: number
 }
+
+/**
+ * * `feature_flag` - Feature flag
+ * * `experiment` - Experiment
+ * * `release` - Release
+ * * `annotation` - Annotation
+ */
+export type ChangeFeedListKindsItem = (typeof ChangeFeedListKindsItem)[keyof typeof ChangeFeedListKindsItem]
+
+export const ChangeFeedListKindsItem = {
+    FeatureFlag: 'feature_flag',
+    Experiment: 'experiment',
+    Release: 'release',
+    Annotation: 'annotation',
+} as const

@@ -46,17 +46,20 @@ class TestPresignNotebookTableUpload(SimpleTestCase):
 class TestValidateNotebookTableName(BaseTest):
     @parameterized.expand(
         [
-            ("written_by_a_notebook", "scores", True, None),
-            ("fresh_name", "fresh_scores", False, None),
-            ("bad_characters", "my-scores", False, "starts with a letter"),
-            ("posthog_table", "events", False, "already exists"),
-            ("another_table", "scores", False, "a notebook didn't create it"),
+            ("written_by_a_notebook", "scores", "scores", True, None),
+            ("fresh_name", "fresh_scores", "scores", False, None),
+            ("bad_characters", "my-scores", "scores", False, "starts with a letter"),
+            ("posthog_table", "events", "scores", False, "already exists"),
+            ("another_table", "scores", "scores", False, "a notebook didn't create it"),
+            ("renamed_table_still_reads_the_object", "scores", "archived_scores", True, "renamed table"),
         ]
     )
-    def test_name_rules(self, _name: str, table_name: str, notebook_owned: bool, error: str | None) -> None:
+    def test_name_rules(
+        self, _name: str, table_name: str, existing_name: str, notebook_owned: bool, error: str | None
+    ) -> None:
         DataWarehouseTable.objects.create(
             team_id=self.team.id,
-            name="scores",
+            name=existing_name,
             format="Parquet",
             url_pattern=(
                 build_notebook_table_url_pattern(self.team.id, "scores")
@@ -124,6 +127,20 @@ class TestSaveNotebookTable(BaseTest):
         self.assertEqual(list(table.columns), ["label"])
         live_key = build_notebook_table_s3_key(self.team.id, "scores")
         self.assertEqual([call.args[2] for call in s3.copy.call_args_list], [live_key, live_key])
+
+    def test_a_table_renamed_after_dispatch_keeps_its_object(self):
+        s3 = MagicMock()
+        table_id = self._save("run-1", s3)
+        DataWarehouseTable.objects.filter(id=table_id).update(name="archived_scores")
+
+        with (
+            patch("products.data_warehouse.backend.logic.notebook_tables.validate_notebook_table_name"),
+            self.assertRaisesRegex(NotebookTableError, "Another table"),
+        ):
+            self._save("run-2", s3)
+
+        self.assertEqual(s3.copy.call_count, 1)
+        self.assertEqual(DataWarehouseTable.objects.filter(team_id=self.team.id).count(), 1)
 
     def test_unreadable_upload_never_replaces_the_live_object(self):
         s3 = MagicMock()

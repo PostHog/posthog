@@ -18,7 +18,13 @@ class UnknownRecommendationTypeError(Exception):
 
 
 def list_recommendations(team_id: int) -> list[ErrorTrackingRecommendation]:
-    return list(ErrorTrackingRecommendation.objects.filter(team_id=team_id).select_related("team").order_by("type"))
+    # Rows of a removed recommendation type stay in Postgres. Filter on the registry so that
+    # the API does not return a type that has no implementation to compute or enrich it.
+    return list(
+        ErrorTrackingRecommendation.objects.filter(team_id=team_id, type__in=list(RECOMMENDATIONS_BY_TYPE))
+        .select_related("team")
+        .order_by("type")
+    )
 
 
 def _get(team_id: int, recommendation_id: UUID) -> ErrorTrackingRecommendation:

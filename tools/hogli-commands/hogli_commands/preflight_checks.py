@@ -462,6 +462,24 @@ def check_merge_queue_lane(scope: Scope) -> Outcome:
 CROSS_LANE_LABEL = "cross-lane-change"
 
 
+def check_stack_depth() -> Outcome:
+    try:
+        result = subprocess.run(
+            ["node", ".github/scripts/check-stack-depth.mjs", "--local"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=25,
+            cwd=REPO_ROOT,
+        )
+        match json.loads(result.stdout):
+            case {"status": "pass" | "fail" | "skipped" as status, "detail": str() as detail}:
+                return status, detail
+    except (OSError, subprocess.SubprocessError, ValueError):
+        pass
+    return "skipped", "could not run the stack-depth check"
+
+
 def _first(files: list[str], total: int) -> str:
     count = max(total, len(files))
     more = f" (+{count - 2} more)" if count > 2 else ""

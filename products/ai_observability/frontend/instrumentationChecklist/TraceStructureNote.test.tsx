@@ -1,9 +1,6 @@
 import { cleanup, render, screen } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -75,10 +72,6 @@ describe('TraceStructureNote', () => {
         mockHasRecentAIEvents.mockResolvedValue(true)
         mockRetrieve.mockResolvedValue(checklistWith(InstrumentationCheckStatusEnumApi.Warning))
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: true,
-        })
         sharedLogic = aiObservabilitySharedLogic()
         sharedLogic.mount()
         checklistLogic = instrumentationChecklistLogic()
@@ -90,7 +83,6 @@ describe('TraceStructureNote', () => {
         cleanup()
         checklistLogic.unmount()
         sharedLogic.unmount()
-        featureFlagLogic.unmount()
     })
 
     // The list surfaces drop their verdict once a filter is on, since a filter can explain an empty

@@ -14,21 +14,19 @@ The numbers below are a snapshot for orientation: before a figure drives a decis
 - **~85% of engaged opens end in a selection.** p50 dwell ~5.5s, p90 ~23s.
   Most engaged opens are quick and successful.
 - "Engaged" means the user interacted.
-  The legacy picker sends `taxonomic filter closed` only when `hadInteraction` is true, so an open dismissed untouched is not counted.
+  The picker sends `taxonomic filter closed` only when `hadInteraction` is true, so an open dismissed untouched is not counted.
   The rate over all opens is lower.
 - The previous figure (~34%, May 2026) came from before close telemetry was complete.
   Don't compare the two numbers as a trend.
 - **Position is everything.**
   Row 0 takes ~52% of picks, row 1 ~23%, row 2 ~10%.
   About 85% of picks are in the top three rows.
-  These are legacy figures: the rebuild's `all` scope counts recents and pinned rows in its positions, so its numbers do not compare.
-- **~96% of engaged opens never select a real category** (7-day sample, legacy picker, sessions split at each `taxonomic filter closed`).
-- **Suggested carries about 70% of selections** (legacy picker).
+- **~96% of engaged opens never select a real category** (7-day sample, sessions split at each `taxonomic filter closed`).
+- **Suggested carries about 70% of selections.**
   Just over half of those are recents.
 
 ## Selection paths
 
-Legacy picker only (query 5 leaves out `rebuild-menu`).
 These overlap: one pick can be both searched and from recents.
 
 | Path                         | Share of selections |
@@ -99,8 +97,7 @@ Detail in [failure-modes](failure-modes.md).
 - Opens with a category pick end in a selection ~62% of the time, vs ~85% without one.
 - Most empty searches are ordinary words in the wrong scope.
 - Recovery within 30s of an empty result fell from ~46% to ~39% (Jul to Oct 2026, health dashboard session tile) while the empty-result rate stayed flat.
-  The tile pools both surfaces, so check each one with query 12 before you read it as a worse empty state.
-- About 0.2 fetch failure events per 100 legacy search queries (query 10).
+- About 0.2 fetch failure events per 100 search queries (query 10).
   One search can send several, so this is not a share of failed searches.
   The health dashboard shows ~2%, but it divides every failure, first loads included, by timed searches, so it overstates the rate.
   Cohorts, events, person properties and flags make up most of the failures.
@@ -127,7 +124,7 @@ Customers don't name it as the problem.
 
 ## Caveats
 
-- The open-level splits cover engaged legacy opens only.
+- The open-level splits cover engaged opens only.
   A picker that stays mounted can merge several opens into one, so treat those ratios as direction.
 - Some dashboard tiles include staff traffic.
   Filter it when it matters.

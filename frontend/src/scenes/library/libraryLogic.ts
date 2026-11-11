@@ -1,11 +1,13 @@
 import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
+import { isAnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
 import { fileSystemTypes, getTreeItemsNew } from '~/products'
@@ -87,6 +89,13 @@ export interface libraryLogicActions {
         objects: LibraryObjects
         payload?: void
     }
+    objectOpened: (
+        entry: FileSystemEntry,
+        position: number
+    ) => {
+        entry: FileSystemEntry
+        position: number
+    }
     setObjectType: (objectType: string) => {
         objectType: string
     }
@@ -119,6 +128,7 @@ export const libraryLogic = kea<libraryLogicType>([
     actions({
         setObjectType: (objectType: string) => ({ objectType }),
         setSearch: (search: string) => ({ search }),
+        objectOpened: (entry: FileSystemEntry, position: number) => ({ entry, position }),
     }),
     reducers({
         objectType: ['', { setObjectType: (_, { objectType }) => objectType }],
@@ -212,7 +222,7 @@ export const libraryLogic = kea<libraryLogicType>([
                 const byType: Record<string, FileSystemImport[]> = {}
                 for (const item of getTreeItemsNew()) {
                     const type = baseObjectType(item.type)
-                    if (!item.href || !isFileSystemImportFlagEnabled(item, featureFlags)) {
+                    if (!item.href || !isFileSystemImportShown(item, featureFlags)) {
                         continue
                     }
                     byType[type] = [...(byType[type] ?? []), item]
@@ -220,16 +230,39 @@ export const libraryLogic = kea<libraryLogicType>([
                 return byType
             },
         ],
-        // "All objects" asks for every type, so drop the ones that live in Tools and Views.
+        // "All objects" asks for every type, so drop the ones that live in Tools and Analytics.
         visibleObjects: [
             (s) => [s.objects],
             (objects: LibraryObjects): FileSystemEntry[] => objects.results.filter(isLibraryEntry),
         ],
         hasMore: [(s) => [s.objects], (objects: LibraryObjects): boolean => objects.results.length < objects.count],
     }),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, cache }) => ({
         setObjectType: () => actions.loadObjects(),
         setSearch: () => actions.loadObjects(),
+        loadObjects: () => {
+            cache.loadStartedAt = performance.now()
+        },
+        loadObjectsSuccess: () => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('library list loaded', {
+                duration_ms: cache.loadStartedAt != null ? Math.round(performance.now() - cache.loadStartedAt) : null,
+                object_count: values.visibleObjects.length,
+                total_count: values.objects.count,
+                has_more: values.hasMore,
+                search_used: !!values.search,
+                type: values.objectType || 'all',
+            })
+            cache.loadStartedAt = undefined
+        },
+        objectOpened: ({ entry, position }) => {
+            // pinned: analytics event name and properties. Renaming them breaks dashboards.
+            posthog.capture('library object opened', {
+                object_type: baseObjectType(entry.type),
+                position,
+                source: values.search ? 'search' : 'list',
+            })
+        },
     })),
     urlToAction(({ actions, values, cache }) => {
         const openType = (objectType: string): void => {
@@ -238,7 +271,9 @@ export const libraryLogic = kea<libraryLogicType>([
                 return
             }
             if (objectType && !isLibraryType(objectType)) {
-                router.actions.replace(urls.views())
+                router.actions.replace(
+                    isAnalyticsType(objectType) ? urls.analyticsList({ type: objectType }) : urls.analyticsList()
+                )
                 return
             }
             const listHref = objectType ? libraryListHref(objectType) : null

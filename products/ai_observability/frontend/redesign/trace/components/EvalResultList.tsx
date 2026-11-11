@@ -1,28 +1,55 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Link } from '@posthog/lemon-ui'
 
-import { EvalsState } from '../types'
+import { urls } from 'scenes/urls'
+
+import type { TraceEvaluationResultApi, TraceNodeApi } from '../../../generated/api.schemas'
 import { ErrorCallout } from './ErrorCallout'
 import { EvalResultRow } from './EvalResultRow'
 
 export interface EvalResultListProps {
-    evals: EvalsState
+    /** Null until the results have loaded. */
+    results: TraceEvaluationResultApi[] | null
+    failed: boolean
+    viewedNode: TraceNodeApi
+    stepLabels: ReadonlyMap<string, string>
     onSelectNode: (nodeId: string) => void
 }
 
-export function EvalResultList({ evals, onSelectNode }: EvalResultListProps): JSX.Element {
-    if (evals.status === 'loading') {
+export function EvalResultList({
+    results,
+    failed,
+    viewedNode,
+    stepLabels,
+    onSelectNode,
+}: EvalResultListProps): JSX.Element {
+    if (failed) {
+        return <ErrorCallout message="Evaluation results could not be loaded. Reload the page to try again." />
+    }
+    if (!results) {
         return <LemonSkeleton repeat={3} className="h-8" />
     }
-    if (evals.status === 'error') {
-        return <ErrorCallout message={evals.errorMessage} />
-    }
-    if (evals.results.length === 0) {
-        return <p className="m-0 text-secondary">No evaluations ran on this step.</p>
+    const shown =
+        viewedNode.kind === 'trace' ? results : results.filter((result) => result.targetNodeId === viewedNode.id)
+    if (shown.length === 0) {
+        return (
+            <p className="m-0 text-secondary">
+                <span>No evaluations ran on this step. </span>
+                <Link to={urls.aiObservabilityEvaluations()} data-attr="trace-view-evals-setup-link">
+                    Set up evaluations
+                </Link>
+            </p>
+        )
     }
     return (
         <ul className="m-0 list-none divide-y divide-primary rounded border border-primary bg-surface-primary p-0">
-            {evals.results.map((result) => (
-                <EvalResultRow key={result.id} result={result} onSelectNode={onSelectNode} />
+            {shown.map((result) => (
+                <EvalResultRow
+                    key={result.id}
+                    result={result}
+                    viewedNodeId={viewedNode.id}
+                    stepLabels={stepLabels}
+                    onSelectNode={onSelectNode}
+                />
             ))}
         </ul>
     )

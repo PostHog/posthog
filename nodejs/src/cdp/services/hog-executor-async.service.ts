@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { Counter } from 'prom-client'
 
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -18,7 +17,12 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import {
+    MAX_FETCH_RESPONSE_BYTES,
+    cdpTrackedFetch,
+    fetchErrorDetail,
+    isFetchResponseRetriable,
+} from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
@@ -26,10 +30,15 @@ import { mergeSecretHeaders, resolveSecretHeaders } from '../utils/secret-header
 import { resolveStandardWebhooksKey, signStandardWebhooksRequest } from '../utils/standard-webhooks'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
 import { HogInputsService } from './hog-inputs.service'
-import { EMAIL_QUEUE_PRIORITY, getEmailQueuePriorityClass } from './messaging/email-priority'
+import {
+    EMAIL_QUEUE_PRIORITY,
+    cdpEmailQueuedTotal,
+    getEmailQueuePriority,
+    getEmailQueuePriorityClass,
+} from './messaging/email-priority'
 import { EmailService } from './messaging/email.service'
 import { PushNotificationService } from './messaging/push-notification.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { RecipientTokensService, preferencesTokenSourceForInvocation } from './messaging/recipient-tokens.service'
 import {
     SELF_LOOP_MAX_DEPTH,
     getSelfLoopDepth,
@@ -38,12 +47,6 @@ import {
     isSelfReferentialIngestFetch,
     selfLoopGuardCounter,
 } from './self-loop-guard'
-
-const cdpEmailQueuedTotal = new Counter({
-    name: 'cdp_email_queued_total',
-    help: 'Total emails routed to the dedicated email queue',
-    labelNames: ['priority_class'] as const,
-})
 
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string
@@ -165,6 +168,9 @@ export class HogExecutorAsyncService {
                         nextInvocation,
                         options?.isTest ?? false
                     )
+                    if (invocation.queue === 'email' && !result.finished) {
+                        this.keepPushRetryInEmailQueueOrder(result, invocation)
+                    }
                 } else if (queueParamsType === 'email') {
                     // Route to the email queue unless this is a test run: tests execute in-process and
                     // never enqueue, so routing would leave the job unworked.
@@ -181,8 +187,8 @@ export class HogExecutorAsyncService {
                         // the current action's metadata so a throttle retry re-queues under this
                         // send's class rather than the previous email action's.
                         if (invocation.queue === 'email') {
-                            nextInvocation.queuePriority =
-                                EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(nextInvocation.hogFunction.metadata)]
+                            nextInvocation.queueMetadata = invocation.queueMetadata
+                            nextInvocation.queuePriority = getEmailQueuePriority(nextInvocation.hogFunction.metadata)
                         }
                         // isTest is forwarded so a test send stays out of the email's engagement tracking.
                         result = await this.deps.emailService.executeSendEmail(nextInvocation, options?.isTest ?? false)
@@ -245,10 +251,10 @@ export class HogExecutorAsyncService {
                 functions: {
                     generateMessagingPreferencesUrl: (identifier): string | null => {
                         return identifier && typeof identifier === 'string'
-                            ? this.deps.recipientTokensService.generatePreferencesUrl({
-                                  team_id: invocation.teamId,
-                                  identifier,
-                              })
+                            ? this.deps.recipientTokensService.generatePreferencesUrl(
+                                  { team_id: invocation.teamId, identifier },
+                                  preferencesTokenSourceForInvocation(invocation)
+                              )
                             : null
                     },
                     ...options.functions,
@@ -324,6 +330,15 @@ export class HogExecutorAsyncService {
         cdpEmailQueuedTotal.labels(priorityClass).inc()
 
         return result
+    }
+
+    private keepPushRetryInEmailQueueOrder(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        entryInvocation: CyclotronJobInvocationHogFunction
+    ): void {
+        const { originQueue, originPriority } = entryInvocation.queueMetadata ?? {}
+        result.invocation.queueMetadata = { ...result.invocation.queueMetadata, originQueue, originPriority }
+        result.invocation.queuePriority = getEmailQueuePriority(result.invocation.hogFunction.metadata)
     }
 
     private routeToQueue(
@@ -579,7 +594,12 @@ export class HogExecutorAsyncService {
                 }
             }
         } catch (e) {
-            addLog('error', `Failed to parse response body: ${e.message}`)
+            addLog(
+                'error',
+                e.name === 'ResponseTooLargeError'
+                    ? `The response body is larger than ${MAX_FETCH_RESPONSE_BYTES / 1024 / 1024} MB, so it was not read.`
+                    : `Failed to parse response body: ${e.message}`
+            )
             body = undefined
         }
 

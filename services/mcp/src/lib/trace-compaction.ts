@@ -141,6 +141,7 @@ export const SUMMARY_METADATA_PROPERTIES = new Set([
     '$ai_cache_creation_1h_input_tokens',
     '$ai_cache_creation_5m_input_tokens',
     '$ai_cache_read_audio_tokens',
+    '$ai_cache_read_image_tokens',
     '$ai_audio_cost_usd',
     '$ai_image_cost_usd',
     '$ai_video_cost_usd',

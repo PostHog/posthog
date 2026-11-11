@@ -4,9 +4,11 @@ import { IconGear, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { accountViewsLogic } from './accountViewsLogic'
+import { QuillAccountDetailActions } from './QuillAccountDetailActions'
 
 interface AccountDetailActionsProps {
     projectId: number
@@ -17,6 +19,11 @@ export function AccountDetailActions({ projectId }: AccountDetailActionsProps): 
     const logic = accountViewsLogic({ projectId })
     const { accountDetailTabs, config, configError, configLoading } = useValues(logic)
     const { openConfigure, openCreateEditor } = useActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillAccountDetailActions projectId={projectId} />
+    }
 
     if (!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_ACCOUNT_VIEWS]) {
         return null

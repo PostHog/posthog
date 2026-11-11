@@ -7,8 +7,11 @@
                 "backend/presentation/**",
                 "backend/routes.py",
                 "backend/tasks/**",
+                "backend/temporal/**",
                 "backend/models/**",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

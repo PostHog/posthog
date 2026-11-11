@@ -53,7 +53,7 @@ export function BroadcastAudienceCohorts(): JSX.Element | null {
                 return (
                     <div
                         key={id}
-                        className="flex flex-wrap items-center justify-between gap-2 rounded border bg-surface-primary px-3 py-2"
+                        className="flex items-start justify-between gap-2 rounded border bg-surface-primary px-3 py-2"
                     >
                         <div className="flex min-w-0 items-center gap-2">
                             <IconCohort className="shrink-0 text-lg text-secondary" />
@@ -78,15 +78,15 @@ export function BroadcastAudienceCohorts(): JSX.Element | null {
                             </div>
                         </div>
                         <LemonButton
-                            size="small"
-                            type="secondary"
+                            size="xsmall"
+                            className="shrink-0"
                             to={urls.cohort(id)}
                             targetBlank
-                            sideIcon={<IconOpenInNew />}
+                            icon={<IconOpenInNew />}
+                            tooltip="Open cohort"
+                            aria-label="Open cohort"
                             data-attr="broadcast-audience-open-cohort"
-                        >
-                            Open cohort
-                        </LemonButton>
+                        />
                     </div>
                 )
             })}

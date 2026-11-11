@@ -1,12 +1,16 @@
 from typing import TYPE_CHECKING
 
-from products.managed_warehouse.backend.logic.sql_editor import managed_warehouse_sql_editor_uses_trino
+from products.managed_warehouse.backend.logic.sql_editor import (
+    managed_trino_query_flag_enabled,
+    managed_warehouse_sql_editor_uses_trino,
+)
 from products.managed_warehouse.backend.logic.sql_editor_credentials import (
     resolve_managed_warehouse_postgres_connection,
 )
 
 __all__ = [
     "managed_trino_adapter",
+    "managed_trino_query_flag_enabled",
     "managed_warehouse_sql_editor_uses_trino",
     "resolve_managed_warehouse_postgres_connection",
 ]

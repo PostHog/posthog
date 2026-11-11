@@ -7,7 +7,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { metricsNamesRetrieve } from '../generated/api'
-import { METRIC_NAMES_LIMIT, filterMetricNames, metricNamePickerLogic } from './metricNamePickerLogic'
+import { METRIC_NAMES_LIMIT, customMetricName, filterMetricNames, metricNamePickerLogic } from './metricNamePickerLogic'
 
 jest.mock('../generated/api', () => ({
     ...jest.requireActual('../generated/api'),
@@ -350,5 +350,13 @@ describe('filterMetricNames', () => {
 
     it('returns every item for an empty search', () => {
         expect(filterMetricNames(ITEMS, '')).toBe(ITEMS)
+    })
+
+    it.each([
+        ['offers a name that is not in the list', ' queue_depth_2025 ', 'queue_depth_2025'],
+        ['offers nothing for an exact match', 'http', null],
+        ['offers nothing for an empty search', '  ', null],
+    ])('customMetricName %s', (_name, search, expected) => {
+        expect(customMetricName(ITEMS, search)).toEqual(expected)
     })
 })

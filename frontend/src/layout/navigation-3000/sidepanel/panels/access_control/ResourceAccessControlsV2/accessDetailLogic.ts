@@ -85,7 +85,7 @@ export const OBJECT_RULE_RESOURCE_CONFIG: Partial<Record<APIScopeObject, ObjectR
     },
     feature_flag: {
         url: (rule) => urls.featureFlag(rule.resource_id),
-        parseUrl: (path) => /^\/feature_flags\/(\d+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
+        parseUrl: (path) => /^\/feature[-_]flags\/(\d+)(?:[/?#]|$)/.exec(path)?.[1] ?? null,
     },
     experiment: {
         url: (rule) => urls.experiment(rule.resource_id),

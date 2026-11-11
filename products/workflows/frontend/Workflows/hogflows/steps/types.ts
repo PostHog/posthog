@@ -1,18 +1,9 @@
-import { Handle, NodeProps } from '@xyflow/react'
 import { z } from 'zod'
 
-import { Optional } from 'lib/utils/types'
 import { LogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
 
 import { HogFlowAction } from '../types'
 import { isDuration, isSignedDuration } from './durations'
-
-export type HogFlowStepNodeProps = NodeProps & {
-    data: HogFlowAction
-    type: HogFlowAction['type']
-}
-
-export type StepViewNodeHandle = Omit<Optional<Handle, 'width' | 'height'>, 'nodeId'> & { label?: string }
 
 const ActionFiltersSchema = z.object({
     events: z.array(z.any()).optional(),
@@ -105,6 +96,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'posthog_survey',
         'replay_vision_scan',
         'task_skills',
     ]),
@@ -348,7 +340,9 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                 z.literal('any'),
                 z.literal('weekday'),
                 z.literal('weekend'),
-                z.array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])),
+                z
+                    .array(z.enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']))
+                    .min(1, 'Choose at least one day'),
             ]),
             // time can be "any", or a time range [start, end]
             time: z.union([
@@ -373,7 +367,7 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_email'),
         config: z.object({
-            message_category_id: z.string().optional(),
+            message_category_id: z.string().nullish(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
             // When false, no open pixel is injected, links are not rewritten, and the send uses the
             // untracked SES configuration set. Absent/true means tracked. Keep in sync with
@@ -389,6 +383,10 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
                     utm_campaign: z.string().optional(),
                     utm_content: z.string().optional(),
                 })
+                .optional(),
+            // utm_params keys that follow the team default. Only the Django API reads it, so Node does not declare it.
+            utm_params_from_default: z
+                .array(z.enum(['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']))
                 .optional(),
             template_uuid: z.string().optional(), // May be used later to specify a specific template version
             template_id: z.literal('template-email'),
@@ -410,10 +408,12 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('function_push'),
         config: z.object({
-            message_category_id: z.string().uuid().optional(),
+            message_category_id: z.string().optional(),
             message_category_type: z.enum(['marketing', 'transactional']).optional(),
-            template_uuid: z.string().uuid().optional(),
+            template_uuid: z.string().optional(),
             template_id: z.literal('template-native-push'),
+            // When true, PostHog keeps no copy of the notification's content. Keep in sync with nodejs/src/cdp/schema/hogflow.ts.
+            sensitive: z.boolean().optional(),
             inputs: z.record(z.string(), CyclotronInputSchema),
         }),
     }),
@@ -467,6 +467,7 @@ export const isScheduleTrigger = (action: HogFlowAction): boolean => {
 }
 
 export interface HogflowTestResult {
+    emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
     status: 'success' | 'error' | 'skipped'
     logs?: LogEntry[]
     nextActionId: string | null

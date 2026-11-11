@@ -211,6 +211,9 @@ classify() {
         echo passing
     elif printf '%s' "$body" | grep -qE 'Submitted to Merge.*added to the merge queue once'; then
         echo submitted
+    # A push to a stack layer keeps the stack submitted, unlike a push to a plain PR.
+    elif printf '%s' "$body" | grep -qE 'returned to waiting.*because it was pushed to'; then
+        echo submitted
     elif printf '%s' "$body" | grep -qE '(Merged|Stack merged) successfully'; then
         echo merged
     elif printf '%s' "$body" | grep -qE 'was merged into .* as part of stacked PR'; then

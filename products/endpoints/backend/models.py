@@ -10,8 +10,6 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-import posthoganalytics
-
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor
@@ -24,29 +22,9 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
+from products.data_modeling.backend.facade.api import declared_targets_by_saved_query, get_declared_target
+
 logger = logging.getLogger(__name__)
-
-COMPARE_MODE_MATERIALIZATION_FLAG = "endpoints-materialized-compare-mode"
-
-
-def compare_mode_materialization_enabled(team: Team) -> bool:
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                COMPARE_MODE_MATERIALIZATION_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id), "project": str(team.id)},
-                group_properties={
-                    "organization": {"id": str(team.organization_id)},
-                    "project": {"id": str(team.id)},
-                },
-                only_evaluate_locally=True,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception as error:
-        capture_exception(error)
-        return False
 
 
 class _ReplacePlaceholdersWithDummies(CloningVisitor):
@@ -98,7 +76,7 @@ def _clickhouse_type_to_serialized_type(ch_type: str) -> str:
     return "unknown"
 
 
-def can_materialize_query(query: dict | None, team: Team | None = None) -> tuple[bool, str]:
+def can_materialize_query(query: dict | None) -> tuple[bool, str]:
     """Check whether an endpoint query can be materialized.
 
     Returns: (can_materialize: bool, reason: str)
@@ -122,12 +100,8 @@ def can_materialize_query(query: dict | None, team: Team | None = None) -> tuple
     assert query is not None
 
     compare_filter = query.get("compareFilter") or {}
-    if compare_filter.get("compare"):
-        compare_mode_supported = (
-            query_kind == "TrendsQuery" and team is not None and compare_mode_materialization_enabled(team)
-        )
-        if not compare_mode_supported:
-            return False, "Compare mode is not supported for materialized endpoints."
+    if compare_filter.get("compare") and query_kind != "TrendsQuery":
+        return False, "Compare mode is only supported for materialized Trends endpoints."
 
     # Block cohort breakdowns — they produce a UNION ALL across cohorts, which
     # inject_series_index tags as separate series, causing a mismatch at read time.
@@ -227,9 +201,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         related_name="endpoint_versions_created",
     )
 
-    data_freshness_seconds = models.IntegerField(
+    cache_ttl_seconds = models.IntegerField(
         default=86400,
-        help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
+        db_column="data_freshness_seconds",
+        help_text="How long direct query results remain in the cache, in seconds.",
     )
     saved_query = models.ForeignKey(
         "data_modeling.DataWarehouseSavedQuery",
@@ -317,14 +292,45 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         self.bucket_overrides = bucket_overrides
         self.save(update_fields=["saved_query", "bucket_overrides", "updated_at"])
 
-    def disable_materialization(self) -> None:
+    # Attribute that `frequency_nodes_prefetch` fills and `data_freshness_seconds` reads.
+    FREQUENCY_NODES_ATTR = "prefetched_frequency_nodes"
+
+    @classmethod
+    def frequency_nodes_prefetch(cls, saved_query_path: str = "saved_query") -> models.Prefetch:
+        """Prefetch the nodes holding the declared freshness target, for use with `data_freshness_seconds`."""
+        from products.data_modeling.backend.facade.models import Node
+
+        return models.Prefetch(
+            f"{saved_query_path}__node_set",
+            queryset=Node.objects.only("saved_query_id", "properties"),
+            to_attr=cls.FREQUENCY_NODES_ATTR,
+        )
+
+    @property
+    def data_freshness_seconds(self) -> int:
+        if self.saved_query_id is None:
+            return self.cache_ttl_seconds
+
+        nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
+        if nodes is None:
+            target = declared_targets_by_saved_query(self.team_id or self.endpoint.team_id, [self.saved_query_id]).get(
+                str(self.saved_query_id)
+            )
+        else:
+            target = next((target for node in nodes if (target := get_declared_target(node)) is not None), None)
+        if target is not None:
+            return int(target.total_seconds())
+        return self.cache_ttl_seconds
+
+    def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
             return
+        self.cache_ttl_seconds = self.data_freshness_seconds if cache_ttl_seconds is None else cache_ttl_seconds
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
         self.saved_query = None
-        self.save(update_fields=["saved_query", "updated_at"])
+        self.save(update_fields=["saved_query", "cache_ttl_seconds", "updated_at"])
 
     @property
     def is_materialized(self) -> bool:
@@ -341,7 +347,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
 
         Returns: (can_materialize: bool, reason: str)
         """
-        return can_materialize_query(self.query, self.team)
+        return can_materialize_query(self.query)
 
     @staticmethod
     def extract_columns(query: dict, team_id: int) -> list[dict]:
@@ -388,7 +394,7 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
     Endpoints allow creating reusable query endpoints like:
     /api/projects/{team_id}/endpoints/{endpoint_name}/run
 
-    Query, description, data_freshness_seconds, and materialization settings are stored
+    Query, description, cache duration, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
     """
 
@@ -485,7 +491,7 @@ class Endpoint(Taggable, CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields
             version=self.current_version,
             query=query,
             created_by=user,
-            data_freshness_seconds=previous_data_freshness,
+            cache_ttl_seconds=previous_data_freshness,
             description=previous_description,
             optional_breakdown_properties=pruned_optional_breakdowns,
             columns=columns,

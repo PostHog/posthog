@@ -7,6 +7,15 @@
             "minLength": 1,
             "type": "string"
         },
+        "created_by": {
+            "description": "Filter experiments by the author's user ID.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "created_by_is_null": {
+            "description": "Only include experiments without an author.",
+            "type": "boolean"
+        },
         "cursor": {
             "description": "Continuation cursor returned by the previous page.",
             "maxLength": 2048,
@@ -94,6 +103,16 @@
             "description": "Exact evaluation suite identifier.",
             "maxLength": 255,
             "minLength": 1,
+            "type": "string"
+        },
+        "tag_match": {
+            "default": "any",
+            "description": "Match any selected tag (OR) or all selected tags (AND).\n\n* `any` - Any\n* `all` - All",
+            "enum": ["any", "all"],
+            "type": "string"
+        },
+        "tags": {
+            "description": "JSON array of tag names, for example [\"quality\",\"production\"]. Up to 20 tags. An empty array disables tag filtering.",
             "type": "string"
         }
     },

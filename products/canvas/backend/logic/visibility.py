@@ -8,7 +8,12 @@ from collections.abc import Iterable
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
-from django.db.models import Max, Q, QuerySet
+from django.db.models import Case, Exists, Max, OuterRef, Q, QuerySet, UUIDField, When
+from django.db.models.functions import Cast
+
+from rest_framework.request import Request
+
+from posthog.models.user import User
 
 from products.canvas.backend.facade.contracts import CanvasOwnerActivity, CanvasSummary
 from products.canvas.backend.models import Canvas
@@ -107,6 +112,68 @@ def visible_canvas_ids(team_id: int, user_id: int | None) -> set[str]:
         source_policy=Canvas.SOURCE_POLICY_STANDARD,
     )
     return {str(canvas_id) for canvas_id in canvases.values_list("id", flat=True)}
+
+
+# Only a canvas row's `ref` is a UUID, and the planner may evaluate the subquery for any row.
+_UUID_PATTERN = r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+
+
+def filter_file_system_rows(rows: QuerySet, request: Request, project_id: int) -> QuerySet:
+    """Keep every non-canvas row, and a canvas row only when its channel lets the caller see the canvas.
+
+    The rows span the project's environments, hence `unscoped()` with the project bound. The cast sits
+    on the row side under a CASE, so the lookup hits the canvas primary key and never casts a non-UUID.
+    A sandbox token sees public canvases and its user's own, as the canvas API allows it.
+    """
+    user = request.user
+    user_id = user.id if isinstance(user, User) else None
+    channel_q = tasks_facade.visible_channels_q(user_id, relation="channel")
+    # Imported on first use: the OAuth stack stays off the facade import path.
+    from posthog.oauth_provenance import is_sandbox_oauth_request  # noqa: PLC0415
+
+    if is_sandbox_oauth_request(request):
+        channel_q &= tasks_facade.visible_channels_q(None, relation="channel") | Q(created_by_id=user_id)
+    visible = Canvas.objects.unscoped().filter(
+        channel_q,
+        team__project_id=project_id,
+        team_id=OuterRef("team_id"),
+        id=OuterRef("_canvas_uuid"),
+        **Canvas.FILED_ANALYSIS_FILTER,
+    )
+    return rows.annotate(
+        _canvas_uuid=Case(
+            When(type="canvas", ref__regex=_UUID_PATTERN, then=Cast("ref", UUIDField())),
+            default=None,
+            output_field=UUIDField(),
+        )
+    ).filter(~Q(type="canvas") | Exists(visible))
+
+
+def canvas_deletable_by(*, team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
+    """Deleting is the creator's call alone, as in the canvas API's `CanvasAccess.DELETE`."""
+    if user_id is None:
+        return False
+    return (
+        _visible_canvases(team_id, user_id)
+        .filter(id=canvas_id, created_by_id=user_id, source_policy=Canvas.SOURCE_POLICY_STANDARD)
+        .exists()
+    )
+
+
+def canvas_restorable_by(*, team_id: int, canvas_id: str | UUID, user_id: int | None) -> bool:
+    """Like deleting, restoring is the creator's call, and it runs while the canvas is still deleted."""
+    if user_id is None:
+        return False
+    return (
+        Canvas.objects.for_team(team_id)
+        .filter(
+            tasks_facade.visible_channels_q(user_id, relation="channel"),
+            id=canvas_id,
+            created_by_id=user_id,
+            source_policy=Canvas.SOURCE_POLICY_STANDARD,
+        )
+        .exists()
+    )
 
 
 def visible_canvas_user_ids(*, team_id: int, canvas_id: str, user_ids: Iterable[int]) -> set[int]:

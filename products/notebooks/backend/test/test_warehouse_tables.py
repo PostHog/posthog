@@ -18,7 +18,7 @@ class TestFinishWarehouseTableSave(BaseTest):
             (
                 "crashed",
                 RuntimeError("boom"),
-                {"name": "scores", "error": "The warehouse table couldn't be saved."},
+                {"name": "scores", "error": "The warehouse table couldn't be saved. Run the cell again to retry."},
                 False,
             ),
         ]

@@ -1,4 +1,5 @@
-import { VIEW_FILE_SYSTEM_TYPES, libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
+import { ANALYTICS_FILE_SYSTEM_TYPES, isFromPostHogItem } from 'scenes/analytics/analyticsUtils'
+import { libraryRowOpensProduct, productObjectType } from 'scenes/library/libraryUtils'
 import { urls } from 'scenes/urls'
 
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -46,43 +47,13 @@ export function toolMatchesSearch(tool: FileSystemImport, search: string): boole
 
 /** Whether a page gets its own row in the Products list. Library rows and the Views pane open the other pages. */
 export function isToolItem(item: FileSystemImport): boolean {
-    return !!item.href && !libraryRowOpensProduct(item) && !VIEW_FILE_SYSTEM_TYPES.has(productObjectType(item))
-}
-
-let productLabelsByLibraryType: Map<string, string[]> | null = null
-
-/** The names of the products a Library type row opens, so a search for "Product analytics" finds Insights. */
-export function libraryRowProductLabels(type: string): string[] {
-    if (!productLabelsByLibraryType) {
-        const labels = new Map<string, string[]>()
-        for (const item of getToolSourceItems()) {
-            if (libraryRowOpensProduct(item)) {
-                const itemType = productObjectType(item)
-                labels.set(itemType, [...(labels.get(itemType) ?? []), toolLabel(item)])
-            }
-        }
-        productLabelsByLibraryType = labels
-    }
-    return productLabelsByLibraryType.get(type) ?? []
-}
-
-export function toolHrefForPath(
-    path: string,
-    tools: Pick<FileSystemImport, 'href'>[] = getToolSourceItems().filter(isToolItem)
-): string | null {
-    let match: { href: string; toolPath: string } | null = null
-    for (const { href } of tools) {
-        const toolPath = href?.split(/[?#]/)[0]
-        if (
-            href &&
-            toolPath &&
-            (path === toolPath || path.startsWith(`${toolPath}/`)) &&
-            (!match || toolPath.length > match.toolPath.length)
-        ) {
-            match = { href, toolPath }
-        }
-    }
-    return match?.href ?? null
+    // The ready-made analytics products open from the Analytics pane, so they are not tools as well.
+    return (
+        !!item.href &&
+        !isFromPostHogItem(item) &&
+        !libraryRowOpensProduct(item) &&
+        !ANALYTICS_FILE_SYSTEM_TYPES.has(productObjectType(item))
+    )
 }
 
 export function groupTools(tools: FileSystemImport[], search: string): ToolGroup[] {

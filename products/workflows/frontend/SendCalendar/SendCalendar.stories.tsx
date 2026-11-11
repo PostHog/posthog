@@ -1,11 +1,12 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { useActions, useMountedLogic } from 'kea'
+import { BindLogic, useActions, useMountedLogic } from 'kea'
 import { useEffect } from 'react'
 
 import { dayjs } from 'lib/dayjs'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import { toPaginatedResponse } from '~/mocks/handlers'
+import type { AnyPropertyFilter } from '~/types'
 
 import type { MessageCategoryApi } from 'products/messaging/frontend/generated/api.schemas'
 import type {
@@ -15,10 +16,12 @@ import type {
     UserBasicApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { broadcastWizardLogic } from '../Broadcasts/broadcastWizardLogic'
 import { SendCalendar } from './SendCalendar'
 import { sendCalendarLogic } from './sendCalendarLogic'
 import { SendCalendarSendDetails } from './SendCalendarSendDetails'
-import { CalendarSend, describeRepeat, sendAudience } from './sendCalendarUtils'
+import { CalendarSend, describeRepeat, scheduleSendTimes, sendAudience } from './sendCalendarUtils'
+import { SendDayPicker } from './SendDayPicker'
 
 const meta: Meta<typeof SendCalendar> = {
     title: 'Products/Workflows/Send calendar',
@@ -260,7 +263,10 @@ const detailsSend = (item: SendCalendarFlowApi): CalendarSend => {
         name: item.name ?? '',
         kind: item.origin_product === 'broadcasts' ? 'broadcast' : 'workflow',
         state: 'planned',
-        at: dayjs(itemSchedule.starts_at),
+        // The calendar shows each send at its next occurrence, not at the schedule's first one.
+        at:
+            scheduleSendTimes(itemSchedule, { start: dayjs(), end: dayjs().add(1, 'year') })[0] ??
+            dayjs(itemSchedule.starts_at),
         repeat: describeRepeat(itemSchedule),
         isRecurring: itemSchedule.rrule !== 'FREQ=DAILY;COUNT=1',
         createdBy: item.created_by,
@@ -286,4 +292,34 @@ export const SendDetails: StoryFn = () => {
 }
 SendDetails.parameters = {
     testOptions: { waitForLoadersToDisappear: true, waitForSelector: '[data-attr=send-calendar-audience]' },
+}
+
+function SendDayPickerFor({ sendAt }: { sendAt: string }): JSX.Element {
+    const props = { id: 'new' }
+    const { prefillFromLink, setScheduleMode, setSendAt } = useActions(broadcastWizardLogic(props))
+    useEffect(() => {
+        // A link prefill sets the audience without the recipient count that the audience picker starts.
+        prefillFromLink({ properties: [inCohort(21)] as unknown as AnyPropertyFilter[] })
+        setScheduleMode('later')
+        setSendAt(sendAt)
+    }, [prefillFromLink, setScheduleMode, setSendAt, sendAt])
+    return (
+        <BindLogic logic={broadcastWizardLogic} props={props}>
+            <div className="w-[60rem]">
+                <SendDayPicker />
+            </div>
+        </BindLogic>
+    )
+}
+
+// A broadcast to a cohort that two other sends on the same day also reach, so the picker suggests another day.
+export const SendDayPickerCrowded: StoryFn = () => {
+    useCalendarMocks(FLOWS)
+    return <SendDayPickerFor sendAt="2026-10-20T10:00:00.000Z" />
+}
+SendDayPickerCrowded.parameters = {
+    testOptions: {
+        waitForLoadersToDisappear: true,
+        waitForSelector: '[data-attr=send-day-picker-use-suggestion] >> visible=true',
+    },
 }

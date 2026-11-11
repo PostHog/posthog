@@ -36,6 +36,20 @@ def rollout_rule(rule_id: str, value: Any) -> dict[str, Any]:
     }
 
 
+def split_rule(rule_id: str, *values: Any) -> dict[str, Any]:
+    return {
+        "id": rule_id,
+        "rule_type": "experiment",
+        "targeting": {"properties": []},
+        "paused": False,
+        "rollout_percentage": 100,
+        "on_rollout_miss": "continue",
+        "assignment_algorithm": "sha1_60_v1",
+        "seed": "values-endpoint-split",
+        "variants": [{"key": f"arm_{index}", "weight": 50, "value": value} for index, value in enumerate(values)],
+    }
+
+
 def v2_document(return_type: str, default_value: Any, *rules: dict[str, Any]) -> dict[str, Any]:
     return {"version": 2, "return_type": return_type, "default_value": default_value, "rules": list(rules)}
 
@@ -76,6 +90,11 @@ class TestFlagValueViewSet(APIBaseTest):
                 ["compact"],
             ),
             ("no_rules", v2_document("string", "standard"), ["standard"]),
+            (
+                "variant_values_in_stored_order",
+                v2_document("string", "standard", targeted_rule(RULE_A, "wide"), split_rule(RULE_B, "compact", "wide")),
+                ["wide", "compact", "standard"],
+            ),
         ]
     )
     def test_flag_values_v2_string_flag_lists_its_strings(
@@ -98,6 +117,12 @@ class TestFlagValueViewSet(APIBaseTest):
         [
             ("v2_without_rules_key", {"version": 2, "return_type": "string", "default_value": "standard"}),
             ("v2_rules_not_a_list", {"version": 2, "return_type": "string", "default_value": None, "rules": "x"}),
+            (
+                "v2_property_not_an_object",
+                v2_document(
+                    "string", "standard", {**targeted_rule(RULE_A, "wide"), "targeting": {"properties": ["x"]}}
+                ),
+            ),
             (
                 "unsupported_version",
                 {"version": 3, "multivariate": {"variants": [{"key": "variant1", "rollout_percentage": 100}]}},

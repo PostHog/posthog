@@ -32,6 +32,7 @@ from products.mcp_store.backend.proxy import (
     build_upstream_auth_headers,
     validate_installation_auth,
 )
+from products.mcp_store.backend.tools import UpstreamToolList
 
 ALLOWED_VERDICT = PinnedUrlVerdict(allowed=True, reason=None, pinned_ips=set())
 
@@ -699,6 +700,29 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         mock_client.send.assert_called_once()
 
     @patch("products.mcp_store.backend.proxy.pinned_client")
+    def test_owner_approval_on_shared_installation_still_prompts_a_teammate(self, mock_client_cls):
+        owner = User.objects.create_and_join(self.organization, "owner@example.com", None)
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=owner,
+            display_name="Shared tools",
+            url="https://mcp.example.com/mcp",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "sk"},
+            scope="shared",
+        )
+        self._tool(installation, "search", "approved")
+
+        response = self.client.post(
+            self._proxy_url(installation.id),
+            data={"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "search"}},
+            format="json",
+        )
+
+        assert response.json()["error"]["code"] == -32001
+        mock_client_cls.assert_not_called()
+
+    @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_needs_approval_tool_call_blocked_with_jsonrpc_error(self, mock_client_cls):
         installation = self._installation()
         self._tool(installation, "search", "needs_approval")
@@ -731,7 +755,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         assert body["error"]["code"] == -32002
         mock_client_cls.assert_not_called()
 
-    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=[])
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
     @patch("products.mcp_store.backend.proxy.pinned_client")
     def test_unknown_tool_returns_method_not_found(self, mock_client_cls, mock_fetch):
         installation = self._installation()
@@ -753,7 +777,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         # An installation whose connect-time listing never landed has no rows, and
         # without a re-listing it refuses every call for the life of the connection.
         installation = self._installation()
-        mock_fetch.return_value = [{"name": "search", "description": "Search"}]
+        mock_fetch.return_value = UpstreamToolList(tools=[{"name": "search", "description": "Search"}])
 
         response = self.client.post(
             self._proxy_url(installation.id),
@@ -781,7 +805,7 @@ class TestMCPProxyToolApproval(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
     ):
         installation = self._installation()
         self._tool(installation, "legacy", "needs_approval", removed_at=timezone.now())
-        mock_fetch.return_value = upstream_tools
+        mock_fetch.return_value = UpstreamToolList(tools=upstream_tools)
 
         response = self.client.post(
             self._proxy_url(installation.id),

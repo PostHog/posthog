@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
+import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -13,10 +13,16 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
+import {
+    containsHogQLQuery,
+    isBIVisualizationNode,
+    isDataVisualizationNode,
+    isInsightVizNode,
+} from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isBIVisualizationNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
+import { insightDataChecksLogic } from 'products/product_analytics/frontend/insights/dataChecks/insightDataChecksLogic'
 import { InsightHomeGuide } from 'products/product_analytics/frontend/insights/home/InsightHomeGuide'
 import { InsightModals } from 'products/product_analytics/frontend/insights/insightScene/InsightModals'
 import { SubscriptionSummaries } from 'products/subscriptions/frontend/components/SubscriptionSummaries/SubscriptionSummaries'
@@ -64,6 +70,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
     // other logics
     useAttachedLogic(logic, attachTo) // insightLogic(insightProps)
     useAttachedLogic(insightDataLogic(insightProps), attachTo)
+    // Mounted here and not in the mark, so a check result survives while the chart reloads and hides the mark.
+    useMountedLogic(insightDataChecksLogic(insightProps))
 
     const actuallyShowQueryEditor = insightMode === ItemMode.Edit && showQueryEditor
 
@@ -123,6 +131,7 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                                 showOpenEditorButton: false,
                                 showQueryEditor: actuallyShowQueryEditor,
                                 showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
+                                showDataChecks: true,
                                 insightProps,
                                 // Flag-gated inside the charts' shared useDateRangeZoom hook.
                                 onDateRangeZoom: zoomDateRange,

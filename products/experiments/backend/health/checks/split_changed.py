@@ -2,7 +2,9 @@
 A variant split of the experiment's flag that changed after launch while people were already exposed. Pure
 functions, no I/O: `health/exposure_gate.py` loads the changes and the exposure answers.
 
-People exposed before such a change can get another variant after it, so the results mix two assignments.
+People exposed before such a change can get another variant after it, so the results mix two assignments. When
+fewer than MIN_EXPOSED_UNITS_TO_WARN were exposed before the last change, that can't move the results, so it is info.
+A variant rolled out to 100% stays a warning, because the split serves one variant from then on.
 """
 
 from typing import Literal
@@ -13,29 +15,34 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
 )
-from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    duration,
+    suggested_start,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
-    changes_not_checked,
+    changes_to_check,
     delay_after_launch,
-    history_to_check,
+    exposed_when,
+    few_exposed_units,
+    leave_out,
     not_checked_finding,
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
-from products.experiments.backend.health.context import (
-    FlagHistory,
-    FlagHistoryNotChecked,
-    FlagState,
-    HealthContext,
-    SplitChange,
-)
+from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
-    added_variant_keys,
     describe_split,
     format_change_time,
     net_effect,
+)
+from products.feature_flags.backend.facade.edits import (
+    SplitChange,
+    added_variant_keys,
     removed_variant_keys,
     rolled_out_variant_key,
     zeroed_variant_keys,
@@ -46,10 +53,13 @@ _REVERTED_INFO_TITLE = "The variant split changed and was set back"
 _NOT_CHECKED_TITLE = "Variant split changes were not checked"
 
 
-def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    history = history_to_check(ctx)
+def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
+    history = changes_to_check(ctx)
+    if isinstance(history, CheckSkip):
+        return history
     flag = ctx.flag
-    if history is None or flag is None:
+    # `changes_to_check` skips an experiment without a flag, but the type doesn't carry that.
+    if flag is None:
         return None
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history, flag)
@@ -68,6 +78,11 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
             title=_REVERTED_INFO_TITLE,
             sentences=[*_reverted(history, effect), "Nobody was exposed in between."],
         )
+    few = few_exposed_units(history, ExperimentHealthFlagChangeKind.SPLIT)
+    # A variant at 100% serves everyone the same variant from then on, so the experiment compares nothing, however
+    # few people were exposed before.
+    if few is not None and effect.shape != SplitChangeShape.VARIANT_ROLLED_OUT:
+        return _few_exposed(history, effect, few)
     if effect.shape == SplitChangeShape.REVERTED:
         start_at = suggested_start(effect.last.changed_at, history.team_timezone)
         return _finding(
@@ -80,6 +95,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
                 *delay_after_launch(history, effect),
                 "People exposed in between may have switched variants.",
                 f"Move the start date to {start_at}, or reset the experiment.",
+                RESET_EFFECT,
             ],
         )
     return _finding(
@@ -98,7 +114,7 @@ def split_changed_mid_run(ctx: HealthContext) -> ExperimentHealthFinding | None:
 
 
 def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
-    effect = net_effect(changes_not_checked(history, SplitChange))
+    effect = net_effect(history.of_kind(SplitChange))
     if effect is None or _reported_as_shipped(effect, flag):
         return None
     at = format_change_time(effect.last.changed_at, history.team_timezone)
@@ -123,6 +139,28 @@ def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentH
         what_changed=[what_changed],
         kind_evidence=_kind_evidence(effect),
         diagnostic_ref="E3",
+    )
+
+
+def _few_exposed(history: FlagHistory, effect: SplitNetEffect, count: int) -> ExperimentHealthFinding:
+    what_changed = (
+        _reverted(history, effect) if effect.shape == SplitChangeShape.REVERTED else [_what_changed(history, effect)]
+    )
+    from_then_on: list[str] = []
+    if effect.shape == SplitChangeShape.VARIANT_ZEROED:
+        keys = _quoted(zeroed_variant_keys(effect.from_split, effect.to_split), conjunction="and")
+        from_then_on = [f"No new users get {keys}."]
+    return _finding(
+        history,
+        effect,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title=_TITLE,
+        sentences=[
+            *what_changed,
+            exposed_when(history, effect, count),
+            *leave_out(history, effect, count),
+            *from_then_on,
+        ],
     )
 
 
@@ -178,11 +216,13 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
                 f"The results leave out people who saw only {keys}, and people who had {keys} may now get "
                 "another variant.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case SplitChangeShape.VARIANT_ADDED:
             return [
                 f"People exposed before {change} may have switched variants.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case SplitChangeShape.VARIANT_ZEROED:
             # The zeroed share goes to other variants, which moves their boundaries too. Excluding the zeroed
@@ -191,6 +231,7 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
             return [
                 f"People exposed before {change} may have switched variants, and no new users get {keys}.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case SplitChangeShape.REORDERED:
             # Restoring the order moves the people exposed since the change a second time.
@@ -198,12 +239,14 @@ def _consequence(history: FlagHistory, effect: SplitNetEffect) -> list[str]:
                 f"The order decides who gets which variant, so people exposed before {change} may have "
                 "switched variants.",
                 f"Reset the experiment, or move its start date to {start_at}.",
+                RESET_EFFECT,
             ]
         case _:
             return [
                 f"People exposed before {change} may have switched variants, so the results mix two assignments.",
                 f"Reset the experiment, or move its start date to {start_at} to analyze only the people exposed "
                 f"after {change}.",
+                RESET_EFFECT,
             ]
 
 
@@ -234,6 +277,7 @@ def _finding(
     return change_finding(
         history,
         effect,
+        kind=ExperimentHealthFlagChangeKind.SPLIT,
         code=ExperimentHealthFindingCode.SPLIT_CHANGED_MID_RUN,
         subcode=effect.shape.value,
         severity=severity,

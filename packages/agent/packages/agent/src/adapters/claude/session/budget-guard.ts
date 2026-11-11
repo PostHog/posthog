@@ -78,6 +78,10 @@ const OPUS_PRICE: ModelPrice = {
 
 export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
+    match: /(fable|mythos)-5-2/i,
+    price: { input: 8, output: 40, cacheRead: 0.2, cacheWrite: 10 },
+  },
+  {
     match: /fable|mythos/i,
     price: { input: 10, output: 50, cacheRead: 1, cacheWrite: 12.5 },
   },
@@ -105,6 +109,10 @@ export const DEFAULT_MODEL_PRICES: readonly ModelPriceRule[] = [
   {
     match: /kimi/i,
     price: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3 },
+  },
+  {
+    match: /deepseek-v4\.1-flash-1017-fast/i,
+    price: { input: 0.6, output: 2.4, cacheRead: 0.014, cacheWrite: 0.6 },
   },
   {
     match: /deepseek/i,

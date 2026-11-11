@@ -5,15 +5,15 @@ import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 import { urls } from 'scenes/urls'
 
 import {
-    ALERT_PAGERDUTY_REGION_OPTIONS,
-    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     PendingAlertNotificationDestinationView,
+    pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 
 import { LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS, logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 import {
+    CUSTOM_MESSAGE_TAG,
     getHogFunctionEventKind,
     logsAlertEventKindsFor,
     LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY,
@@ -33,12 +33,7 @@ function getPendingNotificationDestination(
         return { title: 'Microsoft Teams', detail: notification.webhookUrl }
     }
     if (notification.type === LOGS_ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-        const severity = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === notification.severity)
-        const region = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === notification.region)
-        return {
-            title: 'PagerDuty',
-            detail: `••••${notification.routingKey.slice(-4)} · ${severity?.label ?? notification.severity} · ${region?.label ?? notification.region}`,
-        }
+        return { title: 'PagerDuty', detail: pagerDutyPendingDetail(notification) }
     }
     return { title: 'Webhook', detail: notification.webhookUrl }
 }
@@ -47,6 +42,7 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
     const {
         existingHogFunctionsLoading,
         destinationGroups,
+        customizedDestinationKeys,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
@@ -95,7 +91,12 @@ export function LogsAlertNotifications({ alertId }: { alertId?: string }): JSX.E
         return {
             key: group.key,
             title: resolveGroupLabel(group, slackChannels),
-            tags: [{ label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' }],
+            tags: [
+                { label: group.enabled ? 'Active' : 'Paused', type: group.enabled ? 'success' : 'default' },
+                ...(customizedDestinationKeys.has(group.key)
+                    ? [{ label: CUSTOM_MESSAGE_TAG.label, tooltip: CUSTOM_MESSAGE_TAG.tooltip }]
+                    : []),
+            ],
             viewAction: {
                 kind: 'button',
                 label: 'View',

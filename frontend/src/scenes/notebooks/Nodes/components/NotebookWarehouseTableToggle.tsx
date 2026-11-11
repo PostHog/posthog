@@ -54,13 +54,28 @@ export function NotebookWarehouseTableToggle({
                     spellCheck={false}
                 />
             ) : null}
+            {saveToWarehouse && !warehouseTableName.trim() ? (
+                <span className="text-danger">Enter a table name to save the dataframe.</span>
+            ) : null}
+            {/* Each state has its own key, so React replaces the element and never patches text
+                that a browser translation extension rewrote. */}
             {saveToWarehouse && lastSave ? (
                 lastSave.pending ? (
-                    <span>Saving to {lastSave.name}…</span>
+                    <span key="pending" className="max-w-full truncate" title={lastSave.name}>
+                        Saving to {lastSave.name}…
+                    </span>
                 ) : lastSave.error ? (
-                    <span className="text-danger">{lastSave.error}</span>
+                    <span key="error" className="text-danger">
+                        {lastSave.error}
+                    </span>
                 ) : (
-                    <Link to={urls.sqlEditor({ query: `SELECT * FROM ${lastSave.name}` })} target="_blank">
+                    <Link
+                        key="saved"
+                        to={urls.sqlEditor({ query: `SELECT * FROM ${lastSave.name}` })}
+                        target="_blank"
+                        className="max-w-full truncate"
+                        title={lastSave.name}
+                    >
                         Saved to {lastSave.name}
                     </Link>
                 )

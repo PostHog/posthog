@@ -33,6 +33,7 @@ from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFull
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.mcp_filter_coverage import McpFilterCoverageCheck, _resolve
+from hogli_commands.workflow_lint.checks.paused_public_image_pulls import PausedPublicImagePullsCheck
 from hogli_commands.workflow_lint.checks.pinned_runner_images import PinnedRunnerImagesCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
 from hogli_commands.workflow_lint.checks.pr_event_fanout import PrEventFanoutCheck
@@ -45,6 +46,7 @@ from hogli_commands.workflow_lint.checks.shell_split_action_args import (
     derive_shell_split_inputs,
     unparseable_actions,
 )
+from hogli_commands.workflow_lint.checks.storybook_static_dirs_coverage import StorybookStaticDirsCoverageCheck
 from hogli_commands.workflow_lint.cli import cmd_lint_workflows
 from hogli_commands.workflow_lint.model import PR_TRIGGERS, Workflow, WorkflowParseError, read_workflows
 
@@ -53,6 +55,18 @@ def _write(dir_: Path, name: str, content: str) -> Path:
     path = dir_ / name
     path.write_text(textwrap.dedent(content).lstrip())
     return path
+
+
+def _sparse_out(repo_root: Path, *paths: str) -> None:
+    """Track every file in ``repo_root``, then leave ``paths`` out of the worktree the way a sparse checkout does."""
+    for command in (("init",), ("add", "-A"), ("update-index", "--skip-worktree", *paths)):
+        subprocess.run(["git", *command], cwd=repo_root, check=True, capture_output=True)
+    for path in paths:
+        (repo_root / path).unlink()
+        for parent in (repo_root / path).parents:
+            if parent == repo_root or any(parent.iterdir()):
+                break
+            parent.rmdir()
 
 
 def _read_all(dir_: Path) -> list[Workflow]:
@@ -983,6 +997,16 @@ class TestSemgrepServicesCoverageCheck:
                   - run: echo ok
             """,
         )
+        [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
+        assert "services/worker/" in issue.message
+
+    def test_judges_services_a_sparse_checkout_left_out(self, tmp_path: Path) -> None:
+        repo_root = tmp_path
+        _write_file(repo_root / "services" / "worker" / "main.py", "x = 1\n")
+        workflows_dir = repo_root / ".github" / "workflows"
+        workflows_dir.mkdir(parents=True)
+        _write(workflows_dir, "ci-security.yaml", "name: Security\non: [pull_request]\njobs: {}\n")
+        _sparse_out(repo_root, "services/worker/main.py")
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert "services/worker/" in issue.message
 
@@ -2025,6 +2049,15 @@ class TestMcpFilterCoverageCheck:
         assert bool(messages) is reported
         assert not reported or "compilerOptions.paths" in messages[0]
 
+    def test_walks_files_a_sparse_checkout_left_out(self, tmp_path: Path) -> None:
+        # CI lints from a sparse checkout. A tsconfig or imported module it left out
+        # is still tracked, so the walk must read it rather than stop short.
+        patterns = ["services/mcp/**", "packages/quill/**"]
+        workflows_dir = _mcp_repo(tmp_path, mcp_patterns=patterns, ui_apps_patterns=patterns)
+        _sparse_out(tmp_path, "services/mcp/tsconfig.json", f"{_INSIGHTS_TRENDS}/transforms.ts")
+        messages = _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")
+        assert sorted(message.split("'")[1] for message in messages) == [_INSIGHTS_SHARED, _INSIGHTS_TRENDS]
+
     def test_a_relative_import_out_of_the_mcp_tree_needs_coverage(self, tmp_path: Path) -> None:
         # The MCP tests reach the frontend insight fixtures this way, so a relative
         # specifier that leaves services/mcp/ counts like an aliased one.
@@ -2072,6 +2105,81 @@ class TestMcpFilterCoverageCheck:
         assert [message.split("'")[1] for message in _coverage_issues(tmp_path, workflows_dir, "ci-mcp.yml")] == [
             "products/notebooks/catalog.json"
         ]
+
+
+# ---------------------------------------------------------------------------
+# StorybookStaticDirsCoverageCheck
+# ---------------------------------------------------------------------------
+
+_STORYBOOK_MAIN = """
+const config = {
+    staticDirs: [
+        'public',
+        { from: '../../../frontend/public', to: '/static' },
+        // { from: '../../../commented/out', to: '/x' },
+        { from: '../../../frontend/node_modules/emojibase-data/en', to: '/static/emoji/en' },
+        { from: '../../../posthog/templates/replay_player_frame', to: '/replay_player_frame' },
+    ],
+}
+"""
+
+
+def _storybook_repo(repo_root: Path, filters: dict[str, list[str]], main: str = _STORYBOOK_MAIN) -> Path:
+    _write_file(repo_root / "common" / "storybook" / ".storybook" / "main.ts", main)
+    lines = ["name: x", "on: [pull_request]", "jobs:", "  changes:", "    runs-on: ubuntu-24.04"]
+    lines += ["    timeout-minutes: 5", "    steps:", "      - uses: ./.github/actions/paths-filter"]
+    lines += ["        with:", "          filters: |"]
+    for name, patterns in filters.items():
+        lines += [f"            {name}:", *(f"              - '{pattern}'" for pattern in patterns)]
+    workflows_dir = repo_root / ".github" / "workflows"
+    workflows_dir.mkdir(parents=True)
+    _write(workflows_dir, "ci-storybook.yml", "\n".join([*lines, ""]))
+    return workflows_dir
+
+
+class TestStorybookStaticDirsCoverageCheck:
+    @pytest.mark.parametrize(
+        "filters, uncovered",
+        [
+            pytest.param(
+                {
+                    "frontend": [
+                        "frontend/**",
+                        "common/{mosaic,storybook}/**",
+                        "posthog/templates/replay_player_frame/**",
+                    ]
+                },
+                [],
+                id="covered-with-a-brace-group",
+            ),
+            pytest.param(
+                {"frontend": ["frontend/**", "common/{mosaic,storybook}/**"]},
+                ["posthog/templates/replay_player_frame"],
+                id="template-dir-missing",
+            ),
+            pytest.param(
+                {"frontend": ["frontend/**", "common/storybook/**"], "other": ["posthog/templates/**"]},
+                ["posthog/templates/replay_player_frame"],
+                id="covered-only-by-another-filter",
+            ),
+            pytest.param(
+                {"frontend": ["frontend/**", "common/storybook/**", "{a,b,c,d,e,f,g,h,i,j}" * 9]},
+                ["posthog/templates/replay_player_frame"],
+                id="brace-groups-over-the-expansion-cap",
+            ),
+        ],
+    )
+    def test_flags_static_dirs_the_frontend_filter_misses(
+        self, tmp_path: Path, filters: dict[str, list[str]], uncovered: list[str]
+    ) -> None:
+        workflows_dir = _storybook_repo(tmp_path, filters)
+        issues = StorybookStaticDirsCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues
+        assert [issue.message.split("'")[1] for issue in issues] == uncovered
+
+    def test_a_config_with_no_readable_static_dirs_is_reported(self, tmp_path: Path) -> None:
+        workflows_dir = _storybook_repo(tmp_path, {"frontend": ["frontend/**"]}, main="const config = {}\n")
+        issues = StorybookStaticDirsCoverageCheck(repo_root=tmp_path).run(_read_all(workflows_dir)).issues
+        assert len(issues) == 1 and "staticDirs" in issues[0].message
 
 
 class TestLiveTreeSmoke:
@@ -2723,3 +2831,79 @@ class TestShellSplitActionArgsCheck:
         issues = check.run(list(read_workflows(workflows_dir))).issues
         assert issues == [], [issue.render() for issue in issues]
         assert derive_shell_split_inputs(REPO_ROOT) == SHELL_SPLIT_INPUTS
+
+
+# ---------------------------------------------------------------------------
+# PausedPublicImagePullsCheck
+# ---------------------------------------------------------------------------
+
+
+def _image_job(push_to_ghcr: str, verify_step: str) -> str:
+    return f"""
+    name: x
+    on: [push]
+    jobs:
+      build:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+          - id: docker-meta
+            uses: ./.github/actions/docker-meta
+            with:
+              image-name: app
+              push-to-ghcr: {push_to_ghcr}
+{textwrap.indent(textwrap.dedent(verify_step).strip(), " " * 10)}
+    """
+
+
+PAUSABLE = "${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}"
+
+
+class TestPausedPublicImagePullsCheck:
+    @pytest.mark.parametrize(
+        "verify_step",
+        [
+            pytest.param(
+                """
+                - env:
+                    IMAGE: ghcr.io/posthog/app:${{ github.sha }}
+                  run: docker pull "$IMAGE"
+                """,
+                id="ghcr-via-env",
+            ),
+            pytest.param("- run: docker run --rm posthog/app:latest true", id="dockerhub-inline"),
+            pytest.param("- run: docker buildx imagetools inspect docker.io/posthog/app:latest", id="imagetools"),
+        ],
+    )
+    def test_flags_public_reads_when_push_can_pause(self, tmp_path: Path, verify_step: str) -> None:
+        _write(tmp_path, "wf.yml", _image_job(PAUSABLE, verify_step))
+        issues = PausedPublicImagePullsCheck().run(_read_all(tmp_path)).issues
+        assert len(issues) == 1, [i.render() for i in issues]
+        assert issues[0].job == "build"
+
+    @pytest.mark.parametrize(
+        "push_to_ghcr, verify_step",
+        [
+            pytest.param(
+                PAUSABLE,
+                """
+                - env:
+                    IMAGE: ${{ steps.docker-meta.outputs.ecr-registry }}/app@${{ steps.image.outputs.digest }}
+                  run: docker pull "$IMAGE"
+                """,
+                id="ecr-by-digest",
+            ),
+            pytest.param("'true'", "- run: docker pull ghcr.io/posthog/app:latest", id="push-never-pauses"),
+            pytest.param(
+                PAUSABLE,
+                """
+                - run: |
+                    echo "tags=ghcr.io/posthog/app:1.0" >> "$GITHUB_OUTPUT"
+                """,
+                id="tag-list-not-a-read",
+            ),
+        ],
+    )
+    def test_passes(self, tmp_path: Path, push_to_ghcr: str, verify_step: str) -> None:
+        _write(tmp_path, "wf.yml", _image_job(push_to_ghcr, verify_step))
+        assert PausedPublicImagePullsCheck().run(_read_all(tmp_path)).issues == []

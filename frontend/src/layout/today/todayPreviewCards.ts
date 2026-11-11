@@ -1,7 +1,8 @@
 import { libraryObjectHref, libraryObjectName, libraryTypeLabel } from 'scenes/library/libraryUtils'
 
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { SidebarProductMeta, sidebarProductMeta } from '~/layout/panel-layout/sidebarProductMeta'
+import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { getOriginProductMeta } from 'products/posthog_ai/frontend/api/taskSource'
 import { PrStateEnumApi, TaskUserBasicInfoApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -49,9 +50,29 @@ export interface TodayObjectPreview {
     folder: string[]
     href: string | null
     lastViewedAt: string | null
+    /** Which part of the UI hosts the trigger, sent with the preview-shown event. */
+    surface: string
 }
 
-export type TodayPreviewPayload = TodaySessionPreview | TodayChatPreview | TodayObjectPreview
+export interface TodayProductPreview extends SidebarProductMeta {
+    kind: 'product'
+    label: string
+    product: FileSystemImport
+}
+
+/** Explains a sidebar row that is not a product, such as a way to browse Analytics. */
+export interface TodayExplainerPreview extends SidebarProductMeta {
+    kind: 'explainer'
+    label: string
+    icon: JSX.Element
+}
+
+export type TodayPreviewPayload =
+    | TodaySessionPreview
+    | TodayChatPreview
+    | TodayObjectPreview
+    | TodayProductPreview
+    | TodayExplainerPreview
 
 export function sessionPreview(
     item: TodayWorkItem,
@@ -93,7 +114,7 @@ export function sessionPreview(
     }
 }
 
-export function objectPreview(entry: FileSystemEntry): TodayObjectPreview {
+export function objectPreview(entry: FileSystemEntry, surface: string): TodayObjectPreview {
     return {
         kind: 'object',
         name: libraryObjectName(entry),
@@ -103,6 +124,7 @@ export function objectPreview(entry: FileSystemEntry): TodayObjectPreview {
         folder: splitPath(entry.path).slice(0, -1),
         href: libraryObjectHref(entry),
         lastViewedAt: entry.last_viewed_at ?? null,
+        surface,
     }
 }
 
@@ -114,4 +136,8 @@ export function chatPreview(item: TodayWorkItem): TodayChatPreview {
         source: 'PostHog AI',
         timestamp: item.timestamp,
     }
+}
+
+export function productPreview(label: string, product: FileSystemImport): TodayProductPreview {
+    return { kind: 'product', label, product, ...sidebarProductMeta(product) }
 }

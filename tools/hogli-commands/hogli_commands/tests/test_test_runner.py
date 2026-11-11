@@ -515,6 +515,17 @@ class TestRunChanged:
         command = mock_run.call_args[0][0]
         assert command.count("posthog/api/test/test_comments.py") == 1
 
+    @patch("hogli_commands.test_runner._run")
+    @patch("hogli_commands.test_runner._get_changed_files")
+    def test_skip_playwright_leaves_out_specs(self, mock_changed, mock_run) -> None:
+        mock_changed.return_value = ["playwright/e2e/dashboards.spec.ts", "posthog/api/test/test_user.py"]
+        _run_changed([], skip_playwright=True)
+
+        commands = [call[0][0] for call in mock_run.call_args_list]
+        assert len(commands) == 1
+        assert commands[0][0] == "pytest"
+        assert "playwright/e2e/dashboards.spec.ts" not in commands[0]
+
     @patch("hogli_commands.test_runner._get_changed_files")
     def test_no_changed_files_exits(self, mock_changed) -> None:
         mock_changed.return_value = ["posthog/api/views.py"]

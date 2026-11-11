@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    AgentModelOptionsApi,
     ArtifactContentApi,
     ArtifactDeleteResultApi,
     ArtifactListApi,
@@ -40,6 +41,7 @@ import type {
     PaginatedAutoresearchSuggestionListApi,
     PaginatedAutoresearchTrainingRunListApi,
     PatchedAutoresearchPipelineCreateApi,
+    ProjectLimitsApi,
     RecordIterationApi,
     ResolveTemplateRequestApi,
     ResolvedTemplateApi,
@@ -811,7 +813,7 @@ export const getAutoresearchResumeCreateUrl = (projectId: string, id: string) =>
 }
 
 /**
- * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick.
+ * Resume a paused pipeline. Daily scoring and training will restart on the next cadence tick. Refused when the project already has its limit of live pipelines, which the limits endpoint reports.
  * @summary Resume a pipeline
  */
 export const autoresearchResumeCreate = async (
@@ -882,6 +884,42 @@ export const autoresearchValidateOnlineCreate = async (
     return apiMutator<AutoresearchRunApi[]>(getAutoresearchValidateOnlineCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAutoresearchAgentModelsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/agent_models/`
+}
+
+/**
+ * Return the models a pipeline's training agent may run on, with the reasoning efforts each supports and its relative token cost, plus the model and effort a pipeline with blank settings uses. Pass a model id as agent_model and an effort as agent_reasoning_effort on create or update.
+ * @summary List training agent models
+ */
+export const autoresearchAgentModelsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentModelOptionsApi> => {
+    return apiMutator<AgentModelOptionsApi>(getAutoresearchAgentModelsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAutoresearchLimitsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/autoresearch/limits/`
+}
+
+/**
+ * Return the project's autoresearch limits and how much of each it is using: sandbox training runs in the last 24 hours against the daily limit, with when the next run can start at the limit, the most experiments per training run, and live pipelines against the live pipeline limit. Read-only; it runs no queries.
+ * @summary Read the project's limits
+ */
+export const autoresearchLimitsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ProjectLimitsApi> => {
+    return apiMutator<ProjectLimitsApi>(getAutoresearchLimitsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

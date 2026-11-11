@@ -37,8 +37,10 @@ def refused_destination(data: AlertDestinationData) -> str | None:
         return None
     transport = _URL_TRANSPORTS.get(data["type"])
     url = data.get("webhook_url")
-    if transport is None or not isinstance(url, str):
+    if transport is None:
         return None
+    if not isinstance(url, str):
+        return "This destination needs a web address."
     try:
         transport().check_url(url)
     except DeliveryError as error:

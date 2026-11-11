@@ -1,7 +1,7 @@
 import { stripNotebookMediaFromMarkdown } from 'lib/components/MarkdownNotebook/documentModel'
 import type { NotebookBtwContext } from 'lib/components/MarkdownNotebook/MarkdownNotebook'
 
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 
 const BTW_INSTRUCTIONS: AttachedContextItem = {
     type: 'instructions',

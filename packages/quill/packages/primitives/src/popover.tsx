@@ -32,7 +32,7 @@ const PopoverContent = React.forwardRef<
     PopoverPrimitive.Popup.Props &
         Pick<
             PopoverPrimitive.Positioner.Props,
-            'align' | 'alignOffset' | 'side' | 'sideOffset' | 'arrowPadding' | 'collisionAvoidance'
+            'align' | 'alignOffset' | 'side' | 'sideOffset' | 'arrowPadding' | 'collisionAvoidance' | 'anchor'
         > &
         Pick<PopoverPrimitive.Portal.Props, 'container'> & {
             /** Renders a pointer connecting the popover to its trigger. */
@@ -49,6 +49,7 @@ const PopoverContent = React.forwardRef<
         sideOffset = arrow ? 9 : 4,
         arrowPadding,
         collisionAvoidance,
+        anchor,
         container,
         children,
         ...props
@@ -75,6 +76,7 @@ const PopoverContent = React.forwardRef<
                 sideOffset={sideOffset}
                 arrowPadding={arrowPadding}
                 collisionAvoidance={collisionAvoidance}
+                anchor={anchor}
                 className="isolate"
             >
                 <PopoverPrimitive.Popup

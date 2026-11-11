@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { fetchAttribution } from '~/common/utils/fetch-attribution'
@@ -9,6 +10,23 @@ import { tryCatch } from '~/common/utils/try-catch'
 import { PluginsServerConfig } from '../../types'
 
 export const MAX_FETCH_TIMEOUT_MS = 10000
+// The response lands in the invocation state, which can be queued through Kafka with a 6 MB message limit.
+export const MAX_FETCH_RESPONSE_BYTES = 5 * 1024 * 1024
+
+// An error body is only logged, so an oversized one must not hide the status that decides the retry.
+export async function readFetchResponseText(response: FetchResponse | null | undefined): Promise<string> {
+    if (!response) {
+        return 'unknown'
+    }
+    try {
+        return await response.text()
+    } catch (e) {
+        if (e.name === 'ResponseTooLargeError' && response.status >= 400) {
+            return e.message
+        }
+        throw e
+    }
+}
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
 export type CdpFetchConfig = Pick<
@@ -113,6 +131,22 @@ export type CdpFetchAttribution = {
     hogFunctionId?: string
 }
 
+const requestOriginRecorder = new AsyncLocalStorage<Set<string>>()
+
+// A test run reports the origins it sent requests to, so its audit record can name where the data went.
+// The origin leaves out the path, query and credentials, which can hold secrets.
+export function recordRequestOrigins<T>(origins: Set<string>, run: () => Promise<T>): Promise<T> {
+    return requestOriginRecorder.run(origins, run)
+}
+
+function recordRequestOrigin(url: string): void {
+    const origins = requestOriginRecorder.getStore()
+    if (!origins || !URL.canParse(url)) {
+        return
+    }
+    origins.add(new URL(url).origin)
+}
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -128,13 +162,14 @@ export async function cdpTrackedFetch({
     fetchResponse: FetchResponse | null
     fetchDuration: number
 }> {
+    recordRequestOrigin(url)
     const start = performance.now()
 
     // Attribution read by the URL-validation check logs and the egress proxy rollout in common/utils/request.ts,
     // which run inside undici's connect flow where no caller context is otherwise available.
     const doFetch = () =>
         fetchAttribution.run({ teamId, hogFunctionId, templateId }, () =>
-            tryCatch(async () => await fetch(url, fetchParams))
+            tryCatch(async () => await fetch(url, { maxResponseBytes: MAX_FETCH_RESPONSE_BYTES, ...fetchParams }))
         )
 
     let [fetchError, fetchResponse] = await doFetch()

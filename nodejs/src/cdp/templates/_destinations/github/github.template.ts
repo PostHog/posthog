@@ -1,5 +1,8 @@
 import { HogFunctionTemplate } from '~/cdp/types'
 
+import { ERROR_TRACKING_TICKET_DESCRIPTION, ERROR_TRACKING_TICKET_TITLE } from '../../error-tracking-ticket'
+import { hogErrorTrackingStacktraceFn } from '../../hog-helpers'
+
 export const template: HogFunctionTemplate = {
     status: 'stable',
     free: false,
@@ -10,7 +13,9 @@ export const template: HogFunctionTemplate = {
     icon_url: '/static/services/github.png',
     category: ['Error tracking'],
     code_language: 'hog',
-    code: `let owner := inputs.github_installation.account.name
+    code: `${hogErrorTrackingStacktraceFn}
+
+let owner := inputs.github_installation.account.name
 let repo := inputs.repository
 
 if (not owner) {
@@ -35,7 +40,7 @@ let payload := {
     },
     'body': {
         'title': inputs.title,
-        'body': f'{inputs.description}\n\n[View in PostHog]({posthog_issue_url})'
+        'body': f'{inputs.description}{errorTrackingStacktrace(event.properties.$exception_list)}\n\n[View in PostHog]({posthog_issue_url})'
     }
 }
 
@@ -70,7 +75,7 @@ if (res.status < 200 or res.status >= 300) {
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_types[1]}',
+            default: ERROR_TRACKING_TICKET_TITLE,
         },
         {
             key: 'description',
@@ -79,7 +84,7 @@ if (res.status < 200 or res.status >= 300) {
             secret: false,
             hidden: false,
             required: true,
-            default: '{event.properties.$exception_values[1]}',
+            default: ERROR_TRACKING_TICKET_DESCRIPTION,
         },
         {
             key: 'posthog_issue_id',

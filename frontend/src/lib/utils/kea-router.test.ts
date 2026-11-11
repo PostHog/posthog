@@ -20,28 +20,28 @@ describe('router-utils', () => {
         expect(altered).toEqual('/project/phc_gE7SWBNBgFbA4eQ154KPXebyB8KyLJuypR8jg1DSo9Z/replay')
     })
     it('does not redirect the instance-level feature flags staff tools URL to a project URL', () => {
-        const altered = addProjectIdIfMissing('/feature_flags/staff', 123)
-        expect(altered).toEqual('/feature_flags/staff')
+        const altered = addProjectIdIfMissing('/feature-flags/staff', 123)
+        expect(altered).toEqual('/feature-flags/staff')
     })
     it('does not redirect the staff tools URL when it carries a query string', () => {
-        const altered = addProjectIdIfMissing('/feature_flags/staff?team_id=456', 123)
-        expect(altered).toEqual('/feature_flags/staff?team_id=456')
+        const altered = addProjectIdIfMissing('/feature-flags/staff?team_id=456', 123)
+        expect(altered).toEqual('/feature-flags/staff?team_id=456')
     })
     it('does not redirect the staff tools URL when it carries a hash', () => {
-        const altered = addProjectIdIfMissing('/feature_flags/staff#cache', 123)
-        expect(altered).toEqual('/feature_flags/staff#cache')
+        const altered = addProjectIdIfMissing('/feature-flags/staff#cache', 123)
+        expect(altered).toEqual('/feature-flags/staff#cache')
     })
     it('still adds a project id to other feature flags URLs', () => {
-        const altered = addProjectIdIfMissing('/feature_flags/123', 123)
-        expect(altered).toEqual('/project/123/feature_flags/123')
+        const altered = addProjectIdIfMissing('/feature-flags/123', 123)
+        expect(altered).toEqual('/project/123/feature-flags/123')
     })
     it('does not redirect the experiments staff tools URL to a project URL', () => {
         const altered = addProjectIdIfMissing('/experiments/staff', 123)
         expect(altered).toEqual('/experiments/staff')
     })
     it('does not redirect the cohorts staff tools URL nested under feature flags staff', () => {
-        const altered = addProjectIdIfMissing('/feature_flags/staff/cohorts', 123)
-        expect(altered).toEqual('/feature_flags/staff/cohorts')
+        const altered = addProjectIdIfMissing('/feature-flags/staff/cohorts', 123)
+        expect(altered).toEqual('/feature-flags/staff/cohorts')
     })
     it('does not add a project id to billing URLs, which are organization-scoped', () => {
         expect(addProjectIdIfMissing('/billing', 123)).toEqual('/billing')

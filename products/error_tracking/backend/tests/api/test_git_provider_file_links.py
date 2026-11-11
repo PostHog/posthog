@@ -4,9 +4,10 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 import requests
+from parameterized import parameterized
 from requests.structures import CaseInsensitiveDict
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
@@ -15,6 +16,7 @@ from posthog.egress.limiter.policies import Priority
 from products.error_tracking.backend.presentation.views.git_provider_file_link_resolver import (
     _PUBLIC_TOKEN_CIRCUIT_OPEN_KEY,
     _PUBLIC_TOKEN_UNAUTHORIZED_COUNT_KEY,
+    get_gitlab_file_url,
     search_github_file,
 )
 
@@ -102,3 +104,52 @@ class TestGitProviderFileLinksResolveGithub(APIBaseTest):
 
         assert response.status_code == 200
         assert response.json() == {"found": False}
+
+
+class TestGetGitlabFileUrl(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("http_scheme", "http://gitlab.example.com"),
+            ("internal_host", "https://localhost"),
+            ("metadata_ip", "https://169.254.169.254"),
+        ]
+    )
+    def test_rejects_disallowed_host_without_request(self, _name: str, gitlab_url: str) -> None:
+        with patch(
+            "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.requests.get"
+        ) as get:
+            url = get_gitlab_file_url(
+                code_sample="print(1)",
+                token="tok",
+                owner="o",
+                repository="r",
+                file_name="main.py",
+                gitlab_url=gitlab_url,
+            )
+
+        assert url is None
+        get.assert_not_called()
+
+    def test_does_not_follow_redirects(self) -> None:
+        redirect = _response(302)
+        redirect.headers = CaseInsensitiveDict({"Location": "https://other.example.com/"})
+        with (
+            patch("posthog.models.integration.gitlab.is_url_allowed", return_value=(True, None)),
+            patch(
+                "products.error_tracking.backend.presentation.views.git_provider_file_link_resolver.requests.get",
+                return_value=redirect,
+            ) as get,
+        ):
+            url = get_gitlab_file_url(
+                code_sample="print(1)",
+                token="tok",
+                owner="o",
+                repository="r",
+                file_name="main.py",
+                gitlab_url="https://gitlab.example.com",
+            )
+
+        assert url is None
+        assert get.call_count == 2
+        for call in get.call_args_list:
+            assert call.kwargs["allow_redirects"] is False

@@ -17,16 +17,14 @@ WIDGET_CELL_GUIDANCE = """- Generated widgets are available. When the user asks 
 - Inserting a Widget block does not generate it. Tell the user to click Generate widget in its settings. All notebook dataframes must have completed runs before generation. Do not claim the widget has been generated merely because you inserted the block"""
 
 
-def cell_guidance_prompt(*, sql_v2_enabled: bool, widgets_enabled: bool) -> str:
+def cell_guidance_prompt(*, sql_v2_enabled: bool) -> str:
     cell_guidance = (
         "- Notebook content is MDX: Markdown with live component tags. Write component tags directly in the document, "
         "outside triple-backtick code fences and without backslash-escaping the opening <. A fenced tag is displayed "
         "as source text and does not create a notebook cell. Only fence code when the user asks to see a code example.\n"
         + (SQL_V2_CELL_GUIDANCE if sql_v2_enabled else LEGACY_CELL_GUIDANCE)
     )
-    if widgets_enabled:
-        return f"{cell_guidance}\n{WIDGET_CELL_GUIDANCE}"
-    return f"{cell_guidance}\n- Generated widgets are unavailable for this user. Do not add new `<Widget />` cells. Preserve existing widgets when editing unrelated content"
+    return f"{cell_guidance}\n{WIDGET_CELL_GUIDANCE}"
 
 
 NOTEBOOK_CONTEXT_TEMPLATE = """

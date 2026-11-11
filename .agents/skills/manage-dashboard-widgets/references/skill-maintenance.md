@@ -52,12 +52,12 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/frontend/components/WidgetCard/**`                    | Shared tile chrome, placeholders, overview fixtures                                            |
 | `products/dashboards/frontend/components/DashboardWidgetItem/**`           | Tile glue, public placement, `TileFilters` mount                                               |
 | `products/dashboards/frontend/widgets/constants.ts`                        | List footer, fetch errors, tile refresh debounce ms                                            |
-| `frontend/src/scenes/dashboard/widgetTileRefreshScheduler.ts`              | Debounced `run_widgets` after tile filter PATCH                                                |
+| `products/dashboards/frontend/widgetTileRefreshScheduler.ts`               | Debounced `run_widgets` after tile filter PATCH                                                |
 | `frontend/src/scenes/dashboard/dashboardLogic.tsx`                         | `scheduleRefreshDashboardWidgets` vs immediate refresh                                         |
 | `products/dashboards/frontend/widgets/*WidgetTileFilters.tsx`              | On-tile filters (date, status, property pickers)                                               |
-| `frontend/src/scenes/dashboard/DashboardItems.tsx`                         | `showEditingControls`, `isDashboardEditMode`, tile filter mount                                |
+| `products/dashboards/frontend/DashboardItems.tsx`                          | `showEditingControls`, `isDashboardEditMode`, tile filter mount                                |
 | `products/dashboards/mcp/tools.yaml`                                       | Widget MCP tools                                                                               |
-| `frontend/src/scenes/dashboard/tileLayouts.ts`                             | Layout algorithm (only if behavior/docs change)                                                |
+| `products/dashboards/frontend/tileLayouts.ts`                              | Layout algorithm (only if behavior/docs change)                                                |
 | `posthog/api/test/test_sharing.py`                                         | Shared dashboard widget payload expectations                                                   |
 | `tach.toml` (`products.dashboards` `depends_on`)                           | New product import boundary                                                                    |
 
@@ -77,7 +77,7 @@ Platform-only refactors with **no** behavior or agent-facing surface change may 
 | List pagination footer / `run_*` totals    | [list-widget-patterns.md](list-widget-patterns.md) (`include_total_count` on dashboard path)                                                                                                                     |
 | `run_widgets` rate limits                  | [composition.md](composition.md) or [architecture.md](architecture.md); `widget_query_throttle.py` + product listing throttles (replay)                                                                          |
 | Debounced tile refresh after filter PATCH  | `constants.ts` `WIDGET_TILE_REFRESH_DEBOUNCE_MS`; `dashboardLogic.tsx`                                                                                                                                           |
-| Header title link / dashboard edit mode    | [list-widget-patterns.md](list-widget-patterns.md); [layout-and-ux.md](layout-and-ux.md) § ⋯ menu parity                                                                                                         |
+| Header title link / drag `cancel` selector | [list-widget-patterns.md](list-widget-patterns.md); [layout-and-ux.md](layout-and-ux.md) § ⋯ menu parity                                                                                                         |
 | MCP tools or agent flows                   | [mcp.md](mcp.md)                                                                                                                                                                                                 |
 | New product area / tach / UI reuse pattern | [checklist-new-widget-type.md](checklist-new-widget-type.md) §4c                                                                                                                                                 |
 | Human contributor entry point              | [`products/dashboards/CONTRIBUTING.md`](../../../products/dashboards/CONTRIBUTING.md) registry table / Verify block                                                                                              |

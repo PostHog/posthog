@@ -121,41 +121,49 @@ export function supportTicketUrl(
   );
 }
 
+/** `/project/<id>` for a share link, so the web interstitial can open the item in its own project. */
+function projectPrefix(overrides?: LinkOverrides): string {
+  const projectId = resolveProjectId(overrides?.projectId);
+  return projectId ? `/project/${projectId}` : "";
+}
+
 /**
  * The shareable https link for a canvas (a dashboard inside a channel):
- * `<instance>/code/canvas/<channelId>/<dashboardId>`. Opening it in a browser
- * hits a web interstitial that deep-links into the desktop app (or offers the
- * download), so the link works for anyone — app installed or not. Not
- * project-scoped: the ids are globally-unique desktop file-system row ids. The
- * inbound desktop side lives in `CanvasLinkService` / `useCanvasDeepLink`.
+ * `<instance>/project/<id>/code/canvas/<channelId>/<dashboardId>`. Opening it in a
+ * browser hits a web interstitial that deep-links into the desktop app (or offers
+ * the download), so the link works for anyone — app installed or not. The ids are
+ * globally-unique desktop file-system row ids; the project prefix only tells the
+ * interstitial which project to open the web canvas in. The inbound desktop side
+ * lives in `CanvasLinkService` / `useCanvasDeepLink`.
  */
 export function canvasShareUrl(
   channelId: string,
   dashboardId: string,
-  regionOverride?: CloudRegion | null,
+  overrides?: LinkOverrides,
 ): string | null {
   return getPostHogUrl(
-    `/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`,
-    regionOverride,
+    `${projectPrefix(overrides)}/code/canvas/${encodeURIComponent(channelId)}/${encodeURIComponent(dashboardId)}`,
+    overrides?.cloudRegion,
   );
 }
 
 /**
  * The shareable https link for a channel — or a thread (channel-filed task)
- * inside it: `<instance>/code/channel/<channelId>[/tasks/<taskId>]`. Opening
- * it in a browser hits a web interstitial that deep-links into the desktop app
- * (or offers the download), so the link works for anyone — app installed or
- * not. Not project-scoped: the ids are globally-unique row ids. The inbound
+ * inside it: `<instance>/project/<id>/code/channel/<channelId>[/tasks/<taskId>]`.
+ * Opening it in a browser hits a web interstitial that deep-links into the
+ * desktop app (or offers the download), so the link works for anyone — app
+ * installed or not. The ids are globally-unique row ids; the project prefix only
+ * tells the interstitial which project to open the web space in. The inbound
  * desktop side lives in `ChannelLinkService` / `useChannelDeepLink`.
  */
 export function channelShareUrl(
   channelId: string,
   taskId?: string,
+  overrides?: LinkOverrides,
 ): string | null {
-  const base = `/code/channel/${encodeURIComponent(channelId)}`;
-  return getPostHogUrl(
-    taskId ? `${base}/tasks/${encodeURIComponent(taskId)}` : base,
-  );
+  const base = `${projectPrefix(overrides)}/code/channel/${encodeURIComponent(channelId)}`;
+  const path = taskId ? `${base}/tasks/${encodeURIComponent(taskId)}` : base;
+  return getPostHogUrl(path, overrides?.cloudRegion);
 }
 
 /**
@@ -225,6 +233,16 @@ function decodePathSegments(pathname: string): string[] {
     });
 }
 
+/**
+ * A share link names its project with a `/project/<id>/` prefix, and links from
+ * before that have none. The route is the same either way, so drop the prefix.
+ */
+function withoutProjectPrefix(segments: string[]): string[] {
+  return segments[0] === "project" && /^\d+$/.test(segments[1] ?? "")
+    ? segments.slice(2)
+    : segments;
+}
+
 function matchRoute(
   segments: string[],
   route: ShareLinkRoute,
@@ -251,7 +269,7 @@ export function parseShareLink(href: string): ShareLinkTarget | null {
   }
   if (!posthogHosts().has(url.host)) return null;
 
-  const segments = decodePathSegments(url.pathname);
+  const segments = withoutProjectPrefix(decodePathSegments(url.pathname));
   for (const route of SHARE_LINK_ROUTES) {
     const target = matchRoute(segments, route);
     if (target) return target;

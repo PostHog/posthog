@@ -27,24 +27,26 @@ from uuid import UUID
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.person.divergence import (
-    HIDDEN_TEAM_STEP,
-    SAMPLE_TEAM_STEP,
-    STALE_TEAM_STEP,
-    SWEPT_TEAM_STEP,
+from posthog.models.person.divergence.datatypes import (
     DivergentPerson,
     PersonRef,
     RepairAction,
     SampledPerson,
     ScanSummary,
     TeamCheck,
-    check_team,
-    repair_persons,
+)
+from posthog.models.person.divergence.fleet_scans import (
+    HIDDEN_TEAM_STEP,
+    SAMPLE_TEAM_STEP,
+    STALE_TEAM_STEP,
+    SWEPT_TEAM_STEP,
     scan_hidden_persons,
     scan_sample,
     scan_stale_persons,
     scan_swept_persons,
 )
+from posthog.models.person.divergence.repairs import repair_persons
+from posthog.models.person.divergence.team_check import check_team
 
 _DIVERGENT_SCANS: dict[str, tuple[Callable[..., ScanSummary], int, str]] = {
     "hidden": (

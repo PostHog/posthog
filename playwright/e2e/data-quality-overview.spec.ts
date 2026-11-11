@@ -3,8 +3,6 @@
  */
 import { expect } from '@playwright/test'
 
-import { FEATURE_FLAGS } from '../../frontend/src/lib/constants'
-import { mockFeatureFlags } from '../utils/mockApi'
 import { test } from '../utils/workspace-test-base'
 
 const CHECK_NAME = 'orders_has_rows'
@@ -40,9 +38,6 @@ test('edits and deletes a check from Models', async ({ page, playwrightSetup }) 
     expect(created.ok()).toBe(true)
     const check = await created.json()
 
-    await mockFeatureFlags(page, {
-        [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-    })
     await playwrightSetup.loginAndNavigateToTeam(page, workspace)
     await page.goto('/models?tab=data-quality')
 

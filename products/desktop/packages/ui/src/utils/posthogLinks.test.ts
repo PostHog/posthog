@@ -14,11 +14,17 @@ vi.mock("@posthog/ui/utils/urls", () => ({
 }));
 
 describe("canvasShareUrl", () => {
-  it("builds an https /code/canvas link with encoded ids", () => {
-    expect(canvasShareUrl("chan/1", "dash 2", "us")).toBe(
-      "https://us.posthog.com/code/canvas/chan%2F1/dash%202",
-    );
-  });
+  it.each([
+    [null, "https://us.posthog.com/code/canvas/chan%2F1/dash%202"],
+    [123, "https://us.posthog.com/project/123/code/canvas/chan%2F1/dash%202"],
+  ])(
+    "builds an https /code/canvas link for project %s",
+    (projectId, expected) => {
+      expect(
+        canvasShareUrl("chan/1", "dash 2", { projectId, cloudRegion: "us" }),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("inboxReportUrl", () => {
@@ -77,6 +83,16 @@ describe("parseShareLink", () => {
       "https://us.posthog.com/code/channel/chan1/tasks/task1",
       { kind: "channel", channelId: "chan1", taskId: "task1" },
     ],
+    [
+      "canvas link with a project prefix",
+      "https://us.posthog.com/project/2/code/canvas/chan1/dash1",
+      { kind: "canvas", channelId: "chan1", dashboardId: "dash1" },
+    ],
+    [
+      "channel thread link with a project prefix",
+      "https://us.posthog.com/project/2/code/channel/chan1/tasks/task1",
+      { kind: "channel", channelId: "chan1", taskId: "task1" },
+    ],
   ])("parses a %s", (_label, href, expected) => {
     expect(parseShareLink(href)).toEqual(expected);
   });
@@ -94,6 +110,10 @@ describe("parseShareLink", () => {
     [
       "a channel thread link with a malformed tail",
       "https://us.posthog.com/code/channel/chan1/foo/task1",
+    ],
+    [
+      "a project prefix that is not an id",
+      "https://us.posthog.com/project/abc/code/canvas/chan1/dash1",
     ],
     ["a malformed url", "not a url"],
   ])("returns null for %s", (_label, href) => {

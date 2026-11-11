@@ -8,6 +8,7 @@ import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SIDE_PANEL_TABS } from '~/layout/navigation-3000/sidepanel/sidePanelTabs'
+import { CoreFilterDefinitionsGate } from '~/taxonomy/CoreFilterDefinitionsGate'
 import { SidePanelTab } from '~/types'
 
 import { TodayAiPanel } from './TodayAiPanel'
@@ -58,7 +59,9 @@ export const TodayContextPanelContent = memo(function TodayContextPanelContent({
                 {/* Keep chunk-load failures out of the panel error reporter so stale assets reload once instead. */}
                 <ChunkLoadErrorBoundary>
                     <Suspense fallback={<Spinner className="mx-auto mt-16" />}>
-                        <Content />
+                        <CoreFilterDefinitionsGate>
+                            <Content />
+                        </CoreFilterDefinitionsGate>
                     </Suspense>
                 </ChunkLoadErrorBoundary>
             </ErrorBoundary>

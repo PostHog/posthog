@@ -13,8 +13,10 @@ import {
     createHashlessEntrypoints,
     isDev,
     reportTopChunks,
+    runExclusiveHeavy,
     startDevServer,
 } from '@posthog/esbuilder'
+import { minifySeparately } from '@posthog/esbuilder/minify.mjs'
 
 import { AUTHENTICATED_SHELL, ENTRY } from './bin/bootEntries.mjs'
 import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './bin/loggedOutScenes.mjs'
@@ -39,6 +41,7 @@ copyPublicFolder(
     path.resolve(__dirname, 'dist', 'hedgehog-mode')
 )
 copyEmojibaseData()
+copyWarehouseSourceIcons()
 copySnappyWASMFile(__dirname)
 copyRRWebWorkerFiles(__dirname)
 
@@ -69,6 +72,8 @@ await buildInParallel(
             outdir: path.resolve(__dirname, 'dist'),
             heavy: true,
             ...appBundle,
+            // minifyAppChunks minifies the identifiers of each chunk on its own, after the build.
+            ...(isDev ? {} : { minify: false, minifyWhitespace: true, minifySyntax: true }),
         },
         ...WORKER_ENTRIES.map(({ name, entryPoint, outfileName, define }) => ({
             name,
@@ -127,43 +132,8 @@ await buildInParallel(
                     console.error('Could not get entrypoint for bundle "PostHog App."')
                     throw new Error('Could not get entrypoint for bundle "PostHog App."')
                 }
-                let stable = null
-                if (!isDev) {
-                    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
-                    const preloadManifest = writePreloadManifest(buildResponse.outputs)
-                    // A throw here must fail the build: it reaches buildInParallel's catch, which
-                    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
-                    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
-                    const cssPlan = planCssGroups(buildResponse)
-                    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
-                    stable = writeStableChunks({
-                        absWorkingDir: __dirname,
-                        outputs: buildResponse.outputs,
-                        chunks,
-                        entrypoints,
-                        preloadManifest,
-                        preludes: new Map(
-                            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
-                                file,
-                                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
-                            ])
-                        ),
-                        extraImports: Object.fromEntries(
-                            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
-                        ),
-                        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
-                        loggedOut: {
-                            ...loggedOutImportMapScope(),
-                            cssSpecifiersByOutput: new Map(
-                                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
-                                    file,
-                                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
-                                ])
-                            ),
-                        },
-                    })
-                    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
-                }
+                // onBuildComplete runs outside the heavy-build lock, and this work runs esbuild over every chunk.
+                const stable = isDev ? null : await runExclusiveHeavy(() => finishAppBuild(buildResponse))
                 writeIndexHtml(chunks, entrypoints, stable)
             }
 
@@ -191,6 +161,101 @@ await buildInParallel(
         },
     }
 )
+
+async function finishAppBuild(buildResponse) {
+    const { chunks, entrypoints } = buildResponse
+    const unminifiedDir = await minifyAppChunks(buildResponse)
+    reportTopChunks(buildResponse.outputs, { label: 'PostHog App chunks' })
+    const preloadManifest = writePreloadManifest(buildResponse.outputs)
+    // A throw here must fail the build: it reaches buildInParallel's catch, which
+    // exits non-zero for non-dev builds. Keep it in this awaited call chain.
+    // The stable build also splits the app's CSS: see bin/stableCss.mjs.
+    const cssPlan = planCssGroups(buildResponse)
+    const cssFiles = await buildCssGroups(__dirname, cssPlan.groups)
+    const stable = await writeStableChunks({
+        absWorkingDir: __dirname,
+        sourceDir: unminifiedDir,
+        target: commonConfig.target,
+        outputs: buildResponse.outputs,
+        chunks,
+        entrypoints,
+        preloadManifest,
+        preludes: new Map(
+            [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                file,
+                (specifier) => cssPrelude(specifier, groups, cssPlan.rankOfGroup),
+            ])
+        ),
+        extraImports: Object.fromEntries(
+            [...cssFiles].map(([group, file]) => [`${CSS_SPECIFIER_PREFIX}${group}`, `static/${file}`])
+        ),
+        eagerCss: cssPlan.eager.map((group) => cssFiles.get(group)),
+        loggedOut: {
+            ...loggedOutImportMapScope(),
+            cssSpecifiersByOutput: new Map(
+                [...cssPlan.lazyGroupsByEntry].map(([file, groups]) => [
+                    file,
+                    groups.map((group) => `${CSS_SPECIFIER_PREFIX}${group}`),
+                ])
+            ),
+        },
+    })
+    fs.rmSync(unminifiedDir, { recursive: true, force: true })
+    removeUnlinkedStylesheets(__dirname, buildResponse.outputs, 'src/index.tsx')
+    return stable
+}
+
+/**
+ * Minifies every app chunk on its own, in place (see minifySeparately). Keeps the unminified chunks and
+ * their maps in the returned directory for the stable copies, and corrects the output sizes that the
+ * preload manifest and the eager graph check read.
+ *
+ * This rewrites each chunk's bytes after esbuild names it, so the default (non-stable) chunk file
+ * name is no longer a hash of the bytes it serves.
+ */
+async function minifyAppChunks(buildResponse) {
+    const distDir = path.resolve(__dirname, 'dist')
+    const unminifiedDir = path.resolve(__dirname, '.unminified-chunks')
+    fs.rmSync(unminifiedDir, { recursive: true, force: true })
+    fs.mkdirSync(unminifiedDir)
+    const files = Object.keys(buildResponse.outputs)
+        .filter((outputPath) => outputPath.endsWith('.js'))
+        .map((outputPath) => path.relative(distDir, path.resolve(__dirname, outputPath)))
+    const hasMap = (file) => fs.existsSync(path.resolve(distDir, `${file}.map`))
+    for (const file of files) {
+        fs.mkdirSync(path.dirname(path.resolve(unminifiedDir, file)), { recursive: true })
+        fs.renameSync(path.resolve(distDir, file), path.resolve(unminifiedDir, file))
+        if (hasMap(file)) {
+            fs.copyFileSync(path.resolve(distDir, `${file}.map`), path.resolve(unminifiedDir, `${file}.map`))
+        }
+    }
+
+    const minified = await minifySeparately(
+        files.map((file) => path.resolve(unminifiedDir, file)),
+        { inputDir: unminifiedDir, outdir: distDir, target: commonConfig.target }
+    )
+    for (const file of files) {
+        const { code, map } = minified.get(path.resolve(unminifiedDir, file))
+        const withMap = hasMap(file)
+        const contents = withMap ? `${code}//# sourceMappingURL=${path.basename(file)}.map\n` : code
+        fs.writeFileSync(path.resolve(distDir, file), contents)
+        if (withMap) {
+            fs.writeFileSync(path.resolve(distDir, `${file}.map`), map)
+        }
+        // esbuild only knows the unminified sizes. Scale each module's share to the minified chunk.
+        const output = buildResponse.outputs[`dist/${file}`]
+        const bytes = Buffer.byteLength(contents)
+        for (const input of Object.values(output.inputs || {})) {
+            input.bytesInOutput = Math.round((input.bytesInOutput * bytes) / output.bytes)
+        }
+        output.bytes = bytes
+    }
+    fs.writeFileSync(
+        path.resolve(__dirname, 'posthog-app-esbuild-meta.json'),
+        JSON.stringify({ inputs: buildResponse.inputs, outputs: buildResponse.outputs })
+    )
+    return unminifiedDir
+}
 
 /** Which modules a logged-out page loads, for the logged-out import map. See loggedOutSpecifiers. */
 function loggedOutImportMapScope() {
@@ -268,6 +333,21 @@ function copyEmojibaseData() {
     fs.mkdirSync(to, { recursive: true })
     for (const file of ['data.json', 'messages.json']) {
         fs.copyFileSync(path.resolve(from, file), path.resolve(to, file))
+    }
+}
+
+// A warehouse source plugin keeps its icon in its own directory, and its catalog entry points at
+// /static/warehouse-sources/<vendor>/icon.png. Copying the icons to that path in dist puts them on the
+// static host with the rest of dist, so no vendor needs a file in frontend/public.
+function copyWarehouseSourceIcons() {
+    const sourcesDir = path.resolve(__dirname, '..', 'products', 'warehouse_sources', 'sources')
+    for (const entry of fs.readdirSync(sourcesDir, { withFileTypes: true })) {
+        const icon = path.resolve(sourcesDir, entry.name, 'icon.png')
+        if (entry.isDirectory() && fs.existsSync(icon)) {
+            const to = path.resolve(__dirname, 'dist', 'warehouse-sources', entry.name)
+            fs.mkdirSync(to, { recursive: true })
+            fs.copyFileSync(icon, path.resolve(to, 'icon.png'))
+        }
     }
 }
 

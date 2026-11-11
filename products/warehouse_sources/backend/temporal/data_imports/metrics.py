@@ -1,6 +1,6 @@
 import logging
 import datetime as dt
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogram, MetricHistogramFloat
@@ -10,6 +10,8 @@ from posthog.kafka_client.topics import KAFKA_APP_METRICS2
 from posthog.models.event.util import format_clickhouse_timestamp
 
 from products.warehouse_sources.backend.models.external_data_destination import get_or_create_warehouse_destination
+from products.warehouse_sources.backend.temporal.data_imports.retry_limits import GIVE_UP_AFTER_FAILED_RUNS
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -41,11 +43,28 @@ LOCK_TAKEOVER_LATEST_ERROR = (
 )
 
 
-def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:
+FailureStreak = Literal["new", "ongoing", "none"]
+
+
+def failure_streak_label(status: str, failed_runs_in_a_row: int) -> FailureStreak:
+    """`streak` label for `data_import_finished`. `failed_runs_in_a_row` is the streak before this run.
+
+    A failure past the give-up threshold is "ongoing", usually a broken customer connection, so
+    alerting on "new" failures counts only sources that just broke. Non-failed runs get "none" so
+    every series carries the same label names.
+    """
+    if status.lower() != ExternalDataJobStatus.FAILED.lower():
+        return "none"
+    if failed_runs_in_a_row < GIVE_UP_AFTER_FAILED_RUNS:
+        return "new"
+    return "ongoing"
+
+
+def get_data_import_finished_metric(source_type: str | None, status: str, streak: FailureStreak) -> MetricCounter:
     source_type = source_type or "unknown"
     return (
         workflow.metric_meter()
-        .with_additional_attributes({"source_type": source_type, "status": status})
+        .with_additional_attributes({"source_type": source_type, "status": status, "streak": streak})
         .create_counter("data_import_finished", "Number of data imports finished, for any reason (including failure).")
     )
 
@@ -136,6 +155,20 @@ def get_import_handoffs_per_run_metric(source_type: str | None) -> MetricHistogr
     )
 
 
+def get_import_attempt_duration_metric(source_type: str | None, outcome: str) -> MetricHistogramFloat:
+    # One observation per attempt of the import activity. `outcome` is `completed`, `handed_off`,
+    # `cancelled` or `failed`.
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "outcome": outcome})
+        .create_histogram_float(
+            "warehouse_import_attempt_duration_seconds",
+            "Seconds from the start to the exit of one attempt of the import activity.",
+            "s",
+        )
+    )
+
+
 def get_import_preempted_metric(source_type: str | None, reason: str) -> MetricCounter:
     # `reason` is why the run could continue on another worker (see `PreemptionDecision`).
     return (
@@ -160,12 +193,35 @@ def get_import_not_preempted_metric(source_type: str | None, reason: str) -> Met
     )
 
 
-def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str) -> MetricHistogramFloat:
-    # `mode` is `preempted` when the pipeline stopped waiting for the source, and `cooperative`
-    # when the source yielded an item or reached a safe point.
+def get_import_finished_during_shutdown_metric(
+    source_type: str | None, rode_out: bool, *, within_grace: bool
+) -> MetricCounter:
+    # The imports a hand-off would have restarted. `rode_out` is True when the gate kept the import
+    # on the worker past the shutdown at least once. `within_grace` is True when the import finished
+    # before the shutdown monitor reported the shutdown, so no hand-off check saw it.
     return (
         activity.metric_meter()
-        .with_additional_attributes({"source_type": source_type or "unknown", "mode": mode})
+        .with_additional_attributes(
+            {
+                "source_type": source_type or "unknown",
+                "rode_out": str(rode_out).lower(),
+                "within_grace": str(within_grace).lower(),
+            }
+        )
+        .create_counter(
+            "warehouse_import_finished_during_shutdown_total",
+            "Imports that finished on a worker that was shutting down instead of handing off.",
+        )
+    )
+
+
+def get_shutdown_handoff_delay_metric(source_type: str | None, mode: str, reason: str) -> MetricHistogramFloat:
+    # `mode` is `preempted` when the pipeline stopped waiting for the source, and `cooperative`
+    # when the source yielded an item or reached a safe point. `reason` is why the gate let the
+    # import leave the worker (see `HandoffGate`).
+    return (
+        activity.metric_meter()
+        .with_additional_attributes({"source_type": source_type or "unknown", "mode": mode, "reason": reason})
         .create_histogram_float(
             "warehouse_import_shutdown_handoff_delay_seconds",
             "Seconds from the worker shutdown to the hand-off of an import.",

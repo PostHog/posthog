@@ -8,13 +8,21 @@ from psycopg import sql
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BatchExportInsertInputs, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportInsertInputs,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.destinations.redshift_batch_export import (
     AWSCredentials,
-    ConnectionParameters,
     CopyParameters,
     RedshiftCopyActivityInputs,
     S3StageBucketParameters,
+    ServerConnectionParameters,
     TableParameters,
     copy_into_redshift_activity_from_stage,
     redshift_default_fields,
@@ -28,6 +36,8 @@ from products.batch_exports.backend.tests.temporal.destinations.redshift.utils i
     REQUIRED_ENV_VARS,
     TEST_MODELS,
     assert_clickhouse_records_in_redshift,
+    make_aws_s3_integration,
+    make_redshift_integration,
 )
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import has_valid_credentials
 from products.batch_exports.backend.tests.temporal.utils.persons import (
@@ -67,7 +77,7 @@ async def _run_activity(
     key_prefix: str,
     credentials: AWSCredentials,
     properties_data_type: str,
-    batch_export_model: BatchExportModel | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
     sort_key: str = "event",
@@ -93,10 +103,8 @@ async def _run_activity(
         batch_export_id=str(uuid.uuid4()),
         destination_default_fields=redshift_default_fields(),
     )
-    connection_parameters = ConnectionParameters(
-        user=redshift_config["user"],
-        password=redshift_config["password"],
-        host=redshift_config["host"],
+    integration = await make_redshift_integration(team.pk, redshift_config)
+    connection_parameters = ServerConnectionParameters(
         port=redshift_config["port"],
         database=redshift_config["database"],
     )
@@ -106,20 +114,22 @@ async def _run_activity(
         properties_data_type=properties_data_type,
     )
 
+    aws_s3_integration = await make_aws_s3_integration(team.pk, credentials)
     copy_parameters = CopyParameters(
         s3_bucket=S3StageBucketParameters(
             name=bucket_name,
             region_name=bucket_region,
-            credentials=credentials,
+            credentials=aws_s3_integration.id,
         ),
         s3_key_prefix=key_prefix,
-        authorization=credentials,
+        authorization=aws_s3_integration.id,
     )
 
     copy_inputs = RedshiftCopyActivityInputs(
         batch_export=batch_export_inputs,
         connection=connection_parameters,
         table=table_parameters,
+        integration_id=integration.id,
         copy=copy_parameters,
     )
 
@@ -176,7 +186,7 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
     bucket_name,
     bucket_region,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -187,7 +197,7 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
 ):
     """Test that the copy_into_redshift_activity function inserts data into a Redshift table."""
     if (
-        isinstance(model, BatchExportModel)
+        isinstance(model, AnyBatchExportModel)
         and (model.name == "persons" or model.name == "sessions")
         and exclude_events is not None
     ):
@@ -211,11 +221,11 @@ async def test_copy_into_redshift_activity_inserts_data_into_redshift_table(
         person_properties={"utm_medium": "referral", "$initial_os": "Linux"},
     )
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     table_name = f"test_copy_activity_table__{ateam.pk}"
 
@@ -270,7 +280,7 @@ async def test_copy_into_redshift_activity_merges_persons_data_in_follow_up_runs
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     properties_data_type = "super"
     table_name = f"test_copy_activity_mutability_table_{ateam.pk}"
 
@@ -382,7 +392,7 @@ async def test_copy_into_redshift_activity_merges_sessions_data_in_follow_up_run
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Sessions batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="sessions", schema=None)
+    model = BatchExportSessionsModel()
     properties_data_type = "varchar"
     table_name = f"test_copy_activity_mutability_table_sessions_{ateam.pk}"
 
@@ -495,7 +505,7 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
     if MISSING_REQUIRED_ENV_VARS:
         pytest.skip("Persons batch export cannot be tested in PostgreSQL")
 
-    model = BatchExportModel(name="persons", schema=None)
+    model = BatchExportPersonsModel()
     properties_data_type = "varchar"
     table_name = f"test_copy_activity_migration_table__{ateam.pk}"
     expected_fields = [
@@ -585,7 +595,7 @@ async def test_copy_into_redshift_activity_handles_person_schema_changes(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["super"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
     clickhouse_client,
     activity_environment,
@@ -594,7 +604,7 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
     bucket_name,
     bucket_region,
     exclude_events,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -663,7 +673,7 @@ async def test_copy_into_redshift_activity_inserts_data_with_extra_columns(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_copy_into_redshift_activity_handles_events_table_missing_columns(
     clickhouse_client,
     activity_environment,
@@ -672,7 +682,7 @@ async def test_copy_into_redshift_activity_handles_events_table_missing_columns(
     bucket_name,
     bucket_region,
     exclude_events,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -742,7 +752,7 @@ async def test_copy_into_redshift_activity_handles_events_table_missing_columns(
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("properties_data_type", ["varchar"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_copy_into_redshift_activity_handles_data_over_string_limit(
     clickhouse_client,
     activity_environment,
@@ -751,7 +761,7 @@ async def test_copy_into_redshift_activity_handles_data_over_string_limit(
     bucket_name,
     bucket_region,
     exclude_events,
-    model: BatchExportModel,
+    model: AnyBatchExportModel,
     data_interval_start,
     data_interval_end,
     properties_data_type,

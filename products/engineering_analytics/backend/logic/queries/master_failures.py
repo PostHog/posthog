@@ -69,7 +69,9 @@ def query_master_failures(
         placeholders["date_to"] = ast.Constant(value=date_to)
 
     runs_response = curated.run(
-        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source()).replace("__DATE_TO__", date_to_clause),
+        _FAILED_RUNS_SELECT.replace("__RUNS_SOURCE__", curated.run_source(since=date_from)).replace(
+            "__DATE_TO__", date_to_clause
+        ),
         query_type="engineering_analytics.master_failures_runs",
         placeholders=placeholders,
     )
@@ -83,7 +85,7 @@ def query_master_failures(
     # run_id IN (...) scopes the result but not the scan, and the builder's is_rerun_copy window would
     # otherwise sort the whole jobs history. The run ids come from a run_started_at-windowed scan, so
     # the floor takes the wider re-run slack.
-    jobs_source = curated.jobs_source(created_floor=True)
+    jobs_source = curated.jobs_source(created_floor=True, since=date_from)
     if jobs_source is not None:
         jobs_response = curated.run(
             _FAILED_JOBS_SELECT.replace("__JOBS_SOURCE__", jobs_source),

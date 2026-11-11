@@ -15,6 +15,17 @@ impl PropertyFilter {
         self.prop_type == PropertyType::Cohort
     }
 
+    /// Whether the cohort matcher honors this filter's operator.
+    /// `apply_cohort_membership_logic` applies `in` and `not_in`, reads an absent operator as
+    /// `in`, and scores every other operator as a non-match. That matcher and every path that
+    /// reports on a cohort filter's operator resolve through here, so they cannot drift apart.
+    pub fn cohort_operator_is_supported(&self) -> bool {
+        matches!(
+            self.operator.unwrap_or(OperatorType::In),
+            OperatorType::In | OperatorType::NotIn
+        )
+    }
+
     /// Returns the cohort id if the filter is a cohort filter, or None if it's not a cohort filter
     /// or if the value cannot be parsed as a cohort id.
     /// Handles both JSON number and string representations (Python serializes both).
@@ -198,6 +209,29 @@ mod tests {
 
         let filter = mock!(crate::properties::property_models::PropertyFilter, key: "person".mock_into(), prop_type: PropertyType::Person, operator: Some(OperatorType::Exact));
         assert!(!filter.is_cohort());
+    }
+
+    fn cohort_filter_with(operator: Option<OperatorType>) -> PropertyFilter {
+        PropertyFilter {
+            key: "id".to_string(),
+            value: Some(Value::Number(serde_json::Number::from(12345))),
+            operator,
+            prop_type: PropertyType::Cohort,
+            group_type_index: None,
+            negation: None,
+            compiled_regex: None,
+            extra: Default::default(),
+        }
+    }
+
+    #[test]
+    fn test_cohort_operator_is_supported() {
+        assert!(cohort_filter_with(Some(OperatorType::In)).cohort_operator_is_supported());
+        assert!(cohort_filter_with(Some(OperatorType::NotIn)).cohort_operator_is_supported());
+        // The matcher reads an absent operator as `in`, so it still honors the filter.
+        assert!(cohort_filter_with(None).cohort_operator_is_supported());
+        assert!(!cohort_filter_with(Some(OperatorType::Exact)).cohort_operator_is_supported());
+        assert!(!cohort_filter_with(Some(OperatorType::IsNot)).cohort_operator_is_supported());
     }
 
     #[test]

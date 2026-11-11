@@ -1,3 +1,5 @@
+import './HeatmapScene.scss'
+
 import { BindLogic, useActions, useAsyncActions, useValues } from 'kea'
 import { useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
@@ -10,6 +12,7 @@ import { pngHoggie } from 'lib/brand/hoggies'
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { MAX_HEATMAP_HEIGHT } from 'lib/components/heatmaps/heatmapDataLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -31,6 +34,7 @@ import { pageHistoryLogic } from '../../history/pageHistoryLogic'
 import { PageHistoryStrip } from '../../history/PageHistoryStrip'
 import { formatCaptureDay } from '../../history/pageHistoryUtils'
 import { heatmapLogic } from './heatmapLogic'
+import { QuillHeatmapActions } from './QuillHeatmapActions'
 
 const HedgehogDirector = pngHoggie(directorPng)
 
@@ -99,6 +103,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
         switchToScreenshot,
     } = useActions(logic)
     const { updateHeatmap } = useAsyncActions(logic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const toolbarAccessDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.Toolbar,
@@ -156,54 +161,21 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                         key: 'heatmaps',
                     }}
                     actions={
-                        <>
-                            {(hasUnsavedChanges || saving) && !editDisabledReason && (
-                                <>
-                                    <LemonButton
-                                        type="secondary"
-                                        onClick={() => {
-                                            discardChanges()
-                                            focusExport()
-                                        }}
-                                        disabledReason={saving ? 'Saving changes' : null}
-                                        size="small"
-                                        data-attr="heatmap-discard-changes"
-                                    >
-                                        Discard changes
-                                    </LemonButton>
-                                    <LemonButton
-                                        type="primary"
-                                        onClick={() => void saveAndRefocus()}
-                                        loading={saving}
-                                        disabledReason={saveDisabledReason}
-                                        size="small"
-                                        data-attr="heatmap-save"
-                                    >
-                                        {saving ? 'Saving…' : 'Save'}
-                                    </LemonButton>
-                                </>
-                            )}
-                            <LemonButton
-                                type="tertiary"
-                                size="small"
-                                to={displayUrl ? appEditorUrl(displayUrl, { userIntent: 'heatmaps' }) : undefined}
-                                targetBlank
-                                data-attr="heatmaps-open-in-toolbar"
-                                disabledReason={!displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason}
-                                tooltip="Explore heatmaps on your website, including pages that require a login"
-                            >
-                                Open in toolbar
-                            </LemonButton>
-                            <LemonButton
-                                ref={exportRef}
-                                onClick={exportHeatmap}
-                                data-attr="export-heatmap"
-                                type="secondary"
-                                icon={<IconDownload />}
-                                size="small"
-                                tooltip="Export heatmap as PNG"
-                                tooltipPlacement="bottom"
-                                disabledReason={
+                        todayRailNav ? (
+                            <QuillHeatmapActions
+                                showSaveButtons={(hasUnsavedChanges || saving) && !editDisabledReason}
+                                saving={saving}
+                                saveDisabledReason={saveDisabledReason}
+                                onDiscard={() => {
+                                    discardChanges()
+                                    focusExport()
+                                }}
+                                onSave={() => void saveAndRefocus()}
+                                displayUrl={displayUrl}
+                                openInToolbarDisabledReason={toolbarAccessDisabledReason}
+                                exportRef={exportRef}
+                                onExport={exportHeatmap}
+                                exportDisabledReason={
                                     historySelectionActive
                                         ? 'Exit history to export your current view.'
                                         : previewType === 'screenshot' &&
@@ -211,10 +183,68 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                           ? 'Screenshot is not ready'
                                           : undefined
                                 }
-                            >
-                                Export
-                            </LemonButton>
-                        </>
+                            />
+                        ) : (
+                            <>
+                                {(hasUnsavedChanges || saving) && !editDisabledReason && (
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            onClick={() => {
+                                                discardChanges()
+                                                focusExport()
+                                            }}
+                                            disabledReason={saving ? 'Saving changes' : null}
+                                            size="small"
+                                            data-attr="heatmap-discard-changes"
+                                        >
+                                            Discard changes
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="primary"
+                                            onClick={() => void saveAndRefocus()}
+                                            loading={saving}
+                                            disabledReason={saveDisabledReason}
+                                            size="small"
+                                            data-attr="heatmap-save"
+                                        >
+                                            {saving ? 'Saving…' : 'Save'}
+                                        </LemonButton>
+                                    </>
+                                )}
+                                <LemonButton
+                                    type="tertiary"
+                                    size="small"
+                                    to={displayUrl ? appEditorUrl(displayUrl, { userIntent: 'heatmaps' }) : undefined}
+                                    targetBlank
+                                    data-attr="heatmaps-open-in-toolbar"
+                                    disabledReason={!displayUrl ? 'Select a URL first' : toolbarAccessDisabledReason}
+                                    tooltip="Explore heatmaps on your website, including pages that require a login"
+                                >
+                                    Open in toolbar
+                                </LemonButton>
+                                <LemonButton
+                                    ref={exportRef}
+                                    onClick={exportHeatmap}
+                                    data-attr="export-heatmap"
+                                    type="secondary"
+                                    icon={<IconDownload />}
+                                    size="small"
+                                    tooltip="Export heatmap as PNG"
+                                    tooltipPlacement="bottom"
+                                    disabledReason={
+                                        historySelectionActive
+                                            ? 'Exit history to export your current view.'
+                                            : previewType === 'screenshot' &&
+                                                (!screenshotUrl || !screenshotLoaded || generatingScreenshot)
+                                              ? 'Screenshot is not ready'
+                                              : undefined
+                                    }
+                                >
+                                    Export
+                                </LemonButton>
+                            </>
+                        )
                     }
                 />
                 <HeatmapsPricingNotice />
@@ -303,15 +333,8 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                         className="flex-1 flex items-center justify-center min-h-96"
                                         data-attr="heatmap-generating-screenshot"
                                     >
-                                        <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
                                         <div className="text-sm text-center font-semibold">
-                                            <HedgehogDirector
-                                                className="w-32 h-32 mx-auto mb-2"
-                                                style={{
-                                                    animation: 'hog-wobble 1.2s ease-in-out infinite alternate',
-                                                    transformOrigin: '50% 50%',
-                                                }}
-                                            />
+                                            <HedgehogDirector className="HeatmapScene__hogWobble w-32 h-32 mx-auto mb-2" />
                                             Generating screenshot…
                                             <div className="text-muted text-xs mt-2">
                                                 This usually takes a few minutes

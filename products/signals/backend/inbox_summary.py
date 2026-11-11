@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta
+from functools import partial
 
+from django.db import transaction
 from django.db.models import Exists, OuterRef, Q, QuerySet, TextField, Value
 from django.db.models.functions import Cast, Concat, JSONArray
 from django.utils import timezone
@@ -15,6 +17,7 @@ from posthog.models.user_integration import UserGitHubIntegration
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.models import SignalReportPullRequest, SignalReportTask
+from products.signals.backend.pull_requests import reconcile_reports_for_pull_request
 
 INBOX_SUMMARY_PERIOD = timedelta(days=7)
 
@@ -158,6 +161,7 @@ def sync_pull_request_participants(*, team_id: int, repository: str, pr_number: 
         raise GitHubIntegrationError("Missing verified merge time")
     now = timezone.now()
     SignalReportPullRequest.objects.for_team(team_id).filter(id=pr.id).update(merged_at=merged_at, checked_at=now)
+    transaction.on_commit(partial(reconcile_reports_for_pull_request, team_id=team_id, pr_id=str(pr.id)))
     # Repair the merge time before applying the window: older imports can have no timestamp.
     if merged_at < now - INBOX_SUMMARY_PERIOD:
         return

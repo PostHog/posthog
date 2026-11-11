@@ -5,6 +5,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { ChunkLoadErrorBoundary } from 'scenes/ChunkLoadErrorBoundary'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { CoreFilterDefinitionsGate } from '~/taxonomy/CoreFilterDefinitionsGate'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelNavigation } from './SidePanelNavigation'
@@ -24,7 +25,9 @@ export const SidePanelContent = memo(function SidePanelContent({
             <ErrorBoundary>
                 <ChunkLoadErrorBoundary>
                     <Suspense fallback={<Spinner className="text-4xl mx-auto mt-16" />}>
-                        <Content />
+                        <CoreFilterDefinitionsGate>
+                            <Content />
+                        </CoreFilterDefinitionsGate>
                     </Suspense>
                 </ChunkLoadErrorBoundary>
             </ErrorBoundary>

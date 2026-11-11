@@ -4,6 +4,7 @@ from products.posthog_ai.eval_harness.offline_results import OfflineEvalSuite
 
 GROUPING_SUITE = OfflineEvalSuite(
     key="signals/grouping-e2e",
+    tags=("team:self-driving", "component:signals/grouping"),
     project_id=2,
     scorer_kinds={
         "signal_safety_correct_classification": "boolean",
@@ -45,6 +46,7 @@ GROUPING_SUITE = OfflineEvalSuite(
 
 SCOUT_SAFETY_SUITE = OfflineEvalSuite(
     key="signals/scout-safety",
+    tags=("team:self-driving", "component:signals/scout-safety"),
     project_id=2,
     scorer_kinds={
         "scout_safety_correct_classification": "boolean",

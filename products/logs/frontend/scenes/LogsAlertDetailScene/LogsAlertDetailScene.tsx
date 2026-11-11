@@ -2,9 +2,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconChevronDown, IconTestTube } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCard, LemonDialog, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCard, LemonModal, LemonTabs } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu, LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -19,6 +20,7 @@ import { LogsAlertForm } from 'products/logs/frontend/components/LogsAlerting/Lo
 import { logsAlertFormLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertFormLogic'
 import { logsAlertNotificationLogic } from 'products/logs/frontend/components/LogsAlerting/logsAlertNotificationLogic'
 import { LogsAlertNotifications } from 'products/logs/frontend/components/LogsAlerting/LogsAlertNotifications'
+import { LogsAlertRegroupConfirmModal } from 'products/logs/frontend/components/LogsAlerting/LogsAlertRegroupConfirmModal'
 import { LogsAlertSimulation } from 'products/logs/frontend/components/LogsAlerting/LogsAlertSimulation'
 import { LogsAlertStateIndicator } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateIndicator'
 import { LogsAlertStateTimeline } from 'products/logs/frontend/components/LogsAlerting/LogsAlertStateTimeline'
@@ -35,6 +37,8 @@ import {
     SNOOZE_DURATIONS,
     logsAlertDetailSceneLogic,
 } from './logsAlertDetailSceneLogic'
+import { openDeleteLogsAlertDialog } from './openDeleteLogsAlertDialog'
+import { QuillLogsAlertDetailActions } from './QuillLogsAlertDetailActions'
 
 export const scene: SceneExport<LogsAlertDetailSceneLogicProps> = {
     component: LogsAlertDetailScene,
@@ -105,6 +109,7 @@ export function LogsAlertDetailScene(): JSX.Element {
                     >
                         <LogsAlertSimulation />
                     </LemonModal>
+                    <LogsAlertRegroupConfirmModal />
                 </SceneContent>
             </BindLogic>
         </BindLogic>
@@ -116,16 +121,21 @@ function primaryDisabledReason({
     alertForm,
     alertFormChanged,
     nameError,
+    maxInstancesError,
     hasPendingNotifications,
 }: {
     isDraft: boolean
     alertForm: { name: string; severityLevels: string[]; serviceNames: string[]; filterGroup: UniversalFiltersGroup }
     alertFormChanged: boolean
     nameError: string | undefined
+    maxInstancesError: string | undefined
     hasPendingNotifications: boolean
 }): string | undefined {
     if (nameError) {
         return nameError
+    }
+    if (maxInstancesError) {
+        return maxInstancesError
     }
     if (isDraft) {
         return !hasAnyFilter(alertForm.severityLevels, alertForm.serviceNames, alertForm.filterGroup)
@@ -140,9 +150,11 @@ function AlertHeader(): JSX.Element {
     const { toggleEnabled, snoozeAlert, unsnoozeAlert, resetAlert, deleteAlert, enableAlert } =
         useActions(logsAlertDetailSceneLogic)
 
-    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors } = useValues(logsAlertFormLogic)
+    const { isAlertFormSubmitting, alertFormChanged, alertForm, alertFormErrors, alertFormValidationErrors } =
+        useValues(logsAlertFormLogic)
     const { submitAlertForm, setAlertFormValue } = useActions(logsAlertFormLogic)
     const { pendingNotifications } = useValues(logsAlertNotificationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isEnabled = alert?.enabled ?? true
     const isBroken = alert?.state === LogsAlertConfigurationStateEnumApi.Broken
@@ -158,7 +170,19 @@ function AlertHeader(): JSX.Element {
             onNameChange={(name) => setAlertFormValue('name', name)}
             renameDebounceMs={0}
             actions={
-                alert ? (
+                alert && todayRailNav ? (
+                    <QuillLogsAlertDetailActions
+                        alert={alert}
+                        primaryDisabledReason={primaryDisabledReason({
+                            isDraft,
+                            alertForm,
+                            alertFormChanged,
+                            nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                            maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
+                            hasPendingNotifications: pendingNotifications.length > 0,
+                        })}
+                    />
+                ) : alert ? (
                     <div className="flex items-center gap-2">
                         {(!isEnabled || alert.state !== LogsAlertConfigurationStateEnumApi.NotFiring) && (
                             <LogsAlertStateIndicator
@@ -209,6 +233,7 @@ function AlertHeader(): JSX.Element {
                                 alertForm,
                                 alertFormChanged,
                                 nameError: typeof alertFormErrors?.name === 'string' ? alertFormErrors.name : undefined,
+                                maxInstancesError: alertFormValidationErrors.maxInstances as string | undefined,
                                 hasPendingNotifications: pendingNotifications.length > 0,
                             })}
                             data-attr={isDraft ? 'logs-alert-enable-primary' : 'logs-alert-save-primary'}
@@ -224,21 +249,8 @@ function AlertHeader(): JSX.Element {
                                             'data-attr': 'logs-alert-detail-delete',
                                             label: 'Delete',
                                             status: 'danger' as const,
-                                            onClick: () => {
-                                                LemonDialog.open({
-                                                    title: `Delete "${alert.name}"?`,
-                                                    description:
-                                                        'This alert will be permanently deleted. This action cannot be undone.',
-                                                    primaryButton: {
-                                                        children: 'Delete',
-                                                        type: 'primary',
-                                                        status: 'danger',
-                                                        onClick: deleteAlert,
-                                                        'data-attr': 'logs-alert-delete-confirm',
-                                                    },
-                                                    secondaryButton: { children: 'Cancel' },
-                                                })
-                                            },
+                                            onClick: () =>
+                                                openDeleteLogsAlertDialog({ alertName: alert.name, deleteAlert }),
                                         },
                                     ]}
                                 />

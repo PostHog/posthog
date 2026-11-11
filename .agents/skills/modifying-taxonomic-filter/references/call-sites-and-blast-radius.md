@@ -20,6 +20,21 @@ rg -l '<TaxonomicFilter\b|TaxonomicPopover|TaxonomicPropertyFilter' frontend pro
 A change ripples through every consumer of these. Run their tests before
 shipping anything broad.
 
+Many call sites skip the wrappers and mount `TaxonomicFilter` directly, so they
+always render it with no wrapper logic in front.
+Examples are `ColumnConfigurator.tsx` (inline `<TaxonomicFilter>`),
+`UniversalFilters.tsx` (`PureTaxonomicFilter`) and `TaxonomicBreakdownPopover.tsx`.
+Search the repo for direct `<TaxonomicFilter` and `PureTaxonomicFilter` uses to
+find them all before you decide which call sites a change touches.
+
+`TaxonomicPropertyFilter` has a branch that skips the popover entirely: without
+`disablePopover`, a new or empty row, or a HogQL row, sets
+`showInitialSearchInline` and renders the picker inline.
+With `disablePopover`, that branch is skipped and the picker always opens in a
+popover.
+A group row (`nestedGroup`) opens no picker at all; a leaf row inside a group
+follows the same rules as any other row.
+
 ## Prop combinations to think about
 
 | Prop                   | Why it matters                                                                              |
@@ -39,4 +54,4 @@ shipping anything broad.
 - [ ] Add a filter inside Replay's universal filter bar
 - [ ] Add a cohort field condition
 - [ ] Open the property selector inside Web analytics conversion goal
-- [ ] Check both surfaces (`legacy-pill`, `rebuild-menu`) if you touched tab rendering. Reach the rebuild via a call site that goes through `TaxonomicPopover` or `TaxonomicPropertyFilter` with `TAXONOMIC_FILTER_MENU_REBUILD` on. `ActionFilterRow` goes through `TaxonomicPopover`, so it reaches the rebuild too; only a call site with a fully separate popover implementation never renders it
+- [ ] If you touched tab rendering, check a call site that goes through a wrapper (such as `TaxonomicPopover`) and one that mounts `TaxonomicFilter` directly

@@ -18,7 +18,6 @@ from posthog.api.email_verification import email_verification_pending
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.wizard_blocklist import wizard_identity_blocked
 from posthog.models import User
 from posthog.models.oauth import OAuthAccessToken
 from posthog.permissions import APIScopePermission
@@ -252,15 +251,6 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not user.distinct_id:
             return _disabled("oauth_required", status.HTTP_403_FORBIDDEN, detail="This account has no identity.")
         distinct_id = str(user.distinct_id)
-        if wizard_identity_blocked(
-            distinct_id=distinct_id,
-            email=user.email,
-            user_uuid=str(user.uuid),
-            organization_ids=[str(organization.id)],
-            team_ids=[team.id],
-            surface="desktop_gateway_token",
-        ):
-            return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
         try:
             refused = security_access_refused(
                 SecuritySubject(
@@ -276,7 +266,6 @@ class DesktopAccessViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             capture_exception(e)
             refused = False
         if refused:
-            # The flag's refusal, word for word, so a client cannot tell which blocklist matched.
             return _disabled("blocked", status.HTTP_403_FORBIDDEN, detail="This account cannot use the AI gateway.")
 
         if not desktop_gateway_configured():

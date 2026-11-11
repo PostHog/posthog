@@ -49,6 +49,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     PlatformAlert: () => import('../../products/alerts_platform/frontend/PlatformAlertScene'),
     PrecomputeDebug: () => import('../../products/analytics_platform/frontend/PrecomputeDebugScene'),
     Annotations: () => import('../../products/annotations/frontend/pages/Annotations'),
+    ApplicationObservability: () => import('../../products/apm/frontend/ApplicationObservabilityScene'),
     Autoresearch: () => import('../../products/autoresearch/frontend/AutoresearchScene'),
     AutoresearchNew: () => import('../../products/autoresearch/frontend/AutoresearchNewScene'),
     AutoresearchPipeline: () => import('../../products/autoresearch/frontend/AutoresearchPipelineScene'),
@@ -87,6 +88,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/customer_analytics/frontend/scenes/WarehousePropertiesScene/WarehousePropertiesScene'),
     DataCatalog: () => import('../../products/data_catalog/frontend/DataCatalogScene'),
     DataCatalogMetric: () => import('../../products/data_catalog/frontend/DataCatalogMetricScene'),
+    DataCatalogNewMetric: () => import('../../products/data_catalog/frontend/DataCatalogNewMetricScene'),
     Models: () => import('../../products/data_modeling/frontend/ModelsScene'),
     NodeDetail: () => import('../../products/data_modeling/frontend/nodeDetail/NodeDetailScene'),
     DataOps: () => import('../../products/data_warehouse/frontend/scenes/DataOpsScene/DataWarehouseScene'),
@@ -95,9 +97,13 @@ export const productScenes: Record<string, () => Promise<any>> = {
     DataWarehouseSourceNew: () => import('../../products/data_warehouse/frontend/scenes/NewSourceScene/NewSourceScene'),
     DataWarehouseSourceConnect: () =>
         import('../../products/data_warehouse/frontend/scenes/SourceConnectScene/SourceConnectScene'),
+    DataWarehouseMigrationConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/MigrationConnectScene/MigrationConnectScene'),
     DataWarehouseSourceSchema: () => import('../../products/data_warehouse/frontend/scenes/SchemaScene/SchemaScene'),
     WarehouseDestinations: () =>
         import('../../products/data_warehouse/frontend/scenes/WarehouseDestinationsScene/WarehouseDestinationsScene'),
+    WarehouseDestinationConnect: () =>
+        import('../../products/data_warehouse/frontend/scenes/DestinationConnectScene/DestinationConnectScene'),
     EarlyAccessFeatures: () => import('../../products/early_access_features/frontend/EarlyAccessFeatures'),
     EarlyAccessFeature: () => import('../../products/early_access_features/frontend/EarlyAccessFeature'),
     EndpointsScene: () => import('../../products/endpoints/frontend/EndpointsScene'),
@@ -149,7 +155,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ManagedMigrationNew: () => import('../../products/managed_migrations/frontend/ManagedMigration'),
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
-    MCPRegistry: () => import('../../products/mcp_registry/frontend/MCPRegistryScene'),
     McpGateway: () => import('../../products/mcp_store/frontend/gateway/McpGatewayScene'),
     McpGatewayServer: () => import('../../products/mcp_store/frontend/gateway/GatewayServerScene'),
     McpGatewayAgent: () => import('../../products/mcp_store/frontend/gateway/GatewayAgentScene'),
@@ -162,6 +167,9 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Persons: () => import('../../products/persons/frontend/pages/PersonsScene'),
     TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
+    ReleaseCalendar: () => import('../../products/release/frontend/ReleaseCalendar'),
+    Releases: () => import('../../products/release/frontend/ReleaseList'),
+    Release: () => import('../../products/release/frontend/Release'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
@@ -172,6 +180,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     CommunitySkills: () => import('../../products/skills/frontend/CommunitySkillsScene'),
+    SlackAppWorkspaceSetup: () =>
+        import('../../products/slack_app/frontend/workspace-setup/SlackAppWorkspaceSetupScene'),
     Stamphog: () => import('../../products/stamphog/frontend/scenes/StamphogScene/StamphogScene'),
     StamphogRuns: () => import('../../products/stamphog/frontend/scenes/StamphogRunsScene/StamphogRunsScene'),
     StamphogDigests: () => import('../../products/stamphog/frontend/scenes/StamphogDigestsScene/StamphogDigestsScene'),
@@ -190,6 +200,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/tracing/frontend/scenes/TracingRetentionNewScene/TracingRetentionNewScene'),
     TracingRetentionDetail: () =>
         import('../../products/tracing/frontend/scenes/TracingRetentionDetailScene/TracingRetentionDetailScene'),
+    UptimeMonitoring: () =>
+        import('../../products/uptime_monitoring/frontend/scenes/UptimeMonitoringScene/UptimeMonitoringScene'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),
     VisualReviewRuns: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunsScene'),
     VisualReviewRun: () => import('../../products/visual_review/frontend/scenes/VisualReviewRunScene'),
@@ -206,10 +218,14 @@ export const productScenes: Record<string, () => Promise<any>> = {
     HeatmapNew: () => import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapNewScene'),
     HeatmapRecording: () =>
         import('../../products/web_analytics/frontend/heatmaps/scenes/heatmap/HeatmapRecordingScene'),
-    WizardRuns: () => import('../../products/wizard/frontend/WizardRunsScene'),
+    WizardRuns: () => import('../../products/wizard/frontend/scenes/WizardRunsScene'),
     Workflows: () => import('../../products/workflows/frontend/WorkflowsScene'),
     Workflow: () => import('../../products/workflows/frontend/Workflows/WorkflowScene'),
     WorkflowsLibraryTemplate: () => import('../../products/workflows/frontend/TemplateLibrary/MessageTemplate'),
     Broadcasts: () => import('../../products/workflows/frontend/Broadcasts/BroadcastsScene'),
     Broadcast: () => import('../../products/workflows/frontend/Broadcasts/BroadcastScene'),
+    Transactional: () => import('../../products/workflows/frontend/Transactional/TransactionalScene'),
+    TransactionalEmailLogEntry: () =>
+        import('../../products/workflows/frontend/Transactional/log/TransactionalEmailLogEntryScene'),
+    WorkflowsEmailDomain: () => import('../../products/workflows/frontend/Channels/EmailDomain/EmailDomainScene'),
 }

@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBrowser, IconHide, IconImage, IconPlusSmall } from '@posthog/icons'
+import { IconBrowser, IconHide, IconImage, IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -36,6 +39,7 @@ export function HeatmapsScene(): JSX.Element {
     const { savedHeatmaps, savedHeatmapsLoading, filters, totalCount } = useValues(heatmapsSceneLogic)
     const { deleteHeatmap, setHeatmapsFilters } = useActions(heatmapsSceneLogic)
     const { currentTeamId } = useValues(teamLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const { settings, urlAllowlist, captureMode } = useValues(
         heatmapCaptureSettingsLogic({ teamId: currentTeamId ?? 0 })
     )
@@ -129,39 +133,73 @@ export function HeatmapsScene(): JSX.Element {
                     type: sceneConfigurations[Scene.Heatmaps].iconType || 'default',
                 }}
                 actions={
-                    <>
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            id="heatmaps-feedback-button"
-                            data-attr="heatmaps-feedback-button"
-                        >
-                            Send feedback
-                        </LemonButton>
-                        <Shortcut
-                            name="NewHeatmap"
-                            keybind={[keyBinds.new]}
-                            intent="New heatmap"
-                            interaction="click"
-                            scope={Scene.Heatmaps}
-                        >
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.Heatmap}
-                                minAccessLevel={AccessControlLevel.Editor}
+                    todayRailNav ? (
+                        <>
+                            <Button
+                                variant="outline"
+                                id="heatmaps-feedback-button"
+                                data-attr="heatmaps-feedback-button"
                             >
-                                <LemonButton
-                                    type="primary"
-                                    to={urls.heatmap('new')}
-                                    data-attr="heatmaps-new-heatmap-button"
-                                    size="small"
-                                    icon={<IconPlusSmall />}
-                                    tooltip="New heatmap"
+                                Send feedback
+                            </Button>
+                            <Shortcut
+                                name="NewHeatmap"
+                                keybind={[keyBinds.new]}
+                                intent="New heatmap"
+                                interaction="click"
+                                scope={Scene.Heatmaps}
+                            >
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Heatmap}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    New heatmap
-                                </LemonButton>
-                            </AccessControlAction>
-                        </Shortcut>
-                    </>
+                                    <Button
+                                        variant="primary"
+                                        render={<LinkPrimitive to={urls.heatmap('new')} />}
+                                        data-attr="heatmaps-new-heatmap-button"
+                                        tooltip="New heatmap"
+                                    >
+                                        <IconPlus />
+                                        New heatmap
+                                    </Button>
+                                </AccessControlAction>
+                            </Shortcut>
+                        </>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                id="heatmaps-feedback-button"
+                                data-attr="heatmaps-feedback-button"
+                            >
+                                Send feedback
+                            </LemonButton>
+                            <Shortcut
+                                name="NewHeatmap"
+                                keybind={[keyBinds.new]}
+                                intent="New heatmap"
+                                interaction="click"
+                                scope={Scene.Heatmaps}
+                            >
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Heatmap}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        to={urls.heatmap('new')}
+                                        data-attr="heatmaps-new-heatmap-button"
+                                        size="small"
+                                        icon={<IconPlusSmall />}
+                                        tooltip="New heatmap"
+                                    >
+                                        New heatmap
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </Shortcut>
+                        </>
+                    )
                 }
             />
             <HeatmapsWarnings />

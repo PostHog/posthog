@@ -1,5 +1,4 @@
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -14,15 +13,6 @@ from products.workflows.backend.models.team_workflows_config import TeamWorkflow
 
 
 class TestWorkflowSetupStatusAPI(APIBaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        flag = patch(
-            "products.workflows.backend.presentation.views.workflow_setup.posthoganalytics.feature_enabled",
-            return_value=False,
-        )
-        flag.start()
-        self.addCleanup(flag.stop)
-
     def _status(self) -> dict:
         response = self.client.get(f"/api/projects/{self.team.id}/workflow_setup/status/")
         assert response.status_code == status.HTTP_200_OK, response.json()
@@ -109,6 +99,11 @@ class TestWorkflowSetupStatusAPI(APIBaseTest):
             ("a Slack-only automation", {"action_type": "function"}, False),
             ("an archived email workflow", {"action_type": "function_email", "status": "archived"}, False),
             ("a broadcast", {"action_type": "function_email", "origin_product": "broadcasts"}, False),
+            (
+                "a code send key's hidden workflow",
+                {"action_type": "function_email", "status": "active", "origin_product": "transactional_email_keys"},
+                False,
+            ),
         ]
     )
     def test_first_workflow_counts_only_live_messaging_workflows(self, _name, workflow, expected) -> None:

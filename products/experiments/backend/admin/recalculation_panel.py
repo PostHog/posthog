@@ -28,7 +28,7 @@ from products.experiments.backend.recalculation import (
     _derive_counters,
     get_run_results,
     metrics_recalculation_workflow_id,
-    request_recalculation,
+    request_recalculation_without_age_limit,
     start_metrics_recalculation_workflow,
 )
 
@@ -152,7 +152,7 @@ def start_recalculation_for_experiment(
     """
     try:
         # admin_view gates these callers to staff, so request.user is always a real User, not AnonymousUser.
-        result = request_recalculation(experiment, cast(User, request.user), trigger=trigger)
+        result = request_recalculation_without_age_limit(experiment, cast(User, request.user), trigger=trigger)
     except Exception as e:
         messages.error(request, f"Could not create recalculation: {e}")
         return HttpResponseRedirect(fallback_url)

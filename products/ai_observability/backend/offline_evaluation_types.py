@@ -32,6 +32,7 @@ class ExperimentSubmission:
 @frozen
 class ItemSubmission:
     id: UUID
+    model_version: str | None = None
     case_key: str | None = None
     trial: str | None = None
     dataset_item_identifier: str | None = None

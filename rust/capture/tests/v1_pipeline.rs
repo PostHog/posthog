@@ -247,23 +247,23 @@ async fn empty_batch_error() {
 }
 
 #[tokio::test]
-async fn duplicate_uuid_error() {
-    let shared_uuid = Uuid::new_v4().to_string();
-    let mut e1 = valid_event();
-    e1.uuid = shared_uuid.clone();
-    let mut e2 = valid_event();
-    e2.event = "$identify".to_string();
-    e2.uuid = shared_uuid;
+async fn duplicate_uuid_keeps_and_publishes_only_the_first_copy() {
+    let first = event_with_name("$pageview");
+    let mut copy = event_with_name("$exception");
+    copy.uuid = first.uuid.clone();
+    let payload = batch_payload(&[first, copy]);
 
-    let payload = batch_payload(&[e1, e2]);
+    let (result, ts) = run_batch_with_state(&payload, TestStateBuilder::new()).await;
 
-    let err = run_batch(&payload, TestStateBuilder::new())
-        .await
-        .expect_err("duplicate uuid should fail");
-
-    assert!(
-        matches!(err, Error::DuplicateEventUuid(_)),
-        "expected DuplicateEventUuid, got: {err:?}"
+    let resp = result.expect("a duplicate uuid no longer rejects the request");
+    assert_eq!(resp.entries().len(), 1);
+    assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+    assert_eq!(resp.entries()[0].1.duplicates_dropped, 1);
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1, "only the first copy is published");
+    assert_eq!(
+        &*records[0].topic, "events_main",
+        "the $exception copy was dropped"
     );
 }
 

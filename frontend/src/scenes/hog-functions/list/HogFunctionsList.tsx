@@ -60,7 +60,6 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     },
     'batch-export-alerts': { label: 'Batch export alerts' },
     'billing-alerts': { label: 'Billing alerts' },
-    'data-warehouse-alerts': { label: 'Data warehouse alerts', url: urls.sources() },
     'replay-vision-alerts': { label: 'Replay vision alerts' },
     'replay-vision-requests': { label: 'Replay vision requests' },
 }
@@ -193,6 +192,13 @@ export function HogFunctionList({
                                     </Tooltip>
                                     {hogFunction.type === 'internal_destination' && (
                                         <NotificationContextTag hogFunction={hogFunction} />
+                                    )}
+                                    {hogFunction.draft_updated_at && (
+                                        <Tooltip title="Staged changes are waiting to be published. Open it to review them.">
+                                            <LemonTag size="small" type="warning" className="ml-1">
+                                                Unpublished changes
+                                            </LemonTag>
+                                        </Tooltip>
                                     )}
                                 </>
                             }

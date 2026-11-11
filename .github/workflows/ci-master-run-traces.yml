@@ -4,8 +4,8 @@ name: Master run traces
 # a span per job beneath it, a span per step beneath those. Covers every workflow,
 # including the ones with no telemetry of their own (Container Images CD, the
 # container CD lane, the Rust image builds). Master pushes are scanned repo-wide;
-# Backend CI's push and scheduled runs are read from Depot. Depot exposes workflow and job
-# timestamps, but not step or job-queue timestamps, so those traces stop at jobs.
+# Backend CI's push and scheduled runs come from Depot, which exposes workflow and job
+# timestamps. Those traces stop at jobs because Depot provides no step or job-queue timestamps.
 #
 # Complements .github/scripts/report_test_timings.py, which emits per-test traces
 # from JUnit XML under its own trace IDs. Those stay separate traces.
@@ -49,10 +49,8 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         steps:
-            # A cron workflow always runs the default-branch copy of this file, so the
-            # checked-out script is master's. The base-ref pinning that ci-backend.yml's
-            # report-test-timings needs guards against a PR swapping the script that
-            # receives the project token, which cannot happen here.
+            # Scheduled runs check out master, so PR code cannot replace the reporter
+            # that receives the project token.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   persist-credentials: false
@@ -62,10 +60,9 @@ jobs:
                       .github/actions/setup-uv
                   sparse-checkout-cone-mode: false
 
-            # Reads job durations from the Actions API — the same purpose as
-            # ci-backend.yml's calculate-running-time, so it shares that bucket rather
-            # than the posthog-tests app ci-alerts-devex already bursts on at merge
-            # peaks. A failed mint degrades to github.token instead of skipping the tick.
+            # Share the telemetry app with the frontend, Storybook, and Playwright
+            # calculate-running-time jobs to avoid more traffic on the posthog-tests
+            # app used by ci-alerts-devex. Fall back to github.token if token creation fails.
             - name: Mint telemetry GitHub token
               id: app-token
               continue-on-error: true

@@ -25,7 +25,7 @@ pub mod common;
 fn documents() -> Vec<(String, Value, bool, bool)> {
     let mut cases = Vec::new();
     let supported: Value = serde_json::from_str(include_str!(
-        "fixtures/rules_v2_parser/2.1.0/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
+        "fixtures/rules_v2_contract/fixtures/config/valid/boolean_targeted_and_percentage_rollout.json"
     )).unwrap();
     cases.push((
         "evaluated-valid-v2".to_string(),
@@ -40,10 +40,7 @@ fn documents() -> Vec<(String, Value, bool, bool)> {
     near_one["version"] = json!("__below_one__");
     cases.push(("rejected-below-one".to_string(), near_one, true, false));
     let mut unsupported = supported.clone();
-    unsupported["rules"]
-        .as_array_mut()
-        .unwrap()
-        .push(json!({"rule_type": "experiment"}));
+    unsupported["aggregation_group_type_index"] = json!(0);
     cases.push((
         "rejected-unsupported-v2".to_string(),
         unsupported,

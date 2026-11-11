@@ -14,6 +14,11 @@ from products.data_modeling.backend.facade import api
 from products.data_modeling.backend.facade.contracts import SavedQueryDefinition, UpstreamTableRef
 from products.data_modeling.backend.logic.saved_query_reads import POSTHOG_TABLE_ORIGIN
 from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.data_modeling_job import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
@@ -85,12 +90,13 @@ class TestSavedQueryReads(BaseTest):
             name="orders",
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
             is_materialized=False,
+            incremental_config={"enabled": True, "incremental_key": "day", "unique_key": ["day"]},
         )
         Node.objects.create(team=self.team, dag=dag, saved_query=live, type=NodeType.MAT_VIEW)
         plain = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="plain",
-            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            query={"kind": "HogQLQuery", "query": "SELECT jev(event, 'Is this a purchase?') FROM events"},
             is_materialized=True,
         )
         Node.objects.create(team=self.team, dag=dag, saved_query=plain, type=NodeType.VIEW)
@@ -108,16 +114,18 @@ class TestSavedQueryReads(BaseTest):
                 is_managed=False,
                 origin=None,
                 created_at=live.created_at,
+                refreshes_incrementally=True,
             ),
             SavedQueryDefinition(
                 id=plain.id,
                 name="plain",
-                hogql="SELECT 2",
+                hogql="SELECT jev(event, 'Is this a purchase?') FROM events",
                 materializes=False,
                 is_test=False,
                 is_managed=False,
                 origin=None,
                 created_at=plain.created_at,
+                calls_decision_functions=True,
             ),
         ]
 
@@ -149,20 +157,13 @@ class TestSavedQueryReads(BaseTest):
             near.id: frozenset(),
         }
 
-    def test_upstream_table_refs_walks_through_views_and_other_dags_to_tables_only(self) -> None:
+    def test_upstream_table_refs_walks_through_views_to_tables_only(self) -> None:
         dag = DAG.objects.create(team=self.team, name="Default")
-        other_dag = DAG.objects.create(team=self.team, name="Finance")
-        invoices = table_node(self.team, other_dag, "invoices", {"origin": POSTHOG_TABLE_ORIGIN})
-        revenue = saved_query_node(self.team, other_dag, "revenue", NodeType.VIEW)
-        Edge.objects.create(team=self.team, dag=other_dag, source=invoices, target=revenue)
         warehouse_table_id = str(uuid4())
         charges = table_node(
             self.team, dag, "stripe_charges", {"origin": "warehouse", "warehouse_table_id": warehouse_table_id}
         )
         events = table_node(self.team, dag, "events", {"origin": POSTHOG_TABLE_ORIGIN})
-        proxy = table_node(
-            self.team, dag, "revenue", {"origin": "cross_dag_view", "saved_query_id": str(revenue.saved_query_id)}
-        )
         persons = table_node(self.team, dag, "persons", {"origin": POSTHOG_TABLE_ORIGIN})
         legacy = table_node(self.team, dag, "legacy_orders", {})
         middle = saved_query_node(self.team, dag, "middle", NodeType.VIEW)
@@ -171,7 +172,6 @@ class TestSavedQueryReads(BaseTest):
         for source, dependent in [
             (charges, middle),
             (events, middle),
-            (proxy, middle),
             (legacy, middle),
             (middle, target),
             (target, downstream),
@@ -183,7 +183,27 @@ class TestSavedQueryReads(BaseTest):
             {
                 UpstreamTableRef(name="stripe_charges", warehouse_table_id=warehouse_table_id),
                 UpstreamTableRef(name="events", is_posthog_table=True),
-                UpstreamTableRef(name="invoices", is_posthog_table=True),
                 UpstreamTableRef(name="legacy_orders"),
             }
         )
+
+    def test_unbuilt_upstream_saved_query_ids_needs_a_completed_build_on_that_engine(self) -> None:
+        dag = DAG.objects.create(team=self.team, name="Default")
+        events = table_node(self.team, dag, "events", {"origin": POSTHOG_TABLE_ORIGIN})
+        built = saved_query_node(self.team, dag, "built", NodeType.TABLE)
+        built_elsewhere = saved_query_node(self.team, dag, "built_elsewhere", NodeType.TABLE)
+        failed = saved_query_node(self.team, dag, "failed", NodeType.TABLE)
+        target = saved_query_node(self.team, dag, "target", NodeType.VIEW)
+        for source in [events, built, built_elsewhere, failed]:
+            Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
+        for node, engine, status in [
+            (built, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.FAILED),
+            (built, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.COMPLETED),
+            (built_elsewhere, DataModelingJobEngine.CLICKHOUSE, DataModelingJobStatus.COMPLETED),
+            (failed, DataModelingJobEngine.MANAGED_WAREHOUSE, DataModelingJobStatus.FAILED),
+        ]:
+            DataModelingJob.objects.create(team=self.team, saved_query=node.saved_query, engine=engine, status=status)
+
+        assert api.unbuilt_upstream_saved_query_ids(
+            self.team.id, target.saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE
+        ) == frozenset({built_elsewhere.saved_query_id, failed.saved_query_id})

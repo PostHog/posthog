@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.facade.models import (
     trino_column_to_dwh_column,
     trino_columns_to_dwh_columns,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     SourceSchema,
     extract_available_column_names,
@@ -44,7 +45,7 @@ type TrinoSourceLocation = tuple[str | None, str, str]  # (database, schema, tab
 
 
 def get_default_trino_catalog(source: ExternalDataSource) -> str | None:
-    catalog = (source.job_inputs or {}).get("catalog")
+    catalog = SourceInputsStore.load(source).get("catalog")
     return catalog if isinstance(catalog, str) and catalog.strip() else None
 
 

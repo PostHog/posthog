@@ -84,7 +84,9 @@ pub async fn handle_ad_hoc_request(
 
 pub fn check_would_truncate(content: &str, model: &EmbeddingModel) -> bool {
     match model {
-        EmbeddingModel::OpenAITextEmbeddingSmall | EmbeddingModel::OpenAITextEmbeddingLarge => {
+        EmbeddingModel::OpenAITextEmbeddingSmall
+        | EmbeddingModel::OpenAITextEmbeddingLarge
+        | EmbeddingModel::OpenAITextEmbeddingSmall256 => {
             // Count every token: capping the count at the input window first would make the
             // comparison below unsatisfiable.
             let token_count = CL100K_ENCODER.encode_with_special_tokens(content).len();

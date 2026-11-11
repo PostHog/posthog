@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -46,6 +47,7 @@ from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import CIDataFreshness, QueryWorkLimitExceededError
+from products.engineering_analytics.backend.logic.materialized_ci import MaterializedCI, ci_tables
 from products.engineering_analytics.backend.logic.queries._workflow_filters import DECISIVE_FAILURE_CONCLUSIONS_SQL
 from products.engineering_analytics.backend.logic.sources import (
     GitHubTables,
@@ -195,6 +197,8 @@ class CuratedGitHubSource:
         self._depot_job_attempts_table: depot_ci.DepotJobAttempts | None = None
         self._depot_job_attempts_resolved = False
         self._database: Database | None = None
+        self._materialized_ci: MaterializedCI | None = None
+        self._materialized_ci_resolved = False
         # Guards the query budget, the catalog and the lazily resolved sources, which concurrent reads share.
         self._lock = threading.Lock()
 
@@ -240,10 +244,14 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self, *, started_floor: bool = False) -> str:
+    def run_source(self, *, started_floor: bool = False, since: datetime | None = None, live: bool = False) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
-        run_started_floor_constant)."""
+        run_started_floor_constant). ``since`` is the read's window start; the stored rows serve a
+        read only when they cover it, and an unbounded read never (see ``MaterializedCI.covers``).
+        ``live`` preserves current-status reads and raw step lookups."""
+        if not live and (stored := self._stored_ci_covering(since)):
+            return f"({stored.runs(started_floor=started_floor)})"
         query = workflow_runs.build_query(
             self._runs_table(),
             pull_requests_table=self._tables.pull_requests,
@@ -251,16 +259,21 @@ class CuratedGitHubSource:
         )
         return f"({query})"
 
-    def jobs_source(self, *, created_floor: bool = False, include_steps: bool = False) -> str | None:
+    def jobs_source(
+        self, *, created_floor: bool = False, since: datetime | None = None, include_steps: bool = False
+    ) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
+        ``since`` is the read's window start, as for ``run_source``.
 
         ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run."""
         if not self._tables.workflow_jobs:
             return None
+        if not include_steps and (stored := self._stored_ci_covering(since)):
+            return f"({stored.jobs(created_floor=created_floor)})"
         query = workflow_jobs.build_query(
             self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, include_steps=include_steps
         )
@@ -292,7 +305,9 @@ class CuratedGitHubSource:
         without it would serve an answer built from Depot rows to a caller who has no access to them.
         """
         depot = self._depot_job_attempts()
-        return f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
+        scope = f"{self._tables.workflow_runs}|{self._tables.workflow_jobs or ''}|{depot.table if depot else ''}"
+        stored = self._stored_ci()
+        return f"{scope}|{stored.cache_scope}" if stored else scope
 
     def may_read_ci_tables(self) -> bool:
         """Whether this reader's catalog grants every table a CI read uses.
@@ -300,18 +315,37 @@ class CuratedGitHubSource:
         A cached CI answer skips the query that would have applied the table permissions, so a caller must
         ask this before it serves one.
         """
-        depot = self._depot_job_attempts()
-        tables = [self._tables.pull_requests, self._tables.workflow_runs, self._tables.workflow_jobs]
-        if depot is not None:
-            tables.append(depot.table)
         catalog = self._catalog()
-        return all(catalog.has_table(table) and not catalog.is_table_access_denied(table) for table in tables if table)
+        return all(
+            catalog.has_table(table) and not catalog.is_table_access_denied(table)
+            for table in ci_tables(self._tables, self._depot_job_attempts())
+        )
 
     def ci_data_freshness(self) -> CIDataFreshness:
         """When the runs and jobs this handle reads were last synced from their sources."""
+        if stored := self._stored_ci():
+            return stored.freshness
         return resolve_ci_data_freshness(
             team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
+
+    def _stored_ci_covering(self, since: datetime | None) -> MaterializedCI | None:
+        # Resolving the views queries the database, and an unbounded read cannot use them.
+        if since is None:
+            return None
+        stored = self._stored_ci()
+        return stored if stored is not None and stored.covers(since) else None
+
+    def _stored_ci(self) -> MaterializedCI | None:
+        catalog = self._catalog()
+        depot = self._depot_job_attempts()
+        with self._lock:
+            if not self._materialized_ci_resolved:
+                self._materialized_ci = MaterializedCI.resolve(
+                    team=self._team, tables=self._tables, depot=depot, catalog=catalog
+                )
+                self._materialized_ci_resolved = True
+            return self._materialized_ci
 
     def _jobs_table(self, workflow_jobs_table: str) -> workflow_jobs.JobsTable:
         return depot_ci.with_depot_jobs(workflow_jobs_table, self._depot_job_attempts(), self._tables.workflow_runs)
@@ -345,12 +379,18 @@ class CuratedGitHubSource:
         source = self._trunk_quarantine()
         if source is None:
             return None
-        return f"({trunk_quarantined_tests.build_query(source.table)})"
+        return f"({trunk_quarantined_tests.build_query(source.table, v2_shape=source.v2_shape)})"
 
     def trunk_org_url_slug(self) -> str | None:
         """The TrunkIo source's org slug, for links into the Trunk app; None when unsynced or unset."""
         source = self._trunk_quarantine()
         return source.org_url_slug if source else None
+
+    def trunk_quarantined_tests_v2_shape(self) -> bool:
+        """Whether the synced quarantined-tests table holds the v2 API shape, which carries each
+        test's Trunk URL; False when unsynced."""
+        source = self._trunk_quarantine()
+        return source.v2_shape if source else False
 
     def members_source(self) -> str | None:
         """Curated team-membership ``SELECT`` subquery, or None when the optional table isn't synced."""
@@ -448,10 +488,10 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
-        """Per-job cost ``SELECT`` subquery — the same view body ``engineering_analytics_job_costs``
-        exposes, but with the endpoint-only run pass-through columns (``run_started_at`` /
-        ``run_head_branch``). None when the jobs table isn't synced, exactly like ``jobs_source``.
+    def job_cost_source(self, *, created_floor: bool = False, since: datetime | None = None) -> str | None:
+        """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
+        the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
+        among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
 
         This is the single cost-computation path: ``provider`` / ``os`` / ``vcpu`` / ``billable_seconds``
         / ``estimated_cost_usd`` are rendered from ``logic.cost`` in ClickHouse, so every endpoint cost
@@ -463,13 +503,19 @@ class CuratedGitHubSource:
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
         source's window predicates read the RUN's columns and so can never prune the jobs scan, and
         the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
+        ``since`` is the read's window start, as for ``run_source``.
         """
         if not self._tables.workflow_jobs:
             return None
+        if stored := self._stored_ci_covering(since):
+            query = job_costs.build_attributed_query(
+                costed_jobs=stored.jobs(created_floor=created_floor, with_cost=True),
+                runs=stored.runs(include_shells=True),
+            )
+            return f"({query})"
         query = job_costs.build_query(
             jobs_table=self._jobs_table(self._tables.workflow_jobs),
             runs_table=self._runs_table(),
-            include_run_columns=True,
             created_floor=created_floor,
         )
         return f"({query})"
@@ -480,7 +526,7 @@ class CuratedGitHubSource:
         ClickHouse inlines a CTE at every reference, so each extra reader of ``runs`` scans and
         parses the whole runs source again.
         """
-        return f"runs AS {self.run_source()}"
+        return f"runs AS {self.run_source(live=True)}"
 
     def _pr_scope_cte(self, pr_scope_where: str) -> str:
         """CTE: the number and head SHA of PRs matching ``pr_scope_where`` (a predicate over

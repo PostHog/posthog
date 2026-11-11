@@ -13,9 +13,9 @@ use super::{PostgresStorage, DB_BULK_CHUNKS, DB_QUERY_DURATION, DB_ROWS_RETURNED
 use crate::storage::error::{StorageError, StorageResult};
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::{
-    DeletePersonsOutcome, Person, PersonTombstoneQueueEntry, PersonVersionFloorResult, SplitResult,
-    TombstoneTarget, TombstonedDeleteOutcome, TombstonedDistinctId, TombstonedPerson,
-    VersionFloorOutcome,
+    DeletePersonsOutcome, Person, PersonListEntry, PersonTombstoneQueueEntry,
+    PersonVersionFloorResult, SplitResult, TombstoneTarget, TombstonedDeleteOutcome,
+    TombstonedDistinctId, TombstonedPerson, VersionFloorOutcome,
 };
 
 /// Version offset for split person/PDI rows — mirrors the Django convention.
@@ -530,13 +530,14 @@ impl PersonLookup for PostgresStorage {
         }
         let labels = [
             ("operation".to_string(), "get_person_tombstones".to_string()),
-            ("pool".to_string(), "primary".to_string()),
+            ("pool".to_string(), "bulk_primary".to_string()),
             ("client".to_string(), current_client_name().to_string()),
             ("method".to_string(), current_method_name().to_string()),
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_primary_pool, "bulk_primary").await?;
         let mut tx = sqlx::Connection::begin(&mut *conn).await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
             .execute(&mut *tx)
@@ -1430,9 +1431,61 @@ impl PersonLookup for PostgresStorage {
         );
         Ok(results)
     }
+    async fn list_persons_for_team(
+        &self,
+        team_id: i64,
+        after_person_id: i64,
+        before_person_id: Option<i64>,
+        limit: i64,
+    ) -> StorageResult<Vec<PersonListEntry>> {
+        let labels = [
+            ("operation".to_string(), "list_persons_for_team".to_string()),
+            ("pool".to_string(), "bulk_replica".to_string()),
+            ("client".to_string(), current_client_name().to_string()),
+            ("method".to_string(), current_method_name().to_string()),
+        ];
+        let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.bulk_replica_pool, "bulk_replica").await?;
+        let rows = sqlx::query!(
+            r#"
+            SELECT p.id::bigint as "id!", p.uuid as "uuid!",
+                   COALESCE(p.version, 0)::bigint as "version!", p.is_deleted as "is_deleted!",
+                   p.created_at as "created_at!",
+                   EXISTS (
+                       SELECT 1 FROM posthog_persondistinctid d
+                       WHERE d.team_id = p.team_id AND d.person_id = p.id AND d.is_deleted = false
+                   ) as "has_live_distinct_ids!"
+            FROM posthog_person p
+            WHERE p.team_id = $1 AND p.id > $2 AND ($4::bigint IS NULL OR p.id < $4)
+            ORDER BY p.id
+            LIMIT $3
+            "#,
+            team_id as i32,
+            after_person_id,
+            limit,
+            before_person_id
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(|r| PersonListEntry {
+            id: r.id,
+            uuid: r.uuid,
+            version: r.version,
+            is_deleted: r.is_deleted,
+            has_live_distinct_ids: r.has_live_distinct_ids,
+            created_at: r.created_at,
+        })
+        .collect::<Vec<_>>();
+
+        common_metrics::histogram(DB_ROWS_RETURNED, &labels, rows.len() as f64);
+        Ok(rows)
+    }
 }
 
-fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
+pub(super) fn bulk_primary_labels(operation: &str) -> [(String, String); 4] {
     [
         ("operation".to_string(), operation.to_string()),
         ("pool".to_string(), "bulk_primary".to_string()),
@@ -1480,15 +1533,15 @@ fn record_outcomes(
     }
 }
 
-struct LockedPerson {
-    id: i64,
-    version: i64,
-    is_deleted: bool,
+pub(super) struct LockedPerson {
+    pub(super) id: i64,
+    pub(super) version: i64,
+    pub(super) is_deleted: bool,
 }
 
 /// Lock the existing persons among `uuids` in id order, the order the ingestion
 /// writer and the tombstone paths take person locks in.
-async fn lock_persons_by_uuids(
+pub(super) async fn lock_persons_by_uuids(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     uuids: &[Uuid],
@@ -1567,7 +1620,8 @@ async fn tombstone_persons_by_uuids(
         .execute(&mut *tx)
         .await?;
 
-    let (mark_op_id, claimed_ids) = claim_delete_marks(&mut tx, team_id, uuids).await?;
+    let (mark_op_id, claimed_ids) =
+        claim_lifecycle_marks(&mut tx, team_id, uuids, MarkKind::Delete).await?;
 
     // Lock the claimed persons up front in id order, as the ingestion writer and the tombstone cleanup drain do.
     // Lock by id, not uuid: a person re-created under a requested uuid after the claim holds no mark.
@@ -1639,7 +1693,7 @@ async fn tombstone_persons_by_uuids(
     tombstones.extend(with_tombstoned_distinct_ids(&mut tx, team_id, already).await?);
 
     if let Some(op_id) = mark_op_id {
-        release_delete_marks(&mut tx, team_id, op_id).await?;
+        release_lifecycle_marks(&mut tx, team_id, op_id, MarkKind::Delete).await?;
     }
     tx.commit().await?;
     tombstones.sort_by(|a, b| a.uuid.cmp(&b.uuid));
@@ -1649,13 +1703,44 @@ async fn tombstone_persons_by_uuids(
     })
 }
 
+/// Which lifecycle operation a mark records. Every kind conflicts with every other on the same person.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum MarkKind {
+    Delete,
+    Restore,
+}
+
+impl MarkKind {
+    fn op_type(self) -> &'static str {
+        match self {
+            MarkKind::Delete => "delete",
+            MarkKind::Restore => "restore",
+        }
+    }
+
+    fn role(self) -> &'static str {
+        match self {
+            MarkKind::Delete => "victim",
+            MarkKind::Restore => "target",
+        }
+    }
+
+    fn source(self) -> &'static str {
+        match self {
+            MarkKind::Delete => "personhog-replica-tombstone",
+            MarkKind::Restore => "personhog-replica-restore",
+        }
+    }
+}
+
 /// The person row lock cannot stop an ingestion attach, whose FK check passes on a tombstone, so the
 /// attach re-checks liveness under this mark; claims go in id order, as ingestion's do, to avoid deadlock.
 /// A mark held elsewhere fails the whole call, because the caller reads a missing person as already gone.
-async fn claim_delete_marks(
+pub(super) async fn claim_lifecycle_marks(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     uuids: &[Uuid],
+    kind: MarkKind,
 ) -> StorageResult<(Option<Uuid>, Vec<i64>)> {
     let persons = sqlx::query!(
         r#"
@@ -1677,10 +1762,12 @@ async fn claim_delete_marks(
     sqlx::query!(
         r#"
         INSERT INTO lifecycle_op (op_id, op_type, team_id, step, request, completed_at)
-        VALUES ($1, 'delete', $2, 'completed', '{"source": "personhog-replica-tombstone"}'::jsonb, now())
+        VALUES ($1, $3, $2, 'completed', jsonb_build_object('source', $4::text), now())
         "#,
         op_id,
-        team_id as i32
+        team_id as i32,
+        kind.op_type(),
+        kind.source()
     )
     .execute(&mut **tx)
     .await?;
@@ -1690,7 +1777,7 @@ async fn claim_delete_marks(
     let claimed = sqlx::query_scalar!(
         r#"
         INSERT INTO lifecycle_op_person (op_id, team_id, person_id, person_uuid, role, status, mark_active)
-        SELECT $1, $2, u.person_id, u.person_uuid, 'victim', 'marked', true
+        SELECT $1, $2, u.person_id, u.person_uuid, $5, 'marked', true
         FROM unnest($3::bigint[], $4::uuid[]) AS u(person_id, person_uuid)
         ON CONFLICT (team_id, person_id) WHERE mark_active DO NOTHING
         RETURNING person_id
@@ -1698,7 +1785,8 @@ async fn claim_delete_marks(
         op_id,
         team_id as i32,
         &person_ids,
-        &person_uuids
+        &person_uuids,
+        kind.role()
     )
     .fetch_all(&mut **tx)
     .await?;
@@ -1713,18 +1801,20 @@ async fn claim_delete_marks(
     Ok((Some(op_id), person_ids))
 }
 
-async fn release_delete_marks(
+pub(super) async fn release_lifecycle_marks(
     tx: &mut Transaction<'_, Postgres>,
     team_id: i64,
     op_id: Uuid,
+    kind: MarkKind,
 ) -> StorageResult<()> {
     sqlx::query!(
         r#"
         DELETE FROM lifecycle_op
-        WHERE op_id = $1 AND team_id = $2 AND op_type = 'delete'
+        WHERE op_id = $1 AND team_id = $2 AND op_type = $3
         "#,
         op_id,
-        team_id as i32
+        team_id as i32,
+        kind.op_type()
     )
     .execute(&mut **tx)
     .await?;

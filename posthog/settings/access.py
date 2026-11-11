@@ -35,7 +35,8 @@ CSRF_TRUSTED_ORIGINS = (
 CSRF_TRUSTED_ORIGINS += get_list(os.getenv("EXTRA_CSRF_TRUSTED_ORIGINS", ""))
 # Proxy settings
 IS_BEHIND_PROXY = get_from_env("IS_BEHIND_PROXY", False, type_cast=str_to_bool)
-TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", None)
+# The local Docker proxy reaches the host backend over loopback on macOS.
+TRUSTED_PROXIES = os.getenv("TRUSTED_PROXIES", "127.0.0.1,::1" if DEBUG and not TEST else None)
 TRUST_ALL_PROXIES = get_from_env("TRUST_ALL_PROXIES", False, type_cast=str_to_bool)
 
 # Keys the managed reverse proxy uses to sign the client IP it forwards (ManagedProxyClientIPMiddleware).
@@ -45,6 +46,8 @@ MANAGED_PROXY_SIGNING_KEYS: list[str] = get_list(os.getenv("MANAGED_PROXY_SIGNIN
 
 # Keys the MCP server signs the end user IP with (ActivityLoggingMiddleware). Empty means never trusted.
 MCP_CLIENT_IP_SIGNING_KEYS: list[str] = get_list(os.getenv("MCP_CLIENT_IP_SIGNING_KEYS", ""))
+
+LIVESTREAM_AUTHORIZATION_SIGNING_KEYS: list[str] = get_list(os.getenv("LIVESTREAM_AUTHORIZATION_SIGNING_KEYS", ""))
 
 
 if IS_BEHIND_PROXY:
@@ -134,8 +137,8 @@ TASKS_AGENT_PROXY_CORS_ORIGINS: list[str] = [
 TASKS_AGENT_PROXY_INGEST_URL: str | None = os.getenv("TASKS_AGENT_PROXY_INGEST_URL") or None
 
 # Browser-facing base URL of the agent-proxy for the live-stream read leg, per environment (e.g.
-# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients only when this
-# is set AND the read-via-proxy flag is enabled for the user; unset means clients read from Django.
+# https://agent-proxy.us.posthog.com). The stream_token endpoint returns it to clients when this is
+# set; unset means clients read from Django.
 TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_URL") or None
 
 # In-cluster base URL of the agent-proxy for backend consumers (e.g. the Temporal worker relaying a
@@ -153,7 +156,7 @@ AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET
 # These are legacy values only kept around for backwards compatibility with self hosted versions
 SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes
-# (used directly as a Fernet key) — enforced by check_encryption_salt_keys in encrypted_fields.py.
+# (used directly as a Fernet key) — enforced by check_encryption_salt_keys in posthog/checks.py.
 ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP

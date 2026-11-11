@@ -27,6 +27,8 @@ export interface SessionRecordingSnapshotSource {
     start_timestamp?: string
     end_timestamp?: string
     blob_key?: string
+    /** Fetch this block here directly, with the listing's block token, instead of through the snapshots endpoint. */
+    url?: string
 }
 
 export interface SessionRecordingSnapshotSourceResponse {

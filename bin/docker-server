@@ -56,4 +56,10 @@ if [ "${POSTHOG_GRANIAN_SHARED_SOCKET:-false}" = "true" ]; then
     exec $DROP_PRIVILEGES python ./bin/granian_shared_socket.py "$APP_TARGET"
 fi
 
+# Workers that share the parent's copy of the app, for hosts short on memory.
+# See bin/granian_preload.py.
+if [ "${POSTHOG_GRANIAN_PRELOAD:-false}" = "true" ]; then
+    exec $DROP_PRIVILEGES python ./bin/granian_preload.py "$APP_TARGET"
+fi
+
 exec $DROP_PRIVILEGES granian "$APP_TARGET"

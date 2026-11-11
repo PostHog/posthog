@@ -13,9 +13,9 @@ import type { DashboardImportApi } from 'products/metrics/frontend/generated/api
 import { metricsDashboardImportLogic } from '../dashboardImport/metricsDashboardImportLogic'
 import { SuggestedDashboardsMenu } from '../suggestedDashboards/SuggestedDashboardsMenu'
 
-const MAX_LISTED_IMPORTS = 5
+export const MAX_LISTED_IMPORTS = 5
 
-function importStatusLine(dashboardImport: DashboardImportApi): string {
+export function importStatusLine(dashboardImport: DashboardImportApi): string {
     if (dashboardImport.status === 'running') {
         const panels = dashboardImport.panel_progress
         const settled = panels.filter((panel) => panel.state === 'done' || panel.state === 'skipped').length

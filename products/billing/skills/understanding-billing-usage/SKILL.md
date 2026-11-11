@@ -172,7 +172,7 @@ project/team or switch to it when the client exposes a project switcher. Use
 `references/usage-type-routing.md` to choose the product MCP surface.
 
 The deeper investigation must use data the customer can access in their own project:
-events, feature flags, Error Tracking, Surveys, Session Replay, Data Warehouse sources,
+events, feature flags, Error Tracking, Surveys, Session Replay, Sources,
 CDP functions, Logs, AI Observability, Workflows, Replay Vision, Signals/Inbox, or
 other product tools. Do not ask the customer-facing agent to query internal Billing
 tables, internal PostHog org data, or PostHog-owned telemetry for their organization.
@@ -205,7 +205,8 @@ WHERE timestamp >= {window_start}
     '$conversations_loaded', '$conversations_widget_loaded',
     '$conversations_message_sent', '$conversations_user_identified',
     '$conversations_restore_link_requested',
-    '$conversations_widget_state_changed', '$conversations_back_to_tickets'
+    '$conversations_widget_state_changed', '$conversations_back_to_tickets',
+    '$anomaly_score', '$anomaly_score_shadow'
   )
   AND NOT startsWith(event, '$ai_')
 GROUP BY event

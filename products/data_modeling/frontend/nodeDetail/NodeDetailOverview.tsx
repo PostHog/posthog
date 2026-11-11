@@ -2,7 +2,12 @@ import { useActions, useValues } from 'kea'
 import type { ReactNode } from 'react'
 
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
-import { CADENCE_LABELS, modeDisabledReason } from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
+import {
+    CADENCE_LABELS,
+    inheritedCadence,
+    modeDisabledReason,
+    SyncFrequencyValue,
+} from 'scenes/data-warehouse/saved_queries/SyncFrequencySelect'
 import { urls } from 'scenes/urls'
 
 import { DataModelingSyncInterval } from '~/types'
@@ -39,6 +44,7 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
         savedQueryError: statusRefreshError,
         savedQueryLoading: statusRefreshing,
         lastSuccessfulSyncAt,
+        nodeFrequency,
     } = useValues(materializationLogic)
     const { refreshMaterialization } = useActions(materializationLogic)
     const savedQuery = polledSavedQuery ?? sceneSavedQuery
@@ -75,7 +81,16 @@ export function NodeDetailOverview({ id, metadata }: { id: string; metadata?: Re
     // run stopped, not that this model stopped refreshing.
     const suspension = (savedQuery?.suspended ?? node.suspended)?.[SERVING_ENGINE]
     const suspended = !!suspension
-    const cadence = savedQuery?.sync_frequency
+    // The saved setting is a lower bound: a downstream view can make this one run more often unless it is pinned.
+    // The node in the scene store is not reloaded after a pin save, so the refreshed bounds win when they have loaded.
+    const inherited =
+        (nodeFrequency?.bounds.pinned ?? node.pinned)
+            ? null
+            : inheritedCadence(
+                  savedQuery?.sync_frequency_bounds,
+                  (savedQuery?.sync_frequency as SyncFrequencyValue | undefined) ?? null
+              )
+    const cadence = inherited?.cadence ?? savedQuery?.sync_frequency
     const schedule = suspended
         ? 'Suspended after repeated failures'
         : node.type === 'endpoint'

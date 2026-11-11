@@ -47,7 +47,9 @@ def _get_schedule_row(team_id: int, hog_flow_id: UUID, schedule_id: str | UUID) 
 
 
 def list_schedules(*, team_id: int, hog_flow_id: UUID) -> list[WorkflowSchedule]:
-    schedules = HogFlowSchedule.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("-created_at")
+    # Same order as the schedules a workflow response embeds, so the editor and the broadcast
+    # screens agree on which schedule is the first one.
+    schedules = HogFlowSchedule.objects.filter(hog_flow_id=hog_flow_id, team_id=team_id).order_by("created_at", "id")
     return [_to_schedule(s) for s in schedules]
 
 

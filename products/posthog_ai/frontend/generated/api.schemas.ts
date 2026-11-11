@@ -618,11 +618,6 @@ export interface PatchedMaxCoreMemoryApi {
     scraping_status?: CoreMemoryScrapingStatusEnumApi | BlankEnumApi | null
 }
 
-export interface HandsFreeTokenApi {
-    /** Single-use ElevenLabs Scribe realtime token, valid for 15 minutes. */
-    token: string
-}
-
 export interface JsonValueApi {}
 
 /**

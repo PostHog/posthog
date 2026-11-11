@@ -28,6 +28,7 @@ import {
     LemonDialog,
     LemonInput,
     LemonSearchableSelect,
+    LemonTextArea,
     Spinner,
     lemonToast,
     Tooltip,
@@ -37,21 +38,25 @@ import api, { ApiConfig, ApiError } from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { clearLogicReference, initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { findQueryAtCursor, type QueryRange, splitQueries } from 'lib/monaco/multiQueryUtils'
 import { characterOffsetToUtf16 } from 'lib/monaco/offsets'
+import { uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual, removeUndefinedAndNull } from 'lib/utils/objects'
 import { lazyWithRetry } from 'lib/utils/retryImport'
 import { slugify } from 'lib/utils/strings'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { liveDashboardIds } from 'scenes/dashboard/liveDashboardIds'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { backLinkParams, withBackLink } from 'scenes/analytics/analyticsBackLink'
+import { DashboardLoadAction, dashboardLogic, placeTilesInGroup } from 'scenes/dashboard/dashboardLogic'
+import {
+    MANAGED_TRINO_SCHEMA_SCOPE,
+    databaseTableListLogic,
+} from 'scenes/data-management/database/databaseTableListLogic'
 import {
     filtersPlaceholderBindings,
     parseQueryTablesAndColumns,
@@ -89,25 +94,29 @@ import {
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
     DataWarehouseSavedQueryIncremental,
-    DataWarehouseSavedQueryIncrementalCheck,
     ExportContext,
     InsightModel,
 } from '~/types'
 
 import {
-    METRIC_FIELD_COPY,
+    existingMetricFromNameConflict,
     MetricFormPrefill,
-    validateMetricDescription,
     validateMetricName,
 } from 'products/data_catalog/frontend/common'
 import {
-    dataCatalogMetricsCreate,
+    createMetricAsUser,
+    MetricSaveAction,
+    toastCreatedMetric,
+} from 'products/data_catalog/frontend/createMetricAsUser'
+import {
     dataCatalogMetricsPartialUpdate,
     dataCatalogMetricsRetrieve,
 } from 'products/data_catalog/frontend/generated/api'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { openOverwriteMetricDialog } from 'products/data_catalog/frontend/openOverwriteMetricDialog'
 import { warehouseSavedQueriesRetrieve } from 'products/data_warehouse/frontend/generated/api'
 import { claimConnectionScope, releaseConnectionScope } from 'products/data_warehouse/frontend/shared/connectionScope'
+import { saveAsViewDisabledReason, viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 import { sqlEditorDraftStorage } from 'products/data_warehouse/frontend/sqlEditorDraftStorage'
 import { validateEndpointName } from 'products/endpoints/frontend/common'
 
@@ -135,14 +144,19 @@ import type { DataWarehouseSavedQueryFolder, UserType } from '../../../types'
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { DataWarehouseSavedQuerySummary } from '../saved_queries/dataWarehouseViewsLogic'
 import { validateSavedQueryName } from '../saved_queries/savedQueryNameValidation'
+import { BreakingColumnChangeDeclinedError } from './BreakingColumnChangeDialog'
 import { draftsLogic } from './draftsLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { Response } from './fixSQLErrorsLogic'
-import { IncrementalConfigFields } from './IncrementalConfigFields'
+import { IncrementalConfigFields, incrementalFieldErrorFromSave } from './IncrementalConfigFields'
 import { findInnermostSelectAtOffset } from './multiQueryUtils'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { findSelectionProblem } from './saveCandidateProblems'
-import { resolveSaveCandidates as resolveSaveCandidatesPure, SaveTargetCycler } from './SaveTargetCycler'
+import {
+    resolveSaveCandidates as resolveSaveCandidatesPure,
+    SaveCandidates,
+    SaveTargetCycler,
+} from './SaveTargetCycler'
 import { SQLEditorMode, isEmbeddedSQLEditorMode } from './sqlEditorModes'
 import { SQLEditorPlaceholder, placeholderPreviewValues } from './sqlEditorPlaceholders'
 import {
@@ -157,7 +171,6 @@ import {
     queryHistorySuggestionOnReject,
     queryHistorySuggestionOnRejectText,
 } from './suggestions/queryHistorySuggestion'
-import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
     tabId: string
@@ -321,6 +334,12 @@ export interface SaveAsMetricFields {
     unit: string
 }
 
+export interface SaveAsMetricModalState {
+    candidates: SaveCandidates
+    selectionProblem: string | null
+    prefill: MetricFormPrefill
+}
+
 export interface DataWarehouseAccessControlModalProps {
     resource:
         | AccessControlResourceType.WarehouseTable
@@ -336,7 +355,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer' | 'query_history' | 'materialization_fix'
+    source?: 'max_ai' | 'hogql_fixer' | 'query_history'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -351,6 +370,7 @@ export interface SuggestionPayload {
 }
 
 export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
+    acknowledge_breaking_changes?: boolean
     edited_history_id?: string
     id: string
     lifecycle?: string
@@ -396,8 +416,15 @@ function parseFiltersFromUrl(filters: unknown): HogQLFilters | undefined {
 export function normalizeRawQuerySource(source: HogQLQuery): HogQLQuery {
     return {
         ...source,
-        sendRawQuery: source.connectionId ? source.sendRawQuery || undefined : undefined,
+        sendRawQuery:
+            source.connectionId || source.executionTarget === 'managed_trino'
+                ? source.sendRawQuery || undefined
+                : undefined,
     }
+}
+
+export function viewHasLineage(view: DataWarehouseSavedQuery): boolean {
+    return viewEngine(view).capabilities.lineage.available
 }
 
 function hogQLEditorSourceQuery(source: Partial<HogQLQuery> = {}): DataVisualizationNode {
@@ -489,9 +516,9 @@ function getTabHash(values: sqlEditorLogicType['values']): Record<string, any> {
     const connectionId = values.sourceQuery?.source.connectionId
     if (connectionId) {
         hash['c'] = connectionId
-        if (values.sourceQuery?.source.sendRawQuery) {
-            hash['raw'] = '1'
-        }
+    }
+    if (values.sendRawQueryEnabled) {
+        hash['raw'] = '1'
     }
     const filters = normalizeFiltersForUrl(values.sourceQuery?.source.filters)
     if (filters) {
@@ -579,6 +606,35 @@ export function tabModelPath(tabId: string): string {
     return `tab-${tabId}`
 }
 
+/** The update has landed when this runs, so a refused placement shows a toast instead of throwing, and the caller still syncs its state. */
+async function placeSavedInsightOnDashboard(
+    savedInsight: InsightModel,
+    dashboardId: number | null
+): Promise<{ insight: InsightModel; placed: boolean }> {
+    if (!dashboardId) {
+        return { insight: savedInsight, placed: false }
+    }
+    try {
+        const tile = await insightsApi.addToDashboard(savedInsight.id, dashboardId)
+        return {
+            insight: {
+                ...savedInsight,
+                dashboard_tiles: [
+                    ...(savedInsight.dashboard_tiles || []).filter((t) => t.dashboard_id !== dashboardId),
+                    tile,
+                ],
+            },
+            placed: true,
+        }
+    } catch (e) {
+        const detail = e instanceof ApiError ? e.detail : null
+        lemonToast.error(
+            `Insight saved, but it couldn't be added to the dashboard. ${detail ?? 'Add it from the insight page instead.'}`
+        )
+        return { insight: savedInsight, placed: false }
+    }
+}
+
 // Apply `text` to the tab's persistent Monaco model as a single undoable edit. The model is
 // kept alive across the diff <-> editor swap by `keepCurrentModel` (see QueryWindow), so its
 // full undo history survives — pushEditOperations adds one more undoable step rather than
@@ -624,6 +680,7 @@ export interface sqlEditorLogicValues {
     changesToSave: boolean
     currentDraft: DataWarehouseSavedQueryDraft | null | undefined
     dashboardId: number | null
+    dashboardTileGroupKey: string | null
     dataLogicKey: string
     diffShowRunButton: boolean | undefined
     editingAccessControlObject: DataWarehouseAccessControlModalProps | null
@@ -664,11 +721,15 @@ export interface sqlEditorLogicValues {
     queryInput: string | null
     queryModifiers: HogQLQueryModifiers | null
     rejectText: string
+    saveAsMetricModal: SaveAsMetricModalState | null
+    saveAsViewDisabledReason: string | null
+    savingMetricAs: MetricSaveAction | null
     selectedConnectionId: string | undefined
     selectedConnectionSupportsHogQL: boolean
     selectedDirectSource: ExternalDataSourceConnectionOptionApi | undefined
     selectedQueryColumns: Record<string, boolean>
     selectedQueryTablesAndColumns: Record<string, Record<string, boolean>>
+    selectedSchemaConnectionId: string | undefined
     sendRawQueryEnabled: boolean
     showAgentHints: boolean
     singleStatement: boolean
@@ -676,7 +737,7 @@ export interface sqlEditorLogicValues {
     sourceQuery: DataVisualizationNode
     splitQueryRanges: QueryRange[]
     suggestedQueryInput: string
-    suggestedSource: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
+    suggestedSource: 'hogql_fixer' | 'max_ai' | 'query_history' | null
     suggestionPayload: SuggestionPayload | null
     upstream: {
         edges: DataModelingEdge[]
@@ -702,6 +763,13 @@ export interface sqlEditorLogicActions {
     maybeLoadConnectionOptions: () => {
         value: true
     } // connectionSelectorLogic
+    createDataWarehouseSavedQueryFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    } // dataWarehouseViewsLogic
     createDataWarehouseSavedQuerySuccess: (
         dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[],
         payload?:
@@ -867,6 +935,9 @@ export interface sqlEditorLogicActions {
     closeMaterializationModal: () => {
         value: true
     }
+    closeSaveAsMetricModal: () => {
+        value: true
+    }
     createTab: (
         query?: string,
         view?: DataWarehouseSavedQuery,
@@ -969,6 +1040,9 @@ export interface sqlEditorLogicActions {
         biEditorState: BIEditorState | null
         metricName: string
     }
+    openSaveAsMetricModal: (modal: SaveAsMetricModalState) => {
+        modal: SaveAsMetricModalState
+    }
     reportAIQueryAccepted: () => {
         value: true
     }
@@ -979,6 +1053,9 @@ export interface sqlEditorLogicActions {
         value: true
     }
     reportAIQueryRejected: () => {
+        value: true
+    }
+    reviewEditingViewUpdate: () => {
         value: true
     }
     reviewViewUpdate: (
@@ -1022,14 +1099,18 @@ export interface sqlEditorLogicActions {
         name: string
         queryOverride: string | undefined
     }
-    saveAsMetric: () => {
-        value: true
+    saveAsMetric: (queryOverride?: string) => {
+        queryOverride: string | undefined
     }
     saveAsMetricSubmit: (
         fields: SaveAsMetricFields,
-        queryOverride?: string
+        queryOverride?: string,
+        overwrite?: boolean,
+        approve?: boolean
     ) => {
+        approve: boolean
         fields: SaveAsMetricFields
+        overwrite: boolean
         queryOverride: string | undefined
     }
     saveAsView: (
@@ -1046,8 +1127,10 @@ export interface sqlEditorLogicActions {
         folderId?: string | null,
         isTest?: any,
         queryOverride?: string,
-        incremental?: DataWarehouseSavedQueryIncremental
+        incremental?: DataWarehouseSavedQueryIncremental,
+        description?: string
     ) => {
+        description: string | undefined
         folderId: string | null | undefined
         fromDraft: string | undefined
         incremental: DataWarehouseSavedQueryIncremental | undefined
@@ -1074,6 +1157,9 @@ export interface sqlEditorLogicActions {
     }
     setDashboardId: (dashboardId: number | null) => {
         dashboardId: number | null
+    }
+    setDashboardTileGroupKey: (groupKey: string | null) => {
+        groupKey: string | null
     }
     setDataError: (error: string | null) => {
         error: string | null
@@ -1155,6 +1241,9 @@ export interface sqlEditorLogicActions {
     setQueryModifiers: (queryModifiers: HogQLQueryModifiers | null) => {
         queryModifiers: HogQLQueryModifiers | null
     }
+    setSavingMetricAs: (savingMetricAs: MetricSaveAction | null) => {
+        savingMetricAs: MetricSaveAction | null
+    }
     setSelectedQueryTablesAndColumns: (tablesAndColumns: Record<string, Record<string, boolean>>) => {
         tablesAndColumns: Record<string, Record<string, boolean>>
     }
@@ -1168,7 +1257,7 @@ export interface sqlEditorLogicActions {
         suggestedQueryInput: string,
         source?: SuggestionPayload['source']
     ) => {
-        source: 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | undefined
+        source: 'hogql_fixer' | 'max_ai' | 'query_history' | undefined
         suggestedQueryInput: string
     }
     setUpstreamViewMode: (mode: 'graph' | 'table') => {
@@ -1218,7 +1307,7 @@ export interface sqlEditorLogicMeta {
         placeholderValues: (placeholders: SQLEditorPlaceholder[]) => Record<string, string> | null
         suggestedSource: (
             suggestionPayload: SuggestionPayload | null
-        ) => 'hogql_fixer' | 'materialization_fix' | 'max_ai' | 'query_history' | null
+        ) => 'hogql_fixer' | 'max_ai' | 'query_history' | null
         diffShowRunButton: (suggestionPayload: SuggestionPayload | null) => boolean | undefined
         acceptText: (suggestionPayload: SuggestionPayload | null) => string
         rejectText: (suggestionPayload: SuggestionPayload | null) => string
@@ -1237,6 +1326,11 @@ export interface sqlEditorLogicMeta {
         ) => boolean
         exportContext: (sourceQuery: DataVisualizationNode) => ExportContext
         selectedConnectionId: (sourceQuery: DataVisualizationNode) => string | undefined
+        saveAsViewDisabledReason: (sourceQuery: DataVisualizationNode) => string | null
+        selectedSchemaConnectionId: (
+            sourceQuery: DataVisualizationNode,
+            selectedConnectionId: string | undefined
+        ) => string | undefined
         selectedDirectSource: (
             connectionOptions: ExternalDataSourceConnectionOptionApi[] | null,
             selectedConnectionId: string | undefined
@@ -1321,6 +1415,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 'loadDataWarehouseSavedQueryFolders',
                 'deleteDataWarehouseSavedQuerySuccess',
                 'createDataWarehouseSavedQuerySuccess',
+                'createDataWarehouseSavedQueryFailure',
                 'runDataWarehouseSavedQuery',
                 'materializeDataWarehouseSavedQuery',
                 'updateDataWarehouseSavedQuerySuccess',
@@ -1387,8 +1482,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             folderId?: string | null,
             isTest = false,
             queryOverride?: string,
-            incremental?: DataWarehouseSavedQueryIncremental
+            incremental?: DataWarehouseSavedQueryIncremental,
+            description?: string
         ) => ({
+            description,
             name,
             materializeAfterSave,
             fromDraft,
@@ -1408,11 +1505,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             description,
             queryOverride,
         }),
-        saveAsMetric: true,
-        saveAsMetricSubmit: (fields: SaveAsMetricFields, queryOverride?: string) => ({
+        saveAsMetric: (queryOverride?: string) => ({ queryOverride }),
+        saveAsMetricSubmit: (
+            fields: SaveAsMetricFields,
+            queryOverride?: string,
+            overwrite: boolean = false,
+            approve: boolean = true
+        ) => ({
             fields,
             queryOverride,
+            overwrite,
+            approve,
         }),
+        openSaveAsMetricModal: (modal: SaveAsMetricModalState) => ({ modal }),
+        closeSaveAsMetricModal: true,
+        setSavingMetricAs: (savingMetricAs: MetricSaveAction | null) => ({ savingMetricAs }),
         setMetricPrefill: (metricPrefill: MetricFormPrefill | null) => ({ metricPrefill }),
         setEditingMetricName: (metricName: string | null) => ({ metricName }),
         openMetricFromUrl: (metricName: string, biEditorState: BIEditorState | null) => ({ metricName, biEditorState }),
@@ -1479,6 +1586,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             inProgressDraftEdits,
         }),
         deleteInProgressDraftEdit: (draftId: string) => ({ draftId }),
+        reviewEditingViewUpdate: true,
         reviewViewUpdate: (view: UpdateViewPayload, draftId?: string) => ({
             view,
             draftId,
@@ -1511,6 +1619,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSendRawQuery: (sendRawQuery: boolean) => ({ sendRawQuery }),
         enforceConnectionRawQueryMode: true,
         setDashboardId: (dashboardId: number | null) => ({ dashboardId }),
+        setDashboardTileGroupKey: (groupKey: string | null) => ({ groupKey }),
         openMaterializationModal: (view?: DataWarehouseSavedQuery) => ({
             view,
         }),
@@ -1704,10 +1813,30 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 setMetricPrefill: (_, { metricPrefill }) => metricPrefill,
             },
         ],
+        saveAsMetricModal: [
+            null as SaveAsMetricModalState | null,
+            {
+                openSaveAsMetricModal: (_, { modal }) => modal,
+                closeSaveAsMetricModal: () => null,
+            },
+        ],
+        savingMetricAs: [
+            null as MetricSaveAction | null,
+            {
+                setSavingMetricAs: (_, { savingMetricAs }) => savingMetricAs,
+            },
+        ],
         dashboardId: [
             null as number | null,
             {
                 setDashboardId: (_, { dashboardId }) => dashboardId,
+            },
+        ],
+        dashboardTileGroupKey: [
+            null as string | null,
+            {
+                setDashboardTileGroupKey: (_, { groupKey }) => groupKey,
+                setDashboardId: (state, { dashboardId }) => (dashboardId === null ? null : state),
             },
         ],
         materializationModalOpen: [
@@ -2165,7 +2294,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 // Opening another query can replace sourceQuery without changing the connection,
-                // so the selectedConnectionId subscription does not run again.
+                // so the schema scope subscription does not run again.
                 actions.enforceConnectionRawQueryMode()
 
                 // Focus the editor after creating a new tab
@@ -2189,6 +2318,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 persistEditorDraft()
             },
             setExecutionTarget: ({ executionTarget }) => {
+                posthog.capture('sql-editor-execution-target-selected', {
+                    execution_target: executionTarget ?? 'default',
+                })
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: {
@@ -2196,12 +2328,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         query: values.queryInput ?? values.sourceQuery.source.query,
                         executionTarget,
                         connectionId: undefined,
-                        sendRawQuery: undefined,
+                        sendRawQuery: executionTarget === 'managed_trino' ? true : undefined,
                     },
                 })
                 actions.syncUrlWithQuery()
             },
             setSendRawQuery: ({ sendRawQuery }) => {
+                posthog.capture('sql-editor-query-mode-selected', {
+                    mode: sendRawQuery ? 'raw' : 'hogql',
+                    execution_target: values.sourceQuery.source.executionTarget ?? 'default',
+                })
                 const currentSourceQuery = values.sourceQuery
 
                 actions.setSourceQuery({
@@ -2446,26 +2582,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             },
             saveAsView: async ({ fromDraft, materializeAfterSave = false }) => {
+                if (values.saveAsViewDisabledReason) {
+                    lemonToast.error(values.saveAsViewDisabledReason)
+                    return
+                }
                 const isStaff = values.user?.is_staff ?? false
                 const candidates = resolveSaveCandidates()
                 const selectedRef = {
                     current: candidates.queries[candidates.initialIndex],
                 }
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
-
-                // Checked once as the dialog opens rather than on every keystroke: it only depends
-                // on the SQL being saved, which cannot change while the dialog is up. A failure
-                // leaves the incremental fields hidden, so the view saves as a normal full refresh.
-                let incrementalCheck: DataWarehouseSavedQueryIncrementalCheck | null = null
-                if (values.featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]) {
-                    try {
-                        incrementalCheck = await api.dataWarehouseSavedQueries.checkIncremental({
-                            query: selectedRef.current ?? values.queryInput ?? '',
-                        })
-                    } catch {
-                        incrementalCheck = null
-                    }
-                }
+                const isRawTrinoSave =
+                    values.sourceQuery.source.executionTarget === 'managed_trino' &&
+                    !!values.sourceQuery.source.sendRawQuery
 
                 const folderOptions: { value: string | null; label: string }[] = [
                     { value: null, label: 'No folder' },
@@ -2500,114 +2629,134 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
+                posthog.capture('save as view dialog opened')
+                const dialogKey = `save-as-view-${uuid()}`
                 LemonDialog.openForm({
+                    dialogKey,
                     title: 'Save as view',
                     showErrorsOnTouch: true,
                     initialValues: {
                         saveTarget: candidates.initialIndex,
                         viewName: values.activeTab?.name || '',
+                        description: '',
                         folderId: null,
                         isTest: false,
-                        materializeAfterSave,
+                        materializeAfterSave: isRawTrinoSave ? false : materializeAfterSave,
                         incrementalEnabled: false,
-                        incrementalKey: incrementalCheck?.key_candidates[0] ?? null,
+                        incrementalKey: null,
                         incrementalUniqueKey: [],
                         incrementalLookbackSeconds: 0,
                     },
                     description: `View names must start with a letter, '_', or '$' and can only contain letters, numbers, '_', '.', or '$'. Spaces are not allowed.`,
-                    content: (isLoading) =>
-                        isLoading ? (
-                            <div className="h-[37px] flex items-center">
-                                <ViewEmptyState />
-                            </div>
-                        ) : (
-                            <>
-                                <LemonField name="saveTarget">
-                                    {({ onChange }) => (
-                                        <SaveTargetCycler
-                                            candidates={candidates}
-                                            onChange={(query, index) => {
-                                                selectedRef.current = query
-                                                onChange(index)
-                                            }}
+                    // The eligibility check resets selections on mount, so keep it mounted during a save.
+                    content: (isLoading) => (
+                        <fieldset disabled={isLoading}>
+                            <LemonField name="saveTarget">
+                                {({ onChange }) => (
+                                    <SaveTargetCycler
+                                        candidates={candidates}
+                                        onChange={(query, index) => {
+                                            selectedRef.current = query
+                                            onChange(index)
+                                        }}
+                                    />
+                                )}
+                            </LemonField>
+                            <LemonField name="viewName" label="Name">
+                                <LemonInput
+                                    data-attr="sql-editor-input-save-view-name"
+                                    disabled={isLoading}
+                                    placeholder="Please enter the name of the view"
+                                    autoFocus
+                                />
+                            </LemonField>
+                            <LemonField
+                                name="description"
+                                label="Description"
+                                showOptional
+                                help="Agents may use this description to work out how to use this data."
+                                className="mt-2"
+                            >
+                                <LemonTextArea
+                                    data-attr="sql-editor-input-save-view-description"
+                                    disabled={isLoading}
+                                    placeholder="For example: one row per paid order, without test orders or refunds. Use it for revenue reports."
+                                    minRows={2}
+                                    stopPropagation
+                                />
+                            </LemonField>
+                            <div className="flex gap-2 mt-2">
+                                <LemonField name="folderId" label="Add to folder" className="flex-1">
+                                    {({ value, onChange }) => (
+                                        <LemonSearchableSelect<string | null>
+                                            value={value}
+                                            onChange={onChange}
+                                            searchPlaceholder="Search folders"
+                                            options={[
+                                                ...folderOptions,
+                                                {
+                                                    value: '__add_new_folder__',
+                                                    label: '+ Add new folder',
+                                                    labelInMenu: () => (
+                                                        <button
+                                                            type="button"
+                                                            className="w-full text-left text-primary px-2 py-1.5 cursor-pointer"
+                                                            onClick={() => createFolderAndSelect(onChange)}
+                                                        >
+                                                            + Add new folder
+                                                        </button>
+                                                    ),
+                                                },
+                                            ]}
+                                            disabled={isLoading}
+                                            placeholder="Select a folder"
+                                            fullWidth
                                         />
                                     )}
                                 </LemonField>
-                                <LemonField name="viewName" label="Name">
-                                    <LemonInput
-                                        data-attr="sql-editor-input-save-view-name"
-                                        disabled={isLoading}
-                                        placeholder="Please enter the name of the view"
-                                        autoFocus
-                                    />
-                                </LemonField>
-                                <div className="flex gap-2 mt-2">
-                                    <LemonField name="folderId" label="Add to folder" className="flex-1">
-                                        {({ value, onChange }) => (
-                                            <LemonSearchableSelect<string | null>
-                                                value={value}
-                                                onChange={onChange}
-                                                searchPlaceholder="Search folders"
-                                                options={[
-                                                    ...folderOptions,
-                                                    {
-                                                        value: '__add_new_folder__',
-                                                        label: '+ Add new folder',
-                                                        labelInMenu: () => (
-                                                            <button
-                                                                type="button"
-                                                                className="w-full text-left text-primary px-2 py-1.5 cursor-pointer"
-                                                                onClick={() => createFolderAndSelect(onChange)}
-                                                            >
-                                                                + Add new folder
-                                                            </button>
-                                                        ),
-                                                    },
-                                                ]}
-                                                disabled={isLoading}
-                                                placeholder="Select a folder"
-                                                fullWidth
-                                            />
-                                        )}
-                                    </LemonField>
-                                </div>
-                                {isStaff && (
-                                    <LemonField name="isTest" className="mt-2">
-                                        {({ value, onChange }) => (
-                                            <div className="flex items-center gap-2">
-                                                <LemonCheckbox
-                                                    checked={value}
-                                                    onChange={onChange}
-                                                    data-attr="sql-editor-input-save-view-is-test"
-                                                    label="Is this view for testing only?"
-                                                />
-                                                <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
-                                                    <span className="text-muted cursor-pointer">&#9432;</span>
-                                                </Tooltip>
-                                            </div>
-                                        )}
-                                    </LemonField>
-                                )}
-                                <LemonField name="materializeAfterSave" className="mt-2">
+                            </div>
+                            {isStaff && (
+                                <LemonField name="isTest" className="mt-2">
                                     {({ value, onChange }) => (
-                                        <>
-                                            <div className="flex items-center gap-2">
-                                                <LemonCheckbox
-                                                    checked={value}
-                                                    onChange={onChange}
-                                                    data-attr="sql-editor-input-save-view-materialize"
-                                                    label="Materialize this view"
-                                                />
-                                                <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
-                                                    <span className="text-muted cursor-pointer">&#9432;</span>
-                                                </Tooltip>
-                                            </div>
-                                            {value && <IncrementalConfigFields check={incrementalCheck} />}
-                                        </>
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-is-test"
+                                                label="Is this view for testing only?"
+                                            />
+                                            <Tooltip title="Test views and any downstream assets that depend on them will be automatically deleted after 1 week.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
                                     )}
                                 </LemonField>
-                            </>
-                        ),
+                            )}
+                            <LemonField name="materializeAfterSave" className="mt-2">
+                                {({ value, onChange }) => (
+                                    <>
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-materialize"
+                                                disabledReason={
+                                                    isRawTrinoSave
+                                                        ? 'Views that run raw Trino SQL cannot be materialized yet.'
+                                                        : undefined
+                                                }
+                                                label="Materialize this view"
+                                            />
+                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
+                                        <IncrementalConfigFields queries={candidates.queries} />
+                                    </>
+                                )}
+                            </LemonField>
+                        </fieldset>
+                    ),
                     errors: {
                         saveTarget: () => selectionProblem ?? undefined,
                         viewName: validateSavedQueryName,
@@ -2620,6 +2769,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                     onSubmit: async ({
                         viewName,
+                        description,
                         folderId,
                         isTest,
                         materializeAfterSave: shouldMaterialize,
@@ -2637,15 +2787,24 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                       lookback_seconds: incrementalLookbackSeconds ?? 0,
                                   }
                                 : undefined
-                        await asyncActions.saveAsViewSubmit(
+                        const refusal = await asyncActions.saveAsViewSubmit(
                             viewName,
                             shouldMaterialize ?? false,
                             fromDraft,
                             folderId,
                             isTest ?? false,
                             selectedRef.current,
-                            incremental
+                            incremental,
+                            description?.trim() || undefined
                         )
+                        const fieldError = incrementalFieldErrorFromSave(refusal)
+                        if (fieldError) {
+                            lemonDialogLogic
+                                .findMounted({ dialogKey })
+                                ?.actions.setFormManualErrors({ [fieldError.field]: fieldError.message })
+                            // Thrown so the dialog stays open for the user to fix the field.
+                            throw refusal
+                        }
                     },
                     shouldAwaitSubmit: true,
                 })
@@ -2658,6 +2817,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 isTest = false,
                 queryOverride,
                 incremental,
+                description,
             }) => {
                 const biEditorState = getActiveBIEditorState()
                 const query: HogQLQuery = values.sourceQuery.source
@@ -2687,16 +2847,29 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     cache.viewNamesToSkipTabBinding.add(name)
                 }
                 try {
+                    cache.saveViewRefusal = null
                     await dataWarehouseViewsLogic.asyncActions.createDataWarehouseSavedQuery({
                         name,
                         query: queryToSave,
                         types,
+                        ...(description ? { description } : {}),
                         ...(folderId ? { folder_id: folderId } : {}),
                         ...(isTest ? { is_test: true } : {}),
                         ...(incremental ? { incremental } : {}),
                         ...(materializeAfterSave ? { deferCreatedToast: true } : {}),
                     })
+                    // The loader reports a failed create through its failure action rather than
+                    // by rejecting. A refusal that names a form field goes back to the save dialog,
+                    // which shows it under that field.
+                    if (incrementalFieldErrorFromSave(cache.saveViewRefusal)) {
+                        cache.viewNamesToSkipTabBinding?.delete(name)
+                        return cache.saveViewRefusal
+                    }
                     captureBIEditorQuerySaved(biEditorState, 'view', 'create')
+                    posthog.capture('save as view dialog submitted', {
+                        has_description: !!description,
+                        materialize_after_save: materializeAfterSave,
+                    })
 
                     // Saved queries are unique by team,name
                     const savedQuery = dataWarehouseViewsLogic.values.dataWarehouseSavedQueries.find(
@@ -2859,12 +3032,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
 
                 const dashboardId = values.dashboardId
-                const insight = await insightsApi.create({
-                    name,
-                    query: sourceQueryToSave,
-                    saved: true,
-                    ...(dashboardId ? { dashboards: [dashboardId] } : {}),
-                })
+                const insight = await insightsApi.create(
+                    { name, query: sourceQueryToSave, saved: true },
+                    dashboardId ? [dashboardId] : []
+                )
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'create', dashboardId !== null)
                 const logic = insightLogic({
                     dashboardItemId: insight.short_id,
@@ -2880,6 +3051,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 cache.timeouts.push(timeoutId)
 
                 if (dashboardId) {
+                    const tile = insight.dashboard_tiles?.find((t) => t.dashboard_id === dashboardId)
+                    await placeTilesInGroup(
+                        teamLogic.values.currentTeamId,
+                        dashboardId,
+                        tile ? [tile.id] : [],
+                        values.dashboardTileGroupKey
+                    )
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(insight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,
@@ -2894,7 +3072,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     router.actions.push(urls.dashboard(dashboardId, insight.short_id))
                 } else {
                     lemonToast.info(`You're now viewing ${insight.name || insight.derived_name || name}`)
-                    router.actions.push(urls.insightView(insight.short_id))
+                    router.actions.push(withBackLink(urls.insightView(insight.short_id)))
                 }
             },
             saveAsEndpoint: async () => {
@@ -2965,94 +3143,51 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.error(error.detail || 'Failed to create endpoint')
                 }
             },
-            saveAsMetric: async () => {
-                const candidates = resolveSaveCandidates()
-                const selectedRef = { current: candidates.queries[candidates.initialIndex] }
+            saveAsMetric: async ({ queryOverride }) => {
+                const resolved = resolveSaveCandidates()
+                // Reopening after a name conflict keeps the statement the user picked, not the cursor default.
+                const restoredIndex = queryOverride === undefined ? -1 : resolved.queries.indexOf(queryOverride)
+                const candidates = restoredIndex >= 0 ? { ...resolved, initialIndex: restoredIndex } : resolved
                 const selectionProblem = await findSelectionProblem(candidates, values.sendRawQueryEnabled)
-                LemonDialog.openForm({
-                    title: 'Save as metric',
-                    initialValues: {
-                        saveTarget: candidates.initialIndex,
-                        name: '',
-                        display_name: '',
-                        description: '',
-                        unit: '',
-                        ...values.metricPrefill,
-                    },
-                    content: (
-                        <>
-                            <LemonField name="saveTarget">
-                                {({ onChange }) => (
-                                    <SaveTargetCycler
-                                        candidates={candidates}
-                                        onChange={(query, index) => {
-                                            selectedRef.current = query
-                                            onChange(index)
-                                        }}
-                                    />
-                                )}
-                            </LemonField>
-                            <LemonField name="name" label={METRIC_FIELD_COPY.name.label}>
-                                <LemonInput placeholder={METRIC_FIELD_COPY.name.placeholder} autoFocus />
-                            </LemonField>
-                            <LemonField
-                                name="display_name"
-                                label={METRIC_FIELD_COPY.displayName.label}
-                                className="mt-2"
-                            >
-                                <LemonInput placeholder={METRIC_FIELD_COPY.displayName.placeholder} />
-                            </LemonField>
-                            <LemonField name="description" label={METRIC_FIELD_COPY.description.label} className="mt-2">
-                                {/* stopPropagation keeps Enter from reaching the dialog form and submitting mid-sentence */}
-                                <LemonTextArea
-                                    placeholder={METRIC_FIELD_COPY.description.placeholder}
-                                    minRows={2}
-                                    stopPropagation
-                                />
-                            </LemonField>
-                            <LemonField name="unit" label={METRIC_FIELD_COPY.unit.label} className="mt-2">
-                                <LemonInput placeholder={METRIC_FIELD_COPY.unit.placeholder} />
-                            </LemonField>
-                        </>
-                    ),
-                    errors: {
-                        saveTarget: () => selectionProblem ?? undefined,
-                        name: (name) => validateMetricName(name?.trim() || ''),
-                        description: (description) =>
-                            !description?.trim() ? 'Add a description' : validateMetricDescription(description.trim()),
-                    },
-                    onSubmit: async ({ name, display_name, description, unit }) =>
-                        actions.saveAsMetricSubmit(
-                            {
-                                name: name.trim(),
-                                display_name: display_name.trim(),
-                                description: description.trim(),
-                                unit: unit.trim(),
-                            },
-                            selectedRef.current
-                        ),
-                })
+                actions.openSaveAsMetricModal({ candidates, selectionProblem, prefill: values.metricPrefill ?? {} })
             },
-            saveAsMetricSubmit: async ({ fields, queryOverride }) => {
+            saveAsMetricSubmit: async ({ fields, queryOverride, overwrite, approve }) => {
+                if (values.savingMetricAs) {
+                    return
+                }
+                actions.setSavingMetricAs(approve ? 'approve' : 'propose')
                 const biEditorState = getActiveBIEditorState()
                 try {
-                    const metric = await dataCatalogMetricsCreate(String(ApiConfig.getCurrentTeamId()), {
-                        name: fields.name,
-                        display_name: fields.display_name || undefined,
-                        description: fields.description,
-                        unit: fields.unit || undefined,
-                        definition: normalizeRawQuerySource({
-                            ...(values.sourceQuery.source as HogQLQuery),
-                            query: queryOverride ?? values.queryInput ?? '',
-                        }) as unknown as Record<string, unknown>,
-                    })
-                    captureBIEditorQuerySaved(biEditorState, 'metric', 'create')
+                    // Blank fields are sent as blank, so an overwrite clears the old values.
+                    const created = await createMetricAsUser(
+                        {
+                            ...fields,
+                            definition: normalizeRawQuerySource({
+                                ...(values.sourceQuery.source as HogQLQuery),
+                                query: queryOverride ?? values.queryInput ?? '',
+                            }) as unknown as Record<string, unknown>,
+                            overwrite,
+                        },
+                        approve
+                    )
+                    captureBIEditorQuerySaved(biEditorState, 'metric', overwrite ? 'update' : 'create')
                     metricsLogic.findMounted()?.actions.loadMetrics()
                     actions.setMetricPrefill(null)
-                    lemonToast.success('Metric created')
-                    router.actions.push(urls.dataCatalogMetric(metric.name))
+                    actions.closeSaveAsMetricModal()
+                    toastCreatedMetric(created, overwrite)
+                    router.actions.push(urls.dataCatalogMetric(created.metric.name))
                 } catch (error: any) {
-                    lemonToast.error(error.detail || 'Failed to create metric')
+                    const existing = existingMetricFromNameConflict(error)
+                    if (existing) {
+                        openOverwriteMetricDialog({
+                            existing,
+                            onOverwrite: () => actions.saveAsMetricSubmit(fields, queryOverride, true, approve),
+                        })
+                    } else {
+                        lemonToast.error(error.detail || 'Failed to create metric')
+                    }
+                } finally {
+                    actions.setSavingMetricAs(null)
                 }
             },
             openMetricFromUrl: async ({ metricName, biEditorState }, breakpoint) => {
@@ -3156,13 +3291,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: currentVisualizationQuery,
                 }
 
-                // When saving from a dashboard flow, attach the tile server-side without
-                // dropping the insight's existing dashboard links.
                 const dashboardId = values.dashboardId
-                if (dashboardId) {
-                    const existingDashboardIds = liveDashboardIds(values.editingInsight.dashboard_tiles)
-                    insightRequest.dashboards = Array.from(new Set([...existingDashboardIds, dashboardId]))
-                }
 
                 let savedInsight: InsightModel
                 try {
@@ -3176,6 +3305,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     }
                     throw e
                 }
+                const placement = await placeSavedInsightOnDashboard(savedInsight, dashboardId)
+                savedInsight = placement.insight
                 actions.setInsightLoading(false)
                 captureBIEditorQuerySaved(biEditorState, 'insight', 'update', dashboardId !== null)
 
@@ -3198,7 +3329,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     })
                 }
 
-                if (dashboardId) {
+                if (dashboardId && placement.placed) {
                     dashboardsModel.findMounted()?.actions.updateDashboardInsight(savedInsight)
                     dashboardLogic.findMounted({ id: dashboardId })?.actions.loadDashboard({
                         action: DashboardLoadAction.Update,
@@ -3215,7 +3346,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     lemonToast.info(
                         `You're now viewing ${savedInsight.name || savedInsight.derived_name || insightName || 'Untitled'}`
                     )
-                    router.actions.push(urls.insightView(savedInsight.short_id))
+                    router.actions.push(withBackLink(urls.insightView(savedInsight.short_id)))
                 }
             },
             discardChanges: async (_, breakpoint) => {
@@ -3344,6 +3475,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.createTab()
                 }
             },
+            createDataWarehouseSavedQueryFailure: ({ errorObject }) => {
+                cache.saveViewRefusal = errorObject
+            },
             createDataWarehouseSavedQuerySuccess: async ({ dataWarehouseSavedQueries, payload: view }) => {
                 if (view?.name && cache.viewNamesToSkipTabBinding?.has(view.name)) {
                     cache.viewNamesToSkipTabBinding.delete(view.name)
@@ -3368,12 +3502,31 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         if (!values.isEmbeddedMode) {
                             router.actions.replace(
                                 values.editorUrl,
-                                undefined,
+                                backLinkParams(router.values.searchParams),
                                 getTabHash({ ...values, activeTab: nextTab })
                             )
                         }
                     }
                 }
+            },
+            reviewEditingViewUpdate: () => {
+                const view = values.editingView
+                if (!view) {
+                    return
+                }
+                if (values.saveAsViewDisabledReason) {
+                    lemonToast.error(values.saveAsViewDisabledReason)
+                    return
+                }
+                // The data node is bound inside the editor, so the response is read from the mounted instance.
+                const response = dataNodeLogic.findMounted({ key: values.dataLogicKey })?.values.response
+                actions.reviewViewUpdate({
+                    id: view.id,
+                    query: { ...values.sourceQuery.source, query: values.queryInput ?? '' },
+                    types: response && 'types' in response ? (response.types ?? []) : [],
+                    shouldRematerialize: view.is_materialized === true,
+                    edited_history_id: values.inProgressViewEdits[view.id],
+                })
             },
             reviewViewUpdate: ({ view, draftId }) => {
                 // Reuse the editor's inline accept/reject diff (QueryPane) instead of a separate
@@ -3400,6 +3553,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             updateView: async ({ view, draftId }) => {
                 const biEditorState = getActiveBIEditorState()
                 const latestView = await api.dataWarehouseSavedQueries.get(view.id)
+                // The views logic asks the user to confirm a breaking column change; a decline leaves the view unsaved.
+                const saveViewUnlessDeclined = async (payload: UpdateViewPayload): Promise<boolean> => {
+                    try {
+                        await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery(payload)
+                        return true
+                    } catch (error) {
+                        if (error instanceof BreakingColumnChangeDeclinedError) {
+                            return false
+                        }
+                        throw error
+                    }
+                }
                 // A real conflict means someone else changed the query text since this edit began.
                 // Detect it by comparing the server's current query against the baseline this edit
                 // started from (the tab's saved query) — not against the user's edited query, which
@@ -3421,11 +3586,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         diffShowRunButton: false,
                         onAccept: async () => {
                             actions.setQueryInput(view.query?.query ?? '')
-                            await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                                ...view,
-                                edited_history_id: latestView?.latest_history_id,
-                            })
-                            actions.updateViewSuccess(view, draftId, biEditorState)
+                            if (
+                                await saveViewUnlessDeclined({
+                                    ...view,
+                                    edited_history_id: latestView?.latest_history_id,
+                                })
+                            ) {
+                                actions.updateViewSuccess(view, draftId, biEditorState)
+                            }
                         },
                         onReject: () => {},
                     })
@@ -3433,11 +3601,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 } else {
                     // No foreign edit — send the server's current head so the backend's own
                     // edited_history_id check accepts the save even if the editor's cached head drifted.
-                    await dataWarehouseViewsLogic.asyncActions.updateDataWarehouseSavedQuery({
-                        ...view,
-                        edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
-                    })
-                    actions.updateViewSuccess(view, draftId, biEditorState)
+                    if (
+                        await saveViewUnlessDeclined({
+                            ...view,
+                            edited_history_id: latestView?.latest_history_id ?? view.edited_history_id,
+                        })
+                    ) {
+                        actions.updateViewSuccess(view, draftId, biEditorState)
+                    }
                 }
             },
             updateViewSuccess: async ({ view, draftId, biEditorState }) => {
@@ -3543,7 +3714,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
         },
         editingView: (editingView) => {
-            if (editingView) {
+            if (editingView && viewHasLineage(editingView)) {
                 actions.loadUpstream(editingView.id)
             }
         },
@@ -3561,16 +3732,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 }
             }
         },
-        selectedConnectionId: (selectedConnectionId) => {
-            if (cache.lastSelectedConnectionId === selectedConnectionId) {
+        selectedSchemaConnectionId: (selectedConnectionId) => {
+            if (cache.lastSchemaConnectionId === selectedConnectionId) {
                 return
             }
 
-            cache.lastSelectedConnectionId = selectedConnectionId
+            cache.lastSchemaConnectionId = selectedConnectionId
             claimConnectionScope(props.tabId, selectedConnectionId)
             actions.setConnection(selectedConnectionId ?? null)
             actions.loadDatabase(schemaLoadOptions())
-            if (selectedConnectionId) {
+            if (values.selectedConnectionId) {
                 // Capability data must load wherever a connection is in play — including
                 // surfaces that never render the connection selector.
                 actions.maybeLoadConnectionOptions()
@@ -3707,6 +3878,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     : undefined
             },
         ],
+        saveAsViewDisabledReason: [
+            (s) => [s.sourceQuery],
+            (sourceQuery: DataVisualizationNode): string | null => saveAsViewDisabledReason(sourceQuery.source),
+        ],
+        selectedSchemaConnectionId: [
+            (s) => [s.sourceQuery, s.selectedConnectionId],
+            (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined): string | undefined =>
+                sourceQuery.source.executionTarget === 'managed_trino'
+                    ? MANAGED_TRINO_SCHEMA_SCOPE
+                    : selectedConnectionId,
+        ],
         selectedDirectSource: [
             (s) => [s.connectionOptions, s.selectedConnectionId],
             (
@@ -3719,7 +3901,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         sendRawQueryEnabled: [
             (s) => [s.sourceQuery, s.selectedConnectionId],
             (sourceQuery: DataVisualizationNode, selectedConnectionId: string | undefined) =>
-                !!selectedConnectionId && (sourceQuery.source.sendRawQuery ?? false),
+                (!!selectedConnectionId || sourceQuery.source.executionTarget === 'managed_trino') &&
+                (sourceQuery.source.sendRawQuery ?? false),
         ],
         selectedConnectionSupportsHogQL: [
             (s) => [s.connectionOptions, s.selectedConnectionId],
@@ -3885,6 +4068,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 const parsed = parseInt(searchParams.dashboard, 10)
                 if (!isNaN(parsed)) {
                     actions.setDashboardId(parsed)
+                    const tileGroup = searchParams.tile_group
+                    actions.setDashboardTileGroupKey(
+                        typeof tileGroup === 'string' || typeof tileGroup === 'number' ? String(tileGroup) : null
+                    )
                 }
             }
 
@@ -3958,7 +4145,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     },
                 }
             }
-            const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
+            const expectedDatabaseConnectionId = values.selectedSchemaConnectionId ?? null
             const shouldSyncDatabaseConnection =
                 values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
 
@@ -3991,7 +4178,6 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
 
             const connectionIdFromHash =
                 typeof hashParams.c === 'string' && hashParams.c !== '' ? hashParams.c : undefined
-            const sendRawQueryFromHash = connectionIdFromHash !== undefined && String(hashParams.raw) === '1'
             const hasEngineOverride = hasOwnProperty(hashParams, 'engine')
             const executionTargetFromHash = hasEngineOverride
                 ? hashParams.engine === 'managed_trino'
@@ -4000,6 +4186,9 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 : connectionIdFromHash
                   ? undefined
                   : values.sourceQuery.source.executionTarget
+            const sendRawQueryFromHash =
+                (connectionIdFromHash !== undefined || executionTargetFromHash === 'managed_trino') &&
+                String(hashParams.raw) === '1'
             const currentConnectionId = values.sourceQuery.source.connectionId || undefined
             const currentSendRawQuery = values.sourceQuery.source.sendRawQuery ?? false
             const filtersForSourceQuery = applyFiltersFromUrl(values.sourceQuery).source.filters
@@ -4136,7 +4325,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setViewLoading(false)
                     actions.setViewQueryLoading(false)
                     tabAdded = true
-                    router.actions.replace(values.editorUrl, undefined, getTabHash(values))
+                    router.actions.replace(
+                        values.editorUrl,
+                        backLinkParams(router.values.searchParams),
+                        getTabHash(values)
+                    )
                 } else if (
                     insightShortIdFromUrl &&
                     (searchParams.open_insight ||
@@ -4165,7 +4358,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                             biEditorStateFromUrl ?? undefined
                         )
                         tabAdded = true
-                        router.actions.replace(values.editorUrl, undefined, getTabHash(values))
+                        router.actions.replace(
+                            values.editorUrl,
+                            backLinkParams(router.values.searchParams),
+                            getTabHash(values)
+                        )
                         return
                     }
 
@@ -4260,7 +4457,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         }
                     }
                     tabAdded = true
-                    router.actions.replace(values.editorUrl, undefined, getTabHash(values))
+                    router.actions.replace(
+                        values.editorUrl,
+                        backLinkParams(router.values.searchParams),
+                        getTabHash(values)
+                    )
                 } else if (searchParams.edit_metric) {
                     // edit_metric binds the "Update metric" button to overwrite a named metric.
                     // Both edit_metric and open_query are URL-controlled, so we never bind the
@@ -4376,14 +4577,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             }
 
             if (connectionIdFromHash === undefined && shouldSyncDatabaseConnection && !values.databaseLoading) {
-                actions.setConnection(expectedDatabaseConnectionId)
+                actions.setConnection(values.selectedSchemaConnectionId ?? null)
                 actions.loadDatabase(schemaLoadOptions())
             }
         },
     })),
     afterMount(({ actions, props, values, cache }) => {
-        cache.lastSelectedConnectionId = values.selectedConnectionId
-        claimConnectionScope(props.tabId, values.selectedConnectionId)
+        cache.lastSchemaConnectionId = values.selectedSchemaConnectionId
+        claimConnectionScope(props.tabId, values.selectedSchemaConnectionId)
         cache.activeQueryDecorationIds = [] as string[]
         cache.decorationGeneration = 0
 
@@ -4574,7 +4775,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             applyResult(range, decorations)
         }
 
-        const expectedDatabaseConnectionId = values.selectedConnectionId ?? null
+        const expectedDatabaseConnectionId = values.selectedSchemaConnectionId ?? null
         const shouldSyncDatabaseConnection =
             values.databaseConnectionId !== expectedDatabaseConnectionId || !values.database
         const hasExplicitEditorUrlState =
@@ -4586,7 +4787,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (isEmbeddedSQLEditorMode(props.mode ?? SQLEditorMode.FullScene) || !hasExplicitEditorUrlState) &&
             shouldSyncDatabaseConnection
         ) {
-            actions.setConnection(values.selectedConnectionId ?? null)
+            actions.setConnection(values.selectedSchemaConnectionId ?? null)
             // `databaseTableListLogic` is a shared singleton. If a prior visit left `databaseLoading`
             // stuck true (a load that never settled), the plain guard would skip the reload and the
             // editor would sit on "Loading..." forever. On remount we still need data, so force a

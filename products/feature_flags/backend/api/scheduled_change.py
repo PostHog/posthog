@@ -11,8 +11,8 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.serializers import ChangeRequestSummarySerializer
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag
@@ -379,6 +379,9 @@ class ScheduledChangeSerializer(serializers.ModelSerializer):
         return new_change_request
 
 
+MAX_RECORD_IDS = 200
+
+
 @extend_schema(extensions={"x-product": "feature_flags"})
 class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     """
@@ -407,6 +410,13 @@ class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, view
                 required=False,
                 description="Filter by the ID of a specific feature flag.",
             ),
+            OpenApiParameter(
+                "record_ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=f"Comma-separated feature flag IDs. Returns the schedules of any of them, at most {MAX_RECORD_IDS} IDs.",
+            ),
         ],
     )
     def list(self, request, *args, **kwargs):
@@ -415,11 +425,17 @@ class ScheduledChangeViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, view
     def safely_get_queryset(self, queryset):
         model_name = self.request.query_params.get("model_name")
         record_id = self.request.query_params.get("record_id")
+        record_ids = self.request.query_params.get("record_ids")
 
         if model_name is not None:
             queryset = queryset.filter(model_name=model_name)
         if record_id is not None:
             queryset = queryset.filter(record_id=record_id)
+        if record_ids is not None:
+            ids = [item.strip() for item in record_ids.split(",") if item.strip()]
+            if len(ids) > MAX_RECORD_IDS:
+                raise serializers.ValidationError({"record_ids": f"Pass at most {MAX_RECORD_IDS} IDs."})
+            queryset = queryset.filter(record_id__in=ids)
 
         # The target flag lives in record_id, so per-flag access controls don't apply to
         # ScheduledChange rows automatically. Hide schedules for flags the user is denied,

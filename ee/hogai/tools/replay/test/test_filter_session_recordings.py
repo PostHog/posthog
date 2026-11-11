@@ -228,7 +228,7 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_returns_single_recording_with_metadata(self):
         base_time = datetime(2025, 1, 15, 10, 0, 0)
-        self._produce_replay(
+        session_id = self._produce_replay(
             distinct_id="user_1",
             first_timestamp=base_time,
             last_timestamp=base_time + timedelta(minutes=5),
@@ -245,6 +245,10 @@ class TestFilterSessionRecordingsTool(ClickhouseTestMixin, NonAtomicBaseTest):
         result_text, artifact = await tool._arun_impl(recordings_filters=filters)
 
         self.assertIn("Found 1 recording", result_text)
+        # Follow-up tools such as a scan take this id, and the model sees only this text.
+        self.assertIn(f"session_id={session_id}", result_text)
+        # The SDK sets session and distinct ids, so the metadata has to sit inside the untrusted-data fence.
+        self.assertIn("<recordings>", result_text)
         self.assertIn("User: user_1", result_text)
         self.assertIn("https://example.com/page1", result_text)
         self.assertIn("10 clicks", result_text)

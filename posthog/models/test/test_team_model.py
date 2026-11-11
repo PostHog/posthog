@@ -136,6 +136,8 @@ class TestTeam(BaseTest):
         all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
 
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, another_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(another_user.uuid)})) == [another_user]
+        assert not self.team.all_users_with_access(user_uuids=set()).exists()
 
     def test_all_users_with_access_simple_org_membership_and_redundant_team_one(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -151,6 +153,7 @@ class TestTeam(BaseTest):
 
     def test_all_users_with_access_new_access_control_non_private_team(self):
         """Test that all organization members have access to a non-private team with the new access control system"""
+        self._enable_access_control()
 
         # Create another user as a member
         member_user = User.objects.create_and_join(
@@ -166,6 +169,7 @@ class TestTeam(BaseTest):
 
         # Both users should have access since the team is not private
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(member_user.uuid)})) == [member_user]
 
     def test_all_users_with_access_new_access_control_private_team(self):
         """Test that only users with specific access have access to a private team with the new access control system"""
@@ -199,6 +203,7 @@ class TestTeam(BaseTest):
 
         # Only the admin user should have access
         assert all_user_with_access_ids == [self.user.id]
+        assert not self.team.all_users_with_access(user_uuids=set()).exists()
 
     def test_all_users_with_access_new_access_control_private_team_with_member_access(self):
         """Test that users with specific member access have access to a private team with the new access control system"""
@@ -242,6 +247,7 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(member_user.uuid)})) == [member_user]
 
     def test_all_users_with_access_new_access_control_private_team_with_role_access(self):
         """Test that users with role-based access have access to a private team with the new access control system"""
@@ -287,6 +293,8 @@ class TestTeam(BaseTest):
 
         # Both users should have access
         assert sorted(all_user_with_access_ids) == sorted([self.user.id, member_user.id])
+        assert list(self.team.all_users_with_access(user_uuids={str(member_user.uuid)})) == [member_user]
+        assert not self.team.all_users_with_access(user_uuids=set()).exists()
 
     def test_all_users_with_access_ignores_role_membership_from_another_organization(self):
         self._enable_access_control(role_based=True)
@@ -333,6 +341,7 @@ class TestTeam(BaseTest):
         all_user_with_access_ids = list(self.team.all_users_with_access().values_list("id", flat=True))
 
         assert all_user_with_access_ids == [self.user.id]
+        assert not self.team.all_users_with_access(user_uuids={str(member_user.uuid)}).exists()
 
     def test_all_users_with_access_returns_all_org_members_without_access_control_feature(self):
         """Without ACCESS_CONTROL there are no private teams — every org member has access,

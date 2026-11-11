@@ -14,20 +14,25 @@ import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
+import { defaultConfig } from '~/common/config/config'
 import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { getCustomHttpResponse } from '../consumers/cdp-source-webhooks.consumer'
+import { createIdempotencyValkeyPool } from '../services/hogflows/idempotency-keys'
 import { HogWatcherState } from '../services/monitoring/hog-watcher.service'
 import { compileHog } from '../templates/compiler'
 import { compileInputs } from '../templates/test/test-helpers'
+import { PosthogJwtAudience } from '../utils/jwt-utils'
+import { ScopedServiceJwt } from '../utils/scoped-service-jwt'
 
 describe('getCustomHttpResponse', () => {
     const makeResult = (execResult: any): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> =>
@@ -89,6 +94,8 @@ describe('getCustomHttpResponse', () => {
 })
 
 describe('SourceWebhooksConsumer', () => {
+    // One pool for the file, because a pool for each test leaves open connections behind.
+    const idempotencyValkey = createIdempotencyValkeyPool(defaultConfig)
     let hub: Hub
     let team: Team
 
@@ -118,10 +125,14 @@ describe('SourceWebhooksConsumer', () => {
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub, createCdpConsumerDeps(hub), {
-                hogQueue: createMockJobQueue(),
-                hogflowQueue: createMockJobQueue(),
-            })
+            api = new CdpApi(
+                hub,
+                { ...createCdpConsumerDeps(hub), idempotencyValkey },
+                {
+                    hogQueue: createMockJobQueue(),
+                    hogflowQueue: createMockJobQueue(),
+                }
+            )
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutorAsync'], 'execute')
             mockQueueInvocationsSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogQueue'], 'queueInvocations')
             mockQueueHogflowInvocationsSpy = jest.spyOn(
@@ -593,6 +604,114 @@ describe('SourceWebhooksConsumer', () => {
                 expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)).toEqual([])
             })
 
+            describe('idempotency key', () => {
+                const postWithKey = (webhookId: string, idempotencyKey: string) =>
+                    doPostRequest({
+                        webhookId,
+                        headers: { 'Idempotency-Key': idempotencyKey },
+                        body: { distinct_id: 'test-distinct-id' },
+                    })
+
+                const insertSecondHogFlow = async (): Promise<HogFlow> => {
+                    const other = new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withSimpleWorkflow({ trigger: hogFlow.trigger })
+                        .build()
+                    await insertHogFlow(hub.postgres, other)
+                    return other
+                }
+
+                it('queues one run and answers duplicate for a repeated key on the same workflow', async () => {
+                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
+                    const first = await postWithKey(hogFlow.id, 'escalation-1')
+                    const second = await postWithKey(hogFlow.id, 'escalation-1')
+
+                    expect(first.status).toEqual(201)
+                    expect(first.body.status).toEqual('queued')
+                    expect(second.status).toEqual(200)
+                    expect(second.body.status).toEqual('duplicate')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+
+                    await waitForBackgroundTasks()
+                    expect(
+                        mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_HOG_INVOCATION_RESULTS)
+                    ).toHaveLength(1)
+                    expect(getLogs()).toContainEqual(
+                        expect.stringContaining('Skipped duplicate request for Idempotency-Key "escalation-1"')
+                    )
+                })
+
+                it('queues a run on each workflow that receives the same key', async () => {
+                    const otherHogFlow = await insertSecondHogFlow()
+
+                    const first = await postWithKey(hogFlow.id, 'escalation-2')
+                    const second = await postWithKey(otherHogFlow.id, 'escalation-2')
+
+                    expect(first.status).toEqual(201)
+                    expect(second.status).toEqual(201)
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it('releases the key when queueing fails so a retry queues the run', async () => {
+                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                    const failed = await postWithKey(hogFlow.id, 'escalation-3')
+                    const retried = await postWithKey(hogFlow.id, 'escalation-3')
+
+                    expect(failed.status).toEqual(500)
+                    expect(retried.status).toEqual(201)
+                    expect(retried.body.status).toEqual('queued')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it('tells a retry to wait while the first request is still queueing', async () => {
+                    let finishQueueing: () => void = () => {}
+                    mockQueueHogflowInvocationsSpy.mockImplementationOnce(
+                        () => new Promise<void>((resolve) => (finishQueueing = resolve))
+                    )
+                    const first = postWithKey(hogFlow.id, 'escalation-5').then((res) => res)
+                    await waitForExpect(() => expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1))
+
+                    const retry = await postWithKey(hogFlow.id, 'escalation-5')
+                    finishQueueing()
+
+                    expect(retry.status).toEqual(409)
+                    expect(retry.body.status).toEqual('in_flight')
+                    expect((await first).status).toEqual(201)
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                })
+
+                it('queues the run when the idempotency store never answers, and releases it if queueing fails', async () => {
+                    const valkey = api['cdpSourceWebhooksConsumer']['idempotencyKeys']['valkey']!
+                    const useClient = valkey.useClient
+                    let reservations = 0
+                    jest.spyOn(valkey, 'useClient').mockImplementation((options, callback) => {
+                        if (options.name === 'idempotency-reserve' && reservations++ === 0) {
+                            void useClient(options, callback)
+                            return new Promise(() => {})
+                        }
+                        return useClient(options, callback)
+                    })
+                    mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                    const failed = await postWithKey(hogFlow.id, 'escalation-4')
+                    const retried = await postWithKey(hogFlow.id, 'escalation-4')
+
+                    expect(failed.status).toEqual(500)
+                    expect(retried.status).toEqual(201)
+                    expect(retried.body.status).toEqual('queued')
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(2)
+                })
+
+                it('rejects a key longer than 255 characters without queueing', async () => {
+                    const res = await postWithKey(hogFlow.id, 'a'.repeat(256))
+
+                    expect(res.status).toEqual(400)
+                    expect(res.body.error).toEqual('Idempotency-Key must be 255 characters or fewer')
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+            })
+
             it('does not report a workflow trigger as CDP usage', async () => {
                 const reportBillableInvocation = jest.spyOn(
                     api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
@@ -736,6 +855,162 @@ describe('SourceWebhooksConsumer', () => {
                 expect(getMetrics()).toEqual([
                     expect.objectContaining({ metric_kind: 'failure', metric_name: 'trigger_failed', count: 1 }),
                 ])
+            })
+
+            describe('manual trigger', () => {
+                const buildManualHogFlow = async (
+                    overrides: { status?: HogFlow['status']; event?: string } = {}
+                ): Promise<HogFlow> => {
+                    const event = overrides.event ?? '$workflow_triggered'
+                    const manualHogFlow = new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withStatus(overrides.status ?? 'active')
+                        .withSimpleWorkflow({
+                            trigger: {
+                                type: 'manual',
+                                template_id: incomingWebhookTemplateId,
+                                inputs: {
+                                    event: { value: event, bytecode: await compileHog(`return f'${event}'`) },
+                                    distinct_id: {
+                                        value: '{request.body.user_id}',
+                                        bytecode: await compileHog(`return f'{request.body.user_id}'`),
+                                    },
+                                    method: { value: 'POST', bytecode: await compileHog(`return f'POST'`) },
+                                },
+                            },
+                        })
+                        .build()
+                    await insertHogFlow(hub.postgres, manualHogFlow)
+                    return manualHogFlow
+                }
+
+                type ManualRunClaims = { teamId: number; hogFlowId: string; userId: string }
+                const mintManualRunToken = (claims: ManualRunClaims) =>
+                    new ScopedServiceJwt(PosthogJwtAudience.WORKFLOWS_MANUAL_RUN, hub.WORKFLOWS_CANCEL_JWT_SECRET).mint(
+                        {
+                            team_id: claims.teamId,
+                            hog_flow_id: claims.hogFlowId,
+                            user_id: claims.userId,
+                        }
+                    )
+
+                const doManualRequest = (
+                    teamId: number,
+                    hogFlowId: string,
+                    body: Record<string, any>,
+                    tokenClaims: ManualRunClaims | null = { teamId, hogFlowId, userId: body.user_id }
+                ) => {
+                    const request = supertest(app)
+                        .post(`/api/projects/${teamId}/hog_flows/${hogFlowId}/manual_invocations`)
+                        .set('Content-Type', 'application/json')
+                    if (tokenClaims) {
+                        request.set('Authorization', `Bearer ${mintManualRunToken(tokenClaims)}`)
+                    }
+                    return request.send(body)
+                }
+
+                it('queues a run for the user who started it, with their variables', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+
+                    const res = await doManualRequest(team.id, manualHogFlow.id, {
+                        user_id: 'user@example.com',
+                        variables: { greeting: 'Hello' },
+                    })
+
+                    expect(res.status).toEqual(200)
+                    expect(res.body).toEqual({ status: 'queued', invocation_id: expect.any(String) })
+                    expect(mockQueueHogflowInvocationsSpy).toHaveBeenCalledTimes(1)
+                    const invocation = mockQueueHogflowInvocationsSpy.mock.calls[0][0][0]
+                    expect(invocation.id).toEqual(res.body.invocation_id)
+                    expect(invocation.state.event).toMatchObject({
+                        event: '$workflow_triggered',
+                        distinct_id: 'user@example.com',
+                    })
+                    expect(invocation.state.variables).toEqual({ greeting: 'Hello' })
+                })
+
+                type RefusalCase = {
+                    teamOffset: number
+                    trigger: 'manual' | 'webhook'
+                    status: HogFlow['status']
+                    token: 'valid' | 'none' | 'other workflow' | 'other user'
+                    malformedId?: boolean
+                    variables?: unknown
+                }
+                it.each<[string, RefusalCase, number]>([
+                    ['without a token', { teamOffset: 0, trigger: 'manual', status: 'active', token: 'none' }, 401],
+                    [
+                        "with another workflow's token",
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'other workflow' },
+                        401,
+                    ],
+                    [
+                        "with another user's token",
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'other user' },
+                        401,
+                    ],
+                    ['another team', { teamOffset: 1, trigger: 'manual', status: 'active', token: 'valid' }, 404],
+                    ['a webhook trigger', { teamOffset: 0, trigger: 'webhook', status: 'active', token: 'valid' }, 400],
+                    [
+                        'an inactive workflow',
+                        { teamOffset: 0, trigger: 'manual', status: 'draft', token: 'valid' },
+                        400,
+                    ],
+                    [
+                        'an id that is not a UUID',
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', malformedId: true },
+                        400,
+                    ],
+                    [
+                        'variables that are not an object',
+                        { teamOffset: 0, trigger: 'manual', status: 'active', token: 'valid', variables: ['a'] },
+                        400,
+                    ],
+                ])('refuses to run %s', async (_name, options, expectedStatus) => {
+                    const target =
+                        options.trigger === 'webhook' ? hogFlow : await buildManualHogFlow({ status: options.status })
+                    const teamId = team.id + options.teamOffset
+                    const hogFlowId = options.malformedId ? 'not-a-uuid' : target.id
+                    const tokenClaims = {
+                        valid: { teamId, hogFlowId, userId: 'user@example.com' },
+                        none: null,
+                        'other workflow': { teamId, hogFlowId: hogFlow.id, userId: 'user@example.com' },
+                        'other user': { teamId, hogFlowId: target.id, userId: 'someone-else@example.com' },
+                    }[options.token]
+
+                    const body = {
+                        user_id: 'user@example.com',
+                        ...('variables' in options ? { variables: options.variables } : {}),
+                    }
+                    const res = await doManualRequest(teamId, hogFlowId, body, tokenClaims)
+
+                    expect(res.status).toEqual(expectedStatus)
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+
+                it("reports the trigger's refusal instead of a success when it starts no run", async () => {
+                    // A manual trigger copied from a webhook reads an event the request does not carry.
+                    const manualHogFlow = await buildManualHogFlow({ event: '{request.body.event}' })
+
+                    const res = await doManualRequest(team.id, manualHogFlow.id, { user_id: 'user@example.com' })
+
+                    expect(res.status).toEqual(422)
+                    expect(res.body.error).toContain('The trigger refused the run (400)')
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
+
+                it('refuses a manual trigger on the public webhook route', async () => {
+                    const manualHogFlow = await buildManualHogFlow()
+
+                    const res = await doPostRequest({
+                        webhookId: manualHogFlow.id,
+                        body: { user_id: 'user@example.com' },
+                    })
+
+                    expect(res.status).toEqual(403)
+                    expect(mockExecuteSpy).not.toHaveBeenCalled()
+                    expect(mockQueueHogflowInvocationsSpy).not.toHaveBeenCalled()
+                })
             })
         })
 

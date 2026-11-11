@@ -1,121 +1,130 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { Fragment, useMemo } from 'react'
 
-import { IconFolder } from '@posthog/icons'
 import { Text } from '@posthog/quill'
 
-import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
-import { LibraryCreateButton } from 'scenes/library/LibraryCreateButton'
-import { libraryLogic } from 'scenes/library/libraryLogic'
-import { libraryListHref, libraryTypeForPath } from 'scenes/library/libraryUtils'
-import { libraryRowProductLabels, toolHrefForPath, toolLabel } from 'scenes/tools/toolsUtils'
-import { urls } from 'scenes/urls'
-
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { NavProductIcon } from '~/layout/panel-layout/navbar/tabs/NavProductIcon'
+import { productsItemName } from '~/layout/panel-layout/navbar/tabs/productsCatalog'
+import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
+import { SidebarSearchList } from '~/layout/today/sidebar/SidebarSearchList'
+import { SidebarSection } from '~/layout/today/sidebar/SidebarSection'
+import { FileSystemImport } from '~/queries/schema/schema-general'
 
 import { TodayPaneGroupLabel } from './TodayPaneGroupLabel'
-import { TodayPaneRow } from './TodayPaneRow'
-import { matchesPaneQuery, viewTypesForPaneSearch } from './todayPaneSearch'
-import { TodayPaneSearchList } from './TodayPaneSearchList'
-import { TodayProductsViewsHint } from './TodayProductsViewsHint'
-import { todayToolsLogic } from './todayToolsLogic'
+import { analyticsTypesForPaneSearch } from './todayPaneSearch'
+import { productPreview } from './todayPreviewCards'
+import { TodayPreviewTrigger } from './TodayPreviewTrigger'
+import { TodayProductRow } from './TodayProductRow'
+import { TodayProductsAnalyticsHint } from './TodayProductsAnalyticsHint'
+import { todayProductsLogic } from './todayProductsLogic'
 
-/** The Products sub-nav: recently viewed tools, every saved object type, then the tools by category. */
 export function TodayProductsSidebar(): JSX.Element {
-    const { tools, toolGroups, recentTools, search } = useValues(todayToolsLogic)
-    const { setSearch } = useActions(todayToolsLogic)
-    const { objectTypes } = useValues(libraryLogic)
-    const { location } = useValues(router)
-    const path = removeProjectIdIfPresent(location.pathname)
-    const activeHref = toolHrefForPath(path, tools)
-    const objectPageType = libraryTypeForPath(path)
-
-    const showAllObjects = matchesPaneQuery('All objects', search)
-    const libraryTypes = objectTypes.filter((type) =>
-        [type.pluralLabel, ...libraryRowProductLabels(type.value)].some((label) => matchesPaneQuery(label, search))
+    const {
+        pinnedProducts,
+        productGroups,
+        productCount,
+        starredProducts,
+        starredHrefs,
+        starredOpen,
+        allProductsOpen,
+        activeHref,
+        search,
+    } = useValues(todayProductsLogic)
+    const { setSearch, setStarredOpen, setAllProductsOpen, productOpened } = useActions(todayProductsLogic)
+    const searching = !!search.trim()
+    const searchedAnalyticsTypes = analyticsTypesForPaneSearch(search)
+    const hasProducts = pinnedProducts.length > 0 || starredProducts.length > 0 || productCount > 0
+    // The shared card stores the payload, so it must keep its identity between renders.
+    const pinnedPreviews = useMemo(
+        () => new Map(pinnedProducts.map((item) => [item.href, productPreview(productsItemName(item), item)])),
+        [pinnedProducts]
     )
-    const showLibrary = showAllObjects || libraryTypes.length > 0
-    const searchedViewTypes = viewTypesForPaneSearch(search)
-    const recentSection = recentTools.length ? { key: 'recent', label: 'Recently viewed', tools: recentTools } : null
-    const categorySections = toolGroups.map((group) => ({
-        key: group.category,
-        label: group.category,
-        tools: group.tools,
-    }))
-    const hasProducts = !!recentSection || showLibrary || categorySections.length > 0
-    // A tool can show in Recently viewed and in its own group, so the group keeps the two rows apart on the keyboard path.
-    const optionValue = (groupKey: string, tool: FileSystemImport): string => `${groupKey}:${tool.href ?? ''}`
 
-    const renderToolSection = (section: (typeof categorySections)[number], first: boolean): JSX.Element => (
-        <div key={section.key}>
-            <TodayPaneGroupLabel first={first}>{section.label}</TodayPaneGroupLabel>
-            {section.tools.map((tool) => {
-                const href = tool.href ?? ''
-                return (
-                    <TodayPaneRow
-                        key={href}
-                        value={optionValue(section.key, tool)}
-                        label={toolLabel(tool)}
-                        icon={iconForType((tool.iconType ?? tool.type) as FileSystemIconType, tool.iconColor)}
-                        to={href}
-                        active={!!href && href === activeHref}
-                        dataAttr={section.key === 'recent' ? 'today-tool-recent' : 'today-tool'}
-                    />
-                )
-            })}
-        </div>
+    // A product can show in Starred and in its category, so the group keeps the rows apart on the keyboard path.
+    const renderProduct = (item: FileSystemImport, group: string, position: number): JSX.Element => (
+        <TodayProductRow
+            key={item.href}
+            value={`${group}:${item.href}`}
+            label={productsItemName(item)}
+            product={item}
+            to={item.href ?? ''}
+            active={item.href === activeHref}
+            starred={starredHrefs.has(item.href ?? '')}
+            inStarredGroup={group === 'starred'}
+            category={group === 'starred' ? null : group}
+            position={position}
+        />
     )
 
     return (
         <div className="TodayPane group/colorful-product-icons colorful-product-icons-true" data-quill>
-            <TodayPaneSearchList
+            <SidebarSearchList
                 query={search}
                 onQueryChange={setSearch}
                 searchLabel="Search products"
                 dataAttr="today-products-search"
             >
-                {!hasProducts && !searchedViewTypes.length && (
-                    <Text size="xs" variant="muted" className="block px-2 py-1">
-                        No products match that search.
-                    </Text>
-                )}
-                {recentSection && renderToolSection(recentSection, true)}
-                {showLibrary && (
-                    <div>
-                        <TodayPaneGroupLabel first={!recentSection}>Library</TodayPaneGroupLabel>
-                        {showAllObjects && (
-                            <TodayPaneRow
-                                value="library:all"
-                                label="All objects"
-                                icon={<IconFolder />}
-                                to={urls.library()}
-                                active={path === urls.library()}
-                                dataAttr="today-library-all"
-                            />
-                        )}
-                        {libraryTypes.map((type) => (
-                            <TodayPaneRow
-                                key={type.value}
-                                value={`library:${type.value}`}
-                                label={type.pluralLabel}
-                                icon={iconForType(type.value as FileSystemIconType)}
-                                to={libraryListHref(type.value) ?? urls.library(type.value)}
-                                // A product page can share a scene with a Library list. The product's own row then takes the highlight.
-                                active={
-                                    path === urls.library(type.value) || (objectPageType === type.value && !activeHref)
-                                }
-                                action={<LibraryCreateButton objectType={type.value} />}
-                                dataAttr="today-library-type"
-                            />
-                        ))}
+                {!hasProducts &&
+                    (searchedAnalyticsTypes.length > 0 ? (
+                        <TodayProductsAnalyticsHint analyticsTypes={searchedAnalyticsTypes} />
+                    ) : (
+                        <Text size="xs" variant="muted" className="block px-2 py-1">
+                            No products match that search.
+                        </Text>
+                    ))}
+                {pinnedProducts.length > 0 && (
+                    <div className="flex flex-col gap-px pb-2">
+                        {pinnedProducts.map((item, index) => {
+                            const row = (
+                                <SidebarRow
+                                    value={`pinned:${item.href}`}
+                                    label={productsItemName(item)}
+                                    icon={<NavProductIcon item={item} />}
+                                    to={item.href ?? ''}
+                                    active={item.href === activeHref}
+                                    dataAttr="today-tool-pinned"
+                                    onClick={() => productOpened(item, 'pinned', null, index)}
+                                />
+                            )
+                            const preview = pinnedPreviews.get(item.href)
+                            return preview?.description ? (
+                                <TodayPreviewTrigger key={item.href} payload={preview}>
+                                    {row}
+                                </TodayPreviewTrigger>
+                            ) : (
+                                <Fragment key={item.href}>{row}</Fragment>
+                            )
+                        })}
                     </div>
                 )}
-                {categorySections.map((section, index) =>
-                    renderToolSection(section, !recentSection && !showLibrary && index === 0)
+                {starredProducts.length > 0 && (
+                    <SidebarSection
+                        label="Starred"
+                        open={starredOpen || searching}
+                        count={starredProducts.length}
+                        onToggle={() => setStarredOpen(!starredOpen)}
+                        dataAttr="today-section-starred"
+                    >
+                        {starredProducts.map((item, index) => renderProduct(item, 'starred', index))}
+                    </SidebarSection>
                 )}
-                {searchedViewTypes.length > 0 && <TodayProductsViewsHint viewTypes={searchedViewTypes} />}
-            </TodayPaneSearchList>
+                {productCount > 0 && (
+                    <SidebarSection
+                        label="All products"
+                        open={allProductsOpen || searching}
+                        count={productCount}
+                        onToggle={() => setAllProductsOpen(!allProductsOpen)}
+                        dataAttr="today-section-all-products"
+                    >
+                        {productGroups.map((group, index) => (
+                            <div key={group.label}>
+                                <TodayPaneGroupLabel first={index === 0}>{group.label}</TodayPaneGroupLabel>
+                                {group.items.map((item, index) => renderProduct(item, group.label, index))}
+                            </div>
+                        ))}
+                    </SidebarSection>
+                )}
+            </SidebarSearchList>
         </div>
     )
 }

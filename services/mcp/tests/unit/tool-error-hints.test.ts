@@ -44,6 +44,34 @@ describe('getToolRecoveryHint', () => {
     })
 
     it.each([
+        'https://us.posthog.com/api/projects/2/tracing/spans/query/',
+        'https://us.posthog.com/api/projects/2/tracing/spans/count/',
+        'https://us.posthog.com/api/projects/2/tracing/spans/aggregate/',
+        'https://us.posthog.com/api/projects/2/tracing/spans/service-health/',
+    ])('returns the tracing narrow-and-retry hint for a 5xx on %s', (url: string) => {
+        const hint = getToolRecoveryHint({ url, status: 500 })
+
+        expect(hint).not.toBeUndefined()
+        expect(hint).toContain('serviceNames')
+        expect(hint).toContain('apm-service-health')
+        expect(hint).not.toContain('logs-count-ranges')
+    })
+
+    it('does not fire the tracing hint for a 400 on a tracing endpoint', () => {
+        expect(
+            getToolRecoveryHint({ url: 'https://us.posthog.com/api/projects/2/tracing/spans/count/', status: 400 })
+        ).toBeUndefined()
+    })
+
+    it('also fires the logs hint for the new logs aggregate endpoints', () => {
+        for (const path of ['group-by', 'context', 'environments']) {
+            expect(
+                getToolRecoveryHint({ url: `https://us.posthog.com/api/projects/2/logs/${path}/`, status: 500 })
+            ).not.toBeUndefined()
+        }
+    })
+
+    it.each([
         'https://us.posthog.com/api/projects/2/surveys/',
         'https://us.posthog.com/api/projects/2/surveys/018f-abc/',
     ])('returns the structured-param hint for a 5xx on the survey write endpoint %s', (url: string) => {

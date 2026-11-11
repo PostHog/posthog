@@ -39,6 +39,7 @@
 pub mod registry;
 pub mod request;
 pub mod row;
+pub mod row_install;
 pub mod serializer;
 pub mod test_support;
 pub mod throttle;
@@ -58,6 +59,7 @@ use tracing::warn;
 pub use registry::WarningType;
 pub use request::{emit_request_warning, WarningRequestContext, UNKNOWN_ATTRIBUTION};
 pub use row::{KafkaRowWarningEmitter, RowWarningEmitter};
+pub use row_install::{install_row_emitter, RowWarningsSettings};
 pub use throttle::{ThrottleDecision, WarningThrottle};
 
 /// Counter of emission attempts: labels `type` (warning type), `source`

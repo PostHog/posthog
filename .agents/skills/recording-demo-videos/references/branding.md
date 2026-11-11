@@ -21,7 +21,7 @@ Use them in PostHog's own videos only.
 These come from brand.posthog.com and the brand handbook. The recorder follows them. Keep to them when you write a storyboard.
 
 - **Logo**: the full-color logo goes on light backgrounds only, and the white logo on dark ones. Do not recolor, stretch or animate it, and never set "PostHog" in text next to the logomark.
-- **Colors**: tangerine (`#FF5C1C`) is the accent, on the card bar, the caption edge and the cursor. A scene leans on two or three colors. Stage backgrounds are solid: cream (`#F4F3EE`) or dark (`#1D1F27`).
+- **Colors**: tangerine (`#FF5C1C`) is the accent, on the card bar, the caption edge and the click ring. A scene leans on two or three colors. Stage backgrounds are solid: cream (`#F4F3EE`) or dark (`#1D1F27`).
 - **Type**: RoundHog in its brand weights: 500 Medium, 700 SemiBold, 800 Bold. There is no 600. Headings are sentence case.
 - **Hedgehogs**: official art only. Never use AI-generated hedgehogs, and never edit one. Pick a hog that makes the card's point, not one that only fills space.
 

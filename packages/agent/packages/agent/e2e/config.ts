@@ -6,16 +6,15 @@ export type { Adapter };
 
 /**
  * Live e2e configuration, resolved entirely from the environment so no secret is
- * committed. Needs a local llm-gateway and a token in `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY`; targets
- * the `ci` product, which accepts a personal API key (no OAuth mint,
- * unlike prod's `posthog_code`) and keeps e2e traffic attributed to its own
- * `ai_product` rather than the catch-all `llm_gateway` bucket. Without the token
- * every arm self-skips.
+ * committed. Needs an ai-gateway and a `phs_` key in `POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY`; sends
+ * `X-PostHog-Product: ci` so e2e traffic is attributed to its own product.
+ * Without the token every arm self-skips.
  */
 // `||` not `??`: CI sets unset vars to "" which should fall back to the default.
 const GATEWAY_URL =
-  process.env.POSTHOG_CODE_E2E_GATEWAY_URL || "http://localhost:3308/ci";
+  process.env.POSTHOG_CODE_E2E_GATEWAY_URL || "http://localhost:8080";
 const TOKEN = process.env.POSTHOG_CODE_E2E_GATEWAY_PERSONAL_API_KEY ?? "";
+const GATEWAY_PRODUCT = "ci";
 
 // The desktop app downloads the codex binaries; it lives in the sibling desktop workspace.
 const CODEX_RESOURCES_DIR = join(
@@ -92,6 +91,7 @@ export const E2E = {
     if (adapter === "claude") {
       process.env.ANTHROPIC_BASE_URL = GATEWAY_URL;
       process.env.ANTHROPIC_AUTH_TOKEN = TOKEN;
+      process.env.ANTHROPIC_CUSTOM_HEADERS = `X-PostHog-Product: ${GATEWAY_PRODUCT}`;
       return;
     }
     process.env.OPENAI_BASE_URL = openAiBase();
@@ -108,6 +108,7 @@ export const E2E = {
     binaryPath: string;
     apiBaseUrl: string;
     apiKey: string;
+    httpHeaders: Record<string, string>;
     model: string;
     configOverrides?: Record<string, string | number>;
   } {
@@ -116,6 +117,7 @@ export const E2E = {
       binaryPath: NATIVE_CODEX_BIN,
       apiBaseUrl: openAiBase(),
       apiKey: TOKEN,
+      httpHeaders: { "X-PostHog-Product": GATEWAY_PRODUCT },
       model: modelOverride || this.model("codex"),
       ...(configOverrides ? { configOverrides } : {}),
     };

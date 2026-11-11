@@ -56,7 +56,7 @@ def _bad_response() -> MagicMock:
 
 def _mock_llm_client() -> MagicMock:
     client = MagicMock()
-    # Command call sites chain .with_options(max_retries=0) onto get_llm_client(...); without
+    # Command call sites chain .with_options(max_retries=0) onto build_openai_client(...); without
     # this self-reference, that call returns an unconfigured child mock and every call made
     # through it is invisible to assertions on `client`.
     client.with_options.return_value = client
@@ -96,14 +96,14 @@ class _BatchCommandTestCase(BaseTest):
 
 class TestGatewayRetryBudget(_BatchCommandTestCase):
     def test_batch_disables_sdk_internal_retries(self):
-        # get_llm_client builds an OpenAI() client without max_retries, so the SDK's own default
+        # build_openai_client builds an OpenAI() client without max_retries, so the SDK's own default
         # of 2 stacks under tenacity's stop_after_attempt(3): up to 9 HTTP requests per fetch
         # instead of 3. The command must opt out of the SDK's layer so tenacity is the only one.
         self._config()
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         client.with_options.assert_called_once_with(max_retries=0)
@@ -113,7 +113,7 @@ class TestGatewayRetryBudget(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
         client.with_options.assert_called_once_with(max_retries=0)
@@ -128,7 +128,7 @@ class TestCircuitBreaker(_BatchCommandTestCase):
         client.chat.completions.create.return_value = _bad_response()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
         ):
             with self.assertRaises(CommandError) as ctx:
@@ -152,7 +152,7 @@ class TestCircuitBreaker(_BatchCommandTestCase):
         ]
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
         ):
             # max_failures=2 would trip on two failures in a row; these two never land back to
@@ -180,7 +180,7 @@ class TestKeysetPagination(_BatchCommandTestCase):
             options["limit"] = limit
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             # Forces the 5 orgs across 3 keyset pages instead of 1, so a cursor off-by-one would
             # duplicate or skip a row instead of silently passing on a single-page test.
             patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
@@ -216,7 +216,7 @@ class TestKeysetPagination(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             # Forces the 3 already-done orgs and the 1 fresh org across separate keyset pages.
             patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
         ):
@@ -243,7 +243,7 @@ class TestKeysetPagination(_BatchCommandTestCase):
         client = _mock_llm_client()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}._ID_BATCH_SIZE", 2),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, **options)
@@ -282,7 +282,7 @@ class TestAdvisoryLock(_BatchCommandTestCase):
             assert holder_ready.wait(timeout=5)
             assert holder_state["acquired"] is True
 
-            with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
                 with self.assertRaises(CommandError) as ctx:
                     call_command("enrichment_label_batch", label="test_label", workers=1)
             assert "already holds the lock" in str(ctx.exception)
@@ -304,7 +304,7 @@ class TestUnknownAccounting(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "unknown 1" in out.getvalue()
@@ -336,7 +336,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
             options["min_success_rate"] = min_success_rate
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
         ):
             if expect_raise:
@@ -359,7 +359,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
         ):
             with self.assertRaises(CommandError):
@@ -379,7 +379,7 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
         ]
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "prompt_tokens 350" in out.getvalue()
@@ -401,7 +401,7 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v1")
 
@@ -413,7 +413,7 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v2")
 
         assert EnrichmentLabelResult.objects.count() == 1
@@ -423,7 +423,7 @@ class TestExpectedVersionGuard(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.count() == 1
@@ -444,7 +444,7 @@ class TestFirecrawlKeyGuard(_BatchCommandTestCase):
 
         with (
             override_settings(CLOUD_DEPLOYMENT=cloud_deployment, FIRECRAWL_API_KEY=firecrawl_key),
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
         ):
             if aborts:
                 with self.assertRaisesMessage(CommandError, "FIRECRAWL_API_KEY"):
@@ -477,7 +477,7 @@ class TestWorkerConnectionErrors(NonAtomicBaseTest):
         client = _mock_llm_client()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.close_old_connections", side_effect=RuntimeError("connection reset")),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
         ):
@@ -511,7 +511,7 @@ class TestDryRunFixes(BaseTest):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", sample=2, stdout=out)
 
         printed = out.getvalue()
@@ -525,7 +525,7 @@ class TestDryRunFixes(BaseTest):
         )
         client = _mock_llm_client()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client):
             with self.assertRaises(CommandError):
                 call_command("enrichment_label_dry_run", label="test_label", sample=1)
 
@@ -551,7 +551,7 @@ class TestDryRunToolDeferral(BaseTest):
         out = StringIO()
 
         with (
-            patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_DRY_RUN_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
         ):
             call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
@@ -580,7 +580,7 @@ class TestToolCallAccounting(_BatchCommandTestCase):
             }
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
         ):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
@@ -596,7 +596,7 @@ class TestToolDeferral(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")),
             self.assertRaises(CommandError),
         ):
@@ -625,7 +625,7 @@ class TestToolDeferral(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_TOOLS_MODULE}.get_outbound_rate_limiter", return_value=limiter),
             patch(f"{_TOOLS_MODULE}.time.sleep"),
             patch(
@@ -646,7 +646,7 @@ class TestToolDeferral(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=TransientToolError("boom")) as classify_mock,
             self.assertRaises(CommandError) as ctx,
         ):
@@ -673,7 +673,7 @@ class TestToolDeferral(_BatchCommandTestCase):
             return {"is_ai": True, "confidence": 0.9, "reasoning": "x", "inputs": {"signup_domain": None, "fields": {}}}
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.classify_payload", side_effect=_classify),
             self.assertRaises(CommandError) as ctx,
         ):
@@ -695,7 +695,7 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
         scoped_capture.__enter__.return_value = capture
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="EU"),
             patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
         ):
@@ -724,7 +724,7 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
         out = StringIO()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="US"),
             patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", side_effect=RuntimeError("boom")),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception") as capture_mock,
@@ -741,7 +741,7 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
         client = _mock_llm_client()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value=None),
             patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture") as scoped_capture_factory,
         ):
@@ -758,7 +758,7 @@ class TestBatchRunReportEvent(_BatchCommandTestCase):
         scoped_capture.__enter__.return_value = MagicMock()
 
         with (
-            patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client),
+            patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client),
             patch(f"{_BATCH_COMMAND_MODULE}.capture_exception"),
             patch(f"{_BATCH_COMMAND_MODULE}.get_instance_region", return_value="US"),
             patch(f"{_BATCH_COMMAND_MODULE}.ph_scoped_capture", return_value=scoped_capture) as scoped_capture_factory,
@@ -777,7 +777,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         client.chat.completions.create.assert_not_called()
@@ -792,11 +792,11 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert EnrichmentLabelResult.objects.count() == 1
@@ -817,7 +817,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
 
         client.chat.completions.create.side_effect = _revoke_after_first
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         assert client.chat.completions.create.call_count == 1
@@ -830,7 +830,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         self._fetch()
         client = _mock_llm_client()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1)
 
         client.chat.completions.create.assert_not_called()
@@ -843,7 +843,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "skipped_no_ai_consent 1" in out.getvalue()
@@ -866,7 +866,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_BATCH_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_batch", label="test_label", workers=1, limit=1, stdout=out)
 
         assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
@@ -882,7 +882,7 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
         client = _mock_llm_client()
         out = StringIO()
 
-        with patch(f"{_DRY_RUN_COMMAND_MODULE}.get_llm_client", return_value=client):
+        with patch(f"{_DRY_RUN_COMMAND_MODULE}.build_openai_client", return_value=client):
             call_command("enrichment_label_dry_run", label="test_label", sample=1, stdout=out)
 
         output = out.getvalue()

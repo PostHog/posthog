@@ -1,16 +1,24 @@
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import OuterRef, QuerySet, Subquery
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import router
+from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, TextField, Value
+from django.db.models.fields.json import KT
+from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from posthog.ingress.dispatch.database import bounded_statement_timeout
+
+from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The columns `InsightVariableDefinition` carries; `values` and `values_query` stay on the row.
@@ -48,9 +56,53 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
 
 
 def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
-    InsightViewed.objects.update_or_create(
+    InsightViewed.objects.update_or_create(  # type: ignore[misc]  # nullable FKs; django-stubs drops None from *_id lookups
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
     )
+
+
+AGENT_READ_DAYS_KEPT = 35
+AGENT_READ_DELETE_BATCH = 10_000
+AGENT_READ_WRITE_TIMEOUT_MS = 500
+
+
+def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
+    team_id = team.parent_team_id or team.id
+    day = now().astimezone(team.timezone_info).date()
+    with bounded_statement_timeout(AGENT_READ_WRITE_TIMEOUT_MS, aliases=[router.db_for_write(InsightAgentRead)]):
+        InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
+            [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
+            ignore_conflicts=True,
+        )
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[tuple[str, list[date]]]:
+    return list(
+        InsightAgentRead.objects.for_team(team_id)
+        .filter(user_id=user_id, day__gte=since, insight__deleted=False, insight__saved=True)
+        .values("insight__short_id")
+        .annotate(read_days=ArrayAgg("day", order_by="day"), days=Count("day"), last_day=Max("day"))
+        .filter(days__gte=min_days)
+        .order_by("-last_day")
+        .values_list("insight__short_id", "read_days")[:limit]
+    )
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids))
+
+
+def expire_agent_insight_reads() -> None:
+    oldest = now().date() - timedelta(days=AGENT_READ_DAYS_KEPT)
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(day__lt=oldest))
+
+
+def _delete_in_batches(reads: QuerySet[InsightAgentRead]) -> None:
+    writer = reads.using(router.db_for_write(InsightAgentRead))
+    while batch := list(writer.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
+        writer.filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
@@ -93,6 +145,63 @@ def insights_including_soft_deleted_for_team(*, team_id: int, insight_ids: Colle
     return list(Insight.objects_including_soft_deleted.filter(team_id=team_id, id__in=insight_ids))
 
 
+def saved_trends_insights(
+    *,
+    team_ids: Collection[int],
+    insight_ids: Collection[int],
+    intervals: Collection[str],
+    excluded_displays: Collection[str],
+) -> list[SavedTrendsInsight]:
+    if not team_ids or not insight_ids:
+        return []
+    rows = (
+        # Every row stays inside `team_ids`, which the caller resolved; the ids only narrow that set.
+        # nosemgrep: idor-lookup-without-team
+        Insight.objects.filter(team_id__in=team_ids, id__in=insight_ids, saved=True)
+        .annotate(
+            # A wrapper node holds the trends query in `source`.
+            trends_kind=Coalesce(KT("query__source__kind"), KT("query__kind")),
+            trends_interval=Coalesce(
+                KT("query__source__interval"), KT("query__interval"), Value("day"), output_field=TextField()
+            ),
+            trends_display=Coalesce(
+                KT("query__source__trendsFilter__display"),
+                KT("query__trendsFilter__display"),
+                Value(""),
+                output_field=TextField(),
+            ),
+        )
+        .filter(trends_kind="TrendsQuery", trends_interval__in=intervals)
+        .exclude(trends_display__in=excluded_displays)
+        .order_by("team_id", "id")
+        .values_list("team_id", "id", "trends_interval")
+    )
+    return [
+        SavedTrendsInsight(team_id=team_id, insight_id=insight_id, interval=interval)
+        for team_id, insight_id, interval in rows
+    ]
+
+
+def insight_ids_viewed_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    if not team_ids:
+        return set()
+    return set(
+        InsightViewed.objects.filter(team_id__in=team_ids, last_viewed_at__gte=since, user__isnull=False)
+        .values_list("insight_id", flat=True)
+        .distinct()
+    )
+
+
+def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) -> set[int]:
+    if not team_ids:
+        return set()
+    return set(
+        Insight.objects.filter(team_id__in=team_ids, saved=True, last_modified_at__gte=since).values_list(
+            "id", flat=True
+        )
+    )
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
@@ -115,6 +224,22 @@ def recent_viewers_by_insight(
         if len(bucket) < max_per_insight:
             bucket.append(view.user)
     return viewers_by_insight
+
+
+def viewer_counts_by_insight(*, team_id: int, insight_ids: Collection[int], since: datetime) -> dict[int, int]:
+    # InsightViewed holds one row per team, user and insight, so counting rows counts viewers.
+    rows = (
+        InsightViewed.objects.filter(
+            team_id=team_id,
+            insight_id__in=insight_ids,
+            last_viewed_at__gte=since,
+            user__isnull=False,
+        )
+        .values("insight_id")
+        .annotate(viewers=Count("id"))
+        .values_list("insight_id", "viewers")
+    )
+    return dict(rows)
 
 
 def map_stale_to_latest(stale_variables: dict, latest_variables: list[InsightVariableDefinition]) -> dict:
@@ -188,3 +313,36 @@ def get_or_create_saved_insight(
         insight.deleted = False
         insight.save(update_fields=["deleted"])
     return insight.id, created
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> InsightExplanation:
+    return InsightExplanation.objects.for_team(team_id).create(
+        team_id=team_id, insight_id=insight_id, created_by_id=user_id, data=data
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> InsightExplanation | None:
+    explanation = (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id, created_by_id=user_id)
+        .first()
+    )
+    if explanation is None:
+        return None
+    explanation.data = data
+    explanation.save(update_fields=["data"])
+    return explanation
+
+
+def insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> InsightExplanation | None:
+    return (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id)
+        .first()
+    )

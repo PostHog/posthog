@@ -1,3 +1,5 @@
+import { combineUrl } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -11,6 +13,7 @@ export const manifest: ProductManifest = {
             name: 'Replay vision',
             import: () => import('./frontend/replay_scanners/ReplayScannersScene'),
             projectBased: true,
+            cloudOnly: true,
             description:
                 'Set up AI scanners that automatically analyze new session recordings as they come in. Each result emits a queryable event.',
             iconType: 'replay_vision',
@@ -21,6 +24,7 @@ export const manifest: ProductManifest = {
             name: 'Replay vision scanner',
             import: () => import('./frontend/replay_scanners/ReplayScanner'),
             projectBased: true,
+            cloudOnly: true,
             iconType: 'replay_vision',
             layout: 'app-container',
         },
@@ -28,6 +32,7 @@ export const manifest: ProductManifest = {
             name: 'Replay vision scanner editor',
             import: () => import('./frontend/replay_scanners/ScannerEditorScene'),
             projectBased: true,
+            cloudOnly: true,
             iconType: 'replay_vision',
             layout: 'app-container',
         },
@@ -35,6 +40,7 @@ export const manifest: ProductManifest = {
             name: 'Replay vision observation',
             import: () => import('./frontend/observations/ReplayObservation'),
             projectBased: true,
+            cloudOnly: true,
             iconType: 'replay_vision',
             layout: 'app-container',
         },
@@ -42,7 +48,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
-        '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
+        '/replay-vision/:id/goal': ['ReplayVisionScannerEditor', 'replayVisionScannerGoal'],
         '/replay-vision/:id/overview': ['ReplayVisionScannerEditor', 'replayVisionScannerOverview'],
         '/replay-vision/:id/details': ['ReplayVisionScannerEditor', 'replayVisionScannerDetails'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -54,14 +60,17 @@ export const manifest: ProductManifest = {
         // People guess the product sits under replay. Without this, `/replay/vision` matches
         // `/replay/:id` and shows "Recording not found".
         '/replay/vision': '/replay-vision',
+        // Bookmarks and docs still link to the goal step's old path.
+        '/replay-vision/:id/template': ({ id }, searchParams, hashParams) =>
+            combineUrl(`/replay-vision/${id}/goal`, searchParams, hashParams).url,
     },
     urls: {
         replayVision:
             /** @param id A UUID or 'new'. Omit for the scanner list page. */
             (id?: string): string => (id ? `/replay-vision/${id}` : '/replay-vision'),
         replayVisionTab: (tab: 'search' | 'usage'): string => `/replay-vision?tab=${tab}`,
-        replayVisionTemplates: (): string => '/replay-vision/new/template',
-        replayVisionScannerTemplate: (id: string): string => `/replay-vision/${id}/template`,
+        replayVisionNewScanner: (): string => '/replay-vision/new/goal',
+        replayVisionScannerGoal: (id: string): string => `/replay-vision/${id}/goal`,
         replayVisionScannerOverview: (id: string): string => `/replay-vision/${id}/overview`,
         replayVisionScannerDetails: (id: string): string => `/replay-vision/${id}/details`,
         replayVisionScannerConfigure: (id: string): string => `/replay-vision/${id}/configure`,

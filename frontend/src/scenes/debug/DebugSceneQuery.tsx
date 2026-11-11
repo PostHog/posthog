@@ -8,8 +8,9 @@ import { QueryTabs } from 'scenes/debug/QueryTabs'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { isDataTableNode, isHogQLQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
-import { isDataTableNode, isHogQLQuery, isHogQuery, isInsightVizNode } from '~/queries/utils'
+import { isHogQuery } from '~/queries/utils'
 
 interface DebugSceneQueryProps {
     queryKey: `new-${string}`

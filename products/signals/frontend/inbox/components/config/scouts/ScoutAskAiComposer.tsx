@@ -8,7 +8,15 @@ import { captureScoutAction } from '../../../inboxAnalytics'
 import { SCOUT_AI_STARTER_QUESTIONS, scoutAiLogic } from '../../../logics/scoutAiLogic'
 
 /** A one-line question box under the scout header. The answer runs in the PostHog AI side panel. */
-export function ScoutAskAiComposer({ skillName, scoutName }: { skillName: string; scoutName: string }): JSX.Element {
+export function ScoutAskAiComposer({
+    scoutId,
+    skillName,
+    scoutName,
+}: {
+    scoutId: string
+    skillName: string
+    scoutName: string
+}): JSX.Element {
     const { isAsking, aiConsentDisabledReason } = useValues(scoutAiLogic)
     const { askScout } = useActions(scoutAiLogic)
     const [draft, setDraft] = useState('')
@@ -29,7 +37,7 @@ export function ScoutAskAiComposer({ skillName, scoutName }: { skillName: string
             skillName,
             extra: { source: starterId ? 'starter' : 'typed', starter_id: starterId },
         })
-        askScout({ skillName, scoutName }, draft)
+        askScout({ scoutId, skillName, scoutName }, draft)
         setDraft('')
         setStarterId(null)
     }

@@ -18,7 +18,7 @@ from posthog.models.team import Team
 
 from products.replay_vision.backend.fingerprint import config_fingerprint
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerOrigin, ScannerType
-from products.replay_vision.backend.prompt_questions import template_question
+from products.replay_vision.backend.prompt_questions import built_in_question
 
 
 def inline_scan_key(*, scanner_type: str, scanner_config: dict[str, Any], model: str) -> str:
@@ -51,8 +51,8 @@ def create_inline_scanner(
     moment, and it wraps the losing INSERT in a savepoint so the unique violation doesn't poison an
     enclosing transaction.
     """
-    # One-off scans skip the model call; only a template's written question, such as the Summarize button's, is kept.
-    question = template_question(scanner_config)
+    # One-off scans skip the model call; only a built-in scan, such as the Summarize button's, has a written question.
+    question = built_in_question(scanner_type, scanner_config)
     scanner, _ = ReplayScanner.all_origins.get_or_create(
         team=team,
         origin=ScannerOrigin.INLINE,

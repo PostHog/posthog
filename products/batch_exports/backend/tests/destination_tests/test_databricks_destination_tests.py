@@ -7,6 +7,8 @@ from unittest.mock import patch
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 
+from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE
+
 from products.batch_exports.backend.destination_tests.base import Status
 from products.batch_exports.backend.destination_tests.databricks import (
     DatabricksCatalogTestStep,
@@ -117,7 +119,7 @@ class TestDatabricksEstablishConnectionTestStep:
         )
         result = await test_step.run()
         assert result.status == Status.FAILED
-        assert result.message == "Failed to connect to Databricks. Please check that your connection details are valid."
+        assert result.message == NOT_A_DATABRICKS_HOST_MESSAGE
 
     async def test_with_wrong_http_path(self, databricks_config):
         test_step = DatabricksEstablishConnectionTestStep(

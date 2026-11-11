@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'

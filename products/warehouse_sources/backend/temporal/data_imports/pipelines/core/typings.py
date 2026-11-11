@@ -39,3 +39,7 @@ class PipelineResult(TypedDict):
     fast_returned: NotRequired[bool]
     handed_off: NotRequired[bool]
     handoff_attempts_used: NotRequired[int]
+    handoff_made_progress: NotRequired[bool]
+    # Why the execution left the worker: `progress`, `young`, `deadline`, `legacy`, `preempted_<reason>`
+    # or `unknown`.
+    handoff_reason: NotRequired[str]

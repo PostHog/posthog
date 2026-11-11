@@ -8,7 +8,7 @@ Importing this module loads the destination's vendor SDK, so keep it off the
 ``django.setup()`` path. See ``posthog/test/repo_invariants/test_startup_import_budget.py``.
 """
 
-from products.batch_exports.backend.temporal.destinations.constants import S3_SUPPORTED_COMPRESSIONS
+from products.batch_exports.backend.facade.enums import S3_SUPPORTED_COMPRESSIONS
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
     ConcurrentS3Consumer,
     ExternalRoleArnNotConfiguredError,

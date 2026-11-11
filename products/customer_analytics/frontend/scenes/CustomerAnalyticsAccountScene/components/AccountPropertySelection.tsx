@@ -5,7 +5,11 @@ import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import { AccountPropertyConfiguratorItem } from './AccountPropertyConfiguratorItem'
-import { AccountPropertyOption, MAX_PINNED_ACCOUNT_PROPERTIES } from './accountPropertyTypes'
+import {
+    ACCOUNT_PROPERTY_KIND_LABELS,
+    AccountPropertyOption,
+    MAX_PINNED_ACCOUNT_PROPERTIES,
+} from './accountPropertyTypes'
 
 export interface AccountPropertySelectionProps {
     options: AccountPropertyOption[]
@@ -32,9 +36,11 @@ export function AccountPropertySelection({
                 label: key,
                 kind: key.startsWith('account:')
                     ? 'account'
-                    : key.startsWith('relationship:')
-                      ? 'relationship'
-                      : 'custom',
+                    : key.startsWith('field:')
+                      ? 'account_field'
+                      : key.startsWith('relationship:')
+                        ? 'relationship'
+                        : 'custom',
             }
     )
     const availableOptions = options.filter((option) => !selectedKeys.includes(option.key))
@@ -97,13 +103,7 @@ export function AccountPropertySelection({
                     labelComponent: (
                         <span className="flex w-full items-center justify-between gap-2">
                             <span className="truncate">{option.label}</span>
-                            <span className="text-xs text-secondary">
-                                {option.kind === 'custom'
-                                    ? 'Custom property'
-                                    : option.kind === 'account'
-                                      ? 'Account property'
-                                      : 'Relationship'}
-                            </span>
+                            <span className="text-xs text-secondary">{ACCOUNT_PROPERTY_KIND_LABELS[option.kind]}</span>
                         </span>
                     ),
                 }))}

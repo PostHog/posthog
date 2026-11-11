@@ -44,3 +44,5 @@ class PreparedGitRepositoryWorkspace:
     root_path: str
     github_integration_id: int
     use_local_wizard_source: bool = False
+    # None means the repository's default branch.
+    base_branch: str | None = None

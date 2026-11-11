@@ -4,9 +4,11 @@ import { useState } from 'react'
 import { IconTarget } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
+import { checkObservationsByCheck } from './reportCheckObservations'
 import {
     buildReportCheckRows,
     latestCheckExplanations,
@@ -29,6 +31,9 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         inboxReportDetailLogic({ reportId: report.id, report })
     )
     const { cancelReportCheck } = useActions(inboxReportDetailLogic({ reportId: report.id, report }))
+    const { openReportCheckMetricSuggestion } = useActions(inboxTaskKickoffLogic)
+    const { aiConsentDisabledReason, metricCheckReplacementDisabledReason, isCreatingPr, isDiscussing } =
+        useValues(inboxTaskKickoffLogic)
     const [showRetired, setShowRetired] = useState(false)
 
     if (reportChecksLoading && !reportChecks) {
@@ -43,23 +48,37 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
         return null
     }
 
-    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []))
+    const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []), report.status)
     const { visible, hidden } = splitReportCheckRows(rows)
+    const observations = checkObservationsByCheck(reportArtefacts ?? [])
 
     return (
         <DetailSection
             icon={<IconTarget />}
             title="Follow-up checks"
             collapsible
-            meta={<span className="text-xs text-tertiary tabular-nums">{reportChecksMeta(reportChecks)}</span>}
+            meta={
+                <span className="text-xs text-tertiary tabular-nums">
+                    {reportChecksMeta(reportChecks, report.status)}
+                </span>
+            }
         >
             <div className="flex flex-col gap-1.5">
                 {(showRetired ? rows : visible).map((row) => (
                     <ReportCheckRow
                         key={row.check.id}
                         row={row}
+                        reportId={report.id}
+                        monitoringStartedAt={report.monitoring_started_at}
+                        observations={observations.get(row.check.id)}
                         cancelling={cancellingCheckIds.includes(row.check.id)}
                         onCancel={cancelReportCheck}
+                        onSuggestMetric={() => openReportCheckMetricSuggestion(report, row.check)}
+                        suggestionDisabledReason={
+                            aiConsentDisabledReason ??
+                            metricCheckReplacementDisabledReason ??
+                            (isCreatingPr || isDiscussing ? 'Wait for the task to start.' : null)
+                        }
                     />
                 ))}
                 {hidden.length > 0 && !showRetired && (

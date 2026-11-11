@@ -1,8 +1,28 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+
 import { initKeaTests } from '~/test/init'
 
+import { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
 import { destinationModalLogic } from './destinationModalLogic'
+
+jest.mock('products/warehouse_sources/frontend/generated/api', () => ({
+    externalDataDestinationsCreate: jest.fn(),
+    externalDataDestinationsDestroy: jest.fn(),
+    externalDataDestinationsPartialUpdate: jest.fn(),
+}))
+
+const wsApi = jest.requireMock('products/warehouse_sources/frontend/generated/api')
+
+const SAVED = {
+    id: 'dest-1',
+    name: 'Warehouse copy',
+    type: 'Postgres',
+    integration: 1,
+    config: {},
+} as ExternalDataDestinationApi
 
 describe('destinationModalLogic', () => {
     let logic: ReturnType<typeof destinationModalLogic.build>
@@ -81,4 +101,48 @@ describe('destinationModalLogic', () => {
 
         expect(logic.values.isDestinationFormValid).toBe(true)
     })
+
+    it.each([
+        { mode: 'create', withOnCreated: true, expectedToast: null, onCreatedCalls: 1 },
+        { mode: 'create', withOnCreated: false, expectedToast: 'Destination added', onCreatedCalls: 0 },
+        { mode: 'edit', withOnCreated: true, expectedToast: 'Destination updated', onCreatedCalls: 0 },
+    ])(
+        'picks the toast and callbacks on $mode (onCreated passed: $withOnCreated)',
+        async ({ mode, withOnCreated, expectedToast, onCreatedCalls }) => {
+            // The page that passes onCreated shows its own next-step toast, so the generic one must not stack on it.
+            wsApi.externalDataDestinationsCreate.mockResolvedValue(SAVED)
+            wsApi.externalDataDestinationsPartialUpdate.mockResolvedValue(SAVED)
+            const toastSpy = jest.spyOn(lemonToast, 'success')
+            const onSaved = jest.fn()
+            const onCreated = jest.fn()
+            const saveLogic = destinationModalLogic({
+                modalKey: `save-${mode}-${withOnCreated}`,
+                onSaved,
+                onCreated: withOnCreated ? onCreated : undefined,
+            })
+            saveLogic.mount()
+
+            if (mode === 'create') {
+                await expectLogic(saveLogic, () => saveLogic.actions.openForCreate()).toFinishAllListeners()
+            } else {
+                await expectLogic(saveLogic, () => saveLogic.actions.openForEdit(SAVED)).toFinishAllListeners()
+            }
+            await expectLogic(saveLogic, () =>
+                saveLogic.actions.submitDestinationFormRequest({
+                    ...saveLogic.values.destinationForm,
+                    name: 'Warehouse copy',
+                })
+            ).toFinishAllListeners()
+
+            expect(onSaved).toHaveBeenCalledWith(SAVED)
+            expect(onCreated).toHaveBeenCalledTimes(onCreatedCalls)
+            if (expectedToast) {
+                expect(toastSpy).toHaveBeenCalledWith(expectedToast)
+            } else {
+                expect(toastSpy).not.toHaveBeenCalled()
+            }
+            toastSpy.mockRestore()
+            saveLogic.unmount()
+        }
+    )
 })

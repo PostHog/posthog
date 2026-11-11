@@ -21,6 +21,7 @@ import { Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonTreeSelectMode, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getEntryAccessDisabledReason } from 'lib/utils/accessControlUtils'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -28,15 +29,17 @@ import { PAGINATION_LIMIT, projectTreeDataLogic } from '~/layout/panel-layout/Pr
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ProjectTreeRef } from '~/types'
 
+import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import type { Breadcrumb, UserBasicType } from '../../../types'
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import type { PanelLayoutNavIdentifier } from '../panelLayoutLogic'
 import type { FolderState, ProjectTreeAction } from './types'
 import {
+    calculateMovePath,
     convertFileSystemEntryToTreeDataItem,
     findInProjectTree,
     formatUrlAsName,
-    calculateMovePath,
+    isFileSystemEntryTypeEnabled,
     joinPath,
     matchesRefType,
     sortFilesAndFolders,
@@ -87,6 +90,7 @@ export interface projectTreeLogicValues {
     appBreadcrumbs: Breadcrumb[] // breadcrumbsLogic
     projectTreeRef: ProjectTreeRef | null // breadcrumbsLogic
     sceneBreadcrumbs: Breadcrumb[] // breadcrumbsLogic
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     activePanelIdentifier: string // panelLayoutLogic
     folderLoadOffset: Record<string, number> // projectTreeDataLogic
     folderStates: Record<string, FolderState> // projectTreeDataLogic
@@ -471,7 +475,8 @@ export interface projectTreeLogicMeta {
             recentResultsLoading: boolean,
             folderStates: Record<string, FolderState>,
             checkedItems: Record<string, boolean>,
-            users: Record<string, UserBasicType>
+            users: Record<string, UserBasicType>,
+            featureFlags: FeatureFlagsSet
         ) => TreeDataItem[]
         searchTreeItems: (
             searchResults: SearchResults,
@@ -480,7 +485,8 @@ export interface projectTreeLogicMeta {
             checkedItems: Record<string, boolean>,
             sortMethod: ProjectTreeSortMethod,
             onlyFolders: boolean,
-            users: Record<string, UserBasicType>
+            users: Record<string, UserBasicType>,
+            featureFlags: FeatureFlagsSet
         ) => TreeDataItem[]
         projectTreeItems: (
             searchTerm: string,
@@ -555,6 +561,8 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             ['activePanelIdentifier'],
             breadcrumbsLogic,
             ['projectTreeRef', 'appBreadcrumbs', 'sceneBreadcrumbs'],
+            featureFlagLogic,
+            ['featureFlags'],
             projectTreeDataLogic,
             [
                 'folders',
@@ -960,16 +968,19 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
             },
         ],
         recentTreeItems: [
-            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users],
+            (s) => [s.recentResults, s.recentResultsLoading, s.folderStates, s.checkedItems, s.users, s.featureFlags],
             (
                 recentResults: RecentResults,
                 recentResultsLoading: boolean,
                 folderStates: Record<string, import('./types').FolderState>,
                 checkedItems: Record<string, boolean>,
-                users: Record<string, import('~/types').UserBasicType>
+                users: Record<string, import('~/types').UserBasicType>,
+                featureFlags: Record<string, unknown>
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: recentResults.results.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: recentResults.results
+                        .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+                        .map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',
@@ -1009,6 +1020,7 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 s.sortMethod,
                 s.onlyFolders,
                 s.users,
+                s.featureFlags,
             ],
             (
                 searchResults: SearchResults,
@@ -1017,10 +1029,13 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
                 checkedItems: Record<string, boolean>,
                 sortMethod: ProjectTreeSortMethod,
                 onlyFolders: boolean,
-                users: Record<string, import('~/types').UserBasicType>
+                users: Record<string, import('~/types').UserBasicType>,
+                featureFlags: Record<string, unknown>
             ): TreeDataItem[] => {
                 const results = convertFileSystemEntryToTreeDataItem({
-                    imports: searchResults.results.map((i) => ({ ...i, protocol: 'project://' })),
+                    imports: searchResults.results
+                        .filter((entry) => isFileSystemEntryTypeEnabled(entry, featureFlags))
+                        .map((i) => ({ ...i, protocol: 'project://' })),
                     folderStates,
                     checkedItems,
                     root: 'project://',

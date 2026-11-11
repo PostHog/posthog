@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 from posthoganalytics import Posthog
 from posthoganalytics.ai.openai import AsyncOpenAI
 
-from posthog.llm.gateway_client import get_async_anthropic_gateway_client
+from posthog.llm.gateway_client import build_async_anthropic_client
 
 # This eval runs via bare pytest (no hogli), so the conftest owns loading repo-root .env.
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
@@ -29,12 +29,10 @@ posthoganalytics.default_client = Posthog(
 # Override settings that need to come from .env.
 if not getattr(settings, "OPENAI_API_KEY", ""):
     settings.OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-if not getattr(settings, "LLM_GATEWAY_URL", ""):
-    settings.LLM_GATEWAY_URL = os.environ.get("LLM_GATEWAY_URL", "")
-if not getattr(settings, "LLM_GATEWAY_API_KEY", ""):
-    settings.LLM_GATEWAY_API_KEY = os.environ.get("LLM_GATEWAY_PERSONAL_API_KEY", "") or os.environ.get(
-        "LLM_GATEWAY_API_KEY", ""
-    )
+if not getattr(settings, "AI_GATEWAY_URL", ""):
+    settings.AI_GATEWAY_URL = os.environ.get("AI_GATEWAY_URL", "")
+if not getattr(settings, "AI_GATEWAY_API_KEY", ""):
+    settings.AI_GATEWAY_API_KEY = os.environ.get("AI_GATEWAY_API_KEY", "")
 
 # Team id used by the eval harness when attributing LLM cost via the gateway.
 EVAL_TEAM_ID = int(os.environ.get("SIGNALS_EVAL_TEAM_ID", "1"))
@@ -100,12 +98,12 @@ async def openai_client(posthog_client):
 
 @pytest.fixture
 def gateway_client():
-    """Async Anthropic client pointed at the internal LLM gateway's native Messages endpoint.
+    """Async Anthropic client pointed at the Go ai-gateway's native Messages endpoint.
 
     Used by eval_grouping_e2e to drive the production signals pre-emit pipeline
     (`check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
     """
-    return get_async_anthropic_gateway_client(product="signals", team_id=EVAL_TEAM_ID)
+    return build_async_anthropic_client(product="signals", ai_product="signals_eval", team_id=EVAL_TEAM_ID)
 
 
 @pytest.fixture

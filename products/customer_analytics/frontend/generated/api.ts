@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPersonsPageApi,
+    AccountPersonsQueryRequestApi,
     AccountPresenceApi,
     AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
@@ -28,17 +30,20 @@ import type {
     AccountViewCreateApi,
     AccountViewUpdateApi,
     AccountViewsDestroyParams,
+    AccountsAutomationsListParams,
     AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
     AccountsMeetingsListParams,
     AccountsNotebooksListParams,
+    AccountsPersonsRetrieveParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
     AccountsSupportTicketMessagesListParams,
     AccountsTableQueryRequestApi,
     AccountsTableQueryResponseApi,
+    ActorsQueryResponseApi,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -66,6 +71,8 @@ import type {
     CustomerProfileConfigsListParams,
     CustomerTaskActivityPageApi,
     CustomerTaskApi,
+    CustomerTaskBulkUpdateApi,
+    CustomerTaskBulkUpdateResultApi,
     CustomerTaskCreateApi,
     CustomerTaskPageApi,
     CustomerTaskUpdateApi,
@@ -93,6 +100,7 @@ import type {
     FeatureRequestsListParams,
     GroupUsageMetricApi,
     GroupsTypesMetricsListParams,
+    PaginatedAccountAutomationListApi,
     PaginatedAccountChannelSummaryListApi,
     PaginatedAccountEmailThreadListApi,
     PaginatedAccountEmailThreadMessageListApi,
@@ -112,6 +120,7 @@ import type {
     PaginatedGroupUsageMetricListApi,
     PaginatedMeetingListApi,
     PatchedAccountApi,
+    PatchedAccountNotebookUpdateApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
     PatchedCustomPropertySourceUpdateApi,
@@ -714,6 +723,28 @@ export const accountsNotebooksRetrieve = async (
     })
 }
 
+export const getAccountsNotebooksPartialUpdateUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+/**
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
+ */
+export const accountsNotebooksPartialUpdate = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    patchedAccountNotebookUpdateApi?: PatchedAccountNotebookUpdateApi,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksPartialUpdateUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAccountNotebookUpdateApi),
+    })
+}
+
 export const getAccountsNotebooksDestroyUrl = (projectId: string, accountId: string, shortId: string) => {
     return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
 }
@@ -812,6 +843,59 @@ export const accountsRelationshipsEndCreate = async (
     })
 }
 
+export const getAccountsPersonsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/persons/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+export const accountsPersonsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsRetrieveParams,
+    options?: RequestInit
+): Promise<AccountPersonsPageApi> => {
+    return apiMutator<AccountPersonsPageApi>(getAccountsPersonsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsPersonsQueryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+/**
+ * Run an account-user table query. Requires query, account, and person read scopes.
+ */
+export const accountsPersonsQueryCreate = async (
+    projectId: string,
+    id: string,
+    accountPersonsQueryRequestApi: AccountPersonsQueryRequestApi,
+    options?: RequestInit
+): Promise<ActorsQueryResponseApi> => {
+    return apiMutator<ActorsQueryResponseApi>(getAccountsPersonsQueryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPersonsQueryRequestApi),
+    })
+}
+
 export const getAccountsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/accounts/${id}/`
 }
@@ -867,6 +951,38 @@ export const accountsDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getAccountsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAccountsAutomationsListUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsAutomationsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/automations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/automations/`
+}
+
+export const accountsAutomationsList = async (
+    projectId: string,
+    id: string,
+    params?: AccountsAutomationsListParams,
+    options?: RequestInit
+): Promise<PaginatedAccountAutomationListApi> => {
+    return apiMutator<PaginatedAccountAutomationListApi>(getAccountsAutomationsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1995,6 +2111,26 @@ export const customerTasksRestoreCreate = async (
     })
 }
 
+export const getCustomerTasksBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/customer_tasks/bulk_update/`
+}
+
+/**
+ * Update selected tasks in one transaction. No tasks change if any task fails validation.
+ */
+export const customerTasksBulkUpdateCreate = async (
+    projectId: string,
+    customerTaskBulkUpdateApi: CustomerTaskBulkUpdateApi,
+    options?: RequestInit
+): Promise<CustomerTaskBulkUpdateResultApi> => {
+    return apiMutator<CustomerTaskBulkUpdateResultApi>(getCustomerTasksBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerTaskBulkUpdateApi),
+    })
+}
+
 export const getEventStreamsListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_streams/`
 }
@@ -2712,7 +2848,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (

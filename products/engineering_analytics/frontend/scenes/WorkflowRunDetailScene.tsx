@@ -3,9 +3,12 @@ import { router } from 'kea-router'
 
 import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,15 +17,16 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
+import { CITimeline } from '../components/CITimeline'
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
-import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
 import { ProductNav } from '../components/ProductNav'
 import { RepoSceneTitle } from '../components/RepoSceneTitle'
 import { formatCost, formatMinutes, runPrNumber } from '../components/runTables'
 import { ScopeBar } from '../components/ScopeBar'
 import { Section } from '../components/Section'
+import { buildRunTimeline } from '../lib/ciTimeline'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
@@ -61,6 +65,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
     const { repoOwner, repoName } = useMountedLogic(workflowRunDetailLogic).props
     const { loadRun, loadJobs, loadFailureLogs } = useActions(workflowRunDetailLogic)
     const { searchParams } = useValues(router)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isValidRunId) {
         return (
@@ -130,15 +135,22 @@ export function WorkflowRunDetailScene(): JSX.Element {
                 repo={`${repoOwner}/${repoName}`}
                 actions={
                     githubUrl ? (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            to={githubUrl}
-                            targetBlank
-                            sideIcon={<IconExternal />}
-                        >
-                            View on GitHub
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button variant="outline" render={<LinkPrimitive to={githubUrl} target="_blank" />}>
+                                View on GitHub
+                                <IconExternal />
+                            </Button>
+                        ) : (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                to={githubUrl}
+                                targetBlank
+                                sideIcon={<IconExternal />}
+                            >
+                                View on GitHub
+                            </LemonButton>
+                        )
                     ) : undefined
                 }
             />
@@ -280,8 +292,21 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                         onRetry={loadJobs}
                                         loading={jobsLoading}
                                     />
+                                ) : jobs == null ? (
+                                    <LemonSkeleton className="h-48 w-full" />
+                                ) : jobs.length === 0 ? (
+                                    <div className="text-sm text-secondary">
+                                        No job data yet. The job-level source isn't synced for this team.
+                                    </div>
                                 ) : (
-                                    <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
+                                    <CITimeline
+                                        timeline={buildRunTimeline(
+                                            { owner: repoOwner, name: repoName },
+                                            run.run_started_at,
+                                            jobs,
+                                            Date.now()
+                                        )}
+                                    />
                                 )}
                             </Section>
 

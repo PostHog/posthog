@@ -42,6 +42,8 @@ function setValues(
         pendingPermissionRequest: PermissionRequestRecord | null
         respondingToPermission: boolean
         bootstrapLoading: boolean
+        logBootstrapLoading: boolean
+        runConnectionState: { status: string } | null
         runOpening: boolean
         threadItems: unknown[]
         task: { origin_product: string; runtime?: TaskRuntimeEnumApi } | null
@@ -133,10 +135,15 @@ describe('RunSurface', () => {
 
         expect(screen.getByTestId('thread')).toBeInTheDocument()
         expect(screen.getByTestId('composer-child')).toBeInTheDocument()
-        expect(bootstrapRun).toHaveBeenCalledWith({ taskId: 'task-1', runId: 'run-1', taskRuntime: runtime })
+        expect(bootstrapRun).toHaveBeenCalledWith({
+            taskId: 'task-1',
+            runId: 'run-1',
+            taskRuntime: runtime,
+            pagedHistory: true,
+        })
     })
 
-    it('keeps a Pi task behind the unavailable banner until Pi web sessions are on', () => {
+    it.each(['live', 'read-only'] as const)('renders Pi logs with the rollout flag off in %s mode', (interaction) => {
         const bootstrapRun = jest.fn()
         ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun, reset: jest.fn(), loadTask: jest.fn() })
         setValues({
@@ -145,14 +152,18 @@ describe('RunSurface', () => {
         })
 
         render(
-            <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+            <RunSurface.Root taskId="task-1" runId="run-1" interaction={interaction}>
                 <RunSurface.Thread />
             </RunSurface.Root>
         )
 
-        expect(screen.getByText("Pi session logs aren't available in PostHog yet.")).toBeInTheDocument()
-        expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
-        expect(bootstrapRun).not.toHaveBeenCalled()
+        expect(screen.getByTestId('thread')).toBeInTheDocument()
+        expect(bootstrapRun).toHaveBeenCalledWith({
+            taskId: 'task-1',
+            runId: 'run-1',
+            taskRuntime: TaskRuntimeEnumApi.Pi,
+            pagedHistory: true,
+        })
     })
 
     describe('Composer slot', () => {
@@ -336,6 +347,20 @@ describe('RunSurface', () => {
                 expect(screen.queryByTestId('thread')).not.toBeInTheDocument()
             }
         )
+
+        it.each([
+            { name: 'history still loading after the stream opened', runConnectionState: null, skeleton: true },
+            { name: 'a reconnecting stream', runConnectionState: { status: 'reconnecting' }, skeleton: false },
+        ])('with an empty thread and $name', ({ runConnectionState, skeleton }) => {
+            setValues({ bootstrapLoading: false, logBootstrapLoading: true, runConnectionState, threadItems: [] })
+            render(
+                <RunSurface.Root taskId="task-1" runId="run-1" interaction="live">
+                    <RunSurface.Thread />
+                </RunSurface.Root>
+            )
+            expect(screen.queryByTestId('run-log-skeleton') !== null).toBe(skeleton)
+            expect(screen.queryByTestId('thread') !== null).toBe(!skeleton)
+        })
 
         it.each([null, { origin_product: 'user_created' }])(
             'keeps a populated thread visible while bootstrapping with task=%j',

@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from products.posthog_ai.eval_harness.harness.discovery import SuiteDiscoveryError, discover_suites
+from products.posthog_ai.eval_harness.harness.discovery import EvalSuite, SuiteDiscoveryError, discover_suites
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 _ONE_SHOT_MODULE = """
@@ -53,10 +53,10 @@ def product_roots(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path
     return products_root, empty_builtin_root
 
 
-def _discover(product_roots: tuple[Path, Path]) -> dict[str, SuiteKind]:
+def _discover(product_roots: tuple[Path, Path]) -> dict[str, EvalSuite]:
     products_root, builtin_root = product_roots
     suites = discover_suites(builtin_root=builtin_root, products_root=products_root)
-    return {suite.id: suite.kind for suite in suites}
+    return {suite.id: suite for suite in suites}
 
 
 def test_product_suites_discovered_with_product_scoped_ids(product_roots: tuple[Path, Path]) -> None:
@@ -72,14 +72,15 @@ def test_singular_eval_dir_is_ignored(product_roots: tuple[Path, Path]) -> None:
 @pytest.mark.parametrize(
     "suite_id, expected_kind",
     [
-        pytest.param("analytics/eval_one::eval_alpha", SuiteKind.ONE_SHOT, id="marker_respected"),
-        pytest.param("core/eval_two::eval_beta", SuiteKind.SANDBOXED, id="absent_marker_defaults_sandboxed"),
+        pytest.param("analytics/eval_one::eval_alpha", SuiteKind.ONE_SHOT, id="markers_respected"),
+        pytest.param("core/eval_two::eval_beta", SuiteKind.SANDBOXED, id="absent_markers_keep_defaults"),
     ],
 )
-def test_suite_kind_resolved_from_product_module(
+def test_suite_configuration_resolved_from_product_module(
     product_roots: tuple[Path, Path], suite_id: str, expected_kind: SuiteKind
 ) -> None:
-    assert _discover(product_roots)[suite_id] == expected_kind
+    suite = _discover(product_roots)[suite_id]
+    assert suite.kind == expected_kind
 
 
 def test_selector_matches_product_suite_ids(product_roots: tuple[Path, Path]) -> None:

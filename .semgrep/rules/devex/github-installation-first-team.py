@@ -101,3 +101,43 @@ def every_integration(installation_id):
 def justified_exception(installation_id):
     # nosemgrep: github-installation-first-team -- the installation has one project by construction here
     return Integration.objects.filter(kind="github", integration_id=installation_id).first()
+
+
+def first_sdk_row(installation_id):
+    # ruleid: github-installation-first-team
+    return IntegrationManager.github.oauth.list_by_external_id(str(installation_id))[0]
+
+
+def first_sdk_row_through_next(installation_id):
+    # ruleid: github-installation-first-team
+    return next(iter(IntegrationManager.kinds("github").list_by_external_id(str(installation_id))), None)
+
+
+def first_sdk_row_through_variable(installation_id):
+    rows = IntegrationManager.github.oauth.list_by_external_id(str(installation_id))
+    if not rows:
+        return None
+    # ruleid: github-installation-first-team
+    return rows[0]
+
+
+def first_sdk_row_of_some_teams(installation_id, team_ids):
+    # ok: github-installation-first-team
+    return IntegrationManager.github.oauth.list_by_external_id(str(installation_id), team_ids=team_ids)[0]
+
+
+def first_sdk_row_of_some_teams_through_variable(installation_id, team_ids):
+    rows = IntegrationManager.github.oauth.list_by_external_id(str(installation_id), team_ids=team_ids)
+    # ok: github-installation-first-team
+    return next(iter(rows), None)
+
+
+def every_sdk_row(installation_id):
+    # ok: github-installation-first-team
+    for row in IntegrationManager.github.oauth.list_by_external_id(str(installation_id)):
+        notify(row.team_id)
+
+
+def first_slack_sdk_row(slack_team_id):
+    # ok: github-installation-first-team
+    return IntegrationManager.slack.oauth.list_by_external_id(slack_team_id)[0]

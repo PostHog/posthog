@@ -1,14 +1,17 @@
+import {
+    breakdownProperties,
+    hasTrendsFormula,
+    isCountryProperty,
+} from 'lib/components/ChartFilter/chartDisplayOptions'
+import type { ChartDisplayOption, ChartDisplayOptionGroup } from 'lib/components/ChartFilter/chartDisplayOptions'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { DISPLAY_TYPES_TO_CATEGORIES, NON_BREAKDOWN_DISPLAY_TYPES, PART_OF_WHOLE_DISPLAY_TYPES } from 'lib/constants'
 import { isPropertyValueMath } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 
+import { hasBreakdownFilter } from '~/queries/schema/node-guards'
 import type { BreakdownFilter, TrendsQuery } from '~/queries/schema/schema-general'
-import { hasBreakdownFilter } from '~/queries/utils'
 import { ChartDisplayCategory, ChartDisplayType, PropertyMathType } from '~/types'
 import type { AnyPropertyFilter } from '~/types'
-
-import { breakdownProperties, hasTrendsFormula, isCountryProperty } from './chartDisplayOptions'
-import type { ChartDisplayOption, ChartDisplayOptionGroup } from './chartDisplayOptions'
 
 const DEFAULT_RECOMMENDATION_ORDER = [
     ChartDisplayType.Metric,

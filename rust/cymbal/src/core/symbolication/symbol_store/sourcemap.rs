@@ -9,21 +9,26 @@ use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
 use futures::StreamExt;
-use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
+use posthog_symbol_data::{
+    read_symbol_data_with_byte_count_limited, write_symbol_data, SourceAndMap,
+};
 use reqwest::Url;
 use serde::Deserialize;
 use sourcemap::{DecodedMap, SourceMap};
 use sqlx::PgPool;
-use symbolic::sourcemapcache::{SourceMapCache, SourceMapCacheWriter, SourcePosition};
+use symbolic::sourcemapcache::{
+    ScopeLookupResult, SourceLocation, SourceMapCache, SourceMapCacheWriter, SourcePosition,
+};
 use tracing::{debug, info, warn};
 
 use crate::{
     core::config::ResolverConfig,
     error::{JsResolveErr, ResolveError, UnhandledError},
     metric_consts::{
-        CHUNK_ID_RESCUED_FROM_BODY, SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND,
-        SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND,
-        SOURCEMAP_PARSE, SYMBOL_SET_DECOMPRESSED_BYTES,
+        CHUNK_ID_RESCUED_FROM_BODY, DART2JS_LOOKBACK, SOURCEMAP_BODY_FETCHES,
+        SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_EXTERNAL_BYTES, SOURCEMAP_FETCH,
+        SOURCEMAP_HEADER_FOUND, SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
+        SYMBOL_SET_DECOMPRESSED_BYTES,
     },
 };
 
@@ -31,7 +36,7 @@ use super::{
     caching::Countable,
     chunk_id::{load_symbol_set_data, SymbolSetLoadResult},
     dart_minified_names::parse_dart_minified_names,
-    BlobClient, Fetcher, ParsePermit, Parser,
+    record_size_limit_exceeded, BlobClient, Fetcher, ParsePermit, Parser,
 };
 
 pub struct SourcemapProvider {
@@ -39,6 +44,7 @@ pub struct SourcemapProvider {
     pub chunk_id_rescue: Option<ChunkIdRescue>,
     pub max_response_bytes: usize,
     allow_internal_ips: bool,
+    max_decompressed_bytes: usize,
 }
 
 /// How many redirects we follow. Installing a custom policy to vet each hop replaces reqwest's
@@ -54,7 +60,20 @@ const MAX_REDIRECTS: usize = 10;
 ///
 /// Hostnames are passed through, to be vetted at connect time by whichever layer owns that:
 /// `PublicIPv4Resolver` normally, or the egress proxy when one is configured.
-fn ensure_fetchable_host(url: &Url, allow_internal_ips: bool) -> Result<(), JsResolveErr> {
+///
+/// An out-of-band interaction domain is refused on the way past. That check sits above the
+/// escape hatch below, so a probe is stopped whatever `allow_internal_ips` says.
+fn ensure_fetchable_host(
+    url: &Url,
+    allow_internal_ips: bool,
+    team_id: Option<i32>,
+) -> Result<(), JsResolveErr> {
+    if let Some(host) = url.host_str() {
+        if common_dns::oob_domains::check_oob_domain(host, "cymbal_sourcemap", team_id).is_some() {
+            return Err(JsResolveErr::BlockedUrl(url.to_string()));
+        }
+    }
+
     if allow_internal_ips {
         return Ok(());
     }
@@ -99,6 +118,8 @@ pub struct OwnedSourceMapCache {
     /// dart2js minified names mapping (minified -> original) for Flutter Web support.
     /// Parsed from the x_org_dartlang_dart2js.minified_names.global extension.
     dart_minified_names: Option<HashMap<String, String>>,
+    /// Column-only segments, which end the mapping before them. `Some` for every dart2js map.
+    dart2js_unmapped_segments: Option<Vec<SourcePosition>>,
     /// Decompressed byte count from the symbol_data container, used for cache memory accounting.
     decompressed_bytes: usize,
 }
@@ -113,6 +134,7 @@ impl OwnedSourceMapCache {
             data,
             ignored_source_ranges: Vec::new(),
             dart_minified_names: None,
+            dart2js_unmapped_segments: None,
             decompressed_bytes,
         })
     }
@@ -122,7 +144,15 @@ impl OwnedSourceMapCache {
         decompressed_bytes: usize,
     ) -> Result<Self, symbolic::sourcemapcache::SourceMapCacheWriterError> {
         let ignored_source_ranges = parse_ignored_source_ranges(&sam.sourcemap);
-        let dart_minified_names = parse_dart_minified_names(&sam.sourcemap);
+        let is_dart2js = sam.sourcemap.contains("\"x_org_dartlang_dart2js\"");
+        let (dart_minified_names, dart2js_unmapped_segments) = if is_dart2js {
+            (
+                parse_dart_minified_names(&sam.sourcemap),
+                Some(parse_unmapped_segments(&sam.sourcemap)),
+            )
+        } else {
+            (None, None)
+        };
 
         let mut data = Vec::with_capacity(sam.minified_source.len() + sam.sourcemap.len() + 16);
         let smcw = SourceMapCacheWriter::new(&sam.minified_source, &sam.sourcemap)?;
@@ -131,6 +161,7 @@ impl OwnedSourceMapCache {
             data,
             ignored_source_ranges,
             dart_minified_names,
+            dart2js_unmapped_segments,
             decompressed_bytes,
         })
     }
@@ -155,15 +186,90 @@ impl OwnedSourceMapCache {
     pub fn get_dart_minified_names(&self) -> Option<&HashMap<String, String>> {
         self.dart_minified_names.as_ref()
     }
+
+    /// For a dart2js frame that `lookup` missed: symbolic matches only the frame's own line, and
+    /// dart2js leaves many lines without a token (see also getsentry/symbolic#1110). The walk stops
+    /// at a column-only segment, and at a token whose scope name differs from the frame line's.
+    /// Only names compare, because the cache keeps no function ranges. Other maps keep the strict
+    /// match, so that a mismatched map gives no location instead of a wrong one.
+    pub fn dart2js_lookback<'a>(
+        &self,
+        smc: &'a SourceMapCache<'_>,
+        position: SourcePosition,
+    ) -> Option<SourceLocation<'a>> {
+        let unmapped_segments = self.dart2js_unmapped_segments.as_ref()?;
+        let last_unmapped_line = unmapped_segments
+            .partition_point(|segment| *segment <= position)
+            .checked_sub(1)
+            .map(|index| unmapped_segments[index].line);
+        let frame_line_scope = smc
+            .lookup(SourcePosition::new(position.line, u32::MAX))
+            .map(|location| location.scope());
+
+        let mut outcome = "no_mapping";
+        let mut found = None;
+        let first_line = position.line.saturating_sub(DART2JS_LOOKBACK_LINES);
+        for line in (first_line..position.line).rev() {
+            if last_unmapped_line.is_some_and(|unmapped| unmapped > line) {
+                outcome = "unmapped_segment";
+                break;
+            }
+            let Some(location) = smc.lookup(SourcePosition::new(line, u32::MAX)) else {
+                continue;
+            };
+            if frame_line_scope.is_some_and(|scope| scope != location.scope()) {
+                outcome = "other_scope";
+            } else {
+                outcome = match frame_line_scope {
+                    Some(ScopeLookupResult::NamedScope(_)) => "hit",
+                    _ => "hit_unscoped",
+                };
+                found = Some(location);
+            }
+            break;
+        }
+        metrics::counter!(DART2JS_LOOKBACK, "outcome" => outcome).increment(1);
+        found
+    }
+}
+
+// In the dart2js map from #76722, about 40% of the generated lines have no token. A longer walk
+// finds more frames, but each extra line is one more chance to pass the end of the previous method.
+const DART2JS_LOOKBACK_LINES: u32 = 5;
+
+fn parse_unmapped_segments(sourcemap: &str) -> Vec<SourcePosition> {
+    let Ok(decoded) = sourcemap::decode_slice(sourcemap.as_bytes()) else {
+        return Vec::new();
+    };
+    let unmapped_segments = |map: &SourceMap| {
+        map.tokens()
+            .filter(|token| !token.has_source())
+            .map(|token| SourcePosition::new(token.get_dst_line(), token.get_dst_col()))
+            .collect()
+    };
+    match decoded {
+        DecodedMap::Regular(map) => unmapped_segments(&map),
+        DecodedMap::Index(index) => index
+            .flatten()
+            .map(|map| unmapped_segments(&map))
+            .unwrap_or_default(),
+        DecodedMap::Hermes(map) => unmapped_segments(&map),
+    }
 }
 
 impl Countable for OwnedSourceMapCache {
     fn byte_count(&self) -> usize {
-        self.decompressed_bytes.saturating_add(
-            self.ignored_source_ranges
-                .capacity()
-                .saturating_mul(std::mem::size_of::<(SourcePosition, bool)>()),
-        )
+        let unmapped_segments = self
+            .dart2js_unmapped_segments
+            .as_ref()
+            .map_or(0, Vec::capacity);
+        self.decompressed_bytes
+            .saturating_add(
+                self.ignored_source_ranges
+                    .capacity()
+                    .saturating_mul(std::mem::size_of::<(SourcePosition, bool)>()),
+            )
+            .saturating_add(unmapped_segments.saturating_mul(std::mem::size_of::<SourcePosition>()))
     }
 }
 
@@ -189,14 +295,22 @@ pub(crate) mod test_support {
     }
 
     pub fn source_map_catalog() -> StaticSourceMapCatalog {
-        let sourcemap = r#"{"version":3,"file":"bundle.js","sources":["vendor.js","app.js"],"sourcesContent":["export function vendor() {}","export function app() {}"],"names":[],"mappings":"AAAA,UCAA","ignoreList":[0]}"#.to_string();
-        let decompressed_bytes = sourcemap.len();
+        source_map_catalog_from(
+            "function vendor(){} function app(){}",
+            r#"{"version":3,"file":"bundle.js","sources":["vendor.js","app.js"],"sourcesContent":["export function vendor() {}","export function app() {}"],"names":[],"mappings":"AAAA,UCAA","ignoreList":[0]}"#,
+        )
+    }
+
+    pub fn source_map_catalog_from(
+        minified_source: &str,
+        sourcemap: &str,
+    ) -> StaticSourceMapCatalog {
         let source_map = OwnedSourceMapCache::from_source_and_map(
             SourceAndMap {
-                minified_source: "function vendor(){} function app(){}".to_string(),
-                sourcemap,
+                minified_source: minified_source.to_string(),
+                sourcemap: sourcemap.to_string(),
             },
-            decompressed_bytes,
+            sourcemap.len(),
         )
         .unwrap();
         StaticSourceMapCatalog(Arc::new(source_map))
@@ -337,7 +451,8 @@ impl SourcemapProvider {
                     "exceeded {MAX_REDIRECTS} redirects"
                 )));
             }
-            match ensure_fetchable_host(attempt.url(), allow_internal_ips) {
+            // One client serves every team, so a redirect hop cannot name a project.
+            match ensure_fetchable_host(attempt.url(), allow_internal_ips, None) {
                 Ok(()) => attempt.follow(),
                 Err(e) => attempt.error(e),
             }
@@ -350,6 +465,7 @@ impl SourcemapProvider {
             chunk_id_rescue: None,
             max_response_bytes: config.sourcemap_max_response_bytes,
             allow_internal_ips,
+            max_decompressed_bytes: config.symbol_set_max_decompressed_bytes.get(),
         }
     }
 
@@ -392,6 +508,7 @@ impl Fetcher for SourcemapProvider {
             r,
             self.max_response_bytes,
             self.allow_internal_ips,
+            team_id,
         )
         .await?;
 
@@ -416,6 +533,7 @@ impl Fetcher for SourcemapProvider {
                     sourcemap_url.clone(),
                     self.max_response_bytes,
                     self.allow_internal_ips,
+                    team_id,
                 )
                 .await?
             }
@@ -484,14 +602,17 @@ impl Parser for SourcemapProvider {
     type Err = ResolveError;
     async fn parse(&self, data: Bytes, permit: ParsePermit) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        // `read_symbol_data_with_byte_count` zstd-decompresses a potentially large blob, and
-        // `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
+        // `read_symbol_data_with_byte_count_limited` zstd-decompresses a potentially large blob,
+        // and `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
         // worker blocks the runtime; offload to a blocking thread instead.
+        let max_decompressed_bytes = self.max_decompressed_bytes;
         let smc =
             tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
                 let _permit = permit;
                 let (sam, decompressed_bytes): (SourceAndMap, usize) =
-                    read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
+                    read_symbol_data_with_byte_count_limited(&data, max_decompressed_bytes)
+                        .inspect_err(|e| record_size_limit_exceeded(e, "sourcemap", "container"))
+                        .map_err(JsResolveErr::JSDataError)?;
                 metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")
                     .record(decompressed_bytes as f64);
                 OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
@@ -549,11 +670,12 @@ async fn find_sourcemap_url(
     start: Url,
     max_response_bytes: usize,
     allow_internal_ips: bool,
+    team_id: i32,
 ) -> Result<JsSourcePeek, ResolveError> {
     // The frame's source url comes straight off an ingested event, so vet it before we connect.
     // Every other url in here is derived from the response, and so keeps this validated host,
     // except an absolute sourcemap url - `fetch_source_map` vets that one itself.
-    ensure_fetchable_host(&start, allow_internal_ips)?;
+    ensure_fetchable_host(&start, allow_internal_ips, Some(team_id))?;
 
     debug!("Fetching script source from {}", start);
 
@@ -659,10 +781,11 @@ async fn fetch_source_map(
     url: Url,
     max_response_bytes: usize,
     allow_internal_ips: bool,
+    team_id: i32,
 ) -> Result<String, ResolveError> {
     // A `SourceMap` header or `//# sourceMappingURL=` comment can name an absolute url on any
     // host, so this needs vetting independently of the source url it came from.
-    ensure_fetchable_host(&url, allow_internal_ips)?;
+    ensure_fetchable_host(&url, allow_internal_ips, Some(team_id))?;
 
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
@@ -830,7 +953,9 @@ fn assert_is_sourcemap(data: &str) -> Result<(), ResolveError> {
 #[cfg(test)]
 mod test {
     use crate::error::FrameError;
+    use common_dns::test_util::capture_oob_logs;
     use httpmock::MockServer;
+    use posthog_symbol_data::read_symbol_data_with_byte_count;
     use sourcemap::SourceMapBuilder;
 
     const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");
@@ -943,7 +1068,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk-PGUQKT6S.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -972,7 +1097,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1000,7 +1125,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1028,7 +1153,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1055,7 +1180,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/chunk.js?v=193bf1").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1081,7 +1206,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = server.url("/static/js/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1111,7 +1236,7 @@ mod test {
 
         let client = reqwest::Client::new();
         let url = source_server.url("/static/chunk.js").parse().unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1336,7 +1461,7 @@ mod test {
             .url("/static/inline_sourcemap_example.js")
             .parse()
             .unwrap();
-        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true)
+        let peek = find_sourcemap_url(&client, url, TEST_MAX_RESPONSE_BYTES, true, 1)
             .await
             .unwrap();
 
@@ -1370,6 +1495,65 @@ mod test {
     }
 
     #[test]
+    fn a_fullwidth_at_sign_never_reaches_the_matcher_as_a_host() {
+        // The matcher refuses a string holding @ or /, but only the ascii forms. It never sees the
+        // fullwidth ones, because Url rejects the whole input first. This pins that, so the guard
+        // is not quietly weakened by a future url crate that starts accepting them.
+        for raw in [
+            "https://user＠abc.oast.live/app.js",
+            "https://user／abc.oast.live/app.js",
+        ] {
+            assert!(raw.parse::<Url>().is_err(), "expected {raw} to be refused");
+        }
+    }
+
+    #[test]
+    fn ensure_fetchable_host_refuses_an_out_of_band_domain() {
+        for (raw, host, listed) in [
+            ("https://x.oast.live/app.js", "x.oast.live", true),
+            // IDNA maps the fullwidth form onto the ascii name the resolver queries.
+            // A subdomain, so the logged host differs from the logged domain and the assertion
+            // below cannot pass on the domain alone.
+            ("https://ｘ.ｏａｓｔ.ｍｅ/app.js", "x.oast.me", true),
+            ("https://notoast.me/app.js", "notoast.me", false),
+        ] {
+            let url: Url = raw.parse().unwrap();
+            assert_eq!(
+                url.host_str(),
+                Some(host),
+                "expected {raw} to parse to the host {host}"
+            );
+
+            // The check sits above the internal-ip escape hatch, so it runs under both values.
+            for allow_internal_ips in [false, true] {
+                // A redirect hop passes None, so both shapes have to render correctly.
+                for team_id in [Some(4242), None] {
+                    let logs = capture_oob_logs(|| {
+                        assert_eq!(
+                            ensure_fetchable_host(&url, allow_internal_ips, team_id).is_err(),
+                            listed,
+                            "unexpected verdict for {raw}"
+                        );
+                    });
+                    let seen = logs.contains("security.oob_domain_seen")
+                        && logs.contains("cymbal_sourcemap");
+                    assert_eq!(seen, listed, "unexpected log for {raw}: {logs}");
+                    if listed {
+                        assert!(logs.contains(host), "the log line names the host: {logs}");
+                        assert_eq!(
+                            logs.contains("team_id=4242"),
+                            team_id.is_some(),
+                            "the log line names the team it was given: {logs}"
+                        );
+                        // An absent team drops the field rather than printing a Rust Option.
+                        assert!(!logs.contains("team_id=None"), "{logs}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn ensure_fetchable_host_blocks_internal_ip_literals() {
         // Literal IPs never reach PublicIPv4Resolver, so this guard is the only thing
         // standing between an ingested frame url and an internal host.
@@ -1390,14 +1574,14 @@ mod test {
             let url: Url = raw.parse().unwrap();
             assert!(
                 matches!(
-                    ensure_fetchable_host(&url, false),
+                    ensure_fetchable_host(&url, false, None),
                     Err(JsResolveErr::BlockedUrl(_))
                 ),
                 "expected {raw} to be blocked"
             );
             // The local-development escape hatch still lets these through.
             assert!(
-                ensure_fetchable_host(&url, true).is_ok(),
+                ensure_fetchable_host(&url, true, None).is_ok(),
                 "expected {raw} to be allowed when internal IPs are permitted"
             );
         }
@@ -1415,7 +1599,7 @@ mod test {
             );
             assert!(
                 matches!(
-                    ensure_fetchable_host(&url, false),
+                    ensure_fetchable_host(&url, false, None),
                     Err(JsResolveErr::BlockedUrl(_))
                 ),
                 "expected {raw} to be blocked, normalized to {url}"
@@ -1433,7 +1617,7 @@ mod test {
         for raw in allowed {
             let url: Url = raw.parse().unwrap();
             assert!(
-                ensure_fetchable_host(&url, false).is_ok(),
+                ensure_fetchable_host(&url, false, None).is_ok(),
                 "expected {raw} to pass the guard"
             );
         }

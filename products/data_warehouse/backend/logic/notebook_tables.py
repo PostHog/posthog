@@ -14,12 +14,14 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.db import connection, transaction
+from django.db.models import Q
 
 import boto3
 from botocore.config import Config
 
 from posthog.hogql.database.database import MODELS_NAMESPACE_TABLE_ERROR, Database, is_reserved_models_name
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 
@@ -34,8 +36,9 @@ if TYPE_CHECKING:
     from types_boto3_s3 import S3Client
 
 NOTEBOOK_TABLES_FOLDER = "notebook_tables"
-# The sandbox has to finish the cell and write the Parquet file before this expires.
-UPLOAD_URL_EXPIRY_SECONDS = 6 * 60 * 60
+# A cell can run for six hours, and the sandbox writes the Parquet file only after the cell
+# finishes. The extra hour keeps the URL valid for that upload.
+UPLOAD_URL_EXPIRY_SECONDS = 7 * 60 * 60
 
 _TABLE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
 
@@ -98,6 +101,13 @@ def validate_notebook_table_name(team_id: int, table_name: str, user_id: int | N
         return
     if user is not None and not _access(user, team_id).check_access_level_for_resource("warehouse_table", "editor"):
         raise NotebookTableError("You don't have permission to create warehouse tables.")
+    # A rename keeps the table's url_pattern. A new table with the old name would write to the
+    # object that the renamed table still reads.
+    url_pattern = build_notebook_table_url_pattern(team_id, table_name)
+    if DataWarehouseTable.objects.filter(team_id=team_id, url_pattern=url_pattern).exclude(deleted=True).exists():
+        raise NotebookTableError(
+            f"A renamed table still uses the storage for the name '{table_name}'. Choose a different name."
+        )
     # has_table only sees what this user may read, so also look the name up team-wide.
     database = Database.create_for(team_id=team_id, user=user)
     if database.has_table(table_name) or get_view_or_table_by_name(team_id, table_name):
@@ -161,32 +171,48 @@ def save_notebook_table(team_id: int, table_name: str, user_id: int | None, run_
         url_pattern=_object_url(staging_key),
     )
     try:
-        columns = staged.get_columns()
-    except Exception as err:
-        s3.delete_object(Bucket=bucket, Key=staging_key)
-        raise NotebookTableError("The saved dataframe couldn't be read back as a table.") from err
+        try:
+            columns = staged.get_columns()
+        except Exception as err:
+            raise NotebookTableError("The saved dataframe couldn't be read back as a table.") from err
 
-    url_pattern = build_notebook_table_url_pattern(team_id, table_name)
-    with transaction.atomic():
-        # Serializes saves of one name, so two first saves can't each create a table, and the
-        # object and the columns always come from the same run.
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"notebook_table:{table_name}"])
-        table = (
-            DataWarehouseTable.objects.select_for_update(of=("self",))
-            .filter(team_id=team_id, name=table_name, url_pattern=url_pattern)
-            .exclude(deleted=True)
-            .first()
-        ) or DataWarehouseTable(
-            team_id=team_id,
-            name=table_name,
-            format=DataWarehouseTableFormat.Parquet,
-            url_pattern=url_pattern,
-            created_by=_user(user_id),
-        )
-        s3.copy({"Bucket": bucket, "Key": staging_key}, bucket, build_notebook_table_s3_key(team_id, table_name))
-        table.columns = columns
-        table.save()
-    s3.delete_object(Bucket=bucket, Key=staging_key)
+        url_pattern = build_notebook_table_url_pattern(team_id, table_name)
+        with transaction.atomic():
+            # Serializes saves of one name, so two first saves can't each create a table, and the
+            # object and the columns always come from the same run.
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT pg_advisory_xact_lock(%s, hashtext(%s))", [team_id, f"notebook_table:{table_name}"]
+                )
+            # Read again under the lock, because a table can be created or renamed after dispatch
+            # checked the name. A row with only the name or only the URL is another table.
+            claimants = list(
+                DataWarehouseTable.objects.select_for_update(of=("self",))
+                .filter(team_id=team_id)
+                .filter(Q(name=table_name) | Q(url_pattern=url_pattern))
+                .exclude(deleted=True)
+            )
+            if any(row.name != table_name or row.url_pattern != url_pattern for row in claimants):
+                raise NotebookTableError(f"Another table now uses the name '{table_name}'. Choose a different name.")
+            table = (
+                claimants[0]
+                if claimants
+                else DataWarehouseTable(
+                    team_id=team_id,
+                    name=table_name,
+                    url_pattern=url_pattern,
+                    created_by=_user(user_id),
+                )
+            )
+            s3.copy({"Bucket": bucket, "Key": staging_key}, bucket, build_notebook_table_s3_key(team_id, table_name))
+            # The table API can change the format, but the object is always Parquet.
+            table.format = DataWarehouseTableFormat.Parquet
+            table.set_columns(columns)
+            table.save()
+    finally:
+        try:
+            s3.delete_object(Bucket=bucket, Key=staging_key)
+        except Exception as err:
+            capture_exception(err)
     validate_data_warehouse_table_columns.delay(team_id, str(table.id))
     return str(table.id)

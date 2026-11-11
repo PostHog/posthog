@@ -2,18 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
-import { dragSelection, ensureJsdom, waitForHogChartTooltip } from '@posthog/quill-charts/testing'
+import { dragSelection, ensureJsdom, waitForChartTooltip } from '@posthog/quill-charts/testing'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 
-import {
-    buildFunnelsQuery,
-    chart,
-    getHogChart,
-    getQuerySource,
-    personsModal,
-    renderInsight,
-} from '~/test/insight-testing'
+import { buildFunnelsQuery, chart, getChart, getQuerySource, personsModal, renderInsight } from '~/test/insight-testing'
 import { buildAnnotation } from '~/test/insight-testing/test-data'
 import { AnnotationScope } from '~/types'
 
@@ -35,7 +28,7 @@ describe('FunnelLineChart', () => {
 
             const tooltip = await chart.hoverTooltip(2)
 
-            expect(getHogChart().seriesCount).toBe(1)
+            expect(getChart().seriesCount).toBe(1)
             expect(tooltip.element.textContent).toContain(FUNNEL_CONVERSION_SERIES_LABEL)
             expect(tooltip.element.textContent).toContain('40% (80/200)')
         })
@@ -48,11 +41,11 @@ describe('FunnelLineChart', () => {
             })
 
             await waitFor(() => {
-                expect(getHogChart().seriesCount).toBe(2)
+                expect(getChart().seriesCount).toBe(2)
             })
 
             await chart.clickAtIndex(2)
-            const tooltip = await waitForHogChartTooltip()
+            const tooltip = await waitForChartTooltip()
             expect(tooltip.textContent).toContain('Spike')
             expect(tooltip.textContent).toContain('Bramble')
         })
@@ -157,7 +150,7 @@ describe('FunnelLineChart', () => {
 
             await screen.findByLabelText(/chart with/i)
             await waitFor(() => {
-                const texts = getHogChart()
+                const texts = getChart()
                     .valueLabels()
                     .map((l) => l.text)
                 // default fixture data [10, 25, 40, 60, 35] rendered as percentages

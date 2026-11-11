@@ -3,12 +3,14 @@ import { Form } from 'kea-forms'
 
 import { IconSort } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,6 +18,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -141,6 +144,7 @@ function IamRoleSetupInstructions({
 export function ManagedMigration(): JSX.Element {
     const { managedMigration, isManagedMigrationSubmitting, awsIamSetup } = useValues(managedMigrationLogic)
     const { setManagedMigrationValue } = useActions(managedMigrationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isS3Source = managedMigration.source_type === 's3' || managedMigration.source_type === 's3_gzip'
     const usesIamRole = isS3Source && managedMigration.s3_auth_method === 'iam_role' && !!awsIamSetup?.available
@@ -152,9 +156,15 @@ export function ManagedMigration(): JSX.Element {
                     name="New managed migration"
                     resourceType={{ type: 'managed_migration', forceIcon: <IconSort /> }}
                     actions={
-                        <LemonButton type="primary" htmlType="submit" size="small">
-                            {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
-                        </LemonButton>
+                        todayRailNav ? (
+                            <Button variant="primary" type="submit">
+                                {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
+                            </Button>
+                        ) : (
+                            <LemonButton type="primary" htmlType="submit" size="small">
+                                {managedMigration.is_trial ? 'Start trial run' : 'Import Data'}
+                            </LemonButton>
+                        )
                     }
                     forceBackTo={{
                         path: urls.managedMigration(),
@@ -469,6 +479,7 @@ function completedLabel(migration: ManagedMigrationData): string {
 export function ManagedMigrations(): JSX.Element {
     const { managedMigrationId, migrations, migrationsLoading, promotingMigrationId } = useValues(managedMigrationLogic)
     const { pauseMigration, resumeMigration, promoteTrial, viewTrialResults } = useActions(managedMigrationLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const calculateProgress = (
         migration: ManagedMigrationData
@@ -502,14 +513,24 @@ export function ManagedMigrations(): JSX.Element {
                             forceIcon: <IconSort />,
                         }}
                         actions={
-                            <LemonButton
-                                data-attr="new-managed-migration"
-                                to={urls.managedMigrationNew()}
-                                type="primary"
-                                size="small"
-                            >
-                                New migration
-                            </LemonButton>
+                            todayRailNav ? (
+                                <Button
+                                    variant="primary"
+                                    data-attr="new-managed-migration"
+                                    render={<LinkPrimitive to={urls.managedMigrationNew()} />}
+                                >
+                                    New migration
+                                </Button>
+                            ) : (
+                                <LemonButton
+                                    data-attr="new-managed-migration"
+                                    to={urls.managedMigrationNew()}
+                                    type="primary"
+                                    size="small"
+                                >
+                                    New migration
+                                </LemonButton>
+                            )
                         }
                     />
                     <LemonTable

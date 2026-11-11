@@ -5,23 +5,32 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
+import { PRODUCT_PUSH_PROMPTS } from 'lib/components/NavPanelAdvertisement/productPushPrompts'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { withTimeout } from 'lib/utils/async'
+import { isObject } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { fileSystemFrequentList } from '~/generated/core/api'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { TeamPublicType, TeamType, UserType } from '~/types'
 
-import { signalsReportsForYouRetrieve, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
+import type { ProductPushCampaignApi } from 'products/growth/frontend/generated/api.schemas'
+import { signalsReportsList, signalsReportsRetrieve } from 'products/signals/frontend/generated/api'
 import {
     TodayReportList,
     TodayReportSnapshot,
-    captureTodayReportOpened,
+    captureTodayReportAction,
     captureTodayReportsImpressed,
 } from 'products/signals/frontend/inbox/inboxAnalytics'
 import { isActionCapableReport } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
@@ -29,18 +38,22 @@ import { SignalReport } from 'products/signals/frontend/inbox/types'
 import { reportPullRequests } from 'products/signals/frontend/inbox/utils/reportPullRequests'
 import type { HighlightItemApi, HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import type { FeatureFlagsSet } from '../../../lib/logic/featureFlagLogic'
 import { TodayAskContext, todayAskPrompt } from './todayAskPrompt'
 import { EXPLORE_ITEMS, type TodayExploreItem } from './todayExploreItems'
 import {
     VISIBLE_ROWS,
     forYouRows,
+    productPushSlot,
     reportRows,
     rowReportId,
     type TodayForYouRow,
     type TodayForYouRows,
+    type TodayProductPush,
 } from './todayForYouRows'
+import { greetingFor } from './todayGreeting'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
-import { recentObjectsForHome } from './todayRecentObjects'
+import { JumpBackObject, jumpBackObjectsForHome } from './todayRecentObjects'
 import { type TodayReportPreview, reportPreview } from './todayReportPreviews'
 import type { TodayReportState } from './todayReportState'
 import { isSampleReportId, parseSampleParam, sampleTopReports } from './todaySampleReports'
@@ -52,8 +65,30 @@ export const RECENT_OBJECT_COUNT = 4
 const RECENT_OBJECT_MORE_COUNT = 8
 const CLOCK_MS = 30_000
 
+// The personalized sort follows the Inbox's flag. Without a stored personal ranking the backend falls back to the
+// Recommended order.
+function todayReportListParams(personalSort: boolean): Record<string, string | undefined> {
+    return {
+        view: 'for_you',
+        sort: personalSort ? 'personal' : 'recommended',
+        created_after: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+    }
+}
+
 /** Where a report was opened from, sent with the `today report opened` event. */
 export type TodayReportOpenSource = 'list' | 'more'
+
+/**
+ * The list position of a report the person opened from Today. The report page reads it once, and sends the
+ * `Inbox report opened` event with it. `step` is the previous / next control on a report page.
+ */
+export interface TodayReportOpenContext {
+    reportId: string
+    list: TodayReportList | null
+    rank: number | null
+    listSize: number | null
+    source: TodayReportOpenSource | 'step'
+}
 
 /** Where a question to PostHog AI came from, sent with the `today ai asked` event. */
 export type TodayAskSource = 'walk_through' | 'report_page'
@@ -64,6 +99,8 @@ export interface TodayReports {
     results: SignalReport[]
     /** Every report that matches the filter, including the ones past the top five. */
     count: number
+    /** The personal ranking that ordered the list, so the reports past it keep the same order. */
+    rankingId?: string | null
 }
 
 export interface TodayMoreReports {
@@ -81,20 +118,6 @@ export function reportIdFromPath(pathname: string): string | null {
 
 export function isTodayPath(pathname: string): boolean {
     return /^\/(home(\/reports\/[^/]+)?\/?)?$/.test(removeProjectIdIfPresent(pathname))
-}
-
-export function greetingForHour(hour: number, name: string | null | undefined): string {
-    const suffix = name ? `, ${name}.` : '.'
-    if (hour < 5) {
-        return `You’re up late${suffix}`
-    }
-    if (hour < 12) {
-        return `Morning${suffix}`
-    }
-    if (hour < 17) {
-        return `Afternoon${suffix}`
-    }
-    return `Evening${suffix}`
 }
 
 /**
@@ -118,7 +141,7 @@ async function currentReportContext(
     return { report: current ?? report, canAct: !!current && isActionCapableReport(current) }
 }
 
-function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
+export function signalReportSnapshot(report: SignalReport): TodayReportSnapshot {
     return {
         reportId: report.id,
         priority: report.priority ?? null,
@@ -135,6 +158,8 @@ interface TodayRankedReport {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface todayLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
+    activeCampaign: ProductPushCampaignApi | null // navPanelProductPushLogic
     recents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
     currentProjectId: number | string // teamLogic
@@ -157,12 +182,14 @@ export interface todayLogicValues {
     forYouCanShowMore: boolean
     forYouFailedNote: string | null
     forYouOpenCount: number
+    forYouProductPush: TodayProductPush | null
     forYouReady: boolean
     forYouRows: TodayForYouRows
     forYouVisibleRows: TodayForYouRow[]
+    frequentObjects: FileSystemEntry[]
+    frequentObjectsLoading: boolean
     greeting: string
     homeScrollTop: number | null
-    hour: number
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
     loadedMoreReports: SignalReport[]
@@ -171,8 +198,9 @@ export interface todayLogicValues {
     moreReportsInInbox: number
     moreReportsLoading: boolean
     now: number
-    recentObjects: FileSystemEntry[]
+    recentObjects: JumpBackObject[]
     reportId: string | null
+    reportOpenContext: TodayReportOpenContext | null
     reportPreviews: Record<string, TodayReportPreview>
     reports: SignalReport[]
     reportsBroken: boolean
@@ -207,7 +235,14 @@ export interface todayLogicActions {
         searchParams: Record<string, any>
         url: string
     } // router
-    loadHighlights: () => any // todayHighlightsLogic
+    loadCurrentTeamSuccess: (
+        currentTeam: TeamPublicType | null,
+        payload?: any
+    ) => {
+        currentTeam: TeamPublicType | null
+        payload?: any
+    } // teamLogic
+    loadHighlights: (refresh?: boolean | undefined) => boolean // todayHighlightsLogic
     askAi: (
         prompt: string,
         source: TodayAskSource,
@@ -226,6 +261,30 @@ export interface todayLogicActions {
     ) => {
         position: number
         product: string
+    }
+    jumpBackOpened: (
+        entry: FileSystemEntry,
+        position: number,
+        frequent: boolean
+    ) => {
+        entry: FileSystemEntry
+        frequent: boolean
+        position: number
+    }
+    loadFrequentObjects: () => any
+    loadFrequentObjectsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadFrequentObjectsSuccess: (
+        frequentObjects: FileSystemEntry[],
+        payload?: any
+    ) => {
+        frequentObjects: FileSystemEntry[]
+        payload?: any
     }
     loadMoreReports: () => any
     loadMoreReportsFailure: (
@@ -277,6 +336,9 @@ export interface todayLogicActions {
         expanded: boolean
         list: TodayList
     }
+    setReportOpenContext: (context: TodayReportOpenContext | null) => {
+        context: TodayReportOpenContext | null
+    }
     setReturnFocusReportId: (reportId: string | null) => {
         reportId: string | null
     }
@@ -304,9 +366,8 @@ export interface todayLogicMeta {
         reportId: (location: { hash: string; pathname: string; search: string }) => string | null
         reports: (topReports: TodayReports | null) => SignalReport[]
         moreReportCount: (topReports: TodayReports | null) => number
-        hour: (now: number) => number
-        greeting: (hour: number, user: UserType | null) => string
-        recentObjects: (recents: FileSystemEntry[]) => FileSystemEntry[]
+        greeting: (now: number, user: UserType | null) => string
+        recentObjects: (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]) => JumpBackObject[]
         shownReportIds: (reports: SignalReport[]) => string[]
         currentMoreReports: (
             moreReports: TodayMoreReports | null,
@@ -320,12 +381,18 @@ export interface todayLogicMeta {
             moreReportCount: number
         ) => boolean
         moreReportsInInbox: (currentMoreReports: TodayMoreReports | null) => number
+        forYouProductPush: (
+            activeCampaign: ProductPushCampaignApi | null,
+            user: UserType | null,
+            useSampleData: boolean
+        ) => TodayProductPush | null
         forYouRows: (
             reports: SignalReport[],
             loadedMoreReports: SignalReport[],
             forYouHighlights: HighlightItemApi[],
             doneHighlightKeys: string[],
-            reportStateOverrides: Record<string, TodayReportState>
+            reportStateOverrides: Record<string, TodayReportState>,
+            forYouProductPush: TodayProductPush | null
         ) => TodayForYouRows
         reportsBroken: (reportsFailed: boolean, topReports: TodayReports | null) => boolean
         forYouReady: (
@@ -377,8 +444,19 @@ export const todayLogic = kea<todayLogicType>([
             ],
             todayVerdictLogic,
             ['reportStateOverrides'],
+            featureFlagLogic,
+            ['featureFlags'],
+            navPanelProductPushLogic,
+            ['activeCampaign'],
         ],
-        actions: [router, ['locationChanged'], todayHighlightsLogic, ['loadHighlights']],
+        actions: [
+            router,
+            ['locationChanged'],
+            todayHighlightsLogic,
+            ['loadHighlights'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+        ],
     })),
     actions({
         // `report` is the report the person reads. Without it, the context is the report list.
@@ -389,13 +467,54 @@ export const todayLogic = kea<todayLogicType>([
         exploreOpened: (product: string, position: number) => ({ product, position }),
         setHomeScrollTop: (top: number | null) => ({ top }),
         setReturnFocusReportId: (reportId: string | null) => ({ reportId }),
+        setReportOpenContext: (context: TodayReportOpenContext | null) => ({ context }),
         setListExpanded: (list: TodayList, expanded: boolean) => ({ list, expanded }),
+        jumpBackOpened: (entry: FileSystemEntry, position: number, frequent: boolean) => ({
+            entry,
+            position,
+            frequent,
+        }),
         showMoreForYou: true,
         retryFailedLoads: true,
         setUseSampleData: (useSampleData: boolean) => ({ useSampleData }),
         tick: true,
     }),
     loaders(({ values }) => ({
+        frequentObjects: [
+            [] as FileSystemEntry[],
+            {
+                loadFrequentObjects: async (): Promise<FileSystemEntry[]> => {
+                    if (values.useSampleData || values.currentProjectId === null) {
+                        return []
+                    }
+                    try {
+                        const projectId = values.currentProjectId
+                        const entries = await withTimeout(
+                            (signal) => fileSystemFrequentList(String(projectId), { limit: 8 }, { signal }),
+                            10_000,
+                            'loadFrequentObjects timed out'
+                        )
+                        if (values.currentProjectId !== projectId) {
+                            return []
+                        }
+                        return entries.map((entry) => ({
+                            id: entry.id,
+                            path: entry.path,
+                            type: entry.type,
+                            ref: entry.ref ?? undefined,
+                            href: entry.href ?? undefined,
+                            meta: isObject(entry.meta) ? entry.meta : undefined,
+                            last_viewed_at: entry.last_viewed_at,
+                        }))
+                    } catch (error) {
+                        if (!(error instanceof ApiError && error.status === 403)) {
+                            posthog.captureException(error)
+                        }
+                        return []
+                    }
+                },
+            },
+        ],
         topReports: [
             null as TodayReports | null,
             {
@@ -407,12 +526,11 @@ export const todayLogic = kea<todayLogicType>([
                         return { results: [], count: 0 }
                     }
                     // The person's own reports, ranked and counted.
-                    // A P0 nobody owns belongs to the project, so Today leaves it to the Inbox.
                     let response
                     try {
-                        response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                        response = await signalsReportsList(String(values.currentProjectId), {
+                            ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
                             limit: TOP_REPORT_COUNT,
-                            include_unowned: false,
                         })
                     } catch (error) {
                         if (error instanceof ApiError && error.status === 403) {
@@ -423,7 +541,11 @@ export const todayLogic = kea<todayLogicType>([
                     // Today passes reports to the Inbox's helpers, which take the handwritten SignalReport. The
                     // generated row type is wider (string status and priority, read-only arrays), so the cast
                     // goes away when the Inbox moves to generated types.
-                    return { results: response.results as unknown as SignalReport[], count: response.count }
+                    return {
+                        results: response.results as unknown as SignalReport[],
+                        count: response.count,
+                        rankingId: response.ranking_id,
+                    }
                 },
             },
         ],
@@ -436,11 +558,12 @@ export const todayLogic = kea<todayLogicType>([
                     }
                     const exclude = values.shownReportIds
                     const loaded = values.loadedMoreReports
-                    const response = await signalsReportsForYouRetrieve(String(values.currentProjectId), {
+                    const response = await signalsReportsList(String(values.currentProjectId), {
+                        ...todayReportListParams(!!values.featureFlags[FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]),
                         limit: MORE_REPORTS_PAGE_SIZE,
                         offset: loaded.length,
                         exclude: exclude.length > 0 ? exclude : undefined,
-                        include_unowned: false,
+                        ranking_id: values.topReports?.rankingId ?? undefined,
                     })
                     const results = [...loaded, ...(response.results as unknown as SignalReport[])]
                     return {
@@ -473,6 +596,10 @@ export const todayLogic = kea<todayLogicType>([
                 setHomeScrollTop: (_, { top }) => top,
                 locationChanged: (top, { pathname }) => (isTodayPath(pathname) ? top : null),
             },
+        ],
+        reportOpenContext: [
+            null as TodayReportOpenContext | null,
+            { setReportOpenContext: (_, { context }) => context },
         ],
         returnFocusReportId: [
             null as string | null,
@@ -517,14 +644,14 @@ export const todayLogic = kea<todayLogicType>([
             (topReports: TodayReports | null): number =>
                 topReports ? Math.max(topReports.count - topReports.results.length, 0) : 0,
         ],
-        hour: [(s) => [s.now], (now: number): number => new Date(now).getHours()],
         greeting: [
-            (s) => [s.hour, s.user],
-            (hour: number, user: UserType | null): string => greetingForHour(hour, user?.first_name),
+            (s) => [s.now, s.user],
+            (now: number, user: UserType | null): string => greetingFor(new Date(now), user?.first_name),
         ],
         recentObjects: [
-            (s) => [s.recents],
-            (recents: FileSystemEntry[]): FileSystemEntry[] => recentObjectsForHome(recents, RECENT_OBJECT_MORE_COUNT),
+            (s) => [s.recents, s.frequentObjects],
+            (recents: FileSystemEntry[], frequentObjects: FileSystemEntry[]): JumpBackObject[] =>
+                jumpBackObjectsForHome(recents, frequentObjects, RECENT_OBJECT_MORE_COUNT),
         ],
         shownReportIds: [(s) => [s.reports], (reports: SignalReport[]): string[] => reports.map((report) => report.id)],
         currentMoreReports: [
@@ -559,14 +686,41 @@ export const todayLogic = kea<todayLogicType>([
                     ? Math.max(currentMoreReports.count - currentMoreReports.results.length, 0)
                     : 0,
         ],
+        forYouProductPush: [
+            (s) => [s.activeCampaign, s.user, s.useSampleData],
+            (
+                activeCampaign: ProductPushCampaignApi | null,
+                user: UserType | null,
+                useSampleData: boolean
+            ): TodayProductPush | null =>
+                // The same setting turns off product suggestions in the sidebar.
+                activeCampaign &&
+                user &&
+                user.allow_sidebar_suggestions !== false &&
+                !useSampleData &&
+                PRODUCT_PUSH_PROMPTS[activeCampaign.product_key]
+                    ? {
+                          campaign: activeCampaign,
+                          slot: productPushSlot(activeCampaign.id, user.uuid, dayjs().format('YYYY-MM-DD')),
+                      }
+                    : null,
+        ],
         forYouRows: [
-            (s) => [s.reports, s.loadedMoreReports, s.forYouHighlights, s.doneHighlightKeys, s.reportStateOverrides],
+            (s) => [
+                s.reports,
+                s.loadedMoreReports,
+                s.forYouHighlights,
+                s.doneHighlightKeys,
+                s.reportStateOverrides,
+                s.forYouProductPush,
+            ],
             (
                 reports: SignalReport[],
                 loadedMoreReports: SignalReport[],
                 highlights: HighlightItemApi[],
                 doneHighlightKeys: string[],
-                reportStateOverrides: Record<string, TodayReportState>
+                reportStateOverrides: Record<string, TodayReportState>,
+                productPush: TodayProductPush | null
             ): TodayForYouRows =>
                 forYouRows({
                     reports,
@@ -574,6 +728,7 @@ export const todayLogic = kea<todayLogicType>([
                     highlights,
                     doneHighlightKeys,
                     reportStateOverrides,
+                    productPush,
                 }),
         ],
         reportsBroken: [
@@ -605,7 +760,8 @@ export const todayLogic = kea<todayLogicType>([
         ],
         forYouOpenCount: [
             (s) => [s.forYouRows],
-            ({ rows }: TodayForYouRows): number => rows.filter((row) => !row.done).length,
+            ({ rows }: TodayForYouRows): number =>
+                rows.filter((row) => !row.done && row.kind !== 'product_push').length,
         ],
         forYouVisibleRows: [
             (s) => [s.forYouRows, s.listExpanded],
@@ -686,7 +842,26 @@ export const todayLogic = kea<todayLogicType>([
                 moreRows.length
             )
         }
+        const capturePreview = (reportId: string, list: TodayReportList, rank: number): void => {
+            captureTodayReportAction({
+                reportId,
+                actionType: 'expand_preview',
+                todaySurface: 'list',
+                extra: { list, rank },
+            })
+        }
         return {
+            loadCurrentTeamSuccess: () => actions.loadFrequentObjects(),
+            jumpBackOpened: ({ entry, position, frequent }) => {
+                if (!values.useSampleData) {
+                    posthog.capture('today jump back opened', {
+                        object_type: entry.type,
+                        object_ref: entry.ref ?? entry.id,
+                        position,
+                        reason: frequent ? 'frequent' : 'recent',
+                    })
+                }
+            },
             askAi: async ({ prompt, source, report }, breakpoint) => {
                 let context: TodayAskContext
                 // Sample reports have ids that do not exist, so PostHog AI gets no context to look up. A real
@@ -716,6 +891,7 @@ export const todayLogic = kea<todayLogicType>([
             },
             setUseSampleData: () => {
                 actions.loadTopReports()
+                actions.loadFrequentObjects()
             },
             exploreOpened: ({ product, position }) => {
                 posthog.capture('today explore opened', { product, position })
@@ -725,9 +901,9 @@ export const todayLogic = kea<todayLogicType>([
                     return
                 }
                 const { rows } = values.forYouRows
-                for (const [list, source] of [
-                    ['team', 'list'],
-                    ['more', 'more'],
+                for (const [list, source, reportList] of [
+                    ['team', 'list', 'briefing'],
+                    ['more', 'more', 'sidebar_more'],
                 ] as const) {
                     const listRows = reportRows(rows, source)
                     const index = listRows.findIndex((row) => row.report.id === reportId)
@@ -739,8 +915,15 @@ export const todayLogic = kea<todayLogicType>([
                             has_metric: !!listRows[index].report.metrics?.length,
                             surface: 'list',
                         })
+                        capturePreview(reportId, reportList, index + 1)
                         return
                     }
+                }
+            },
+            // A verdict that failed without an answer can still have saved, so the list reloads from the server.
+            [todayVerdictLogic.actionTypes.setReportVerdictFailure]: () => {
+                if (!values.useSampleData) {
+                    actions.loadTopReports()
                 }
             },
             showMoreForYou: () => {
@@ -770,6 +953,9 @@ export const todayLogic = kea<todayLogicType>([
                     }
                 }
             },
+            loadTopReports: () => {
+                cache.topReportsStartedAt = performance.now()
+            },
             loadTopReportsSuccess: ({ topReports }) => {
                 if (values.useSampleData) {
                     return
@@ -779,6 +965,11 @@ export const todayLogic = kea<todayLogicType>([
                 posthog.capture('today home loaded', {
                     report_count: topReports.results.length,
                     more_report_count: values.moreReportCount,
+                    jump_back_ranking: 'recent-and-frequent-v1',
+                    duration_ms:
+                        cache.topReportsStartedAt != null
+                            ? Math.round(performance.now() - cache.topReportsStartedAt)
+                            : null,
                 })
             },
             loadMoreReports: () => {
@@ -797,6 +988,15 @@ export const todayLogic = kea<todayLogicType>([
                 lemonToast.error('Couldn’t load more reports. Try again in a minute.')
             },
             reportOpened: ({ report, source }) => {
+                const listRows = reportRows(values.forYouRows.rows, source)
+                const rank = listRows.findIndex((row) => row.report.id === report.id) + 1
+                actions.setReportOpenContext({
+                    reportId: report.id,
+                    list: source === 'more' ? 'sidebar_more' : 'briefing',
+                    rank: rank || null,
+                    listSize: listRows.length,
+                    source,
+                })
                 if (values.useSampleData) {
                     return
                 }
@@ -805,15 +1005,6 @@ export const todayLogic = kea<todayLogicType>([
                     report_id: report.id,
                     priority: report.priority ?? null,
                     has_pr: !!report.implementation_pr_url,
-                    source,
-                })
-                const listRows = reportRows(values.forYouRows.rows, source)
-                const rank = listRows.findIndex((row) => row.report.id === report.id) + 1
-                captureTodayReportOpened({
-                    report: signalReportSnapshot(report),
-                    list: source === 'more' ? 'sidebar_more' : 'briefing',
-                    rank: rank || null,
-                    listSize: listRows.length,
                     source,
                 })
             },
@@ -828,6 +1019,7 @@ export const todayLogic = kea<todayLogicType>([
         } else {
             actions.loadTopReports()
         }
+        actions.loadFrequentObjects()
         cache.disposables.add(() => {
             const clock = window.setInterval(() => actions.tick(), CLOCK_MS)
             return () => clearInterval(clock)

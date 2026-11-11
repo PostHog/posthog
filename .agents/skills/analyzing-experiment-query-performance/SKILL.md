@@ -190,7 +190,7 @@ Check enablement in the UI, or in code via `TeamExperimentsConfig.experiment_pre
 - `experiment_precompute_skip_reason` — set on reads that **never attempted** precompute:
   `override_direct`, `team_disabled`, `min_runtime`, `activation_config`, `cohort_not_calculated`,
   `data_warehouse`, `group_aggregation`
-  (the `PrecomputeSkipReason` enum in `products/experiments/backend/hogql_queries/types.py`).
+  (the `PrecomputeSkipReason` enum in `products/experiments/backend/facade/enums.py`).
   **An empty skip reason on a `direct_scan` read means precompute was attempted but the data wasn't ready**
   (build failed or too slow) — that read paid for the build _and_ the full scan.
   This is the bucket to watch; it should stay near zero.
@@ -251,7 +251,7 @@ re-check the key's scopes before anything else.
    to identify which team, experiment, and metric type is responsible.
 3. **Drill to ground truth**: for a specific `query_id`, the full `query_log` row
    (settings, replica, ProfileEvents) needs ClickHouse —
-   use the `querying-production-databases-via-metabase` skill.
+   use the `querying-production-databases` skill.
 4. **Result-consistency questions** (precomputed vs direct results diverging) are out of scope here —
    these endpoints see performance and failures, not result values.
    That's the precompute result-consistency canary's territory:
@@ -262,7 +262,7 @@ re-check the key's scopes before anything else.
 
 - `slowest_queries` is a top-100 **duration ranking**, not a cost census —
   cheap-but-chatty query patterns are invisible in it; use the overview totals for volume questions.
-- `hours` is clamped to 1–168 server-side; longer lookbacks need `query_log_archive` directly (Metabase skill).
+- `hours` is clamped to 1–168 server-side; longer lookbacks need `query_log_archive` directly (`querying-production-databases` skill).
 - `organization_arr` is best-effort (billing lookup can return null).
 - These endpoints exist for the scene and have no OpenAPI schema or generated types;
   response shapes are defined by `queryPerformanceLogic.ts`.

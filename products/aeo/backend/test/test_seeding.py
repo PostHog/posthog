@@ -6,7 +6,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 
 from products.aeo.backend.engines import MAX_PROMPT_LENGTH
-from products.aeo.backend.models import AEOPrompt
+from products.aeo.backend.models import AEOPrompt, AEOPromptVersion
 from products.aeo.backend.seeding import (
     PromptCandidate,
     import_prompts_csv,
@@ -67,8 +67,10 @@ def test_reseeding_the_same_prompt_updates_instead_of_duplicating(team: Team) ->
 
     assert result == {"created": 0, "updated": 1, "skipped": 0}
     prompt = AEOPrompt.objects.for_team(team.id).get()
-    assert prompt.topic == "Session replay"
-    assert prompt.active is False
+    assert (prompt.prompt, prompt.topic, prompt.active) == ("best session replay?", "Session replay", False)
+    assert list(AEOPromptVersion.objects.for_team(team.id).values_list("prompt_id", "version", "text")) == [
+        (prompt.id, 1, "best session replay?")
+    ]
 
 
 def test_oversized_and_empty_prompts_are_skipped(team: Team) -> None:

@@ -19,7 +19,14 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
 import { newCommonIngestionPipeline } from '~/ingestion/common/common-ingestion-pipeline'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
+import {
+    EventFiltersBatchContext,
+    createApplyEventFiltersStep,
+    createEventFiltersBatchAppMetricsBeforeBatchStep,
+    createFlushEventFiltersBatchAppMetricsStep,
+} from '~/ingestion/common/steps/event-filters-steps'
 import {
     createApplyCookielessProcessingStep,
     createApplyEventRestrictionsStep,
@@ -73,7 +80,7 @@ export type ErrorTrackingPipeline = BatchingPipeline<
     ErrorTrackingPipelineInput,
     ErrorTrackingPipelineOutput,
     { message: Message },
-    EventUsageBatchContext,
+    EventFiltersBatchContext & EventUsageBatchContext,
     { message: Message } & BatchingContext,
     OverflowOutput
 >
@@ -92,6 +99,7 @@ export interface ErrorTrackingPipelineConfig {
     groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    eventFilterManager: EventFilterManager
     overflowMode: IngestionOverflowMode
     /**
      * When true, overflow redirects (both restriction-driven force-overflow
@@ -121,21 +129,22 @@ export interface ErrorTrackingPipelineConfig {
  *  1. Parse headers - Extract token, timestamps from Kafka message headers
  *  2. Apply event restrictions - Billing limits, drop/overflow
  *  3. Skip-cookieless rate limit - Redirect non-cookieless rate-limited events to overflow
- *     pre-parse (cookieless events pass through to step 7)
+ *     pre-parse (cookieless events pass through to step 9)
  *  4. Prefetch teams - Warm the team cache for the chunk's tokens (TEAMS_PREFETCH_ENABLED)
  *  5. Parse Kafka message - Parse message body into event
  *  6. Resolve team - Look up team by token
- *  7. Apply cookieless processing - Rewrite distinct_id for cookieless events
- *  8. Only-cookieless rate limit - Redirect cookieless rate-limited events to overflow
- *     using the hashed distinct_id from step 7
- *  9. Prefetch hog functions - Warm the transformation cache for the chunk's teams (HOG_FUNCTIONS_PREFETCH_ENABLED)
- * 10. Cymbal processing - Symbolicate, fingerprint, and link issues
- * 11. Person properties - Fetch person by distinct_id (read-only)
- * 12. Hog transformations - Run team transformations (including GeoIP if enabled)
- * 13. Prepare event - Convert to PreIngestionEvent format, track if person found
- * 14. Group type mapping - Map group types to indexes (read-only)
- * 15. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
- * 16. Emit event - Produce to output topic
+ *  7. Apply event filters - Drop events that match the team's event filter
+ *  8. Apply cookieless processing - Rewrite distinct_id for cookieless events
+ *  9. Only-cookieless rate limit - Redirect cookieless rate-limited events to overflow
+ *     using the hashed distinct_id from step 8
+ * 10. Prefetch hog functions - Warm the transformation cache for the chunk's teams (HOG_FUNCTIONS_PREFETCH_ENABLED)
+ * 11. Cymbal processing - Symbolicate, fingerprint, and link issues
+ * 12. Person properties - Fetch person by distinct_id (read-only)
+ * 13. Hog transformations - Run team transformations (including GeoIP if enabled)
+ * 14. Prepare event - Convert to PreIngestionEvent format, track if person found
+ * 15. Group type mapping - Map group types to indexes (read-only)
+ * 16. Create event - Build ErrorTrackingKafkaEvent (matches Cymbal's output format)
+ * 17. Emit event - Produce to output topic
  *
  * Note: Cymbal runs before enrichment because it only needs the raw exception data
  * for symbolication and fingerprinting. This reduces payload size and avoids
@@ -152,6 +161,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         groupTypeManager,
         cookielessManager,
         eventIngestionRestrictionManager,
+        eventFilterManager,
         overflowMode,
         preservePartitionLocality,
         overflowRedirectService,
@@ -169,7 +179,11 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         concurrentBatches: 1,
         topHog,
     })
-        .beforeBatch((b) => b.pipe(createEventUsageBeforeBatchStep(createEventUsageBatch)))
+        .beforeBatch((b) =>
+            b
+                .pipe(createEventFiltersBatchAppMetricsBeforeBatchStep(outputs))
+                .pipe(createEventUsageBeforeBatchStep(createEventUsageBatch))
+        )
         // Header-only steps: parse Kafka headers and apply token-level restrictions.
         // Cheap; runs per-event before we touch the body.
         .parseHeaders()
@@ -188,6 +202,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
         .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
         .parseMessage()
         .resolveTeam()
+        .pipe(createApplyEventFiltersStep(eventFilterManager))
         // Carry the Kafka message byte size through for Cymbal batch chunking.
         .pipe(createAttachMessageBytesStep())
         // Cookieless processing: rewrites event.distinct_id for cookieless
@@ -241,6 +256,7 @@ export function createErrorTrackingPipeline(config: ErrorTrackingPipelineConfig)
             .pipe(createRecordIngestionLagStep())
             .afterBatch((b) =>
                 b
+                    .pipe(createFlushEventFiltersBatchAppMetricsStep())
                     .pipe(createFlushEventUsageStep())
                     // Drain hog transformer invocation results once per batch.
                     .pipe(createFlushHogTransformerStep(hogTransformer))

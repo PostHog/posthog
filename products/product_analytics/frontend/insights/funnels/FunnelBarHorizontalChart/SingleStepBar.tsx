@@ -8,6 +8,7 @@ import {
     type TooltipContext,
 } from '@posthog/quill-charts'
 
+import { FunnelGoalLines } from '../FunnelGoalLines'
 import {
     FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
     type FunnelBarHorizontalSegmentMeta,
@@ -78,7 +79,9 @@ export function SingleStepBar({
                 tooltip={renderTooltip}
                 onPointClick={onPointClick}
                 onError={onError}
-            />
+            >
+                <FunnelGoalLines />
+            </BarChart>
         </div>
     )
 }

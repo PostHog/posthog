@@ -19,6 +19,10 @@ import { maxThreadLogic } from './maxThreadLogic'
 const meta: Meta = {
     title: 'Scenes-App/PostHog AI/Forms',
     ...sharedMeta,
+    parameters: {
+        ...sharedMeta.parameters,
+        testOptions: { waitForSelector: '[data-attr="max-multi-question-form"]' },
+    },
 }
 export default meta
 

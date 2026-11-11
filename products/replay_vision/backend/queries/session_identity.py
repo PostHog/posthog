@@ -15,6 +15,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 
@@ -109,7 +110,7 @@ def fetch_session_person_properties(
             "end": ast.Constant(value=end + IDENTITY_TIMESTAMP_SLACK),
         },
     )
-    response = execute_hogql_query(query=query, team=team)
+    response = execute_hogql_query(query=query, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     if not response.results:
         return {}
     return person_properties_from_row(response.results[0])

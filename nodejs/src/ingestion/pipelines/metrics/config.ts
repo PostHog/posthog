@@ -29,7 +29,6 @@ export type MetricsIngestionConsumerConfig = {
     METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: string
     METRICS_INGESTION_CONSUMER_DLQ_TOPIC: string
     METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: string
-    METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: boolean
     METRICS_REDIS_HOST: string
     METRICS_REDIS_PORT: number
     METRICS_REDIS_PASSWORD: string
@@ -41,6 +40,7 @@ export type MetricsIngestionConsumerConfig = {
     METRICS_LIMITER_TTL_SECONDS: number
     METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: string
     METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: string
+    METRICS_LIMITER_FAIL_OPEN: boolean
     REDIS_URL: string
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
@@ -53,7 +53,6 @@ export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionCons
         METRICS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_METRICS_INGESTION,
         METRICS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_METRICS_INGESTION_DLQ,
         METRICS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_METRICS_CLICKHOUSE,
-        METRICS_INGESTION_USE_PIPELINE_FRAMEWORK: false,
         METRICS_REDIS_HOST: '127.0.0.1',
         METRICS_REDIS_PORT: 6379,
         METRICS_REDIS_PASSWORD: '',
@@ -65,6 +64,8 @@ export function getDefaultMetricsIngestionConsumerConfig(): MetricsIngestionCons
         METRICS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
         METRICS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         METRICS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        // When Redis is unavailable, allow every message instead of failing the batch.
+        METRICS_LIMITER_FAIL_OPEN: false,
         // Overlapping fields with CommonConfig, included for standalone usage
         // ok to connect to localhost over plaintext
         // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport

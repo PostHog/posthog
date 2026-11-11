@@ -1,6 +1,20 @@
 {
     "name": "Envoy proxy",
     "description": "Upstream traffic, errors, latency and connections of Envoy clusters.",
+    "variables": [
+        {
+            "name": "instance",
+            "label": "Instance",
+            "source": "sql",
+            "query": "SELECT DISTINCT attribute_value FROM posthog.metric_attributes WHERE attribute_key = 'instance' AND time_bucket >= toStartOfHour($__from) AND time_bucket < $__to",
+            "multi": false,
+            "includeAll": true,
+            "current": {
+                "values": [],
+                "all": true
+            }
+        }
+    ],
     "panels": [
         {
             "key": "requests",
@@ -11,7 +25,14 @@
                     {
                         "name": "a",
                         "metricName": "envoy_cluster_upstream_rq_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -42,13 +63,25 @@
                                 "key": "envoy_response_code_class",
                                 "op": "eq",
                                 "value": "5"
+                            },
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     },
                     {
                         "name": "b",
                         "metricName": "envoy_cluster_upstream_rq_total",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -88,7 +121,14 @@
                     {
                         "name": "a",
                         "metricName": "envoy_cluster_upstream_cx_active",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -112,7 +152,14 @@
                     {
                         "name": "a",
                         "metricName": "envoy_cluster_membership_healthy",
-                        "aggregation": "sum"
+                        "aggregation": "sum",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -140,6 +187,13 @@
                         "groupBy": [
                             {
                                 "key": "envoy_cluster_name"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }
@@ -171,6 +225,13 @@
                             {
                                 "key": "envoy_cluster_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -200,6 +261,13 @@
                             {
                                 "key": "envoy_response_code_class"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -224,12 +292,26 @@
                     {
                         "name": "retries",
                         "metricName": "envoy_cluster_upstream_rq_retry",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     },
                     {
                         "name": "timeouts",
                         "metricName": "envoy_cluster_upstream_rq_timeout",
-                        "aggregation": "rate"
+                        "aggregation": "rate",
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
+                        ]
                     }
                 ],
                 "display": {
@@ -257,6 +339,13 @@
                         "groupBy": [
                             {
                                 "key": "envoy_http_conn_manager_prefix"
+                            }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
                             }
                         ]
                     }
@@ -287,6 +376,13 @@
                             {
                                 "key": "envoy_cluster_name"
                             }
+                        ],
+                        "filters": [
+                            {
+                                "key": "instance",
+                                "op": "eq",
+                                "value": "$instance"
+                            }
                         ]
                     }
                 ],
@@ -307,7 +403,14 @@
             "query": {
                 "kind": "MetricsHistogramQuery",
                 "metricName": "envoy_cluster_upstream_rq_time",
-                "unit": "ms"
+                "unit": "ms",
+                "filters": [
+                    {
+                        "key": "instance",
+                        "op": "eq",
+                        "value": "$instance"
+                    }
+                ]
             },
             "layout": {
                 "x": 0,

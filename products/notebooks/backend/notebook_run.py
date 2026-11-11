@@ -173,6 +173,7 @@ class NotebookRunStarted:
     cell_count: int
     starts_sandbox: bool
     sandbox_hourly_price: float | None
+    saves_warehouse_tables: bool
 
 
 def start_notebook_run(
@@ -202,13 +203,8 @@ def start_notebook_run(
         cell_count=start.cell_count,
         starts_sandbox=start.starts_sandbox,
         sandbox_hourly_price=start.sandbox_hourly_price,
+        saves_warehouse_tables=any(cell.get("warehouse_table_name") for cell in start.notebook_run.cell_plan),
     )
-
-
-def notebook_saves_warehouse_tables(*, team_id: int, notebook_short_id: str) -> bool:
-    """Whether a whole-notebook run would save any cell's dataframe as a warehouse table."""
-    notebook = resolve_team_notebook(team_id, notebook_short_id)
-    return any(cell.warehouse_table_name for cell in extract_cells(notebook.content))
 
 
 def read_notebook_run(*, team_id: int, notebook_short_id: str, run_id: str | UUID) -> dict[str, Any] | None:
@@ -446,7 +442,6 @@ __all__ = [
     "interrupt_notebook_run",
     "node_run_request_for",
     "notebook_run_status",
-    "notebook_saves_warehouse_tables",
     "plan_notebook_cells",
     "start_notebook_run",
     "stop_current_cell",

@@ -3,8 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconEllipsis, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonMenu } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
@@ -18,6 +16,7 @@ import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SERVING_ENGINE } from 'products/data_modeling/frontend/suspension'
+import { viewEngine } from 'products/data_warehouse/frontend/shared/viewEngine'
 
 export function MaterializationRunActions({
     viewId,
@@ -59,7 +58,6 @@ export function MaterializationRunActions({
         updateDataWarehouseSavedQuery,
         revertMaterialization,
     } = useActions(dataWarehouseViewsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!savedQuery) {
         return null
@@ -138,6 +136,7 @@ export function MaterializationRunActions({
                     loading={materializationActionLoading || materializationRefreshPending || deletingView}
                     disabledReason={
                         accessReason ||
+                        viewEngine(savedQuery).capabilities.materialize.reason ||
                         refreshReason ||
                         (deletingView ? 'Deleting view' : undefined) ||
                         (updatingDataWarehouseSavedQuery ? 'Saving materialization settings' : undefined) ||
@@ -152,9 +151,7 @@ export function MaterializationRunActions({
                         materializeDataWarehouseSavedQuery(
                             viewId,
                             defaultCadenceWithin(savedQuery.sync_frequency_bounds, initialSyncFrequency),
-                            !incrementalDraftTouched ||
-                                kind === 'endpoint' ||
-                                !featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS]
+                            !incrementalDraftTouched || kind === 'endpoint'
                                 ? undefined
                                 : incrementalDraft.enabled && incrementalDraft.incrementalKey
                                   ? {
@@ -294,8 +291,7 @@ export function MaterializationRunActions({
                             : []),
                         ...(kind !== 'endpoint'
                             ? [
-                                  ...(featureFlags[FEATURE_FLAGS.DATA_MODELING_INCREMENTAL_VIEWS] &&
-                                  savedQuery.incremental?.enabled
+                                  ...(savedQuery.incremental?.enabled
                                       ? [
                                             {
                                                 label: 'Run full refresh',

@@ -97,6 +97,9 @@ export type BIWorksheetAction =
     | 'local_field_saved'
     | 'calculated_field_saved'
     | 'chart_settings_changed'
+    | 'conditional_formatting_opened'
+    | 'conditional_formatting_updated'
+    | 'measure_expression_updated'
     | 'undo'
     | 'redo'
     | 'copied'
@@ -105,6 +108,7 @@ export type BIWorksheetAction =
     | 'first_chart'
     | 'saved'
     | 'added_to_dashboard'
+    | 'dashboard_segment_selected'
     | 'drilldown_opened'
     | 'underlying_rows_viewed'
     | 'drilldown_worksheet_opened'
@@ -124,9 +128,10 @@ export function captureBIWorksheetAction(
         hierarchy_axis?: 'rows' | 'columns'
         hierarchy_depth?: number
         expanded?: boolean
-        starter_kind?: 'metric' | 'certified_source' | 'events'
+        starter_kind?: 'metric' | 'certified_source' | 'events' | 'daily_people' | 'event_reach' | 'pageview_sources'
         source_certification?: 'certified' | 'deprecated' | 'unmarked'
         setting_keys?: string[]
+        rule_count?: number
     } = {}
 ): void {
     posthog.capture(BI_EDITOR_EVENTS.WORKSHEET_ACTION, {

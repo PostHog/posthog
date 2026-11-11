@@ -157,7 +157,6 @@ class BillingSubscriptionSerializer(serializers.Serializer):
     subscription_level = serializers.CharField(allow_null=True)
     billing_plan = serializers.CharField(allow_null=True)
     billing_provider = serializers.ChoiceField(choices=["stripe", "vercel"], allow_null=True)
-    deactivated = serializers.BooleanField()
     is_annual_plan_customer = serializers.BooleanField()
     billing_period = BillingPeriodSerializer(allow_null=True)
     trial = TrialSerializer(allow_null=True)
@@ -854,7 +853,6 @@ class OrganizationBillingViewSet(BillingReadViewSet):
             "subscription_level": data.get("subscription_level"),
             "billing_plan": data.get("billing_plan"),
             "billing_provider": ORGANIZATION_BILLING_PROVIDER.get(data.get("billing_provider") or "", None),
-            "deactivated": data.get("deactivated", False),
             "is_annual_plan_customer": data.get("is_annual_plan_customer", False),
             "billing_period": _billing_period(data.get("billing_period")),
             "trial": (

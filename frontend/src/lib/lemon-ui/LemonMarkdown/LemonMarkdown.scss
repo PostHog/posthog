@@ -71,6 +71,15 @@
         max-width: 100%;
     }
 
+    // An icon inline in a sentence (e.g. the external-link icon `Link` appends) sizes to the
+    // text around it. The tag qualifiers out-rank button-primitive's descendant icon rule,
+    // which fixes icons at 16px for a button's own leading icon and otherwise reaches
+    // markdown rendered inside button-primitive-styled containers (e.g. scene descriptions).
+    a svg.LemonIcon {
+        width: 1em;
+        height: 1em;
+    }
+
     blockquote {
         padding: 0.5em 1em;
         margin: 0.5em 0;
@@ -84,35 +93,47 @@
     }
 
     // Table styling - minimal approach
-    table {
+    // A <table> ignores `overflow`, so a wrapper scrolls a wide table instead of squeezing its columns.
+    .LemonMarkdown__table-wrapper {
+        max-width: 100%;
         margin: 1em 0;
-        overflow: auto;
+        overflow-x: auto;
+    }
+
+    // Only LemonMarkdown's own table carries the class, so a table a caller swaps in through `components`
+    // keeps its own styling.
+    .LemonMarkdown__table {
         border-spacing: 0;
         border-collapse: separate;
         border: 1px solid var(--border);
         border-radius: var(--radius);
-    }
 
-    th,
-    td {
-        padding: 0.375rem 0.75rem;
-        color: var(--default);
-        text-align: left;
-        vertical-align: top;
-        border-right: 1px solid var(--border);
-        border-bottom: 1px solid var(--border);
+        th,
+        td {
+            // Stops one long prose cell from taking all the width from the short columns.
+            max-width: 40rem;
+            padding: 0.375rem 0.75rem;
+            color: var(--default);
+            text-align: left;
 
-        &:last-child {
-            border-right: none;
+            // `anywhere` lets a column shrink to one character. `break-word` keeps the longest word as the minimum.
+            overflow-wrap: break-word;
+            vertical-align: top;
+            border-right: 1px solid var(--border);
+            border-bottom: 1px solid var(--border);
+
+            &:last-child {
+                border-right: none;
+            }
         }
-    }
 
-    th {
-        font-weight: 600;
-    }
+        th {
+            font-weight: 600;
+        }
 
-    tbody tr:last-child td {
-        border-bottom: none;
+        tbody tr:last-child td {
+            border-bottom: none;
+        }
     }
 
     .LemonMarkdown__task {

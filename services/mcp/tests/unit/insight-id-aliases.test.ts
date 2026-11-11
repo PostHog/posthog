@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { InsightQueryInputSchema } from '@/schema/tool-inputs'
+import { TOOL_MAP } from '@/tools'
 import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 
 // Agents interchange `id` / `insightId` / `insight_id` / `short_id` / `shortId`
@@ -11,10 +12,10 @@ import { GENERATED_TOOLS } from '@/tools/generated/product_analytics'
 describe('insight id aliases', () => {
     const ALIAS_KEYS = ['insightId', 'insight_id', 'short_id', 'shortId'] as const
 
-    describe.each([['insight-get'], ['insight-update'], ['insight-delete']])(
+    describe.each([['insight-get'], ['insight-update'], ['insight-delete'], ['insight-trust-check']])(
         '%s normalizes aliases to `id`',
         (toolName) => {
-            const schema = GENERATED_TOOLS[toolName]!().schema
+            const schema = (GENERATED_TOOLS[toolName] ?? TOOL_MAP[toolName])!().schema
 
             it.each([
                 ['id (numeric)', { id: 123 }, 123],

@@ -1,7 +1,6 @@
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
-from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -15,8 +14,6 @@ from products.data_quality.backend.logic.triggers import (
 )
 from products.data_quality.backend.models import DataQualityCheck, TeamDataQualityConfig
 
-TRIGGER_FLAG = "products.data_quality.backend.logic.triggers.is_data_quality_checks_enabled_for_team_id"
-
 
 class TestTriggerGates(BaseTest):
     """The gates the pipelines consult before spending a workflow on a suite."""
@@ -27,9 +24,6 @@ class TestTriggerGates(BaseTest):
         self.node = Node.objects.create(
             team=self.team, dag=DAG.objects.create(team=self.team, name="dag"), saved_query=self.view, name="orders"
         )
-        flag = patch(TRIGGER_FLAG, return_value=True)
-        flag.start()
-        self.addCleanup(flag.stop)
 
     def _check(self, **kwargs) -> DataQualityCheck:
         defaults = {
@@ -45,18 +39,16 @@ class TestTriggerGates(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_check_on_the_subject", None, True),
-            ("a_disabled_check", {"enabled": False}, True),
-            ("a_deleted_check", {"deleted": True}, True),
-            ("a_runnable_check_but_the_flag_is_off", {}, False),
+            ("no_check_on_the_subject", None),
+            ("a_disabled_check", {"enabled": False}),
+            ("a_deleted_check", {"deleted": True}),
         ]
     )
-    def test_no_suite_is_needed(self, _name, check_kwargs, flag_on) -> None:
+    def test_no_suite_is_needed(self, _name, check_kwargs) -> None:
         if check_kwargs is not None:
             self._check(**check_kwargs)
 
-        with patch(TRIGGER_FLAG, return_value=flag_on):
-            assert materialization_checks_needed(self.team.id, [str(self.node.id)]) is False
+        assert materialization_checks_needed(self.team.id, [str(self.node.id)]) is False
 
     def test_a_materialized_node_with_a_runnable_check_needs_a_suite(self) -> None:
         self._check()
@@ -79,15 +71,14 @@ class TestTriggerGates(BaseTest):
 
     @parameterized.expand(
         [
-            ("the_flag_is_off", {"severity": CheckSeverity.ERROR}, True, False, QUALITY_AUDIT_SKIP),
-            ("the_subject_has_no_check", None, True, True, QUALITY_AUDIT_SKIP),
-            ("the_team_never_configured_a_gate", {"severity": CheckSeverity.ERROR}, None, True, QUALITY_AUDIT_WARN),
-            ("the_team_turned_the_gate_off", {"severity": CheckSeverity.ERROR}, False, True, QUALITY_AUDIT_WARN),
-            ("every_check_only_warns", {"severity": CheckSeverity.WARN}, True, True, QUALITY_AUDIT_WARN),
-            ("a_check_can_block", {"severity": CheckSeverity.ERROR}, True, True, QUALITY_AUDIT_GATE),
+            ("the_subject_has_no_check", None, True, QUALITY_AUDIT_SKIP),
+            ("the_team_never_configured_a_gate", {"severity": CheckSeverity.ERROR}, None, QUALITY_AUDIT_WARN),
+            ("the_team_turned_the_gate_off", {"severity": CheckSeverity.ERROR}, False, QUALITY_AUDIT_WARN),
+            ("every_check_only_warns", {"severity": CheckSeverity.WARN}, True, QUALITY_AUDIT_WARN),
+            ("a_check_can_block", {"severity": CheckSeverity.ERROR}, True, QUALITY_AUDIT_GATE),
         ]
     )
-    def test_audit_mode(self, _name, check_kwargs, gate_setting, flag_on, expected) -> None:
+    def test_audit_mode(self, _name, check_kwargs, gate_setting, expected) -> None:
         if check_kwargs is not None:
             self._check(**check_kwargs)
         if gate_setting is None:
@@ -97,5 +88,4 @@ class TestTriggerGates(BaseTest):
                 team=self.team, defaults={"gate_materialization_on_checks": gate_setting}
             )
 
-        with patch(TRIGGER_FLAG, return_value=flag_on):
-            assert materialization_audit_mode(self.team.id, self.view.id) == expected
+        assert materialization_audit_mode(self.team.id, self.view.id) == expected

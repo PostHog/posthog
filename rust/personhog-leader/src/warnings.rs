@@ -1,14 +1,11 @@
 use std::sync::Arc;
-
-use metrics::counter;
-use rdkafka::producer::{FutureProducer, FutureRecord};
-use tracing::warn;
+use std::time::Duration;
 
 use common_ingestion_warnings::registry::WarningType;
-use common_ingestion_warnings::serializer::Warning as WarningPayload;
-use common_ingestion_warnings::throttle::WarningThrottle;
-use common_ingestion_warnings::WarningSource;
-use common_kafka::kafka_producer::KafkaContext;
+use common_ingestion_warnings::serializer::Warning;
+use common_ingestion_warnings::{
+    install_row_emitter, RowWarningEmitter, RowWarningsSettings, WarningSource,
+};
 
 /// Warnings emitted from the leader's admission check, ahead of the write
 /// path proper. `pipeline_step` lands in the v2 table's `pipeline_step`
@@ -18,6 +15,14 @@ const LEADER_ADMISSION: WarningSource = WarningSource {
     path: "admission",
     pipeline_step: "personhog_admission",
 };
+
+const KAFKA_CLIENT_ID: &str = "personhog-leader-ingestion-warnings";
+const SHUTDOWN_FLUSH: Duration = Duration::from_secs(2);
+
+/// The throttle scope within a team. Admission warnings are budgeted per
+/// team and type, so one person hammered with oversized updates and many
+/// such persons on one team both yield one warning an hour.
+const TEAM_SCOPE: &str = "";
 
 /// An in-product ingestion warning about a person's property size —
 /// emitted when admission trims an update to fit the Postgres constraint
@@ -31,86 +36,53 @@ pub struct SizeViolationWarning {
     pub message: String,
 }
 
-/// Produces ingestion warnings to Kafka so users see property size
-/// violations in-product, with the payload built by the shared
-/// ingestion-warnings crate so type and classification come from the
-/// pipeline registry. Shares the leader's changelog producer (rdkafka
-/// producers are topic-agnostic), so buffered warnings flush with it on
-/// shutdown; emission is fire-and-forget and never blocks or fails the
-/// update that triggered it.
-///
-/// Emission is throttled per `(team, type)` with the pipeline's default
-/// budget (one per hour), matching the Node consumers' warning limiter:
-/// one oversized person being hammered with updates yields one warning an
-/// hour, not one per update. Cloning shares the throttle, so every handle
-/// draws from the same budget.
+/// Sends size violation warnings so users see them in-product, with the
+/// payload built by the shared ingestion-warnings crate so type and
+/// classification come from the pipeline registry. Emission is
+/// fire-and-forget and never blocks or fails the update that triggered it.
 #[derive(Clone)]
 pub struct WarningsProducer {
-    producer: FutureProducer<KafkaContext>,
-    topic: String,
-    throttle: Arc<WarningThrottle>,
+    emitter: Option<Arc<dyn RowWarningEmitter>>,
 }
 
 impl WarningsProducer {
-    pub fn new(producer: FutureProducer<KafkaContext>, topic: String) -> Self {
-        Self::with_throttle(producer, topic, WarningThrottle::default())
+    pub fn new(emitter: Arc<dyn RowWarningEmitter>) -> Self {
+        Self {
+            emitter: Some(emitter),
+        }
     }
 
-    /// Construct with an explicit throttle — tests use a larger burst so
-    /// consecutive enforcement actions for one team all surface.
-    pub fn with_throttle(
-        producer: FutureProducer<KafkaContext>,
-        topic: String,
-        throttle: WarningThrottle,
-    ) -> Self {
-        Self {
-            producer,
-            topic,
-            throttle: Arc::new(throttle),
-        }
+    pub fn disabled() -> Self {
+        Self { emitter: None }
     }
 
     pub fn emit(&self, warning: &SizeViolationWarning) {
-        let warning_type = WarningType::PersonPropertiesSizeViolation;
-        if let Some(outcome) = self
-            .throttle
-            .check(&warning.team_id.to_string(), warning_type)
-            .drop_outcome()
-        {
-            counter!(
-                "personhog_leader_ingestion_warnings_suppressed_total",
-                "outcome" => outcome
-            )
-            .increment(1);
+        let Some(emitter) = &self.emitter else {
             return;
-        }
-
+        };
         // teamId, category, severity, and pipelineStep are injected by the
         // terminal.
-        let payload = WarningPayload::new(warning_type)
+        let payload = Warning::new(WarningType::PersonPropertiesSizeViolation)
             .with_detail("personId", warning.person_uuid.clone())
-            .with_detail("message", warning.message.clone())
-            .into_row(warning.team_id, LEADER_ADMISSION);
-
-        let payload_bytes = serde_json::to_vec(&payload).unwrap_or_default();
-        let key = warning.team_id.to_string();
-        let record = FutureRecord::to(&self.topic)
-            .payload(&payload_bytes)
-            .key(&key);
-
-        match self.producer.send_result(record) {
-            Ok(_future) => {
-                counter!("personhog_leader_ingestion_warnings_emitted_total").increment(1);
-            }
-            Err((e, _)) => {
-                warn!(error = %e, "failed to enqueue ingestion warning");
-            }
-        }
+            .with_detail("message", warning.message.clone());
+        emitter.emit(warning.team_id, TEAM_SCOPE, LEADER_ADMISSION, payload);
     }
 
-    /// Evict fully refilled throttle keys, bounding memory. Called from the
-    /// leader's periodic maintenance task.
-    pub fn sweep_throttle(&self) {
-        self.throttle.sweep();
+    /// Blocking; call once the gRPC server, the only caller of `emit`, has
+    /// stopped. The emitter's own component is advisory, so it cannot flush last.
+    pub fn flush(&self) {
+        if let Some(emitter) = &self.emitter {
+            emitter.flush(SHUTDOWN_FLUSH);
+        }
+    }
+}
+
+pub fn install(
+    settings: &RowWarningsSettings,
+    handle: Option<lifecycle::Handle>,
+) -> WarningsProducer {
+    match install_row_emitter(settings, KAFKA_CLIENT_ID, handle) {
+        Some(emitter) => WarningsProducer::new(emitter),
+        None => WarningsProducer::disabled(),
     }
 }

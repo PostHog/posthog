@@ -93,4 +93,5 @@ registerTriggerType({
     },
     ConfigComponent: StepTriggerConfigurationCohort,
     frequencyOptions: PERSON_FREQUENCY_OPTIONS,
+    showExitConditions: true,
 })

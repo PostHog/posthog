@@ -1,7 +1,8 @@
 import { urls } from 'scenes/urls'
 
+import { isDataVisualizationNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import { Node, SavedInsightNode } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery, isSavedInsightNode } from '~/queries/utils'
+import { isSavedInsightNode } from '~/queries/utils'
 import { InsightShortId } from '~/types'
 
 export interface ChartOpenTarget {

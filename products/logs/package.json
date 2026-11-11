@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ skills/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
@@ -13,7 +14,7 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/react": "^16.3.3",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {

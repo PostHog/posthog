@@ -22,7 +22,7 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
 
     if (reportTasksLoading && !reportTasks) {
         return (
-            <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
+            <DetailSection icon={<IconTerminal />} title="Runs" collapsible defaultCollapsed>
                 <div className="flex flex-col gap-2 py-1">
                     <LemonSkeleton className="h-8 w-full" />
                     <LemonSkeleton className="h-8 w-full" />
@@ -36,7 +36,7 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     }
 
     return (
-        <DetailSection icon={<IconTerminal />} title="Runs" collapsible>
+        <DetailSection icon={<IconTerminal />} title="Runs" collapsible defaultCollapsed>
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
                     <ReportTaskRow

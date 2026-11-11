@@ -3,7 +3,7 @@ import { LemonInput } from '@posthog/lemon-ui'
 export type UtmTagKey = 'utm_source' | 'utm_medium' | 'utm_campaign' | 'utm_content'
 export type UtmTagValues = Partial<Record<UtmTagKey, string>>
 
-const UTM_TAG_KEYS: UtmTagKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']
+export const UTM_TAG_KEYS: UtmTagKey[] = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content']
 
 export interface UtmTagFieldsProps {
     value: UtmTagValues

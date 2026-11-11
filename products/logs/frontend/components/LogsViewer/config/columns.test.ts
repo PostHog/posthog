@@ -1,12 +1,13 @@
 import { PropertyFilterType } from '~/types'
 
+import { FacetFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import { AttributeColumnConfig } from 'products/logs/frontend/types'
 
 import {
     attributeLookupExpression,
     columnLabel,
     columnsToCustomColumns,
-    customColumnFilterType,
+    customColumnFilterTarget,
     LogsColumnConfig,
     migrateAttributeColumns,
     normalizeColumns,
@@ -93,8 +94,9 @@ describe('logs column config', () => {
         })
     })
 
-    describe('customColumnFilterType', () => {
+    describe('customColumnFilterTarget', () => {
         const key = 'k8s.pod'
+        const escapedKey = "we'ird\\key"
         it.each<
             [
                 string,
@@ -102,7 +104,7 @@ describe('logs column config', () => {
                 string,
                 Record<string, unknown> | undefined,
                 Record<string, unknown> | undefined,
-                PropertyFilterType,
+                FacetFilterTarget,
             ]
         >([
             [
@@ -111,7 +113,7 @@ describe('logs column config', () => {
                 attributeLookupExpression(key),
                 {},
                 { [key]: 'r' },
-                PropertyFilterType.LogResourceAttribute,
+                { key, type: PropertyFilterType.LogResourceAttribute },
             ],
             [
                 'fallback, empty value in attributes',
@@ -119,7 +121,7 @@ describe('logs column config', () => {
                 attributeLookupExpression(key),
                 { [key]: '' },
                 { [key]: 'r' },
-                PropertyFilterType.LogAttribute,
+                { key, type: PropertyFilterType.LogAttribute },
             ],
             [
                 'fallback, inherited key in neither map',
@@ -127,16 +129,47 @@ describe('logs column config', () => {
                 attributeLookupExpression('constructor'),
                 undefined,
                 {},
-                PropertyFilterType.LogAttribute,
+                { key: 'constructor', type: PropertyFilterType.LogAttribute },
             ],
-            ['attributes shorthand', key, `attributes.${key}`, {}, { [key]: 'r' }, PropertyFilterType.LogAttribute],
+            [
+                'attributes shorthand',
+                key,
+                `attributes.${key}`,
+                {},
+                { [key]: 'r' },
+                { key, type: PropertyFilterType.LogAttribute },
+            ],
             [
                 'resource_attributes shorthand with trailing space',
                 key,
                 `resource_attributes.${key} `,
                 { [key]: 'a' },
                 { [key]: 'r' },
-                PropertyFilterType.LogResourceAttribute,
+                { key, type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'renamed resource_attributes shorthand',
+                'Service',
+                'resource_attributes.service.name',
+                {},
+                { 'service.name': 'api' },
+                { key: 'service.name', type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'renamed fallback with an escaped key',
+                'Odd',
+                attributeLookupExpression(escapedKey),
+                {},
+                { [escapedKey]: 'r' },
+                { key: escapedKey, type: PropertyFilterType.LogResourceAttribute },
+            ],
+            [
+                'renamed service_name column',
+                'Service',
+                'service_name',
+                {},
+                {},
+                { key: 'service_name', type: PropertyFilterType.Log },
             ],
             [
                 'other HogQL',
@@ -144,11 +177,11 @@ describe('logs column config', () => {
                 `upper(resource_attributes['${key}'])`,
                 {},
                 { [key]: 'r' },
-                PropertyFilterType.LogAttribute,
+                { key, type: PropertyFilterType.LogAttribute },
             ],
         ])('%s', (_, name, expression, attributes, resourceAttributes, expected) => {
             expect(
-                customColumnFilterType({ id: 'c', type: 'custom', name, expression }, attributes, resourceAttributes)
+                customColumnFilterTarget({ id: 'c', type: 'custom', name, expression }, attributes, resourceAttributes)
             ).toEqual(expected)
         })
     })

@@ -8,7 +8,6 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
-from products.exports.backend.facade.api import RENDER_TIMEOUT
 from products.slack_app.backend.temporal.activities.unfurl_charts import (
     post_slack_unfurl_charts_activity,
     prepare_slack_unfurl_charts_activity,
@@ -22,6 +21,9 @@ from products.slack_app.backend.temporal.types import (
 SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT = timedelta(minutes=5)
 _ACTIVITY_TIMEOUT = timedelta(seconds=30)
 _ACTIVITY_RETRY_POLICY = RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=2))
+# Nothing blocks on the unfurl, so the render gets room for an export retry instead of the 90s
+# web-request cap. Deriving it from the budget keeps one prepare and one post attempt inside it.
+_UNFURL_RENDER_TIMEOUT = SLACK_APP_UNFURL_CHARTS_WORKFLOW_TIMEOUT - 2 * _ACTIVITY_TIMEOUT
 
 
 @workflow.defn(name="slack-app-unfurl-charts")
@@ -78,5 +80,5 @@ class SlackAppUnfurlChartsWorkflow(PostHogWorkflow):
             ),
             id=f"export-asset-{asset.asset_id}",
             task_queue=inputs.export_task_queue,
-            execution_timeout=RENDER_TIMEOUT,
+            execution_timeout=_UNFURL_RENDER_TIMEOUT,
         )

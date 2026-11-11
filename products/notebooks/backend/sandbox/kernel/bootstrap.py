@@ -630,7 +630,8 @@ class KernelSession:
                 with urllib.request.urlopen(request, timeout=_WAREHOUSE_UPLOAD_TIMEOUT_SECONDS):
                     pass
         except (pa.ArrowException, ValueError, TypeError) as exc:
-            return {"ok": False, "error": f"The dataframe can't be written as a table: {exc}"}
+            # The message can repeat a user object's repr, and the envelope has a size limit.
+            return {"ok": False, "error": f"The dataframe can't be written as a table: {str(exc)[:500]}"}
         except Exception:  # noqa: BLE001 — a failed upload must not fail a run whose compute succeeded
             logger.exception("nb_kernel warehouse table upload failed")
             return {"ok": False, "error": "The dataframe couldn't be uploaded to the warehouse."}

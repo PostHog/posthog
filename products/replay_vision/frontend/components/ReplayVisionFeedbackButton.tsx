@@ -1,6 +1,9 @@
 import { LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import posthog from 'lib/posthog-typed'
+
+import { QuillReplayVisionFeedbackButton } from './QuillReplayVisionFeedbackButton'
 
 /**
  * Feedback button for the Replay vision product. Clicking it captures the `replay_vision_feedback_clicked`
@@ -13,6 +16,10 @@ export function ReplayVisionFeedbackButton({
     label?: string
     type?: LemonButtonProps['type']
 } = {}): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    if (todayRailNav) {
+        return <QuillReplayVisionFeedbackButton label={label} type={type} />
+    }
     return (
         <LemonButton
             data-attr="vision-feedback"

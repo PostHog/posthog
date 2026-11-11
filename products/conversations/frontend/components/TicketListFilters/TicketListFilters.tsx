@@ -79,7 +79,7 @@ export function TicketListFilters({ embedded = false }: TicketListFiltersProps):
                         icon={<IconRefresh />}
                         loading={ticketsLoading}
                         disabledReason={ticketsLoading ? 'Loading tickets...' : undefined}
-                        onClick={loadTickets}
+                        onClick={() => loadTickets()}
                         size="small"
                         data-attr="refresh-tickets"
                         tooltip="Refresh"

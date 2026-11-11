@@ -77,16 +77,23 @@ entries directly, so structured Markdown (headings, bullets, `inline code` for i
 is far easier to skim than a wall of prose:
 
 ```text
-key:     dedupe:error_tracking:019de34e-2026-05-01
+key:     dedupe:error_tracking:019de34e
 content: "2026-05-01: surfaced UndefinedTable on access_control_propertyaccesscontrol
          (issue 019de34e-e2a3-7e53-80d0-8ccdd0866a36) — 434 users hit it 11:31-13:22 UTC,
          then stopped. If a future run sees this issue still firing, escalate; if it's
          been quiet since 13:22, treat as already-surfaced."
 ```
 
-Why this works: dated, names the entity id, gives a clear conditional ("still
-firing → escalate; quiet → skip"), bounded by a precise time anchor. The key
-prefix makes it findable via `text=dedupe:` or `text=error_tracking`.
+Why this works: the key is the bare entity id and the dates live in the content,
+so a later run that re-confirms the issue rewrites this same entry instead of
+minting a second one the gate can't match. The content is dated, names the entity
+id, gives a clear conditional ("still firing → escalate; quiet → skip"), and is
+bounded by a precise time anchor. The key prefix makes it findable via
+`text=dedupe:` or `text=error_tracking`.
+
+Never put a date, run id, or other per-run value in a `dedupe:` / `report:` /
+`addressed:` / `noise:` key. Each run that sees the issue again then writes a new
+entry, and the next run's lookup misses the old one.
 
 Bad entry: key `note-1`, content "we have errors today, FYI". No actionability,
 no entity, no condition, key carries no category — the next run can't find it

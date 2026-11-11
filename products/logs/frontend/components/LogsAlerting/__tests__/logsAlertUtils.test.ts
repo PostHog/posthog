@@ -23,6 +23,8 @@ const baseForm = (overrides: Partial<LogsAlertFormType> = {}): LogsAlertFormType
     datapointsToAlarm: 1,
     cooldownMinutes: 0,
     scheduleRestriction: null,
+    groupBy: 'none',
+    maxInstances: 20,
     ...overrides,
 })
 

@@ -17,16 +17,21 @@ function markdownLink(text: string, href: string): string {
     return `[${text.replace(/[[\]]/g, '\\$&')}](${urls.absolute(urls.currentProject(href))})`
 }
 
+// `link_source` tells the report page that a PostHog AI answer wrote the link.
+function todayReportHref(reportId: string): string {
+    return `${urls.todayReport(reportId)}?link_source=today`
+}
+
 function reportsContext(reports: SignalReport[]): string[] {
     return [
         '- The page shows these reports, most urgent first:',
         ...reports.map(
             (report, index) =>
-                `  ${index + 1}. ${markdownLink(report.title ?? 'Untitled report', urls.todayReport(report.id))}` +
+                `  ${index + 1}. ${markdownLink(report.title ?? 'Untitled report', todayReportHref(report.id))}` +
                 (report.priority ? ` (${report.priority})` : '')
         ),
         '',
-        'Each link ends with the report id. Use it with `inbox-reports-retrieve` to read the report in full before you ' +
+        'The last part of each link path is the report id. Use it with `inbox-reports-retrieve` to read the report in full before you ' +
             'follow up on it.',
     ]
 }

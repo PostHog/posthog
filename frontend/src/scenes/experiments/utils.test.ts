@@ -3,6 +3,7 @@ import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFi
 import experimentJson from '~/mocks/fixtures/api/experiments/_experiment_launched.json'
 import {
     CachedNewExperimentQueryResponse,
+    EventsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureConfig,
     ExperimentMetric,
@@ -35,6 +36,7 @@ import {
     getDisplayOrderedIndices,
     getEventCountQuery,
     getFunnelDropoffReason,
+    getMetricIncompleteReason,
     getSessionLinkabilityEventNames,
     isEvenlyDistributed,
     isLegacyExperiment,
@@ -109,6 +111,28 @@ describe('utils', () => {
             { variants: [], expected: true },
         ])('returns $expected for variants with percentages $variants', ({ variants, expected }) => {
             expect(isEvenlyDistributed(variants)).toBe(expected)
+        })
+    })
+
+    describe('getMetricIncompleteReason for percentile metrics', () => {
+        const quantileMetric = (quantile: number): ExperimentMetric =>
+            ({
+                kind: NodeKind.ExperimentMetric,
+                metric_type: ExperimentMetricType.QUANTILE,
+                quantile,
+                source: { kind: NodeKind.EventsNode, event: 'page_loaded', math_property: 'load_ms' },
+            }) as ExperimentMetric
+
+        it.each([
+            [0.975, undefined],
+            [0.01, undefined],
+            [0.99, undefined],
+            [0.995, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+            [0.005, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+            [0, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+            [0.9755, 'Enter a percentile from 1 to 99, with up to one decimal place'],
+        ])('quantile %s gives %s', (quantile, expected) => {
+            expect(getMetricIncompleteReason(quantileMetric(quantile))).toBe(expected)
         })
     })
 })
@@ -1078,6 +1102,34 @@ describe('getEventCountQuery', () => {
 
         expect(query).not.toBeNull()
         expect(query?.tags).toEqual({ productKey: ProductKey.PRODUCT_ANALYTICS })
+    })
+
+    it('drops evaluation pass markers, which only the experiment results query can resolve', () => {
+        const promptFilter = {
+            key: '$ai_prompt_name',
+            type: PropertyFilterType.Event,
+            operator: PropertyOperator.Exact,
+            value: 'p',
+        } as const
+        const passed: EventsNode = {
+            kind: NodeKind.EventsNode,
+            event: '$ai_evaluation',
+            properties: [promptFilter, { key: 'aiEvaluationPassed()', type: PropertyFilterType.HogQL }],
+        }
+        const ratio: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.RATIO,
+            numerator: passed,
+            denominator: { kind: NodeKind.EventsNode, event: '$ai_evaluation' },
+        }
+        const funnel: ExperimentMetric = {
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [passed],
+        }
+
+        expect(getEventCountQuery(ratio, true)?.series[0].properties).toEqual([promptFilter])
+        expect(getEventCountQuery(funnel, true)?.series[0].properties).toEqual([promptFilter])
     })
 
     it('returns null when series is empty', () => {

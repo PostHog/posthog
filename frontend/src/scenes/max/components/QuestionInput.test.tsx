@@ -10,7 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 
 import { MAX_MESSAGE_LENGTH } from '../max-constants'
 import { maxGlobalLogic } from '../maxGlobalLogic'
@@ -18,6 +18,7 @@ import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { maxMocks } from '../testUtils'
 import { QuestionInput } from './QuestionInput'
+import { QuillQuestionInput } from './QuillQuestionInput'
 
 jest.mock(
     '@posthog/hogvm',
@@ -28,7 +29,11 @@ jest.mock(
     { virtual: true }
 )
 
-describe('QuestionInput', () => {
+// Both skins share `useQuestionInput`, so the same behavior holds whichever one the flags pick.
+describe.each([
+    ['lemon', QuestionInput],
+    ['quill', QuillQuestionInput],
+])('QuestionInput (%s)', (_skin, Composer) => {
     let maxLogicInstance: ReturnType<typeof maxLogic.build>
     let threadLogicInstance: ReturnType<typeof maxThreadLogic.build>
 
@@ -51,7 +56,7 @@ describe('QuestionInput', () => {
             <Provider>
                 <BindLogic logic={maxLogic} props={{ panelId: 'test' }}>
                     <BindLogic logic={maxThreadLogic} props={threadProps}>
-                        <QuestionInput />
+                        <Composer />
                     </BindLogic>
                 </BindLogic>
             </Provider>
@@ -71,9 +76,12 @@ describe('QuestionInput', () => {
     const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
     it('offers file selection before the first message and preserves the current draft', async () => {
-        expect(screen.queryByText('Attach', { exact: true })).not.toBeInTheDocument()
+        // The flag outlives the previous skin's run of this test, so start from flags off.
+        act(() => featureFlagLogic.actions.setFeatureFlags([], {}))
+        const attachButton = (): Element | null => document.querySelector('[data-attr="max-new-chat-attach-file"]')
+        expect(attachButton()).not.toBeInTheDocument()
         act(() => featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true }))
-        expect(screen.getByText('Attach', { exact: true })).toBeInTheDocument()
+        expect(attachButton()).toBeInTheDocument()
         const file = new File(['demo'], 'notes.txt', { type: 'text/plain' })
         fireEvent.change(screen.getByRole('textbox'), { target: { value: 'Read these notes' } })
         const fileInput = document.querySelector('[data-attr="max-new-chat-attach-input"]') as HTMLInputElement
@@ -130,6 +138,51 @@ describe('QuestionInput', () => {
 
         await user.type(input, '/')
         await waitFor(() => expect(slashCommandItem()).toBeInTheDocument())
+    })
+
+    describe('reply suggestions', () => {
+        const suggestion = 'Yes, open the pull request with the fix'
+        const hint = (): Element | null => document.querySelector('[data-attr="max-reply-suggestion"]')
+
+        beforeEach(() => {
+            const stream = runStreamLogic({ streamKey: maxLogicInstance.values.frontendConversationId })
+            act(() => {
+                stream.actions.pushHumanMessage('Why does the relay keep retrying?')
+                stream.actions.markTurnComplete()
+                stream.actions.setReplySuggestions({
+                    turnIndex: 0,
+                    replies: [suggestion],
+                })
+            })
+        })
+
+        it.each(['{Tab}', '{ArrowRight}'])('puts the suggestion in the input on %s without sending it', async (key) => {
+            const askMaxSpy = jest.spyOn(threadLogicInstance.actions, 'askMax')
+            const user = userEvent.setup()
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+            await waitFor(() => expect(hint()).toHaveTextContent(suggestion))
+
+            input.focus()
+            await user.keyboard(key)
+
+            expect(input.value).toBe(suggestion)
+            expect(document.activeElement).toBe(input)
+            expect(hint()).not.toBeInTheDocument()
+            expect(askMaxSpy).not.toHaveBeenCalled()
+        })
+
+        it('hides the suggestion on Escape and leaves Tab to move focus', async () => {
+            const user = userEvent.setup()
+            const input = screen.getByRole('textbox') as HTMLTextAreaElement
+            await waitFor(() => expect(hint()).toBeInTheDocument())
+
+            input.focus()
+            await user.keyboard('{Escape}')
+            expect(hint()).not.toBeInTheDocument()
+
+            await user.keyboard('{Tab}')
+            expect(input.value).toBe('')
+        })
     })
 
     describe('message length limit', () => {

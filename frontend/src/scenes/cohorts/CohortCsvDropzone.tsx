@@ -1,7 +1,11 @@
+import { useValues } from 'kea'
+
 import { IconUpload } from '@posthog/icons'
 
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
+import { cohortCsvMaxBytes, formatCohortCsvLimit } from 'scenes/cohorts/cohortUtils'
 
 export const COHORT_CSV_HELP =
     "Upload a CSV file to add users to your cohort. For single-column files, include one distinct ID per row (all rows will be processed as data). For multi-column files, include a header row with a 'person_id', 'distinct_id', or 'email' column containing the user identifiers."
@@ -13,6 +17,7 @@ export function CohortCsvDropzone({
     value: File | null
     onChange: (file: File | null) => void
 }): JSX.Element {
+    const { preflight } = useValues(preflightLogic)
     return (
         <LemonFileInput
             accept=".csv"
@@ -43,7 +48,9 @@ export function CohortCsvDropzone({
                     ) : (
                         <>
                             <div>Drag a file here or click to browse for a file</div>
-                            <div className="text-secondary text-xs">Accepts .csv files only</div>
+                            <div className="text-secondary text-xs">
+                                {`Accepts .csv files up to ${formatCohortCsvLimit(cohortCsvMaxBytes(preflight))}`}
+                            </div>
                         </>
                     )}
                 </div>

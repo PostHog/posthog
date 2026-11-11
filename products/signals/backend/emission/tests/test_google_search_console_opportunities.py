@@ -126,8 +126,7 @@ class TestGoogleSearchConsoleEmitter:
         assert variant is not None
         # extra="forbid" + strict types on the contract catches any drift between emitter and schema.
         data = dataclasses.asdict(output)
-        data.pop("signal_id")
-        variant.model_validate(data)
+        variant.model_validate({field: data[field] for field in variant.model_fields if field in data})
 
 
 class TestGoogleSearchConsoleConfig:

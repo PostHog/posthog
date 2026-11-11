@@ -218,8 +218,9 @@ describe('SessionBatchRecorder', () => {
     const record = (
         message: MessageWithTeam,
         retentionPeriod: RetentionPeriod = '30d',
-        sessionKey: SessionKey = createMockSessionKey()
-    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey)
+        sessionKey: SessionKey = createMockSessionKey(),
+        captureTimestampMs?: number
+    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey, captureTimestampMs)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -384,9 +385,10 @@ describe('SessionBatchRecorder', () => {
                 },
             ])
 
-            await record(message)
+            await record(message, '30d', createMockSessionKey(), 1_700_000_000_000)
 
-            await recorder.flush()
+            const persistedSessions = await recorder.flush()
+            expect(persistedSessions[0].captureTimestampMs).toBe(1_700_000_000_000)
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
 
             expect(mockWriter.finish).toHaveBeenCalledTimes(1)
@@ -1681,7 +1683,8 @@ describe('SessionBatchRecorder', () => {
             expect(bytesWritten2).toBeGreaterThan(0)
             expect(bytesWritten3).toBe(0)
 
-            await recorder.flush()
+            const persistedSessions = await recorder.flush()
+            expect(persistedSessions).toEqual([])
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
             expect(writtenData).toHaveLength(0)
         })

@@ -52,8 +52,7 @@ export function CommandKSearchInput(): JSX.Element {
         if (!('keepDefault' in intent)) {
             event.preventDefault()
         }
-        if (intent.type === 'clear-or-close') {
-            // Stop the dialog from closing, so the first press only clears the query.
+        if (intent.type === 'close') {
             event.stopPropagation()
         }
         applyKeyIntent(intent)

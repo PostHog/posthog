@@ -139,6 +139,10 @@ export type metricVariableEditorLogicType = MakeLogicType<
     metricVariableEditorLogicMeta
 >
 
+function newVariable(variables: MetricsDashboardVariable[]): MetricsDashboardVariable {
+    return { name: newVariableName(variables), source: 'custom', customValues: [] } as MetricsDashboardVariable
+}
+
 function withSourceSettings(variable: MetricsDashboardVariable, previousSource: string): MetricsDashboardVariable {
     if (variable.source === previousSource || variable.source === 'promql' || variable.source === 'sql') {
         return variable
@@ -280,10 +284,7 @@ export const metricVariableEditorLogic = kea<metricVariableEditorLogicType>([
         draft: [
             props.variables,
             {
-                addVariable: (state) => [
-                    ...state,
-                    { name: newVariableName(state), source: 'custom', customValues: [] } as MetricsDashboardVariable,
-                ],
+                addVariable: (state) => [...state, newVariable(state)],
                 removeVariable: (state, { index }) => state.filter((_, other) => other !== index),
                 moveVariable: (state, { index, offset }) => {
                     const target = index + offset

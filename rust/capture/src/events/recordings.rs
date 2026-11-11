@@ -194,6 +194,7 @@ impl RawRecording {
         if distinct_id.is_empty() {
             return None;
         }
+        let trimmed_bytes = distinct_id.trim().len();
 
         // Byte length bounds char count, so ids within 200 bytes skip the
         // char-count pass entirely on the hot path.
@@ -201,6 +202,7 @@ impl RawRecording {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
@@ -209,12 +211,14 @@ impl RawRecording {
             return Some(ExtractedDistinctId {
                 value: distinct_id,
                 truncated_from_chars: None,
+                trimmed_bytes,
             });
         }
 
         Some(ExtractedDistinctId {
             value: distinct_id.chars().take(200).collect(),
             truncated_from_chars: Some(char_count),
+            trimmed_bytes,
         })
     }
 
@@ -598,6 +602,7 @@ async fn process_replay_events_inner(
         timestamp: computed_timestamp,
         is_cookieless_mode,
         historical_migration: context.historical_migration,
+        options: None,
     };
 
     // One `$snapshot_items` event per call.

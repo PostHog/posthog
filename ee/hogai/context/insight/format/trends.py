@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -5,6 +6,7 @@ from posthog.schema import AssistantTrendsQuery, Compare, DateRange, TrendsQuery
 
 from posthog.hogql_queries.utils.breakdowns import humanize_breakdown_label
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.result_series import get_result_series, get_series_custom_name
 from posthog.models import Team
 
 from .utils import (
@@ -43,13 +45,16 @@ class TrendsResultsFormatter:
         utc_now_datetime: Optional[datetime] = None,
         resolved_date_range: Optional[dict[str, Any]] = None,
         resolved_compare_date_range: Optional[dict[str, Any]] = None,
+        action_names: Optional[Mapping[int, str | None]] = None,
     ):
         self._query = query
+        self._query_dict = query.model_dump(mode="json")
         self._results = results
         self._team = team
         self._utc_now_datetime = utc_now_datetime or datetime.now(UTC)
         self._resolved_date_range = resolved_date_range
         self._resolved_compare_date_range = resolved_compare_date_range
+        self._action_names = action_names
 
     def format(self) -> str:
         results = self._results
@@ -67,7 +72,7 @@ class TrendsResultsFormatter:
 
         # If there isn't data in comparison, the series will be omitted.
         if len(previous) > 0 and len(current) > 0:
-            # `action.days` holds the current period's days on both series, so aggregated rows take their range from the response.
+            # Each period labels its aggregated rows with its own resolved range.
             previous_formatted = self._format_results(previous, self._resolved_compare_date_range)
             current_formatted = self._format_results(current, self._resolved_date_range)
             template = f"Previous period:\n{previous_formatted}\n\nCurrent period:\n{current_formatted}"
@@ -80,9 +85,8 @@ class TrendsResultsFormatter:
     def _format_aggregated_values(
         self, results: list[dict[str, Any]], resolved_date_range: Optional[dict[str, Any]] = None
     ) -> str:
-        # Get dates and series labels
-        result = results[0]
-        dates = (result.get("action") or {}).get("days") or []
+        # Aggregated rows hold no `days`, so without a resolved range only a leading time-series row supplies dates.
+        dates = results[0].get("days") or []
         if resolved_date_range and resolved_date_range.get("date_from") and resolved_date_range.get("date_to"):
             range = f"{_format_range_bound(resolved_date_range['date_from'])} to {_format_range_bound(resolved_date_range['date_to'])}"
         elif len(dates) == 0:
@@ -154,12 +158,9 @@ class TrendsResultsFormatter:
         return partial_bucket_flags(dates, current_interval_start), self._team.timezone
 
     def _extract_series_label(self, series: dict[str, Any]) -> str:
-        action = series.get("action")
-        name = series["label"]
-        if isinstance(action, dict):
-            custom_name = action.get("custom_name")
-            if custom_name is not None:
-                name = custom_name
+        node = get_result_series(self._query_dict, series)
+        custom_name = get_series_custom_name(node, self._action_names) if node is not None else None
+        name = custom_name if custom_name is not None else series["label"]
         if series.get("breakdown_value") is not None:
             if isinstance(series["breakdown_value"], list):
                 breakdown_label = ", ".join(str(v) for v in series["breakdown_value"])

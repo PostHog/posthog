@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
 import { QuillRunSurfaceInputs } from '../../../components/quill/QuillRunSurfaceInputs'
+import { QuillTaskComposerSkeleton } from '../../../components/quill/QuillTaskComposerSkeleton'
 import { RunLogSkeleton } from '../../../components/RunLogSkeleton'
 import { useThreadSkin } from '../../../hooks/useThreadSkin'
-import { QuillTaskComposerSkeleton } from './QuillTaskComposerSkeleton'
 
 export function TaskRunLoadingSkeleton(): JSX.Element {
     const skin = useThreadSkin()

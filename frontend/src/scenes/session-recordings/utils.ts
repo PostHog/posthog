@@ -90,8 +90,25 @@ export const getMaskingConfigFromLevel = (level: SessionRecordingMaskingLevel): 
     return { maskTextSelector: undefined, maskAllInputs: true, blockSelector: undefined }
 }
 
+let segmenter: Intl.Segmenter | null | undefined
+
+/** Older browsers (e.g. Firefox before 125) have no `Intl.Segmenter`, so build it on first use and only if it exists. */
+function graphemeSegmenter(): Intl.Segmenter | null {
+    if (segmenter === undefined) {
+        segmenter = typeof Intl.Segmenter === 'function' ? new Intl.Segmenter('und', { granularity: 'grapheme' }) : null
+    }
+    return segmenter
+}
+
 export function isSingleEmoji(s: string): boolean {
-    const graphemes = Array.from(new Intl.Segmenter('und', { granularity: 'grapheme' }).segment(s))
+    const segments = graphemeSegmenter()
+    if (!segments) {
+        // Without a segmenter, a single emoji is a string that one emoji sequence matches in full.
+        const matches = s.match(emojiRegex())
+        return matches?.length === 1 && matches[0] === s
+    }
+
+    const graphemes = Array.from(segments.segment(s))
     if (graphemes.length !== 1) {
         return false
     }

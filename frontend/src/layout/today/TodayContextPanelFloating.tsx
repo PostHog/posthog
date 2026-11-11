@@ -1,31 +1,26 @@
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
-import {
-    Button,
-    Popover,
-    PopoverContent,
-    PopoverTrigger,
-    Tooltip,
-    TooltipContent,
-    TooltipTrigger,
-} from '@posthog/quill'
+import { Popover, PopoverContent } from '@posthog/quill'
 
 import { SidePanelTab } from '~/types'
 
 import { TodayContextPanelCard } from './TodayContextPanelCard'
-import { TODAY_CONTEXT_PANEL_DOCK_EDGE, todayContextPanelLogic } from './todayContextPanelLogic'
+import { TodayContextPanelLauncher } from './TodayContextPanelLauncher'
+import {
+    TODAY_CONTEXT_PANEL_DOCK_EDGE,
+    TODAY_SIDE_PANEL_DEFAULT_WIDTH,
+    todayContextPanelLogic,
+} from './todayContextPanelLogic'
 
 /** Presses on these inside the header act on them instead of moving the panel. */
 const NOT_A_DRAG_HANDLE = 'button, a, input, [role="menuitem"]'
 
 export function TodayContextPanelFloating(): JSX.Element {
-    const { floatingOpen, floatingOffset, floatingActiveTab, docked, dockHint, panelTabs } =
+    const { floatingOpen, floatingOffset, floatingActiveTab, dockHint, launcherAlign } =
         useValues(todayContextPanelLogic)
     const { setFloatingOpen, setFloatingTab, setFloatingOffset, setDockHint, dock } = useActions(todayContextPanelLogic)
     const cardRef = useRef<HTMLDivElement>(null)
-    const launcherHidden = docked || !panelTabs.includes(SidePanelTab.Max)
 
     const startDrag = (event: React.PointerEvent<HTMLDivElement>): void => {
         if (event.button !== 0 || (event.target as HTMLElement).closest(NOT_A_DRAG_HANDLE)) {
@@ -89,41 +84,10 @@ export function TodayContextPanelFloating(): JSX.Element {
                     setFloatingOpen(open)
                 }}
             >
-                {/* Stays mounted while docked, so the button can sink away and rise back with the panel. Scenes
-                    without PostHog AI, like a canvas, hide it but keep the host for other undocked tabs. */}
-                <div
-                    data-quill
-                    className="TodayContextPanelButton pointer-events-none absolute inset-x-0 bottom-4 z-[var(--z-main-nav)] flex justify-center"
-                    data-hidden={launcherHidden || undefined}
-                    {...(launcherHidden ? { inert: '' } : {})}
-                >
-                    {/* The outline button is see-through, so an opaque pill sits behind it over the page. */}
-                    <span className="pointer-events-auto rounded-full bg-background shadow-md">
-                        <Tooltip>
-                            <TooltipTrigger
-                                delay={0}
-                                render={
-                                    <PopoverTrigger
-                                        render={
-                                            <Button
-                                                variant="outline"
-                                                size="lg"
-                                                aria-label="Ask PostHog AI"
-                                                className="w-34 justify-center rounded-full"
-                                                data-attr="today-ai-chat-button"
-                                            />
-                                        }
-                                    />
-                                }
-                            >
-                                <IconSparkles />
-                            </TooltipTrigger>
-                            <TooltipContent side="top">Ask PostHog AI</TooltipContent>
-                        </Tooltip>
-                    </span>
-                </div>
+                <TodayContextPanelLauncher />
                 <PopoverContent
                     side="top"
+                    align={launcherAlign}
                     sideOffset={8}
                     initialFocus={() =>
                         cardRef.current?.querySelector<HTMLElement>('textarea, [contenteditable="true"]') ?? true
@@ -147,7 +111,10 @@ export function TodayContextPanelFloating(): JSX.Element {
                 <div
                     data-quill
                     aria-hidden
-                    className="pointer-events-none fixed top-10 right-1 bottom-1 z-[var(--z-layout-panel)] w-[min(32rem,40vw)] rounded-lg border border-dashed border-ring bg-[var(--fill-hover)] opacity-60"
+                    className="pointer-events-none fixed top-10 right-1 bottom-1 z-[var(--z-layout-panel)] rounded-lg border border-dashed border-ring bg-[var(--fill-hover)] opacity-60"
+                    // The docked panel's default width, less its own inset, so the outline shows where the card lands.
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: `calc(${TODAY_SIDE_PANEL_DEFAULT_WIDTH}px - 0.5rem)` }}
                 />
             )}
         </>

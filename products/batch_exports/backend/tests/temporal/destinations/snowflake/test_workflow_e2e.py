@@ -20,7 +20,14 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BackfillDetails,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+)
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeBatchExportInputs,
@@ -51,7 +58,7 @@ async def _run_workflow(
     data_interval_start,
     data_interval_end,
     interval: str,
-    batch_export_model: BatchExportModel | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     exclude_events=None,
     backfill_details=None,
     settings_overrides=None,
@@ -142,7 +149,7 @@ async def test_snowflake_export_workflow(
     snowflake_batch_export,
     ateam,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -152,14 +159,14 @@ async def test_snowflake_export_workflow(
     The workflow should update the batch export run status to completed and produce the expected
     records to the provided Snowflake instance.
     """
-    if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
@@ -178,7 +185,7 @@ async def test_snowflake_export_workflow(
 
 
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportEventsModel()])
 async def test_snowflake_export_workflow_with_many_files(
     clickhouse_client,
     snowflake_cursor,
@@ -186,7 +193,7 @@ async def test_snowflake_export_workflow_with_many_files(
     snowflake_batch_export,
     ateam,
     exclude_events,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
@@ -198,14 +205,14 @@ async def test_snowflake_export_workflow_with_many_files(
     means we are uploading one file at a time, which is very innefficient. For this reason, this test
     can take longer, so we keep the event count low and bump the Workflow timeout.
     """
-    if isinstance(model, BatchExportModel) and model.name != "events" and exclude_events is not None:
+    if isinstance(model, AnyBatchExportModel) and model.name != "events" and exclude_events is not None:
         pytest.skip("Unnecessary test case as batch export model is not affected by 'exclude_events'")
 
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     min_ingested_timestamp = dt.datetime.now(dt.UTC).replace(tzinfo=None)
 
@@ -232,7 +239,7 @@ async def test_snowflake_export_workflow_with_many_files(
     indirect=True,
 )
 @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-@pytest.mark.parametrize("model", [BatchExportModel(name="persons", schema=None)])
+@pytest.mark.parametrize("model", [BatchExportPersonsModel()])
 async def test_snowflake_export_workflow_backfill_earliest_persons(
     ateam,
     clickhouse_client,

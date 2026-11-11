@@ -362,7 +362,6 @@ export interface TrunkQuarantinedTestRow {
     file: string
     ownerTeam: string
     status: string
-    quarantineSetting: string
     quarantinedAt: string
     ageDays: number
     overdue: boolean
@@ -854,7 +853,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                     file: it.file,
                                     ownerTeam: it.owner_team,
                                     status: it.status,
-                                    quarantineSetting: it.quarantine_setting,
                                     quarantinedAt: it.quarantined_at,
                                     ageDays: it.age_days,
                                     overdue: it.overdue,

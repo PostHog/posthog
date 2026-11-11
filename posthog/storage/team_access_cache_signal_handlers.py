@@ -205,8 +205,8 @@ def _defer_token_invalidation(secure_value: str) -> None:
 
 # PAK fields whose changes affect cached TokenAuthData and require cache invalidation.
 # secure_value: the token hash itself (cache key)
-# scopes, scoped_teams, scoped_organizations: cached in TokenAuthData::Personal
-_PAK_CACHE_RELEVANT_FIELDS = frozenset({"secure_value", "scopes", "scoped_teams", "scoped_organizations"})
+# scopes, scoped_teams, scoped_organizations, expires_at: cached in TokenAuthData::Personal
+_PAK_CACHE_RELEVANT_FIELDS = frozenset({"secure_value", "scopes", "scoped_teams", "scoped_organizations", "expires_at"})
 
 
 def _handle_api_key_saved(

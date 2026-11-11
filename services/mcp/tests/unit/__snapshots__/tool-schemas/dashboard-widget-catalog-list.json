@@ -1,5 +1,26 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "properties": {},
+    "properties": {
+        "widget_type": {
+            "description": "Widget types to return. Omit to return every registered widget type.",
+            "items": {
+                "enum": [
+                    "activity_events_list",
+                    "canvas_app",
+                    "conversations_recent_tickets",
+                    "error_tracking_list",
+                    "experiment_results",
+                    "experiments_list",
+                    "logs_list",
+                    "metrics_table",
+                    "notebook_widget",
+                    "session_replay_list",
+                    "survey_results"
+                ],
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
     "type": "object"
 }

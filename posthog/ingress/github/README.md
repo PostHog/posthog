@@ -23,8 +23,13 @@ The payload's `installation.id` goes into the delivery context as `installation_
 
 Two apps share this incarnation, each subscribed to its own event types in GitHub.
 
-- `posthog`, the customer-facing App. Its secret is the instance setting `GITHUB_WEBHOOK_SECRET`, so an operator can rotate it without a deploy.
-- `stamphog`, the review App. Its secret is the Django setting `STAMPHOG_GITHUB_APP_WEBHOOK_SECRET`, because it is instance-wide infrastructure.
+- `posthog`, the customer-facing App. Its secret is `GITHUB_WEBHOOK_SECRET`, held as an instance setting so an operator can rotate it without a deploy.
+- `stamphog`, the review App. Its secret is `STAMPHOG_GITHUB_APP_WEBHOOK_SECRET`, held as a Django setting because it is instance-wide infrastructure.
+
+Both secrets are read from the credentials service first.
+A secret that the service does not hold comes from its setting, and with the service off only the setting is read.
+Each read is cached for five minutes, so a rotated secret reaches each process within five minutes.
+When the service cannot answer, the delivery gets 503, so GitHub can send it again.
 
 A consumer registers against an app name, so the two apps share no consumers.
 
@@ -44,7 +49,7 @@ See [Regional forwarding](../README.md#regional-forwarding) for the lane the pro
 ## Consumers
 
 - `posthog/ingress/github/provider.py` registers `installation_lifecycle` and `installation_repositories` on the `posthog` app.
-- `products/{commands,conversations,error_tracking,review_hog,tasks,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
+- `products/{commands,conversations,error_tracking,knowledge_writer,review_hog,tasks,workflows}/backend/webhook_consumers.py` register the product consumers on the `posthog` app.
 - `products/stamphog/backend/webhook_consumers.py` registers `stamphog_review` on the `stamphog` app.
 
 The Error Tracking consumer handles opened and edited issues and pull requests from repository owners, members, and collaborators.

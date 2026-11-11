@@ -14,6 +14,7 @@ import {
 } from '~/common/generated/personhog/personhog/types/v1/person_pb'
 import { PersonHogClient } from '~/common/personhog/client'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 
 import { PersonsManagerService } from './persons-manager.service'
 
@@ -325,6 +326,24 @@ describe('PersonsManagerService', () => {
             expect(result).toBeNull()
         })
     })
+
+    it.each(
+        INVALID_TEAM_ID_KEYS.flatMap((key) => [
+            [key, 'distinct_id', 'distinct_id_A_1'] as const,
+            [key, 'person_id', TEST_PERSONS[0].uuid] as const,
+        ])
+    )(
+        'returns null for invalid team id %p by %s without failing the valid team in the same load',
+        async (key, kind, id) => {
+            const [valid, invalid] = await Promise.all([
+                manager.getCyclotronPerson(TEAM_1, id, kind),
+                manager.getCyclotronPerson(key as unknown as number, id, kind),
+            ])
+
+            expect(valid?.properties).toEqual({ foo: '1' })
+            expect(invalid).toBeNull()
+        }
+    )
 
     describe('error handling', () => {
         it('propagates errors when personhog is unavailable', async () => {

@@ -375,6 +375,14 @@ pub struct Config {
     #[envconfig(default = "120")]
     pub coordinator_handoff_deadline_secs: u64,
 
+    /// Frozen partitions are a write outage, so a migration cancels past this.
+    #[envconfig(default = "30")]
+    pub coordinator_migration_pre_flip_deadline_secs: u64,
+
+    /// Coalesces a burst of watch events into one migration pass.
+    #[envconfig(default = "10")]
+    pub coordinator_migration_debounce_ms: u64,
+
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
     /// When disabled, falls back to lease-based behavior.
@@ -1027,6 +1035,14 @@ impl Config {
 
     pub fn coordinator_handoff_deadline(&self) -> Duration {
         Duration::from_secs(self.coordinator_handoff_deadline_secs)
+    }
+
+    pub fn coordinator_migration_pre_flip_deadline(&self) -> Duration {
+        Duration::from_secs(self.coordinator_migration_pre_flip_deadline_secs)
+    }
+
+    pub fn coordinator_migration_debounce_interval(&self) -> Duration {
+        Duration::from_millis(self.coordinator_migration_debounce_ms)
     }
 
     pub fn router_reconcile_interval(&self) -> Duration {

@@ -38,7 +38,6 @@ from products.notebooks.backend.widgets import (
     assert_widget_node_exists,
     get_widget_status,
     inspect_widget_inputs,
-    is_notebook_widget_enabled,
     start_widget_generation,
 )
 
@@ -49,7 +48,7 @@ MAX_REUSABLE_WIDGET_BINDINGS_BYTES = 256 * 1_024
 
 
 def reusable_widget_catalog_context(*, team_id: int, user: User | None) -> str:
-    if user is None or not is_notebook_widget_enabled(user):
+    if user is None:
         return ""
     team = Team.objects.get(id=team_id)
     if not UserAccessControl(user, team=team).check_access_level_for_resource("notebook", "viewer"):

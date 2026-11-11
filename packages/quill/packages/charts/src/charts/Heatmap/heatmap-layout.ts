@@ -1,9 +1,28 @@
 import { dimColor } from '../../core/color-utils'
 import type { ChartDimensions } from '../../core/types'
 
-/** How cell counts map to color intensity. `log` (default) uses log1p normalization —
- *  latency/count grids are long-tailed, and a linear ramp washes out everything but the mode. */
-export type HeatmapColorScale = 'log' | 'linear'
+/** How cell counts map to color intensity: `log` (log1p) for a long-tailed grid such as latency, `linear` for an
+ *  even grid such as activity by day and hour, and `auto` (default) to pick one from the data. */
+export type HeatmapColorScale = 'auto' | 'log' | 'linear'
+export type ResolvedHeatmapColorScale = Exclude<HeatmapColorScale, 'auto'>
+
+// `auto` picks log when the median non-empty cell is under this share of the largest, because a linear ramp would then put most cells in its bottom tenth.
+const LONG_TAIL_MEDIAN_RATIO = 0.1
+
+export function resolveColorScale(cells: number[][], scale: HeatmapColorScale): ResolvedHeatmapColorScale {
+    if (scale !== 'auto') {
+        return scale
+    }
+    const values = cells
+        .flat()
+        .filter((value) => Number.isFinite(value) && value > 0)
+        .sort((a, b) => a - b)
+    if (values.length === 0) {
+        return 'log'
+    }
+    const median = values[Math.floor(values.length / 2)]
+    return median < values[values.length - 1] * LONG_TAIL_MEDIAN_RATIO ? 'log' : 'linear'
+}
 
 /** Uniform grid layout of the heatmap plot area. Rows index bottom-to-top: row 0 is the
  *  bottom row, matching an ascending value axis (smallest bucket at the bottom). */
@@ -85,7 +104,7 @@ export function maxCellValue(cells: number[][]): number {
 
 /** Normalize a count to [0, 1] against the grid maximum. Zero/absent counts and an
  *  all-zero grid map to 0 — callers skip drawing those cells entirely. */
-export function normalizeCount(count: number, max: number, scale: HeatmapColorScale): number {
+export function normalizeCount(count: number, max: number, scale: ResolvedHeatmapColorScale): number {
     if (!(max > 0) || !(count > 0)) {
         return 0
     }

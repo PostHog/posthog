@@ -329,6 +329,8 @@ def _build_response(
         timings=runner.timings.to_list() if runner.timings else None,
         modifiers=runner.modifiers,
         preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+        preComputeStale=runner.lazy_precompute_stale(),
+        preComputedAt=runner.lazy_precompute_computed_at_iso(),
     )
 
 

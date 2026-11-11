@@ -383,6 +383,8 @@ def upstream_hogql_queries(team_id: int, notebook: Any, node_id: str) -> list[st
         .filter(notebook=notebook, node_id__in=list(cells_by_node), status=NotebookNodeRun.Status.DONE)
         .order_by("node_id", "-created_at")
         .distinct("node_id")
+        # The envelope can hold megabytes of output, and lineage reads none of it.
+        .only("node_id", "node_type", "connection_id", "code")
     }
     queries: list[str] = []
     seen = {node_id}

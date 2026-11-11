@@ -23,6 +23,7 @@ from products.conversations.backend.mailgun import (
     MailgunNotConfigured,
     MailgunPermanentError,
     MailgunTransientError,
+    mime_bytes_with_crlf,
     send_mime,
 )
 from products.conversations.backend.models import EmailMessageMapping, EmailOutboxMessage, Ticket
@@ -211,7 +212,7 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     email_message.attach_alternative(html_body, "text/html")
 
     recipients = [ticket.email_from, *cc]
-    mime_bytes = email_message.message().as_bytes(linesep="\r\n")
+    mime_bytes = mime_bytes_with_crlf(email_message)
 
     # Check again right before the send. The delete can commit after the check at the top,
     # and a row lock held across the Mailgun call would block every write to the ticket.

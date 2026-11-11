@@ -11,14 +11,16 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.messaging.backend.facade.testing import create_message_category_for_test
 
 
 @pytest.mark.ee
 class TestMessagePreferencesAccessControl(APIBaseTest):
     """
-    Guards the resource-level RBAC gate on `/api/projects/:id/messaging_preferences/`.
+    Guards the resource-level RBAC gate on `/api/projects/:id/messaging_preferences/` and
+    `/api/projects/:id/messaging_categories/`.
 
-    The endpoints act on team-wide data (every opted-out recipient, every add/remove) but carry
+    The endpoints act on team-wide data (every opted-out recipient, every category) but carry
     no per-workflow object. `AccessControlPermission` alone falls back to "does the user have
     access to any single hog_flow object?" — which would let a member granted access to one
     workflow read or rewrite the entire team's opt-out list.
@@ -106,4 +108,29 @@ class TestMessagePreferencesAccessControl(APIBaseTest):
                 format="json",
             ).status_code
             == bulk_status
+        )
+
+    @parameterized.expand(
+        [
+            ("object_editor", status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN),
+            ("resource_viewer", status.HTTP_200_OK, status.HTTP_403_FORBIDDEN, status.HTTP_403_FORBIDDEN),
+            ("resource_editor", status.HTTP_200_OK, status.HTTP_201_CREATED, status.HTTP_200_OK),
+        ]
+    )
+    def test_message_category_access_matrix(
+        self, grant_type: str, read_status: int, create_status: int, update_status: int
+    ) -> None:
+        category_id = create_message_category_for_test(team_id=self.team.id, key="newsletter", name="Newsletter")
+        self.client.force_login(getattr(self, grant_type))
+        base_url = f"/api/projects/{self.team.id}/messaging_categories/"
+
+        assert self.client.get(base_url).status_code == read_status
+        assert self.client.get(f"{base_url}{category_id}/").status_code == read_status
+        assert (
+            self.client.post(base_url, {"key": f"{grant_type}_cat", "name": "New"}, format="json").status_code
+            == create_status
+        )
+        assert (
+            self.client.patch(f"{base_url}{category_id}/", {"name": "Renamed"}, format="json").status_code
+            == update_status
         )

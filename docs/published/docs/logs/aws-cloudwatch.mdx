@@ -270,7 +270,7 @@ These describe the individual event:
 
 **Service name** comes from the log group. `/aws/lambda/checkout-api` becomes `checkout-api`, `/aws/rds/instance/orders-db/postgresql` becomes `orders-db`, and `/aws/vpc/flowlogs` becomes `vpc-flow-logs`. A log group outside the AWS naming conventions keeps its full name, so `my-app-logs` stays `my-app-logs`. To set the name yourself, add a `service.name` common attribute to the Firehose stream.
 
-**Severity** comes from a `level`, `severity`, `log.level` or `config.log_level` key when the message is JSON. In a plain-text line PostHog reads the first three words for a level such as `ERROR`, `WARN` or `DEBUG`, so `ERROR payment declined` and `2026-09-16T10:00:00Z INFO started` both resolve. Common spellings such as `warning`, `err` and `critical` are recognized. Anything else is stored as `info`, so `plain line with error later in it` stays `info`.
+**Severity** comes from a `level`, `severity`, `log.level`, `config.log_level` or `levelname` key when the message is JSON, checked in that order. In a plain-text line PostHog reads the first three words for a level such as `ERROR`, `WARN` or `DEBUG`, so `ERROR payment declined` and `2026-09-16T10:00:00Z INFO started` both resolve. Common spellings such as `warning`, `err` and `critical` are recognized. Anything else is stored as `info`, so `plain line with error later in it` stays `info`.
 
 Logs appear in the [Logs view](https://app.posthog.com/logs) within a couple of minutes, depending on your buffer settings. Filter by `service.name`, severity, or any of the attributes above.
 

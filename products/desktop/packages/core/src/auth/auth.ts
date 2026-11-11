@@ -7,6 +7,7 @@ import {
 import {
   type BackoffOptions,
   type CloudRegion,
+  getBackoffDelay,
   getCloudUrlFromRegion,
   isCredentialOriginAllowed,
   NotAuthenticatedError,
@@ -111,6 +112,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private initializePromise: Promise<void> | null = null;
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+  private desktopAccessRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private desktopAccessGrant: {
+    epoch: number;
+    cloudRegion: CloudRegion;
+    projectId: number;
+  } | null = null;
   private sessionGeneration = 0;
   private sessionEpoch = 0;
   // A refresh already refused, keyed to the session generation so every teardown
@@ -164,6 +171,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     if (this.state.currentProjectId !== projectId) return;
     const parsed = desktopAccessResponseSchema.safeParse(access);
     if (!parsed.success || parsed.data.allowed) return;
+    this.desktopAccessGrant = null;
     this.updateState({
       desktopAccess: {
         projectId,
@@ -1205,7 +1213,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       return false;
     }
     this.persistProjectPreference(session);
-    const desktopAccess = this.carryDesktopAccessInto(session);
+    const desktopAccess = this.carryDesktopAccessInto(session, signIn);
     if (signIn) this.sessionEpoch += 1;
     this.session = session;
     this.scheduleImpersonationExpiry(session);
@@ -1364,6 +1372,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       | "sessionEndReason"
     > = {},
   ): void {
+    this.clearDesktopAccessRetryTimer();
+    this.desktopAccessGrant = null;
     this.updateState({
       status: "anonymous",
       bootstrapComplete: partial.bootstrapComplete ?? true,
@@ -1384,7 +1394,10 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   }
 
   // Resetting to "checking" on every refresh would unmount the whole app.
-  private carryDesktopAccessInto(session: InMemorySession): DesktopAccess {
+  private carryDesktopAccessInto(
+    session: InMemorySession,
+    signIn = false,
+  ): DesktopAccess {
     const previous = this.state.desktopAccess;
     const previousAccountKey = this.session?.accountKey ?? null;
     // A failed `/api/users/@me/` lookup leaves accountKey null on either
@@ -1396,7 +1409,9 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       session.accountKey !== null &&
       session.accountKey !== previousAccountKey;
     const sameIdentity =
-      !accountChanged && previous.projectId === session.currentProjectId;
+      !signIn &&
+      !accountChanged &&
+      previous.projectId === session.currentProjectId;
     if (
       sameIdentity &&
       (previous.status === "allowed" || previous.status === "blocked")
@@ -1412,8 +1427,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
   private async updateDesktopAccessFromSession(
     session: InMemorySession,
+    retryAttempt = 0,
   ): Promise<void> {
-    const desktopAccess = await this.checkDesktopAccess(session);
+    if (retryAttempt === 0) this.clearDesktopAccessRetryTimer();
+    const epoch = this.sessionEpoch;
+    const { access: desktopAccess, retryable } =
+      await this.checkDesktopAccess(session);
     if (this.session !== session) {
       // The session rotated while the check was in flight. The result is
       // scoped to (account, project): when the rotation kept both and nothing
@@ -1432,6 +1451,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         current.accountKey !== session.accountKey;
       const stillAnswers =
         current !== null &&
+        this.sessionEpoch === epoch &&
         !accountChanged &&
         current.currentProjectId === session.currentProjectId &&
         desktopAccess.status === "allowed" &&
@@ -1439,19 +1459,90 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         this.state.desktopAccess.projectId === session.currentProjectId;
       if (!stillAnswers) return;
     }
+    const grant = this.desktopAccessGrant;
+    if (
+      retryable &&
+      grant !== null &&
+      grant.epoch === epoch &&
+      this.sessionEpoch === epoch &&
+      grant.cloudRegion === session.cloudRegion &&
+      grant.projectId === desktopAccess.projectId &&
+      this.state.desktopAccess.status === "allowed" &&
+      this.state.desktopAccess.projectId === desktopAccess.projectId
+    ) {
+      this.scheduleDesktopAccessRetry(session, retryAttempt);
+      return;
+    }
+    this.desktopAccessGrant =
+      desktopAccess.status === "allowed" && desktopAccess.projectId !== null
+        ? {
+            epoch,
+            cloudRegion: session.cloudRegion,
+            projectId: desktopAccess.projectId,
+          }
+        : null;
     this.updateState({ desktopAccess });
+  }
+
+  private scheduleDesktopAccessRetry(
+    session: InMemorySession,
+    attempt: number,
+  ): void {
+    this.clearDesktopAccessRetryTimer();
+    if (attempt >= AuthService.DESKTOP_ACCESS_RETRY_MAX_ATTEMPTS) {
+      this.logger.warn("Desktop access recheck kept failing, keeping access", {
+        projectId: session.currentProjectId,
+        attempts: attempt,
+      });
+      return;
+    }
+    const delayMs = getBackoffDelay(
+      attempt,
+      AuthService.DESKTOP_ACCESS_RETRY_BACKOFF,
+    );
+    this.desktopAccessRetryTimer = setTimeout(() => {
+      this.desktopAccessRetryTimer = null;
+      if (
+        this.session !== session ||
+        this.state.desktopAccess.status !== "allowed"
+      ) {
+        return;
+      }
+      void this.ensureValidSession().then(
+        (validSession) => {
+          if (validSession !== session || this.session !== session) return;
+          return this.updateDesktopAccessFromSession(session, attempt + 1);
+        },
+        (error) => {
+          this.logger.warn("Desktop access retry could not refresh session", {
+            error,
+          });
+        },
+      );
+    }, delayMs);
+  }
+
+  private clearDesktopAccessRetryTimer(): void {
+    if (this.desktopAccessRetryTimer) {
+      clearTimeout(this.desktopAccessRetryTimer);
+      this.desktopAccessRetryTimer = null;
+    }
   }
 
   private async checkDesktopAccess(
     session: InMemorySession,
-  ): Promise<DesktopAccess> {
+  ): Promise<{ access: DesktopAccess; retryable: boolean }> {
     const projectId = session.currentProjectId;
+    const failure = (retryable: boolean) => ({
+      access: { projectId, status: "error", reason: null } as const,
+      retryable,
+    });
     if (projectId === null) {
-      return { projectId, status: "error", reason: null };
+      return failure(false);
     }
 
     if (!this.connectivity.getStatus().isOnline) {
-      return { projectId, status: "error", reason: null };
+      return failure(true);
     }
 
     const url = `${getCloudUrlFromRegion(session.cloudRegion)}/api/projects/${projectId}/desktop/access/`;
@@ -1470,27 +1561,33 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         );
         if (result.success) {
           if (result.data.allowed) {
-            return { projectId, status: "allowed", reason: null };
+            return {
+              access: { projectId, status: "allowed", reason: null },
+              retryable: false,
+            };
           }
           return {
-            projectId,
-            status: "blocked",
-            reason: result.data.reason,
+            access: {
+              projectId,
+              status: "blocked",
+              reason: result.data.reason,
+            },
+            retryable: false,
           };
         }
         this.logger.warn("Desktop access response was invalid", {
           status: response.status,
         });
-      } else {
-        this.logger.warn("Desktop access check returned non-OK status", {
-          status: response.status,
-        });
+        return failure(false);
       }
+      this.logger.warn("Desktop access check returned non-OK status", {
+        status: response.status,
+      });
+      return failure(response.status === 429 || response.status >= 500);
     } catch (error) {
       this.logger.warn("Desktop access check request failed", { error });
+      return failure(true);
     }
-
-    return { projectId, status: "error", reason: null };
   }
   private static readonly REFRESH_MAX_ATTEMPTS = 3;
   private static readonly ORG_FETCH_MAX_ATTEMPTS = 3;
@@ -1498,6 +1595,12 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private static readonly REFRESH_BACKOFF: BackoffOptions = {
     initialDelayMs: 1_000,
     maxDelayMs: 5_000,
+    multiplier: 2,
+  };
+  private static readonly DESKTOP_ACCESS_RETRY_MAX_ATTEMPTS = 6;
+  private static readonly DESKTOP_ACCESS_RETRY_BACKOFF: BackoffOptions = {
+    initialDelayMs: 1_000,
+    maxDelayMs: 30_000,
     multiplier: 2,
   };
   private recoveryPromise: Promise<void> | null = null;
@@ -1519,6 +1622,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   @preDestroy()
   shutdown(): void {
     this.clearImpersonationExpiryTimer();
+    this.clearDesktopAccessRetryTimer();
     this.connectivityUnsubscribe?.();
     this.connectivityUnsubscribe = null;
     this.resumeUnsubscribe?.();

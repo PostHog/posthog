@@ -43,7 +43,15 @@ export const BatchResolverStateSchema = z.object({
     // Set by Django when the audience is exactly one realtime cohort. The resolver then pages that
     // cohort's members from the realtime pipeline's Postgres table instead of the Django audience
     // query. `teamId` is the cohort's own team, which owns its membership rows.
-    realtimeCohort: z.object({ id: z.number().int(), teamId: z.number().int() }).optional(),
+    realtimeCohort: z
+        .object({
+            id: z.number().int(),
+            teamId: z.number().int(),
+            // Set while the cohort is still calculating: the job stays parked until Django resumes it
+            // once the cohort is ready, or fails at this instant if that never happens.
+            waitUntil: z.string().datetime().optional(),
+        })
+        .optional(),
     maxAudienceSize: z.number().int().nonnegative(),
     cursor: z.string().nullable(),
     totalEnqueued: z.number().int().nonnegative(),

@@ -48,7 +48,8 @@ jobs:
         # trunk-merge/** heads are skipped: merge-queue PRs are ephemeral and every
         # constituent PR already ran this in full.
         if: >-
-            github.event_name == 'pull_request'
+            github.repository == 'PostHog/posthog'
+            && github.event_name == 'pull_request'
             && !startsWith(github.head_ref, 'trunk-merge/')
             && (!contains(fromJSON('["labeled", "unlabeled"]'), github.event.action)
                 || (github.event.action == 'labeled'
@@ -67,7 +68,7 @@ jobs:
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
-              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
@@ -127,7 +128,7 @@ jobs:
     upgrade-render-test:
         name: Test hobby upgrade rendering
         needs: changes
-        if: ${{ !cancelled() && (needs.changes.outputs.should_run == 'true' || github.event_name == 'push' || github.event_name == 'schedule') }}
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && (needs.changes.outputs.should_run == 'true' || github.event_name == 'push' || github.event_name == 'schedule') }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         steps:
@@ -289,7 +290,7 @@ jobs:
         # A status function is required to read wait-for-docker-image's conclusion after it
         # failed or was skipped. !cancelled() rather than always() so a superseded PR run stops
         # this job promptly; the explicit conclusion/push/schedule checks preserve when it runs.
-        if: ${{ !cancelled() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push' || github.event_name == 'schedule') }}
+        if: ${{ !cancelled() && github.repository == 'PostHog/posthog' && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push' || github.event_name == 'schedule') }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:

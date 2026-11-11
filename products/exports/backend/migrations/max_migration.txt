@@ -1,1 +1,1 @@
-0015_exportedasset_session_index
+0019_squash_2026_11_02_schema_addons

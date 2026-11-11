@@ -20,6 +20,7 @@ describe("BuiltCanvas", () => {
       captureEvents: [],
       state: [],
       actions: [],
+      tools: [],
       agentRequests: false,
     },
     network: { origins: [] },

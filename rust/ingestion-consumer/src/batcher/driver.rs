@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use common_kafka_consumer::{AssignmentEpoch, GroupCompletion};
+use common_kafka_consumer::{AssignmentEpoch, Partition};
 use futures::future::{BoxFuture, FutureExt};
 use futures::stream::{FuturesUnordered, StreamExt};
 use metrics::{counter, histogram};
@@ -13,22 +13,23 @@ use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 use tracing::error;
 
+use super::governor::Adaptation;
 use super::in_flight::RequestId;
 use super::key_queues::{payload_bytes, KeyRun};
 use super::state_machine::{
     BatcherSnapshot, BatcherStateMachine, Effects, FailureCause, SendRequest,
 };
 use super::worker_pool::WorkerPoolSource;
-use super::{make_batch_id, BatcherOutputs};
+use super::{make_batch_id, BatcherCompletion, BatcherOutputs, RevokeId};
 use crate::debug_recorder::{partition_offsets, record_if, DebugEventKind, DebugRecorder};
 use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
+use crate::routing::Candidate;
 use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
 
-/// A task that does not answer within this is wedged; the debug API then
-/// falls back to the totals the task last published.
+/// A task that does not answer within this is taken as wedged.
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(super) struct StateMachineDriver {
@@ -44,7 +45,10 @@ enum Input {
         assignment_epoch: u64,
         runs: Vec<KeyRun>,
     },
-    PartitionsRevoked(Vec<(String, i32)>),
+    PartitionsRevoked {
+        revoke: RevokeId,
+        partitions: Vec<(String, i32)>,
+    },
     Shutdown,
     /// Answered between two actions, so the snapshot is consistent.
     Snapshot(oneshot::Sender<BatcherSnapshot>),
@@ -55,9 +59,10 @@ pub(super) struct Load {
     pub pending_messages: AtomicUsize,
     pub in_flight_messages: AtomicUsize,
     pub busy_workers: Mutex<HashSet<WorkerId>>,
+    /// Fixed at startup, so a snapshot that falls back to the totals still
+    /// reports it.
+    pub adaptation: Adaptation,
 }
-
-pub(super) struct RevokeSender(mpsc::UnboundedSender<Input>);
 
 #[derive(Clone)]
 pub(super) struct SnapshotSender(mpsc::UnboundedSender<Input>);
@@ -86,7 +91,7 @@ pub(super) trait RequestSender: Send + Sync + 'static {
 }
 
 pub(super) trait Workers: Send + 'static {
-    fn candidates(&self) -> Vec<WorkerId>;
+    fn candidates(&self) -> Vec<Candidate>;
 
     fn record_outcome(&self, worker: &WorkerId, fault: bool);
 
@@ -112,7 +117,7 @@ impl RequestSender for GrpcTransport {
 }
 
 impl Workers for WorkerPoolSource {
-    fn candidates(&self) -> Vec<WorkerId> {
+    fn candidates(&self) -> Vec<Candidate> {
         WorkerPoolSource::candidates(self)
     }
 
@@ -137,7 +142,7 @@ struct BatcherTask<S, W> {
     workers: W,
     sender: Arc<S>,
     key_sentinel: Arc<KeyOrderSentinel>,
-    completions: mpsc::UnboundedSender<GroupCompletion>,
+    completions: mpsc::UnboundedSender<BatcherCompletion>,
     errors: mpsc::UnboundedSender<String>,
     load: Arc<Load>,
     recorder: Option<Arc<DebugRecorder>>,
@@ -161,7 +166,10 @@ impl StateMachineDriver {
         let (inputs_tx, inputs_rx) = mpsc::unbounded_channel();
         let (completions_tx, completions_rx) = mpsc::unbounded_channel();
         let (errors_tx, errors_rx) = mpsc::unbounded_channel();
-        let load = Arc::new(Load::default());
+        let load = Arc::new(Load {
+            adaptation: state.snapshot().governor.adaptation,
+            ..Load::default()
+        });
         let key_sentinel = Arc::new(KeyOrderSentinel::new());
         let assignment_epoch = sender.assignment_epoch();
         let task = BatcherTask {
@@ -201,17 +209,17 @@ impl StateMachineDriver {
         Arc::clone(&self.load)
     }
 
-    pub(super) fn revoke_sender(&self) -> RevokeSender {
-        RevokeSender(self.inputs.clone())
-    }
-
     pub(super) fn snapshot_sender(&self) -> SnapshotSender {
         SnapshotSender(self.inputs.clone())
     }
 
-    pub(super) fn submit(&self, accumulator: Accumulator) -> u64 {
+    pub(super) fn submit(
+        &self,
+        accumulator: Accumulator,
+        generations: &HashMap<Partition, u64>,
+    ) -> u64 {
         let assignment_epoch = self.assignment_epoch.current();
-        let runs = KeyRun::from_groups(accumulator.into_groups());
+        let runs = KeyRun::from_groups(accumulator.into_groups(), generations);
         let unkeyed: usize = runs
             .iter()
             .filter(|run| run.messages.first().is_some_and(|m| m.key.is_none()))
@@ -233,6 +241,13 @@ impl StateMachineDriver {
         self.send(Input::Shutdown);
     }
 
+    pub(super) fn revoke(&self, revoke: RevokeId, partitions: &[(String, i32)]) {
+        self.send(Input::PartitionsRevoked {
+            revoke,
+            partitions: partitions.to_vec(),
+        });
+    }
+
     fn send(&self, input: Input) {
         if self.inputs.send(input).is_err() {
             error!("Batcher task is gone");
@@ -243,15 +258,6 @@ impl StateMachineDriver {
 impl Drop for StateMachineDriver {
     fn drop(&mut self) {
         self.task.abort();
-    }
-}
-
-impl RevokeSender {
-    /// Called from the rebalance callback inside the consumer loop's Kafka
-    /// poll, so it queues the revoke rather than waiting for it. The revoke
-    /// lands between the polls submitted before and after the rebalance.
-    pub(super) fn purge_revoked(&self, partitions: &[(String, i32)]) {
-        let _ = self.0.send(Input::PartitionsRevoked(partitions.to_vec()));
     }
 }
 
@@ -296,11 +302,11 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 assigned = true;
                 state.on_groups(now, &self.workers.candidates(), assignment_epoch, runs)
             }
-            Event::Input(Input::PartitionsRevoked(partitions)) => {
+            Event::Input(Input::PartitionsRevoked { revoke, partitions }) => {
                 // Cleared in order with the sends, so no revoked message is
                 // noted as sent after the revoke.
                 self.key_sentinel.clear();
-                state.on_partitions_revoked(now, &partitions)
+                state.on_partitions_revoked(now, revoke, &partitions)
             }
             Event::Input(Input::Shutdown) => state.on_shutdown(now, &self.workers.candidates()),
             Event::Input(Input::Snapshot(_)) => unreachable!("answered above"),
@@ -325,7 +331,6 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
                 )
             }
             Event::Response(request, Err(failure)) => {
-                // Backpressure is transient, not a worker fault.
                 let cause = if failure.error.is_backpressure() {
                     FailureCause::Busy
                 } else {
@@ -359,6 +364,7 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
         let Effects {
             sends,
             completions,
+            drained,
             key_acks,
             evicted_keys,
             worker_outcomes,
@@ -399,7 +405,10 @@ impl<S: RequestSender, W: Workers> BatcherTask<S, W> {
             counter!("ingestion_consumer_group_completions_total").increment(1);
             counter!("ingestion_consumer_group_completion_accepted_messages_total")
                 .increment(completion.accepted as u64);
-            let _ = self.completions.send(completion);
+            let _ = self.completions.send(BatcherCompletion::Group(completion));
+        }
+        for revoke in drained {
+            let _ = self.completions.send(BatcherCompletion::Drained(revoke));
         }
         if let Some(reason) = fatal {
             error!(error = %reason, "Batcher failure");
@@ -501,6 +510,8 @@ mod tests {
     use std::num::{NonZeroU32, NonZeroUsize};
     use std::time::Duration;
 
+    use rstest::rstest;
+
     use super::*;
     use crate::batcher::packer::{PackTargets, Packer};
     use crate::batcher::retry_policy::RetryPolicy;
@@ -562,7 +573,7 @@ mod tests {
 
     #[derive(Default)]
     struct WorkersState {
-        candidates: Vec<WorkerId>,
+        candidates: Vec<Candidate>,
         outcomes: Vec<(WorkerId, bool)>,
         idle: Vec<WorkerId>,
     }
@@ -571,7 +582,7 @@ mod tests {
     struct FakeWorkers(Arc<Mutex<WorkersState>>);
 
     impl Workers for FakeWorkers {
-        fn candidates(&self) -> Vec<WorkerId> {
+        fn candidates(&self) -> Vec<Candidate> {
             self.0.lock().unwrap().candidates.clone()
         }
 
@@ -676,18 +687,44 @@ mod tests {
         }
 
         fn completed_offsets(&mut self) -> Vec<i64> {
-            let mut completed = Vec::new();
-            while let Ok(completion) = self.outputs.completions.try_recv() {
-                completed.extend(completion.offsets.iter().map(|offset| offset.0));
-            }
-            completed
+            self.received()
+                .into_iter()
+                .filter_map(|received| match received {
+                    Received::Completed(offset) => Some(offset),
+                    Received::Drained(_) => None,
+                })
+                .collect()
         }
+
+        fn received(&mut self) -> Vec<Received> {
+            let mut received = Vec::new();
+            while let Ok(completion) = self.outputs.completions.try_recv() {
+                match completion {
+                    BatcherCompletion::Group(group) => received.extend(
+                        group
+                            .offsets
+                            .iter()
+                            .map(|offset| Received::Completed(offset.0)),
+                    ),
+                    BatcherCompletion::Drained(revoke) => received.push(Received::Drained(revoke)),
+                }
+            }
+            received
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    enum Received {
+        Completed(i64),
+        Drained(RevokeId),
     }
 
     impl FakeWorkers {
         fn set_candidates(&self, workers: &[&str]) {
-            self.0.lock().unwrap().candidates =
-                workers.iter().map(|w| WorkerId::from(*w)).collect();
+            self.0.lock().unwrap().candidates = workers
+                .iter()
+                .map(|w| Candidate::uniform(WorkerId::from(*w)))
+                .collect();
         }
 
         fn outcomes(&self) -> Vec<(WorkerId, bool)> {
@@ -699,7 +736,6 @@ mod tests {
         }
     }
 
-    /// Lets the batcher task handle everything queued for it.
     async fn settle() {
         for _ in 0..8 {
             tokio::task::yield_now().await;
@@ -859,9 +895,7 @@ mod tests {
         let send = h.take_sent().pop().unwrap();
 
         send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
-        h.driver
-            .revoke_sender()
-            .purge_revoked(&[("events".to_string(), 0)]);
+        h.driver.revoke(RevokeId(1), &[("events".to_string(), 0)]);
         settle().await;
 
         assert!(
@@ -879,11 +913,52 @@ mod tests {
         let sentinel = h.driver.key_order_sentinel();
         assert_eq!(sentinel.key_count(), 1);
 
-        h.driver
-            .revoke_sender()
-            .purge_revoked(&[("events".to_string(), 9)]);
+        h.driver.revoke(RevokeId(1), &[("events".to_string(), 9)]);
         settle().await;
         assert_eq!(sentinel.key_count(), 0);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_drain_signals_once_no_request_in_flight_carries_its_partitions() {
+        let mut h = Harness::new(&["w"], 4);
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+        let (idle, busy) = (RevokeId(1), RevokeId(2));
+
+        h.driver.revoke(idle, &[("events".to_string(), 9)]);
+        h.driver.revoke(busy, &[("events".to_string(), 0)]);
+        settle().await;
+        assert_eq!(h.received(), vec![Received::Drained(idle)]);
+
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+        assert_eq!(
+            h.received(),
+            vec![Received::Completed(1), Received::Drained(busy)]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_drain_waits_for_a_poll_submitted_just_before_it() {
+        let mut h = Harness::new(&["w"], 4);
+        let revoke = RevokeId(1);
+
+        h.submit(vec![run("a", &[1])]);
+        h.driver.revoke(revoke, &[("events".to_string(), 0)]);
+        settle().await;
+        let send = h
+            .take_sent()
+            .pop()
+            .expect("the poll went out before the drain");
+        assert_eq!(h.received(), vec![]);
+
+        send.reply.send(Ok(SendOutcome::Accepted(1))).unwrap();
+        settle().await;
+        assert_eq!(
+            h.received(),
+            vec![Received::Completed(1), Received::Drained(revoke)]
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -970,6 +1045,30 @@ mod tests {
             snapshots.snapshot().await.is_none(),
             "a dropped batcher answers nothing"
         );
+    }
+
+    #[rstest]
+    #[case::accepted(SendOutcome::Accepted(1))]
+    #[case::a_partial_that_finished_nothing(SendOutcome::Partial {
+        accepted: 0,
+        unfinished: vec![message("a", 0, 1)],
+    })]
+    #[tokio::test(start_paused = true)]
+    async fn the_rtt_sample_is_the_time_between_dispatch_and_settlement(
+        #[case] outcome: SendOutcome,
+    ) {
+        let h = Harness::new(&["w"], 4);
+        let snapshots = h.driver.snapshot_sender();
+        h.submit(vec![run("a", &[1])]);
+        settle().await;
+        let send = h.take_sent().pop().unwrap();
+
+        let rtt = Duration::from_millis(750);
+        tokio::time::advance(rtt).await;
+        send.reply.send(Ok(outcome)).unwrap();
+        settle().await;
+        let snapshot = snapshots.snapshot().await.expect("the task answers");
+        assert_eq!(snapshot.governor.rtt, Some(rtt));
     }
 
     #[tokio::test(start_paused = true)]

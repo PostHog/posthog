@@ -84,8 +84,8 @@ Check directly, in this order, and ask only what the tools cannot answer:
 - Stored results may not exist yet for a fresh experiment.
   A read of the stored results that returns nothing in the first hours is expected.
   The scheduled calculation skips an experiment younger than 12 hours or with fewer than 50 exposures in total, so an empty experiment has stored results only when a calculation was started another way, for example from the experiment page.
-- In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 15 minutes.
-  The total is 0 because of that only when every exposure is younger than 15 minutes.
+- In a project with precomputed exposures, an experiment older than 12 hours can lag today's new exposures by up to 30 minutes.
+  The total is 0 because of that only when every exposure is younger than 30 minutes.
 
 <!-- Source for maintainers (may rot): MIN_PRECOMPUTATION_DURATION_SECONDS and DEFAULT_EXPOSURE_TTL_SECONDS in
 products/experiments/backend/hogql_queries/precompute_policy.py; ExperimentResultsCacheMixin in
@@ -351,18 +351,16 @@ When only a part of the audience gets no variant, the question is who: A10 in `b
 Only the exposure event decides a person's variant.
 Metric events are matched to that person and need no flag property, for every metric type.
 A user who adds `$feature/<flag-key>` to metric events changes nothing in the results.
+A legacy experiment shows no results at all (E13 in `mid-run-changes.md`).
 
 Where the property does matter:
 
-- **Legacy experiments** (E13 in `mid-run-changes.md`) attributed metric events by `$feature/<flag-key>`. They no longer show results, so migrate them instead.
 - **A custom exposure event** needs it (B4).
 - **The user's own insight or SQL** that filters or breaks down by `$feature/<flag-key>`.
   It undercounts events from a server SDK, which adds the property only when the capture call is given the evaluated flags or asked to evaluate them `[MEDIUM]`.
   It also overcounts in the other direction: the property is on events of everyone whose SDK holds the flag's value, including people who were never exposed, so it is not a filter for participants.
 
-**Verify directly.** `is_legacy` in `experiment-get`.
-It is true when any primary, secondary or shared metric is legacy.
-When it is false, look elsewhere for a missing conversion: B2 (ids), B8 (order), D1 in `numbers-vs-sql.md` (scope).
+**Verify directly.** A missing conversion has another cause: B2 (ids), B8 (order), D1 in `numbers-vs-sql.md` (scope).
 
 Part of the public docs still asks for the property on metric events.
 The exposures page states the current rule.
@@ -430,7 +428,9 @@ status from Step 1:
 - `stopped` — the results end at the end date.
 
 Then check where the project keeps its flag calls: `project-get` returns `flag_evaluations_mode`.
-At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers, and an experiment that counts that event gains no exposures, without a warning.
+At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers.
+The default exposure keeps counting from the `$experiment_exposure` copies ("Which event, which property" in `diagnostic-snapshot.md`).
+An exposure or activation config that is an action with a `$feature_flag_called` step can stop gaining exposures, without a warning.
 That is no fault of the SDK or of the application: say so, and point the user to PostHog support.
 
 Then read the flag's change history, before any conclusion about the application:

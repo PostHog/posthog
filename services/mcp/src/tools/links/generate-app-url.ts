@@ -26,7 +26,9 @@ const URL_CATALOG = [...SCOPE_BY_TEMPLATE.keys()].sort().join('\n')
 const PLACEHOLDER = /\{([^}]+)\}/g
 
 function toCanonicalTemplate(template: string): string {
-    return template.replace(/^\/error_tracking(?=\/|$)/, '/error-tracking')
+    return template
+        .replace(/^\/error_tracking(?=\/|$)/, '/error-tracking')
+        .replace(/^\/feature_flags(?=\/|$)/, '/feature-flags')
 }
 
 function placeholdersOf(template: string): string[] {

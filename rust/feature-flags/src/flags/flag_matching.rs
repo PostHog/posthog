@@ -55,7 +55,6 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::time::Instant;
 use tracing::{debug, error, instrument, warn};
 use uuid::Uuid;
@@ -112,7 +111,7 @@ pub struct FeatureFlagMatch {
     pub reason: FeatureFlagMatchReason,
     pub condition_index: Option<usize>,
     pub payload: Option<Value>,
-    /// Set only by `get_match_v2`; the v3 record is built from it.
+    /// Set only by `get_match_v2`; the v4 record is built from it.
     pub evaluation_v2: Option<EvaluationDetail>,
 }
 
@@ -570,6 +569,12 @@ fn record_persons_db_deadline_exceeded<T>(operation: &'static str, result: &Resu
     });
 }
 
+/// The one place a failed flag is built, so the request outcome sees every failure.
+fn failed_flag_details(flag: &FeatureFlag, error: &FlagError) -> FlagDetails {
+    with_canonical_log(|log| log.outcome_marks.mark_flag_failed(error));
+    FlagDetails::create_error(flag, error, None)
+}
+
 impl FeatureFlagMatcher {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -675,9 +680,9 @@ impl FeatureFlagMatcher {
         self
     }
 
-    /// Gives all persons DB work in this evaluation one shared budget, which starts now.
-    pub fn with_persons_db_deadline(mut self, budget: Option<Duration>) -> Self {
-        self.persons_db_deadline = budget.map(|budget| Instant::now() + budget);
+    /// Gives all persons DB work in this evaluation one shared deadline.
+    pub fn with_persons_db_deadline(mut self, deadline: Option<Instant>) -> Self {
+        self.persons_db_deadline = deadline;
         self
     }
 
@@ -1135,10 +1140,7 @@ impl FeatureFlagMatcher {
                 continue;
             }
             if let Err(error) = flag.filters.require_supported() {
-                evaluated_flags_map.insert(
-                    flag.key.clone(),
-                    FlagDetails::create_error(flag, &error, None),
-                );
+                evaluated_flags_map.insert(flag.key.clone(), failed_flag_details(flag, &error));
                 unsupported_flag_ids.push(flag.id);
             }
         }
@@ -1162,10 +1164,8 @@ impl FeatureFlagMatcher {
                     && flag.filters.is_v1()
                     && flag.ensure_experience_continuity.unwrap_or(false)
             }) {
-                evaluated_flags_map.insert(
-                    flag.key.clone(),
-                    FlagDetails::create_error(flag, &hash_key_error, None),
-                );
+                evaluated_flags_map
+                    .insert(flag.key.clone(), failed_flag_details(flag, &hash_key_error));
             }
         }
 
@@ -1251,6 +1251,7 @@ impl FeatureFlagMatcher {
             self.flag_evaluation_state.skip_person_properties();
             return false;
         }
+        with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
 
         match self
             .prepare_flag_evaluation_state(flags_requiring_db_preparation.as_slice())
@@ -1275,12 +1276,11 @@ impl FeatureFlagMatcher {
         error: &FlagError,
         evaluated_flags_map: &mut HashMap<String, FlagDetails>,
     ) {
-        evaluated_flags_map.extend(flags_requiring_db_preparation.iter().map(|flag| {
-            (
-                flag.key.clone(),
-                FlagDetails::create_error(flag, error, None),
-            )
-        }));
+        evaluated_flags_map.extend(
+            flags_requiring_db_preparation
+                .iter()
+                .map(|flag| (flag.key.clone(), failed_flag_details(flag, error))),
+        );
 
         error!(
             "Error preparing flag evaluation state for team {} distinct_id {}: {:?}",
@@ -1487,8 +1487,7 @@ impl FeatureFlagMatcher {
                     &[("reason".to_string(), reason)],
                     1,
                 );
-                level_evaluated_flags_map
-                    .insert(flag.key.clone(), FlagDetails::create_error(flag, e, None));
+                level_evaluated_flags_map.insert(flag.key.clone(), failed_flag_details(flag, e));
             }
         }
     }
@@ -2104,22 +2103,19 @@ impl FeatureFlagMatcher {
             use_explicit_exact_matching: self.use_explicit_exact_matching,
             now: self.now,
         })?;
-        let (value, reason, condition_index) = match evaluation {
-            Evaluation::TargetingMatch { value, rule } => (
-                Some(value),
-                FeatureFlagMatchReason::ConditionMatch,
-                Some(rule.index),
-            ),
-            Evaluation::RolloutMiss { value, rule } => (
-                value,
-                FeatureFlagMatchReason::OutOfRolloutBound,
-                Some(rule.index),
-            ),
-            Evaluation::NoRuleMatch { value } => {
-                (value, FeatureFlagMatchReason::NoConditionMatch, None)
+        // `/flags?v=2` reports these v1 reasons; `/flags?v=4` reports the evaluator's own code.
+        let reason = match evaluation {
+            Evaluation::TargetingMatch { .. } | Evaluation::ExperimentSplit { .. } => {
+                FeatureFlagMatchReason::ConditionMatch
+            }
+            Evaluation::RolloutMiss { .. } => FeatureFlagMatchReason::OutOfRolloutBound,
+            Evaluation::Holdout { .. } => FeatureFlagMatchReason::HoldoutConditionValue,
+            Evaluation::ExperimentPaused { .. } | Evaluation::NoRuleMatch { .. } => {
+                FeatureFlagMatchReason::NoConditionMatch
             }
         };
-        let (matches, variant, payload) = match value {
+        let condition_index = evaluation.rule().map(|rule| rule.index);
+        let (matches, variant, payload) = match evaluation.value() {
             None => (false, None, None),
             Some(Value::Bool(value)) => (*value, None, None),
             Some(Value::String(value)) => (true, Some(value.clone()), None),
@@ -2321,13 +2317,18 @@ impl FeatureFlagMatcher {
                 if !self.evaluate_cohort_filters(&cohort_filters, cohort_props, cohorts.clone())? {
                     // A non-match isn't trustworthy when a targeted cohort has a behavioral or
                     // lifecycle leaf the dynamic path can't resolve, so flag it with a distinct reason.
-                    let cohort_membership_unresolved = cohort_filters.iter().any(|filter| {
-                        filter.get_cohort_id().is_some_and(|cohort_id| {
-                            cohorts
-                                .iter()
-                                .any(|c| c.id == cohort_id && c.has_behavioral_condition())
-                        })
-                    });
+                    // An operator the matcher does not honor fails the condition whatever the
+                    // membership is, so the caveat does not hold for one of those.
+                    let cohort_membership_unresolved = cohort_filters
+                        .iter()
+                        .all(|filter| filter.cohort_operator_is_supported())
+                        && cohort_filters.iter().any(|filter| {
+                            filter.get_cohort_id().is_some_and(|cohort_id| {
+                                cohorts
+                                    .iter()
+                                    .any(|c| c.id == cohort_id && c.has_behavioral_condition())
+                            })
+                        });
                     let reason = if cohort_membership_unresolved {
                         FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
                     } else {
@@ -3142,6 +3143,7 @@ impl FeatureFlagMatcher {
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
+                with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
                 match hash_key_override {
                     Some(hash_key) => {
                         let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
@@ -3246,6 +3248,7 @@ impl FeatureFlagMatcher {
         if !has_type_indexes {
             return false;
         }
+        with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
 
         let group_type_mapping_timer = common_metrics::timing_guard(FLAG_GROUP_DB_FETCH_TIME, &[]);
         let mut errors_while_computing_flags = false;

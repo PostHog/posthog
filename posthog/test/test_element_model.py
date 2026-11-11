@@ -8,7 +8,12 @@ from parameterized import parameterized
 
 from posthog.api.element import ElementSerializer
 from posthog.models.element import Element, chain_to_elements, elements_to_string
-from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
+from posthog.models.element.element import (
+    ElementAttribute,
+    build_attributes_filter,
+    chain_to_element_dicts,
+    iter_element_attributes,
+)
 
 
 class TestElement(ClickhouseTestMixin, SimpleTestCase):
@@ -126,6 +131,71 @@ class TestElement(ClickhouseTestMixin, SimpleTestCase):
         element_dicts = chain_to_element_dicts('a:="x"nth-child="0"')
         assert element_dicts[0]["attributes"] == {}
         assert element_dicts[0]["nth_child"] == 0
+
+    @parameterized.expand(
+        [
+            ("long backslash run", 'a:text="' + "\\" * 5000, ["a", "\\" * 5000]),
+            ("quote at the end of the chain", 'button:nth-child="1"text="unclosed', ["button", "unclosed"]),
+            ("long run of escaped quotes", '"\\' * 100_000, ["\\"] * 100_000),
+            ("escaped quote with no value before it", 'a\\"', ["a\\"]),
+        ]
+    )
+    def test_chain_to_element_dicts_ends_element_at_unterminated_quote(
+        self, _name: str, chain: str, expected_tag_names: list[str]
+    ) -> None:
+        element_dicts = chain_to_element_dicts(chain)
+        assert [element["tag_name"] for element in element_dicts] == expected_tag_names
+        assert all(element["text"] is None for element in element_dicts)
+
+    @parameterized.expand(
+        [
+            ("href", 'button:nth-child="2";a:href="C:\\"', ["button", "a"], {"href": None, "nth_child": None}),
+            ("text", 'a:nth-child="1"text="ends with \\"', ["a"], {"text": None, "nth_child": 1}),
+        ]
+    )
+    def test_chain_to_element_dicts_drops_a_value_that_ends_in_a_backslash_at_the_end_of_the_chain(
+        self, _name: str, chain: str, expected_tag_names: list[str], expected_last: dict
+    ) -> None:
+        element_dicts = chain_to_element_dicts(chain)
+        assert [element["tag_name"] for element in element_dicts] == expected_tag_names
+        assert {field: element_dicts[-1][field] for field in expected_last} == expected_last
+
+    def test_chain_to_element_dicts_finds_the_tag_past_a_newline_in_a_value(self) -> None:
+        element_dicts = chain_to_element_dicts('text="' + "a" * 200_000 + '\nb:href="/a"')
+        assert [element["tag_name"] for element in element_dicts] == ["b"]
+
+    @parameterized.expand(
+        [
+            ("value never closes", 'href="/a"text="' + '\\"' * 2000, [ElementAttribute(key="href", value="/a")]),
+            (
+                "empty value",
+                'alt=""href="/a"',
+                [ElementAttribute(key="alt", value=""), ElementAttribute(key="href", value="/a")],
+            ),
+            (
+                "escaped quote inside value",
+                'text="say \\"hi\\""',
+                [ElementAttribute(key="text", value='say \\"hi\\"')],
+            ),
+        ]
+    )
+    def test_iter_element_attributes(self, _name: str, attrs: str, expected: list[ElementAttribute]) -> None:
+        assert list(iter_element_attributes(attrs)) == expected
+
+    @parameterized.expand(
+        [
+            ("empty nth-child", 'a:nth-child=""nth-of-type="2"', {"nth_child": None, "nth_of_type": 2}),
+            ("non-numeric nth-of-type", 'a:nth-child="1"nth-of-type="x"', {"nth_child": 1, "nth_of_type": None}),
+            (
+                "empty value before other attributes",
+                'a:attr__title=""href="/a-url"nth-child="1"',
+                {"href": "/a-url", "nth_child": 1, "attributes": {"attr__title": ""}},
+            ),
+        ]
+    )
+    def test_chain_to_element_dicts_tolerates_malformed_values(self, _name: str, chain: str, expected: dict) -> None:
+        element = chain_to_element_dicts(chain)[0]
+        assert {field: element[field] for field in expected} == expected
 
     def test_build_attributes_filter_caps_entry_count(self) -> None:
         many_attrs = [f"data-attr-{i}" for i in range(100)]

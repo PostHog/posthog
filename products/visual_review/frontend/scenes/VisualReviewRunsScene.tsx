@@ -11,9 +11,12 @@ import {
     LemonTag,
     Link,
 } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -74,6 +77,7 @@ export function VisualReviewRunsScene(): JSX.Element {
     const { runs, runsLoading, activeTab, counts, repoNotFound, repoFullName, page, totalCount, searchQuery } =
         useValues(visualReviewRunsSceneLogic)
     const { loadRuns, loadCounts, setActiveTab, setPage, setSearchQuery } = useActions(visualReviewRunsSceneLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const columns: LemonTableColumns<RunApi> = [
         {
@@ -151,9 +155,16 @@ export function VisualReviewRunsScene(): JSX.Element {
                 repoFullName={repoFullName}
                 activeTab="runs"
                 actions={
-                    <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
-                        Settings
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="outline" render={<LinkPrimitive to={urls.visualReviewSettings()} />}>
+                            <IconGear />
+                            Settings
+                        </Button>
+                    ) : (
+                        <LemonButton size="small" type="secondary" icon={<IconGear />} to={urls.visualReviewSettings()}>
+                            Settings
+                        </LemonButton>
+                    )
                 }
             />
             <VisualReviewTabs activeKey="runs" repoFullName={repoFullName} />

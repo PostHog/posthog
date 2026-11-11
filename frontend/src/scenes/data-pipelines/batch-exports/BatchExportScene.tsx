@@ -43,6 +43,7 @@ import {
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import { BatchExportNotifications } from './BatchExportNotifications'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
+import { QuillBatchExportSceneActions } from './QuillBatchExportSceneActions'
 import { humanizeBatchExportName, normalizeBatchExportService } from './utils'
 
 const BATCH_EXPORT_SCENE_TABS = [
@@ -170,6 +171,7 @@ export const scene: SceneExport = {
 function BatchExportSceneHeader(): JSX.Element {
     const { configuration, batchExportConfigLoading } = useValues(batchExportConfigFormLogic)
     const { setConfigurationValue, deleteBatchExport } = useActions(batchExportConfigFormLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     return (
         <>
@@ -189,21 +191,25 @@ function BatchExportSceneHeader(): JSX.Element {
                 onDescriptionChange={(value) => setConfigurationValue('description', value)}
                 canEdit
                 actions={
-                    <>
-                        <More
-                            size="small"
-                            overlay={
-                                <>
-                                    <LemonButton status="danger" fullWidth onClick={() => deleteBatchExport()}>
-                                        Delete
-                                    </LemonButton>
-                                </>
-                            }
-                        />
-                        <LemonDivider vertical />
-                        <BatchExportConfigurationClearChangesButton />
-                        <BatchExportConfigurationSaveButton />
-                    </>
+                    todayRailNav ? (
+                        <QuillBatchExportSceneActions />
+                    ) : (
+                        <>
+                            <More
+                                size="small"
+                                overlay={
+                                    <>
+                                        <LemonButton status="danger" fullWidth onClick={() => deleteBatchExport()}>
+                                            Delete
+                                        </LemonButton>
+                                    </>
+                                }
+                            />
+                            <LemonDivider vertical />
+                            <BatchExportConfigurationClearChangesButton />
+                            <BatchExportConfigurationSaveButton />
+                        </>
+                    )
                 }
             />
         </>

@@ -1,73 +1,12 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
+import { getDotNetInstallSteps } from '../product-analytics/dotnet'
 import { StepDefinition } from '../steps'
 
 export const getDotNetSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    const installStep: StepDefinition = {
-        title: 'Install the package',
-        badge: 'required',
-        content: (
-            <>
-                <Markdown>Install the PostHog package for your .NET app:</Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'bash',
-                            file: 'ASP.NET Core',
-                            code: dedent`
-                                dotnet add package PostHog.AspNetCore
-                            `,
-                        },
-                        {
-                            language: 'bash',
-                            file: 'Console or worker',
-                            code: dedent`
-                                dotnet add package PostHog
-                            `,
-                        },
-                    ]}
-                />
-            </>
-        ),
-    }
-
-    const configureStep: StepDefinition = {
-        title: 'Configure PostHog',
-        badge: 'required',
-        content: (
-            <>
-                <Markdown>Register PostHog and configure your project token and host:</Markdown>
-                <CodeBlock
-                    blocks={[
-                        {
-                            language: 'csharp',
-                            file: 'Program.cs',
-                            code: dedent`
-                                using PostHog;
-
-                                var builder = WebApplication.CreateBuilder(args);
-                                builder.AddPostHog();
-                            `,
-                        },
-                        {
-                            language: 'json',
-                            file: 'appsettings.json',
-                            code: dedent`
-                                {
-                                  "PostHog": {
-                                    "ProjectToken": "<ph_project_token>",
-                                    "HostUrl": "<ph_client_api_host>"
-                                  }
-                                }
-                            `,
-                        },
-                    ]}
-                />
-            </>
-        ),
-    }
+    const installSteps = getDotNetInstallSteps(ctx)
 
     const captureStep: StepDefinition = {
         title: 'Manually capture exceptions',
@@ -132,7 +71,7 @@ export const getDotNetSteps = (ctx: OnboardingComponentsContext): StepDefinition
         ),
     }
 
-    return [installStep, configureStep, captureStep, verifyStep]
+    return [...installSteps, captureStep, verifyStep]
 }
 
 export const DotNetInstallation = createInstallation(getDotNetSteps)
