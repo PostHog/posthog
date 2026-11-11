@@ -124,6 +124,46 @@ describe('wizardRunSidebarLogic', () => {
         expect(await tick()).toBe(0)
     })
 
+    test.each([
+        { name: 'no runs', runs: [], dismissed: [], visible: false },
+        {
+            name: 'a running run',
+            runs: [{ ...run('a'), status: 'running', finished_at: null }],
+            dismissed: [],
+            visible: true,
+        },
+        {
+            name: 'a run that finished 23 hours ago',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissed: [],
+            visible: true,
+        },
+        {
+            name: 'a run that finished 25 hours ago',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T09:00:00Z' }],
+            dismissed: [],
+            visible: false,
+        },
+        {
+            name: 'a recent run the user dismissed',
+            runs: [{ ...run('a'), finished_at: '2026-05-19T11:00:00Z' }],
+            dismissed: ['a'],
+            visible: false,
+        },
+    ])('shows the rail tile with $name: $visible', async ({ runs, dismissed, visible }) => {
+        const now = jest.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-05-20T10:00:00Z'))
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+
+            wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded(runs as WizardRunApi[])
+            logic.actions.dismissRuns(dismissed)
+
+            expect(logic.values.railVisible).toBe(visible)
+        } finally {
+            now.mockRestore()
+        }
+    })
+
     it('scopes dismissals to the current project and user', async () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.dismissRuns(['first'])

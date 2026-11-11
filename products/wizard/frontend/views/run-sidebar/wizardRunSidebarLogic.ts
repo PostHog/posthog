@@ -25,6 +25,7 @@ export type WizardRailState = 'idle' | 'running' | 'completed' | 'failed'
 export type WizardRunStateLocation = 'navbar_sidebar' | 'today_rail'
 
 const DETECTED_SOURCES_REFRESH_MS = 30_000
+const RAIL_RECENT_RUN_WINDOW_MS = 24 * 60 * 60 * 1000
 
 interface WizardRunSidebarProps {
     projectId: string
@@ -39,6 +40,7 @@ export interface wizardRunSidebarLogicValues {
     detectedSources: WizardDetectedWarehouseSourceApi[] | null
     detectedSourcesLoading: boolean
     runDetectedSources: WizardDetectedWarehouseSourceApi[]
+    railVisible: boolean
     railState: WizardRailState
     railProgress: number
     tasksByRunId: Record<string, readonly WizardRunTaskApi[]>
@@ -101,6 +103,15 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         ],
     })),
     selectors({
+        railVisible: [
+            (s) => [s.visibleRuns],
+            (runs: WizardRunApi[]): boolean => {
+                const cutoff = Date.now() - RAIL_RECENT_RUN_WINDOW_MS
+                return runs.some(
+                    (run) => wizardRunIsActive(run) || (!!run.finished_at && Date.parse(run.finished_at) >= cutoff)
+                )
+            },
+        ],
         railState: [
             (s) => [s.visibleRuns, s.runsSeenAt],
             (runs: WizardRunApi[], seenAt: string | null): WizardRailState => {
