@@ -13,6 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
+    ExperimentQuantileMetric,
     ExperimentQuery,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
@@ -64,7 +65,13 @@ EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 def _build_metric_validated(
     metric_dict: dict[str, Any],
-) -> ExperimentMeanMetric | ExperimentFunnelMetric | ExperimentRatioMetric | ExperimentRetentionMetric:
+) -> (
+    ExperimentMeanMetric
+    | ExperimentFunnelMetric
+    | ExperimentRatioMetric
+    | ExperimentRetentionMetric
+    | ExperimentQuantileMetric
+):
     """A malformed stored metric dict is a config error, not a transient failure: convert the
     pydantic construction error to the DRF type classify_experiment_query_error marks permanent."""
     try:

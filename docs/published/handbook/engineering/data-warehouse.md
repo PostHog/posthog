@@ -10,6 +10,18 @@ Projects with a connected warehouse source or warehouse table use ordinary empty
 
 Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
 
+## Warehouse CDP producer
+
+Each team is limited to `ROWS_PER_SECOND` (2,000 rows per second) in `cdp_producer_rate.py`.
+All producer runs of a team share one Redis bucket, across every table.
+
+The producer deletes each staged file only after Kafka confirms delivery of its rows.
+Checkpoints record progress after 10,000 produced rows or 30 seconds while processing rows.
+Each file also has an end checkpoint.
+Activity retries resume from the last heartbeat checkpoint.
+Failed or canceled attempts retain unfinished files, so retries can produce duplicate rows.
+The activity has a five-minute heartbeat timeout and permits up to ten attempts.
+
 ## Direct SQL validation
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.

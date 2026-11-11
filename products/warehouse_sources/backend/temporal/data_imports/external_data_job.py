@@ -20,6 +20,7 @@ from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
 # TODO: remove dependency
 from posthog.exceptions_capture import capture_exception
+from posthog.models.utils import strip_null_bytes
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.client import sync_connect
@@ -72,6 +73,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     DUPLICATE_PRIMARY_KEYS_ERROR,
     MISSING_PRIMARY_KEYS_ERROR,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    is_warehouse_bucket_error,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     release_v3_pipeline_lock,
@@ -95,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.err
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
     DATABASE_HOST_NOT_ALLOWED_ERROR,
     DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    SOURCE_HOST_NOT_ALLOWED_ERROR,
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR,
     TEMPORARY_HOST_RESOLUTION_PREFIX,
 )
@@ -177,6 +185,12 @@ Any_Source_Errors: dict[str, str | None] = {
     # entry: a config problem only the customer can fix, so retrying just re-hits the same
     # rejection. Match the stable prefix and exclude the volatile host details that follow it.
     DATABASE_HOST_NOT_ALLOWED_ERROR: DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    # Raised by the shared HTTP adapter when a request targets an out-of-band interaction domain.
+    # The host is in the source's config, so every retry replays the same refusal.
+    SOURCE_HOST_NOT_ALLOWED_ERROR: (
+        "PostHog rejected this source's host because it belongs to a blocked domain. "
+        "Point the source at a host on a domain you control, then re-enable the sync."
+    ),
     # Raised by `_pinned_ssh_host` for the bastion, the same class of config problem as the entry
     # above: the tunnel host doesn't resolve, or resolves to a private/internal address.
     SSH_TUNNEL_HOST_NOT_ALLOWED_ERROR: (
@@ -535,7 +549,9 @@ def _fail_stale_running_schema(
     if schema is None or schema.status != ExternalDataSchema.Status.RUNNING or schema.cdc_halted:
         return
     schema.status = ExternalDataSchema.Status.FAILED
-    schema.latest_error = latest_error
+    # latest_error is raw driver/vendor text and can carry a NUL byte, which Postgres text
+    # columns reject outright.
+    schema.latest_error = strip_null_bytes(latest_error)
     schema.save(update_fields=["status", "latest_error", "updated_at"])
     logger.info("Reset stale Running schema status to Failed", schema_id=schema_id)
 
@@ -662,9 +678,14 @@ async def _update_job_status(inputs: UpdateExternalDataJobStatusInputs, logger: 
         # (SQLSTATE 25006 after a failover, our pooler's "server login has been failing"), so
         # matching it here would disable a sync whose source never failed, and hand the customer a
         # message telling them to go fix a database that is working.
-        platform_failure = _is_app_db_failure(internal_error_normalized)
-        if platform_failure:
+        # The same applies to an error from our own warehouse bucket: its 403 body says "not
+        # authorized", which source maps read as a customer access denial.
+        if _is_app_db_failure(internal_error_normalized):
+            platform_failure = True
             inputs.latest_error = POSTHOG_DATABASE_UNAVAILABLE_MESSAGE
+        elif is_warehouse_bucket_error(internal_error_normalized):
+            platform_failure = True
+            inputs.latest_error = OBJECT_STORE_TRANSIENT_MESSAGE
 
         has_non_retryable_error = not platform_failure and error_message_matches(
             internal_error_normalized, non_retryable_errors.keys()

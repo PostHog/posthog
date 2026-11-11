@@ -17,6 +17,7 @@ from posthog.models import FileSystemViewLog, User
 
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import (
+    AgentInsightRead,
     InsightDashboardContext,
     InsightSeries,
     InsightSeriesNotReady,
@@ -393,8 +394,51 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([m.key for m in pulse], ["insight:habit"])
 
+    @parameterized.expand(
+        [
+            (
+                "nothing_hidden",
+                frozenset(),
+                ["b1", "b2", "b3", "b4"],
+                [],
+                ["habit", "alerted", "subscribed", "b1", "b2", "b3"],
+            ),
+            (
+                "insights_agents_read_on_two_days_follow_the_habits",
+                frozenset(),
+                ["b1", "b2", "b3", "b4"],
+                [
+                    AgentInsightRead("asked", (TODAY - timedelta(days=1), TODAY - timedelta(days=6))),
+                    AgentInsightRead("asked_once", (TODAY - timedelta(days=1),)),
+                    AgentInsightRead("asked_long_ago", (TODAY - timedelta(days=16), TODAY - timedelta(days=20))),
+                ],
+                ["habit", "asked", "alerted", "subscribed", "b1", "b2"],
+            ),
+            (
+                "a_hidden_insight_leaves_no_gap",
+                frozenset({"insight:alerted"}),
+                ["b1", "b2", "b3", "b4"],
+                [],
+                ["habit", "subscribed", "b1", "b2", "b3", "b4"],
+            ),
+            (
+                "hidden_insights_do_not_use_up_the_candidate_limit",
+                frozenset(f"insight:b{index}" for index in range(1, 13)),
+                [f"b{index}" for index in range(1, 15)],
+                [],
+                ["habit", "alerted", "subscribed", "b13", "b14"],
+            ),
+        ]
+    )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(self) -> None:
+    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(
+        self,
+        _name: str,
+        hidden: frozenset[str],
+        built: list[str],
+        asked: list[AgentInsightRead],
+        expected: list[str],
+    ) -> None:
         other = User.objects.create_and_join(self.organization, "viewer@example.com", None)
         for user, ref, ages in ((self.user, "habit", [1, 5, 9]), (self.user, "once", [1]), (other, "shared", [1])):
             FileSystemViewLog.objects.create(
@@ -415,20 +459,15 @@ class TestRoutineInsights(BaseTest):
             ),
             patch.object(routine, "insight_short_ids_watched_by", return_value=["alerted", "habit"]),
             patch.object(routine, "insight_short_ids_subscribed_by", return_value=["subscribed"]),
-            patch.object(routine, "insight_short_ids_built_by", return_value=["b1", "b2", "b3"]),
+            patch.object(routine, "insight_short_ids_built_by", side_effect=lambda **kwargs: built[: kwargs["limit"]]),
+            patch.object(routine, "insight_reads_by_agents", return_value=asked),
         ):
-            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+            pulse = routine.find(Context(self.team, self.user, TODAY, hidden=hidden)).pulse
 
+        reasons = {"habit": "routine", "alerted": "watched", "subscribed": "watched", "asked": "agent"}
         self.assertEqual(
             [(m.key, m.reason) for m in pulse],
-            [
-                ("insight:habit", "routine"),
-                ("insight:alerted", "watched"),
-                ("insight:subscribed", "watched"),
-                ("insight:b1", "built"),
-                ("insight:b2", "built"),
-                ("insight:b3", "built"),
-            ],
+            [(f"insight:{ref}", reasons.get(ref, "built")) for ref in expected],
         )
 
 

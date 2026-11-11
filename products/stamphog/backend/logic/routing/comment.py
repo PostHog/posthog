@@ -56,9 +56,14 @@ def render_routing_comment(*, decision: RoutingDecision, org: str) -> str | None
         "These owners were not requested because their part of this change looks trivial:",
         "",
     ]
+    # A change the pull request repeats across many owners gets the same reason for each, so one
+    # line per reason keeps the comment short.
+    handles_by_reason: dict[str, list[str]] = {}
     for cut in decision.cut:
         handle = sanitize_for_code_span(owner_handle(cut.candidate.owner, org))
-        lines.append(f"- `{handle}`: {_plain_reason(cut.reason)}")
+        handles_by_reason.setdefault(_plain_reason(cut.reason), []).append(f"`{handle}`")
+    for reason, handles in handles_by_reason.items():
+        lines.append(f"- {', '.join(handles)}: {reason}")
     lines += ["", "If you were listed here and want to review, you can still assign yourself as a reviewer."]
     return "\n".join(lines)
 

@@ -46,9 +46,10 @@ import {
     parseReplayBlockRateLimits,
 } from './types'
 
-// The browser keeps each block for a day. Django's sources listing, which hands out block URLs, reads the block
-// listing uncached and reports a deletion first, so the player never asks for a cached block of a deleted recording.
-const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=86400, immutable'
+// The browser keeps each block for 4 hours, which bounds how long a deleted recording stays readable from its cache.
+// Django's sources listing, which hands out block URLs, reads the block listing uncached and reports a deletion first,
+// so the player never asks for a cached block of a deleted recording.
+const REPLAY_BLOCK_CACHE_CONTROL = 'private, max-age=14400, immutable'
 
 const KEY_LOOKUP_TIMEOUT_MS = 1000
 // Each Redis, DynamoDB and KMS call gives up after this, so a lookup the listing abandoned does not pile up.
@@ -533,6 +534,8 @@ export class RecordingApi {
             res.set('Content-Type', 'application/octet-stream')
             res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', REPLAY_BLOCK_CACHE_CONTROL)
+            // The block is attacker-influenced bytes on an app origin, so the browser must never sniff it as HTML.
+            res.set('X-Content-Type-Options', 'nosniff')
             res.send(result.data)
         } catch (error) {
             RecordingApiMetrics.incrementReplayBlockRequest('error')

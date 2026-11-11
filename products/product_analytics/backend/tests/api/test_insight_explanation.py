@@ -48,6 +48,18 @@ def _explanation(**changes: Any) -> dict[str, Any]:
     return data
 
 
+def _funnel_explanation(**changes: Any) -> dict[str, Any]:
+    data = _explanation(
+        shape="funnel_steps",
+        query={"kind": "FunnelsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+        steps=[{"name": "$pageview", "count": 100}, {"name": "signed_up", "count": 12}],
+        breakdowns=[],
+    )
+    data["chapters"][0]["range"] = [1, 1]
+    data.update(changes)
+    return data
+
+
 def _with_evidence(**item: Any) -> dict[str, Any]:
     data = copy.deepcopy(EXPLANATION)
     data["chapters"][0]["evidence"] = [{"text": "Most views came from one referrer.", **item}]
@@ -58,7 +70,10 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_series", _explanation(seriesIndex=2)),
-            ("unknown_shape", _explanation(shape="funnel_steps")),
+            ("unknown_shape", _explanation(shape="retention_grid")),
+            ("query_of_another_shape", _explanation(query={"kind": "FunnelsQuery"})),
+            ("funnel_without_steps", _explanation(shape="funnel_steps", query={"kind": "FunnelsQuery"})),
+            ("funnel_breakdown_out_of_range", _funnel_explanation(seriesIndex=1)),
             ("evidence_longer_than_a_sentence", _with_evidence(text="x" * 401)),
             ("evidence_link_off_github", _with_evidence(url="https://hackmycomputer.example/pull/1")),
             ("evidence_link_to_a_github_file", _with_evidence(url="https://github.com/example/app/raw/main/setup.exe")),
@@ -71,6 +86,14 @@ class TestInsightExplanationCreateSerializer(SimpleTestCase):
         serializer = InsightExplanationCreateSerializer(data={"data": data})
         assert not serializer.is_valid()
         assert "data" in serializer.errors
+
+    def test_keeps_a_funnel_explanation_without_trends_fields(self) -> None:
+        serializer = InsightExplanationCreateSerializer(data={"data": _funnel_explanation()})
+        assert serializer.is_valid(), serializer.errors
+        saved = serializer.validated_data["data"]
+        assert saved["steps"] == [{"name": "$pageview", "count": 100}, {"name": "signed_up", "count": 12}]
+        assert "results" not in saved
+        assert "lastPointInProgress" not in saved
 
     def test_keeps_only_what_the_page_reads(self) -> None:
         serializer = InsightExplanationCreateSerializer(data={"data": EXPLANATION})
@@ -127,7 +150,8 @@ class TestInsightExplanationAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
-    def test_fixing_an_explanation_keeps_its_link(self) -> None:
+    @patch("products.product_analytics.backend.presentation.insight_explanation.report_user_action")
+    def test_fixing_an_explanation_keeps_its_link(self, report_user_action: Any) -> None:
         created = self.client.post(self._url(self.insight), {"data": EXPLANATION}, format="json")
         url = f"{self._url(self.insight)}{created.json()['id']}/"
 
@@ -136,6 +160,13 @@ class TestInsightExplanationAPI(APIBaseTest):
         assert fixed.status_code == status.HTTP_200_OK, fixed.json()
         assert fixed.json()["id"] == created.json()["id"]
         assert self.client.get(url).json()["data"]["headline"] == "A spike from **ads**."
+        assert [(call.args[1], call.args[2]) for call in report_user_action.call_args_list] == [
+            (
+                "explain chart link saved",
+                {"explanation_id": created.json()["id"], "insight_id": self.insight.short_id, "updated": updated},
+            )
+            for updated in (False, True)
+        ]
 
     @parameterized.expand(
         [

@@ -349,6 +349,33 @@ export namespace Schemas {
         table_name: string;
         uses_history_table?: (boolean | null) | undefined;
     };
+    export type WarehouseSuggestionNoteKind = "materialize" | "unmaterialize";
+    export type WarehouseSuggestionNote = {
+        /**
+         * Whether this user can edit the view, which accepting the suggestion needs.
+         */
+        can_act: boolean;
+        /**
+         * The suggestion id to pass to `warehouse-suggestions-get`, `-accept-prepare` or `-dismiss`.
+         */
+        id: string;
+        /**
+         * What the suggestion proposes.
+         */
+        kind: WarehouseSuggestionNoteKind;
+        /**
+         * Plain-language note for the person, with the next step.
+         */
+        message: string;
+        /**
+         * Absolute link to the view's page in Models.
+         */
+        url: string;
+        /**
+         * The view's current name.
+         */
+        view_name: string;
+    };
     export type DataWarehouseSyncWarning = {
         data_is_current?: (boolean | null) | undefined;
         /**
@@ -374,6 +401,13 @@ export namespace Schemas {
         table_name: string;
         type?: string | undefined;
     };
+    export type BreakdownNotAppliedWarning = {
+        /**
+         * Human-readable warning shown to the user
+         */
+        message: string;
+        type?: string | undefined;
+    };
     export type ActorsQueryResponse = {
         columns: Array<unknown>;
         error?: (string | null) | undefined;
@@ -397,9 +431,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -444,9 +483,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -712,9 +756,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2036,9 +2085,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2657,9 +2711,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -2833,9 +2892,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3026,9 +3090,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3196,9 +3265,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3257,9 +3331,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3364,9 +3443,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3596,9 +3680,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3687,9 +3776,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -3938,6 +4032,15 @@ export namespace Schemas {
         unit: ExperimentWarehouseNativeUnitBinding;
         version?: (number | null) | undefined;
     };
+    export type ExperimentMetricValueFormatType =
+        | "currency"
+        | "duration"
+        | "duration_ms"
+        | "percentage"
+        | "percentage_scaled";
+    export type ExperimentMetricValueFormat = {
+        type: ExperimentMetricValueFormatType;
+    };
     export type ExperimentMeanMetric = {
         breakdownFilter?: (BreakdownFilter | null) | undefined;
         conversion_window?: (number | null) | undefined;
@@ -3962,6 +4065,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentFunnelMetric = {
@@ -3985,6 +4089,7 @@ export namespace Schemas {
         series: Array<EventsNode | ActionsNode | ExperimentDataWarehouseNode>;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentMetricOutlierHandling = Partial<{
@@ -4023,6 +4128,7 @@ export namespace Schemas {
         response?: (Record<string, unknown> | null) | undefined;
         sharedMetricId?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type ExperimentExposureNode = Partial<{
@@ -4059,6 +4165,33 @@ export namespace Schemas {
             | ExperimentExposureNode;
         start_handling: StartHandling;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
+        version?: (number | null) | undefined;
+    };
+    export type ExperimentQuantileMetric = {
+        breakdownFilter?: (BreakdownFilter | null) | undefined;
+        conversion_window?: (number | null) | undefined;
+        conversion_window_unit?:
+            | (FunnelConversionWindowTimeUnit | null)
+            | undefined;
+        fingerprint?: (string | null) | undefined;
+        goal?: (ExperimentMetricGoal | null) | undefined;
+        isSharedMetric?: (boolean | null) | undefined;
+        kind?: string | undefined;
+        metric_type?: string | undefined;
+        name?: (string | null) | undefined;
+        /**
+         * Quantile level, for example 0.9 for p90.
+         */
+        quantile: number;
+        response?: (Record<string, unknown> | null) | undefined;
+        sharedMetricId?: (number | null) | undefined;
+        /**
+         * Must set `math_property`, the numeric property to take the quantile of. `math` is ignored.
+         */
+        source: EventsNode | ActionsNode;
+        uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
         version?: (number | null) | undefined;
     };
     export type PrecomputationMode = "precomputed" | "direct";
@@ -4081,6 +4214,7 @@ export namespace Schemas {
         key: string;
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
         sum: number;
@@ -4101,6 +4235,7 @@ export namespace Schemas {
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
         p_value?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         significant?: (boolean | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
@@ -4122,6 +4257,7 @@ export namespace Schemas {
         method?: string | undefined;
         number_of_samples: number;
         numerator_denominator_sum_product?: (number | null) | undefined;
+        quantile_grid?: (Array<number> | null) | undefined;
         significant?: (boolean | null) | undefined;
         step_counts?: (Array<number> | null) | undefined;
         step_sessions?: (Array<Array<SessionData>> | null) | undefined;
@@ -4167,7 +4303,8 @@ export namespace Schemas {
             | ExperimentMeanMetric
             | ExperimentFunnelMetric
             | ExperimentRatioMetric
-            | ExperimentRetentionMetric;
+            | ExperimentRetentionMetric
+            | ExperimentQuantileMetric;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
         precomputation_mode?: (PrecomputationMode | null) | undefined;
@@ -4389,6 +4526,9 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
                   DataWarehouseSyncWarning | AccessControlFilterWarning
@@ -4409,6 +4549,7 @@ export namespace Schemas {
         kind?: string | undefined;
         modifiers?: (HogQLQueryModifiers | null) | undefined;
         name?: (string | null) | undefined;
+        offset?: (number | null) | undefined;
         query: string;
         response?: (HogQLQueryResponse | null) | undefined;
         sendRawQuery?: (boolean | null) | undefined;
@@ -5835,6 +5976,10 @@ export namespace Schemas {
          */
         updated_at: string | null;
     };
+    /**
+     * * `history_over_limit` - History over limit
+     */
+    export type CohortRealtimeUnavailableReasonEnum = "history_over_limit";
     export type CohortRealtimeReadiness = {
         /**
          * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
@@ -5856,6 +6001,16 @@ export namespace Schemas {
          * The build preparing the cohort. Null unless the state is `building` or `rebuilding`.
          */
         build: CohortHistoryBuild | null;
+        /**
+         * A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+         *
+         * * `history_over_limit` - History over limit
+         */
+        reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
+        /**
+         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         */
+        history_limit_days: number | null;
     };
     export type SearchMatchTypeEnum = "exact" | "similar";
     export type Cohort = {
@@ -6756,7 +6911,7 @@ export namespace Schemas {
     };
     export type MetricsTableWidgetConfig = Partial<{
         dateRange: WidgetDateRange | null;
-        groupBy: string | null;
+        groupBy: string | Array<string> | null;
         columns: Array<MetricsTableColumn>;
         interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
         orderByColumn: number;
@@ -6831,9 +6986,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6860,9 +7020,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6889,9 +7054,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6918,6 +7088,9 @@ export namespace Schemas {
         types?: (Array<unknown> | null) | undefined;
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
+            | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
             | undefined;
         warnings?:
             | (Array<
@@ -6948,9 +7121,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -6980,9 +7158,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7006,9 +7189,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7031,9 +7219,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7063,9 +7256,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7098,9 +7296,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7123,9 +7326,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7151,9 +7359,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7189,9 +7402,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7213,9 +7431,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7353,9 +7576,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7401,9 +7629,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7473,9 +7706,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7498,9 +7736,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7528,9 +7771,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7569,9 +7817,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7702,9 +7955,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7879,9 +8137,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7921,9 +8184,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -7982,9 +8250,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8049,9 +8322,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8155,9 +8433,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8229,9 +8512,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8268,9 +8556,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8421,9 +8714,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8489,9 +8787,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8574,9 +8877,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8635,9 +8943,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8669,9 +8982,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8738,9 +9056,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8800,9 +9123,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -8850,9 +9178,14 @@ export namespace Schemas {
         used_data_warehouse_sources?:
             | (Array<DataWarehouseSourceUsage> | null)
             | undefined;
+        warehouse_suggestions?:
+            | (Array<WarehouseSuggestionNote> | null)
+            | undefined;
         warnings?:
             | (Array<
-                  DataWarehouseSyncWarning | AccessControlFilterWarning
+                  | DataWarehouseSyncWarning
+                  | AccessControlFilterWarning
+                  | BreakdownNotAppliedWarning
               > | null)
             | undefined;
     };
@@ -9831,7 +10164,8 @@ export namespace Schemas {
         | ExperimentMeanMetric
         | ExperimentFunnelMetric
         | ExperimentRatioMetric
-        | ExperimentRetentionMetric;
+        | ExperimentRetentionMetric
+        | ExperimentQuantileMetric;
     /**
      * A shared metric's link to one experiment, as the experiment API returns it.
      */
@@ -9945,7 +10279,8 @@ export namespace Schemas {
         | "funnel"
         | "mean"
         | "ratio"
-        | "retention";
+        | "retention"
+        | "quantile";
     export type Kind3 = "EventsNode" | "ActionsNode" | "ExperimentExposureNode";
     export type ExperimentApiRetentionStart = {
         event?: (string | null) | undefined;
@@ -9986,6 +10321,7 @@ export namespace Schemas {
         numerator_outlier_handling?:
             | (ExperimentMetricOutlierHandling | null)
             | undefined;
+        quantile?: (number | null) | undefined;
         retention_window_end?: (number | null) | undefined;
         retention_window_start?: (number | null) | undefined;
         retention_window_unit?:
@@ -9998,6 +10334,7 @@ export namespace Schemas {
         threshold?: (number | null) | undefined;
         upper_bound_percentile?: (number | null) | undefined;
         uuid?: (string | null) | undefined;
+        value_format?: (ExperimentMetricValueFormat | null) | undefined;
     };
     /**
      * List wrapper for OpenAPI schema generation — the field stores an array of metrics.
@@ -10026,6 +10363,7 @@ export namespace Schemas {
      * * `srm` - Sample Ratio Mismatch
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `forced_variant_release_condition` - Forced Variant Release Condition
      * * `flag_variants_mismatch` - Flag Variants Mismatch
      * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10053,6 +10391,7 @@ export namespace Schemas {
         | "srm"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures"
         | "forced_variant_release_condition"
         | "flag_variants_mismatch"
         | "split_changed_mid_run"
@@ -10112,6 +10451,7 @@ export namespace Schemas {
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
+     * * `unserved_variant_exposures` - Unserved Variant Exposures
      * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
      * * `multiple_variants_share` - Multiple Variants Share
      */
@@ -10137,6 +10477,7 @@ export namespace Schemas {
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
+        | "unserved_variant_exposures"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share";
     export type ExperimentHealthFinding = {
@@ -10159,6 +10500,7 @@ export namespace Schemas {
          * * `srm` - Sample Ratio Mismatch
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `forced_variant_release_condition` - Forced Variant Release Condition
          * * `flag_variants_mismatch` - Flag Variants Mismatch
          * * `split_changed_mid_run` - Split Changed Mid Run
@@ -10230,6 +10572,7 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
@@ -10256,6 +10599,8 @@ export namespace Schemas {
      * * `since_launch_hours` - Hours since launch
      * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
      * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+     * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+     * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
      * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
      * * `primary_metric_count` - Primary metrics that the calculation computes
      * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10278,6 +10623,8 @@ export namespace Schemas {
         | "since_launch_hours"
         | "exposed_without_test_account_filter_count"
         | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage"
         | "only_count_matured_users"
         | "primary_metric_count"
         | "waiting_metric_count"
@@ -10311,6 +10658,8 @@ export namespace Schemas {
          * * `since_launch_hours` - Hours since launch
          * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
          * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
          * * `primary_metric_count` - Primary metrics that the calculation computes
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10342,6 +10691,8 @@ export namespace Schemas {
          * * `since_launch_hours` - Hours since launch
          * * `exposed_without_test_account_filter_count` - Users or groups that the exposure criteria count without the test account filters
          * * `kept_by_test_account_filter_percentage` - exposed_count as a share of exposed_without_test_account_filter_count
+         * * `unserved_exposed_count` - Users or groups first exposed after the day of the feature flag's last save, in a variant that the flag doesn't serve since that save
+         * * `unserved_exposed_percentage` - unserved_exposed_count as a share of the users or groups first exposed after that day
          * * `only_count_matured_users` - Whether "Require completed conversion or retention window" is on
          * * `primary_metric_count` - Primary metrics that the calculation computes
          * * `waiting_metric_count` - Of the primary metrics, those whose conversion or retention window hasn't passed for any user yet
@@ -10402,6 +10753,7 @@ export namespace Schemas {
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
+         * * `unserved_variant_exposures` - Unserved Variant Exposures
          * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
          * * `multiple_variants_share` - Multiple Variants Share
          */
@@ -10436,6 +10788,57 @@ export namespace Schemas {
          */
         rule: ExperimentHealthCheckRule | null;
     };
+    export type ExperimentHealthReleaseCondition = {
+        /**
+         * The share of the users matching the condition set's filters who get the flag, from 0 to 100.
+         */
+        rollout_percentage: number;
+        /**
+         * The number of filters a user must match, such as properties and cohorts. 0 matches all users.
+         */
+        property_count: number;
+        /**
+         * The group type the condition set assigns variants by: its own, or the flag's when it sets none. Null when it assigns them by user.
+         */
+        aggregation_group_type_index: number | null;
+    };
+    export type ExperimentHealthSetup = {
+        /**
+         * The flag's condition sets as stored, in the order the flag evaluates them. Whether a set can serve a request depends on the sets before it and on `early_exit`.
+         */
+        release_conditions: Array<ExperimentHealthReleaseCondition>;
+        /**
+         * Whether the flag stops at the first condition set whose filters match, also when its rollout leaves the user out. Otherwise such a user goes on to the next set.
+         */
+        early_exit: boolean;
+        /**
+         * The flag's `bucketing_identifier`. Null on the flag reads as distinct_id.
+         *
+         * * `distinct_id` - User ID (default)
+         * * `device_id` - Device ID
+         */
+        bucketing_identifier: BucketingIdentifierEnum;
+        /**
+         * The flag's own group type, which the exposure counts and the results use. A condition set can override it. Null for users.
+         */
+        aggregation_group_type_index: number | null;
+        /**
+         * The flag's `evaluation_runtime`. Null on the flag reads as all.
+         *
+         * * `server` - Server
+         * * `client` - Client
+         * * `all` - All
+         */
+        evaluation_runtime: EvaluationRuntimeEnum;
+        /**
+         * The names of the flag's evaluation contexts. When PostHog evaluates the flag, an SDK that sends evaluation contexts gets it only when it sends one of these, and an SDK that sends none gets it. Empty when the flag has none.
+         */
+        evaluation_contexts: Array<string>;
+        /**
+         * The flag's 'Persist flag across authentication steps' setting.
+         */
+        ensure_experience_continuity: boolean;
+    };
     export type ExperimentHealth = {
         /**
          * Problems that the health checks found in the experiment's configuration and its feature flag. Empty when no check found a problem. An empty list does not mean that every check ran: read `checks`.
@@ -10445,6 +10848,7 @@ export namespace Schemas {
          * The result of each health check, in the order the checks run. The checks that read the exposure counts are not here: the exposure query returns them as `health_checks`.
          */
         checks: Array<ExperimentHealthCheckResult>;
+        setup?: (ExperimentHealthSetup | null) | undefined;
     };
     /**
      * Full experiment representation for the detail, create, and update endpoints.
@@ -10777,7 +11181,8 @@ export namespace Schemas {
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
-        | "test_account_filter_removes_exposures";
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthValueKey =
         | "exposed_count"
         | "compared_count"
@@ -10787,7 +11192,9 @@ export namespace Schemas {
         | "p_value"
         | "since_launch_hours"
         | "exposed_without_test_account_filter_count"
-        | "kept_by_test_account_filter_percentage";
+        | "kept_by_test_account_filter_percentage"
+        | "unserved_exposed_count"
+        | "unserved_exposed_percentage";
     export type ExperimentExposureHealthRuleMinimum = {
         /**
          * The value that the key must reach. Below it, the check reports no finding.
@@ -10859,7 +11266,8 @@ export namespace Schemas {
         | "srm"
         | "bias_risk_multiple_excluded"
         | "multiple_variants_share"
-        | "test_account_filter_removes_exposures";
+        | "test_account_filter_removes_exposures"
+        | "unserved_variant_exposures";
     export type ExperimentExposureHealthFindingSeverity =
         | "critical"
         | "warning"
@@ -10915,6 +11323,7 @@ export namespace Schemas {
     export type ExperimentExposureQueryResponse = {
         bias_risk?: (BiasRisk | null) | undefined;
         date_range: DateRange;
+        exposed_by_library?: (Record<string, number> | null) | undefined;
         health_checks?:
             | (Array<ExperimentExposureHealthCheck> | null)
             | undefined;
@@ -11201,7 +11610,7 @@ export namespace Schemas {
      * * `7day` - 7day
      * * `30day` - 30day
      */
-    export type ExternalDataSchemaSyncFrequencyEnum =
+    export type SettableSyncFrequencyEnum =
         | "never"
         | "5min"
         | "15min"
@@ -11281,9 +11690,7 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
-        sync_frequency?:
-            | (ExternalDataSchemaSyncFrequencyEnum | NullEnum)
-            | undefined;
+        sync_frequency?: (SettableSyncFrequencyEnum | NullEnum) | undefined;
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
@@ -11309,6 +11716,10 @@ export namespace Schemas {
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        copy_access_rules_to_history?: boolean | undefined;
         /**
          * Why the last sync run could not merge rows for this table, or `null` when no such failure is current, which includes a run that failed for another reason. A blocked table is disabled, and the resolution differs by reason. `missing_primary_key`: no key to merge on, so set `primary_key_columns` to a unique key, which is accepted because none was set before. `duplicate_primary_key`: the key in use does not identify one row, and that key cannot be swapped once data has synced, so either remove the duplicates at the source and set `should_sync` to true, or delete the synced data before setting a different key. Either reason also accepts a different `sync_type`: `append` is only safe for insert-only tables, because updated rows arrive again as duplicates, and `full_refresh` re-reads the whole table on every sync and bills every row. This reports the last run's failure, so it clears once a run succeeds or fails for another reason, not when an update lands.
          *
@@ -11355,6 +11766,23 @@ export namespace Schemas {
             name: string;
             data_type?: string | undefined;
             is_nullable?: boolean | undefined;
+            sensitivity?:
+                | (
+                      | (
+                            | "email"
+                            | "phone"
+                            | "name"
+                            | "address"
+                            | "date_of_birth"
+                            | "ip_address"
+                            | "token"
+                            | "secret"
+                            | "card_number"
+                            | "null"
+                        )
+                      | null
+                  )
+                | undefined;
         }>;
         /**
          * Whether exact source-side column metadata is available for safe source-query projection.
@@ -11364,6 +11792,14 @@ export namespace Schemas {
          * Name of the history table that keeps every version of each row, or `null` when the table keeps no history. A history table created before `_history` names existed keeps its `_cdc` name.
          */
         history_table_name: string | null;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
+        drop_history_table?: boolean | undefined;
+        /**
+         * Name of the history table registered for this schema, whether or not its mode still writes it, or `null` when none is registered. One the schema no longer writes can be removed with the `history_table` delete endpoint. Populated on the single-schema retrieve and update endpoints, `null` elsewhere. After an update that sent `drop_history_table` to stop writing history, a name means the history table was kept, for example because a sync started meanwhile. An update that adds a mask with `drop_history_table` keeps the table and its access rules, and deletes only its contents.
+         */
+        registered_history_table_name: string | null;
         /**
          * Lightweight parent-source summary (id, source_type, access_method, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
          */
@@ -12419,7 +12855,9 @@ export namespace Schemas {
      * Warnings attached to the query response that produced an insight's results.
      */
     export type _InsightResultWarnings = Array<
-        DataWarehouseSyncWarning | AccessControlFilterWarning
+        | DataWarehouseSyncWarning
+        | AccessControlFilterWarning
+        | BreakdownNotAppliedWarning
     >;
     export type TileFilters = Partial<{
         breakdown_filter: BreakdownFilter | null;
@@ -13165,13 +13603,15 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
         | "provisioned"
-        | "connector";
+        | "connector"
+        | "device_login";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -14485,6 +14925,12 @@ export namespace Schemas {
          * When True, access controls resolve with the most specific matching rule. When False, the legacy resolution order applies.
          */
         uses_most_specific_access_resolution: boolean | null;
+        ip_restrictions?: Array<string> | undefined;
+        ip_restrictions_enabled?: boolean | undefined;
+        /**
+         * A warning when the current request's IP address is not in the saved allowlist.
+         */
+        ip_restrictions_warning: string | null;
     };
     /**
      * Serializer for `Organization` model with minimal attributes to speeed up loading and transfer times.
@@ -14952,6 +15398,17 @@ export namespace Schemas {
         | "posthog_mobile"
         | "posthog_web";
     /**
+     * * `posthog_desktop` - PostHog Desktop
+     * * `posthog_mobile` - PostHog Mobile
+     * * `posthog_web` - PostHog Web
+     * * `slack` - Slack
+     */
+    export type TaskClientEnum =
+        | "posthog_desktop"
+        | "posthog_mobile"
+        | "posthog_web"
+        | "slack";
+    /**
      * Detail response for a task.
      *
      * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
@@ -15048,6 +15505,22 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client_at?: (string | null) | undefined;
     };
     /**
      * Basic list response for a task, returned when the list is asked for ``basic=true``.
@@ -15172,6 +15645,28 @@ export namespace Schemas {
          * server-side.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Basic list response for a task, returned when the list is asked for ``basic=true``.
+         *
+         * A surface that renders only a summary of each task asks for the basic payload and gets this
+         * smaller shape. It drops the full ``description`` body, which dominates the list payload, and
+         * replaces it with ``description_preview`` (the first characters) so a feed can still show a
+         * prompt snippet. The default list response keeps the full ``description``, and ``retrieve``
+         * always returns it. A client uses the ``search`` query parameter to match description text
+         * server-side.
+         */
+        last_client_at?: (string | null) | undefined;
         /**
          * First 1000 characters of the description, so a summary surface can show a prompt snippet without the full body. Open the task for the complete text.
          */
@@ -15970,6 +16465,7 @@ export namespace Schemas {
         responses_limit: number | null;
         iteration_count: number | null;
         iteration_frequency_days: number | null;
+        repeat_until_stopped: boolean | null;
         iteration_start_dates: Array<string | null> | null;
         current_iteration: number | null;
         current_iteration_start_date: string | null;
@@ -16963,6 +17459,11 @@ export namespace Schemas {
         values: Array<PropertyItem>;
     };
     /**
+     * * `signal_report` - Signal Report
+     * * `hog_flow` - Hog Flow
+     */
+    export type PublicTaskSourceKindEnum = "signal_report" | "hog_flow";
+    /**
      * One desktop-only MCP server relayed into the run — a name only, never configuration.
      */
     export type RelayedMcpServer = { name: string };
@@ -17153,6 +17654,10 @@ export namespace Schemas {
          * Mixin for serializers to add user access control fields
          */
         iteration_frequency_days?: (number | null) | undefined;
+        /**
+         * Mixin for serializers to add user access control fields
+         */
+        repeat_until_stopped?: (boolean | null) | undefined;
         /**
          * Mixin for serializers to add user access control fields
          */
@@ -17463,6 +17968,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17516,6 +18022,7 @@ export namespace Schemas {
         responses_limit?: (number | null) | undefined;
         iteration_count?: (number | null) | undefined;
         iteration_frequency_days?: (number | null) | undefined;
+        repeat_until_stopped?: (boolean | null) | undefined;
         iteration_start_dates?: (Array<string | null> | null) | undefined;
         current_iteration?: (number | null) | undefined;
         current_iteration_start_date?: (string | null) | undefined;
@@ -17556,6 +18063,36 @@ export namespace Schemas {
         rates: Record<string, unknown>;
         per_question_stats?: Array<unknown> | undefined;
     };
+    export type TaskRunOptionsRepository = {
+        /**
+         * GitHub repository in `organization/repo` format.
+         */
+        name: string;
+        initial_branch?: (string | null) | undefined;
+    };
+    export type TaskRunOptionsRequest = Partial<{
+        runtime: TaskRuntimeEnum;
+        adapter: RuntimeAdapterEnum;
+        model: string;
+        reasoning_effort: ReasoningEffortEnum;
+        repositories: Array<TaskRunOptionsRepository>;
+        output_schema: Record<string, unknown>;
+        permission_mode: TaskRunBootstrapCreateRequestInitialPermissionModeEnum;
+        auto_publish: boolean;
+    }>;
+    export type TaskSourceRequest = {
+        /**
+         * The kind of row the task starts from. It must be the kind the profile takes.
+         *
+         * * `signal_report` - Signal Report
+         * * `hog_flow` - Hog Flow
+         */
+        kind: PublicTaskSourceKindEnum;
+        /**
+         * ID of that row. It must belong to the current project.
+         */
+        id: string;
+    };
     export type TaskCreate = Partial<{
         title: string;
         title_manually_set: boolean;
@@ -17588,6 +18125,10 @@ export namespace Schemas {
         sandbox_environment_id: string | null;
         custom_image_id: string | null;
         runtime: TaskRuntimeEnum;
+        profile: string;
+        options: TaskRunOptionsRequest & unknown;
+        source: TaskSourceRequest & unknown;
+        idempotency_key: string;
     }>;
     /**
      * Detail response for a task.
@@ -17686,6 +18227,22 @@ export namespace Schemas {
          * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * Detail response for a task.
+         *
+         * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
+         * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
+         * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
+         */
+        last_client_at?: (string | null) | undefined;
         /**
          * Detail response for a task.
          *
@@ -17881,6 +18438,20 @@ export namespace Schemas {
          * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
          */
         client_provenance?: (TaskClientProvenanceEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        last_client?: (TaskClientEnum | NullEnum) | undefined;
+        /**
+         * The task ``run`` action's response: the refreshed task detail plus the run this call made.
+         *
+         * ``run`` is the run the call created or activated — the payload a caller reads run-scoped ids
+         * from, instead of inferring them from ``latest_run`` (or, worse, the top-level task ``id``).
+         */
+        last_client_at?: (string | null) | undefined;
         /**
          * The task ``run`` action's response: the refreshed task detail plus the run this call made.
          *
@@ -18893,12 +19464,13 @@ export namespace Endpoints {
         responses: { 204: unknown };
     };
     /**
-     * Fire a schedule-triggered workflow immediately, outside its regular schedule.
+     * Run a workflow with a `schedule` or `manual` trigger now, once.
      *
-     * Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-     * dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-     * guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-     * the scheduler itself applies in `internal_process_due_schedules`.
+     * A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+     * workflow runs for the calling user, as the trigger button in the editor does. Other
+     * triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+     * trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+     * active, same gate the scheduler itself applies in `internal_process_due_schedules`.
      *
      * Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
      * after a timed-out request): a repeat with the same key returns the first call's result
@@ -19392,9 +19964,11 @@ export namespace Endpoints {
             body: Schemas.TaskCreate;
         };
         responses: {
+            200: Schemas.TaskCreateResponseDTO;
             201: Schemas.TaskCreateResponseDTO;
             402: Schemas.TaskRunErrorResponse;
             403: Schemas.TaskRunErrorResponse;
+            409: Schemas.TaskRunErrorResponse;
             429: Schemas.TaskRunErrorResponse;
             503: Schemas.TaskRunErrorResponse;
         };

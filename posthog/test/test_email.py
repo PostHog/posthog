@@ -386,6 +386,7 @@ class TestEmail(BaseTest):
                     "provider": "customer_io",
                     "delivery_id": "test_delivery_id",
                     "queued_at": 1604977406,
+                    "$update_person_last_seen_at": False,
                 },
             )
 
@@ -645,7 +646,9 @@ class TestEmail(BaseTest):
                 with self.assertRaises(WorkflowsEmailError):
                     message.send(send_async=False, retry=False)
             else:
-                message.send(send_async=False, retry=False)
+                undeliverable = message.send(send_async=False, retry=False)
+                refused = "transactional email workflows rejected" in expected_events
+                self.assertEqual(undeliverable, ["test@posthog.com"] if refused else [])
 
         providers = [
             "workflows" if call.args[0].startswith("https://us.posthog.com") else "customer_io"
@@ -682,6 +685,9 @@ class TestEmail(BaseTest):
             )
 
         self.assertEqual([c.kwargs["event"] for c in mock_capture.call_args_list], expected_events)
+        self.assertTrue(
+            all(c.kwargs["properties"]["$update_person_last_seen_at"] is False for c in mock_capture.call_args_list)
+        )
         self.assertTrue(
             all(c.kwargs["properties"]["template_name"] == "2fa_enabled" for c in mock_capture.call_args_list)
         )

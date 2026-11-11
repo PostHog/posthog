@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Please remember that in Javascript months are 0-indexed
 // January is 0 and December is 11
@@ -20,7 +20,7 @@ const wrapWithStorybookCheck = <F extends (...args: any[]) => boolean>(
     fn: F
 ): ((...args: Parameters<F>) => boolean) => {
     return (...args: Parameters<F>): boolean => {
-        if (inStorybook() || inStorybookTestRunner()) {
+        if (inStorybook()) {
             return false
         }
 
@@ -55,7 +55,7 @@ type HolidayMatcher<T> = {
 
 export const holidaysMatcher = <T,>(matcher: HolidayMatcher<T>, orElse: T): T => {
     // Return the default value in Storybook to prevent flakey snapshots
-    if (inStorybook() || inStorybookTestRunner()) {
+    if (inStorybook()) {
         return orElse
     }
 

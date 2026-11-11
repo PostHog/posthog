@@ -289,6 +289,37 @@ class TransactionalEmailLogDetail:
     sensitive: bool
 
 
+class EmailStatsInterval(LabeledStrEnum):
+    # One bucket spans five minutes.
+    MINUTE = "minute", "Minute"
+    HOUR = "hour", "Hour"
+    DAY = "day", "Day"
+
+
+@frozen
+class TransactionalEmailStatsCounts:
+    sent: int
+    delivered: int
+    bounced: int
+    complained: int
+    failed: int
+
+
+@frozen
+class TransactionalEmailStatsBucket:
+    start: datetime
+    counts: TransactionalEmailStatsCounts
+
+
+@frozen
+class TransactionalEmailStatsOverTime:
+    interval: EmailStatsInterval
+    timezone: str
+    buckets: list[TransactionalEmailStatsBucket]
+    # The same stretch of time just before this one. None when retention no longer covers all of it.
+    previous: TransactionalEmailStatsCounts | None
+
+
 @frozen
 class TransactionalEmailStatsRow:
     # The template id or the sending domain.

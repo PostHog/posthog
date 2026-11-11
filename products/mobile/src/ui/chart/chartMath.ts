@@ -161,6 +161,7 @@ function monthYear(date: Date): string {
 export function formatAxisDate(at: number, interval: ChartInterval, uses24hourClock?: boolean): string {
     const date = new Date(at)
     switch (interval) {
+        case 'minute':
         case 'hour':
             return formatClock(date, uses24hourClock)
         case 'day':
@@ -203,6 +204,8 @@ function weekSpan(start: Date, withYear: boolean): string {
 export function formatTooltipDate(at: number, interval: ChartInterval, compact = false): string {
     const date = new Date(at)
     switch (interval) {
+        case 'minute':
+            return formatClock(date)
         case 'hour':
             return compact ? formatClock(date) : `${weekdayName(date)}, ${formatMonthDay(date)}, ${formatClock(date)}`
         case 'day':

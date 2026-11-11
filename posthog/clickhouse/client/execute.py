@@ -43,6 +43,7 @@ from posthog.clickhouse.query_tagging import (
     get_query_tags,
     is_api_key_access_method,
 )
+from posthog.clickhouse.workload import PINNED_CLUSTER_WORKLOADS
 from posthog.dataclasses import frozen
 from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
 from posthog.exceptions_capture import capture_exception
@@ -370,6 +371,7 @@ def sync_execute(
     sync_client: Optional[SyncClient] = None,
     ch_user: ClickHouseUser = ClickHouseUser.DEFAULT,
     external_tables: Optional[list[ClickHouseExternalTable]] = None,
+    send_receive_timeout: Optional[int] = None,
 ):
     """
     Executes a synchronous query on the ClickHouse database based on predefined workloads and tags.
@@ -446,16 +448,15 @@ def sync_execute(
     # Make sure we always have app traffic through process_query_task on the online cluster.
     # API-key traffic stays offline here too, so an async query lands on the same cluster its
     # synchronous counterpart would.
-    # Workload.LOGS is exempt: it pins queries to the dedicated logs cluster, which is the
-    # only place the logs tables exist, so overriding it would send the query to a cluster
-    # that cannot answer it.
+    # Pinned-cluster workloads (logs, metrics) are exempt: their tables exist only on their own
+    # cluster, so overriding them would send the query to a cluster that cannot answer it.
     tags_id: str = tags.id or ""
     if tags_id == "posthog.tasks.tasks.process_query_task":
-        if workload != Workload.LOGS:
+        if workload not in PINNED_CLUSTER_WORKLOADS:
             workload = Workload.OFFLINE if is_api_key_auth else Workload.ONLINE
         ch_user = ClickHouseUser.API if is_api_key_auth else ClickHouseUser.APP
 
-    if tags.workload == Workload.ENDPOINTS and workload != Workload.LOGS:
+    if tags.workload == Workload.ENDPOINTS and workload not in PINNED_CLUSTER_WORKLOADS:
         workload = Workload.ENDPOINTS
 
     if workload == Workload.DEFAULT:
@@ -575,7 +576,10 @@ def sync_execute(
         ).inc()
         with (
             _llm_analytics_concurrency_slot(ch_user, team_id),
-            sync_client or get_client_from_pool(workload, team_id, readonly, ch_user) as client,
+            sync_client
+            or get_client_from_pool(
+                workload, team_id, readonly, ch_user, send_receive_timeout=send_receive_timeout
+            ) as client,
         ):
             query_info_before = getattr(client, "last_query", None)
             # Taken after the concurrency slot and the pool checkout, so the fallback does not count
@@ -629,7 +633,7 @@ def sync_execute(
         ).inc()
 
         if query_counter := getattr(thread_local_storage, "query_counter", None):
-            query_counter.total_query_time += execution_time
+            query_counter.record_query_time(execution_time)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
             print("Execution time: %.6fs" % (execution_time,))  # noqa T201

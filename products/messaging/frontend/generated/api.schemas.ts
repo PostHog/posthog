@@ -645,6 +645,35 @@ export interface MessageSuppressionApi {
     readonly updated_at: string
 }
 
+export interface BulkRemoveSuppressionsRequestApi {
+    /**
+     * The email addresses to remove, at most 100 per request.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 512
+     */
+    identifiers: string[]
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
+export interface BulkRemoveSuppressionsResponseApi {
+    /** Addresses removed from the suppression list. */
+    removed: string[]
+    /** Addresses that were not on the suppression list. */
+    not_found: string[]
+}
+
+export interface RemoveSuppressionRequestApi {
+    /**
+     * The email address to remove.
+     * @maxLength 512
+     */
+    identifier: string
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
 /**
  * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
  * the {count, next, previous, results} envelope on the generated client, rather than a bare
@@ -1176,6 +1205,54 @@ export interface TransactionalEmailStatsApi {
     results: TransactionalEmailStatsRowApi[]
 }
 
+/**
+ * * `minute` - Minute
+ * * `hour` - Hour
+ * * `day` - Day
+ */
+export type EmailStatsIntervalEnumApi = (typeof EmailStatsIntervalEnumApi)[keyof typeof EmailStatsIntervalEnumApi]
+
+export const EmailStatsIntervalEnumApi = {
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+} as const
+
+export interface TransactionalEmailStatsCountsApi {
+    /** Emails that reached the email provider. */
+    sent: number
+    /** Emails the recipient's mail server accepted. */
+    delivered: number
+    /** Emails that bounced. */
+    bounced: number
+    /** Emails the recipient marked as spam. */
+    complained: number
+    /** Emails that were not sent. */
+    failed: number
+}
+
+export interface TransactionalEmailStatsBucketApi {
+    /** When this time bucket starts. */
+    start: string
+    /** Sends queued during this bucket. */
+    counts: TransactionalEmailStatsCountsApi
+}
+
+export interface TransactionalEmailStatsOverTimeApi {
+    /** The width of each bucket. A `minute` bucket spans five minutes.
+     *
+     * * `minute` - Minute
+     * * `hour` - Hour
+     * * `day` - Day */
+    interval: EmailStatsIntervalEnumApi
+    /** The project timezone that the buckets start in. */
+    timezone: string
+    /** Every bucket in the period, oldest first. */
+    buckets: TransactionalEmailStatsBucketApi[]
+    /** Totals for the same length of time just before the period. Null when retention no longer covers it. */
+    previous: TransactionalEmailStatsCountsApi | null
+}
+
 export type MessagingCategoriesListParams = {
     /**
      * Number of results to return per page.
@@ -1339,3 +1416,14 @@ export const TransactionalEmailLogStatsRetrieveGroupBy = {
     Template: 'template',
     SendingDomain: 'sending_domain',
 } as const
+
+export type TransactionalEmailLogStatsOverTimeRetrieveParams = {
+    /**
+     * Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.
+     */
+    date_from?: string
+    /**
+     * Only sends queued before this time. Defaults to now.
+     */
+    date_to?: string
+}
