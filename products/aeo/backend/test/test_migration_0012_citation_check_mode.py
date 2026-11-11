@@ -6,8 +6,8 @@ from posthog.test.base import NonAtomicTestMigrations
 
 class TestCitationCheckMode(NonAtomicTestMigrations):
     app = "aeo"
-    migrate_from = "0010_citation_check_own_domains_key"
-    migrate_to = "0011_citation_check_mode"
+    migrate_from = "0011_keyword"
+    migrate_to = "0012_citation_check_mode"
 
     def setUpBeforeMigration(self, apps: Any) -> None:
         AEOPrompt = apps.get_model("aeo", "AEOPrompt")
