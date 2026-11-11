@@ -24,6 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.person_property_up
     build_capture_kwargs,
 )
 
+UNKNOWN_MEMBER_ID = KafkaError.UNKNOWN_MEMBER_ID  # type: ignore[attr-defined]
+TIMED_OUT = KafkaError._TIMED_OUT  # type: ignore[attr-defined]
+
 hang = threading.Event()
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.person_property_update_consumer"
 _SETTING = (
@@ -401,7 +404,7 @@ class TestCommit:
         # partition to another group member. The new owner re-reads from the last committed offset,
         # so this must be logged and swallowed, not crash the consumer loop.
         consumer = MagicMock()
-        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError.UNKNOWN_MEMBER_ID))
+        consumer.commit.side_effect = KafkaException(KafkaError(UNKNOWN_MEMBER_ID))
         c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True, dlq_producer=MagicMock())
 
         with capture_logs() as logs:
@@ -414,7 +417,7 @@ class TestCommit:
         # Only the known rebalance-recovery codes are safe to swallow; any other commit failure
         # means offsets were left where they were, so it must still surface rather than be hidden.
         consumer = MagicMock()
-        consumer.commit.side_effect = KafkaException(KafkaError(KafkaError._TIMED_OUT))
+        consumer.commit.side_effect = KafkaException(KafkaError(TIMED_OUT))
         c = PersonPropertyUpdateConsumer(capture_fn=MagicMock(), grant_fn=lambda: True, dlq_producer=MagicMock())
 
         with pytest.raises(KafkaException):
