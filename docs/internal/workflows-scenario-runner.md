@@ -18,16 +18,16 @@ pnpm --filter=@posthog/nodejs scenarios run smoke
 
 - A card is an id, resolved to `nodejs/tests/scenarios/cards/<id>.yaml`, or a path to a YAML file.
 - Several cards run one after the other on one stack: `scenarios run <card> <card>...`. Every card must load before any runs.
-- `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile.
+- `--profile <file>` runs the cards with a profile from outside the repository instead of the shipped `synthetic` profile. Its `name` must be the card's `profile`, so the profile hash tells the two apart.
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
 
-| Exit code | Meaning                                                                                                |
-| --------- | ------------------------------------------------------------------------------------------------------ |
-| 0         | `passed`                                                                                               |
-| 1         | `failed`: an invariant broke, or the stack did not converge                                            |
-| 2         | `invalid`: the run could not judge, or a card, the profile or the scorecard variables did not load     |
-| 3         | The scorecard variables are set and the scorecard was not read back, or its files could not be written |
+| Exit code | Meaning                                                                                                                                                             |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0         | `passed`                                                                                                                                                            |
+| 1         | `failed`: an invariant broke, or the stack did not converge                                                                                                         |
+| 2         | `invalid`: the run could not judge, or a card, the profile or the scorecard variables did not load                                                                  |
+| 3         | The scorecard variables are set and the scorecard was not read back, or its files could not be written. A run interrupted after the capture keeps its status's code |
 
 With several cards the exit code is the highest of their codes.
 
@@ -93,7 +93,7 @@ flowchart TB
     Runner -->|up, reset, health| Environment["Environment: up, reset, role, actuate, health, exits, down"]
     Runner -->|seed, drive| Generator["Generator: seed, drive"]
     Runner -->|start, releaseAll| Valves["Valves: start, releaseAll, timeline"]
-    Runner -->|open, converge, check, measure| Judge["Judge: open, record, converge, check, measure"]
+    Runner -->|open, converge, check, measure, evidence| Judge["Judge: open, record, converge, check, measure, evidence"]
     Runner -->|scorecard properties| Scorecard["Scorecard: publish"]
     Generator -->|record| Judge
     Generator -->|events, intake calls| Roles["Node roles: one process group per CDP mode"]
@@ -120,7 +120,7 @@ The Environment holds everything that differs between a local box and a cloud sl
 | **Provider edge**   | `startProviderEdge`, and HTTP: SES v2, CONNECT proxy, `/_faults`, `/_truth`, `/_health` | Faking providers, applying dosed faults, emitting signed SNS feedback, and the append-only truth.                                                                                       |
 | **Valves**          | `start`, `releaseAll`, `timeline`                                                       | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action or an edge fault, and the timeline of requested, applied, observed and released. |
 | **Generator**       | `seed`, `drive`                                                                         | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                           |
-| **Judge**           | `open`, `record`, `converge`, `check`, `measure`                                        | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
+| **Judge**           | `open`, `record`, `converge`, `check`, `measure`, `evidence`                            | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
 | **Cyclotron probe** | `unfinishedJobs`                                                                        | One SQL query against `cyclotron_jobs`. It reaches past Cyclotron's seam on purpose and is the only place that does.                                                                    |
 | **Scorecard**       | `scorecardOf`, `publish`                                                                | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                       |
 
@@ -172,6 +172,7 @@ The first slice is local only, on real time.
 
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
+Today `smoke` offers `event_email` and checks `at_least_once`; the rest of its row arrives with the stacks that add those traffic kinds and invariants.
 
 | Card                     | Traffic                                               | Valves                                                            | Invariants                                                                | Failure class                                |
 | ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
@@ -251,7 +252,8 @@ sequenceDiagram
     S-->>R: recorded or not
 ```
 
-During drive and convergence the Runner polls `Environment.health()` every 5 seconds and reads `Environment.exits()`.
+During drive and convergence the Runner polls `Environment.health()` every 5 seconds.
+It reads `Environment.exits()` once `role.kill` exists to tell a caused exit from an unexplained one.
 `Valves.releaseAll` also runs in a `finally`, so no valve outlives its card.
 
 ### An email worker killed mid-batch
@@ -334,7 +336,7 @@ sequenceDiagram
         E-->>R: dependency down
         V-->>R: requested, not observed
         Note over R: invalid
-    else a role exited without a kill causing it
+    else a role exited without a kill causing it, from role.kill on
         E-->>R: exit not caused by a valve
         Note over R: failed: role exited
     else not converged within the bound
@@ -346,7 +348,7 @@ sequenceDiagram
     end
     R->>R: write the evidence first
     R->>S: publish
-    alt variables set, not read back
+    alt variables set, not read back, not interrupted after the capture
         S-->>R: problem
         Note over R: exit 3, evidence kept
     end
@@ -410,11 +412,13 @@ It rejects:
 **Hashes.**
 The profile hash is the SHA-256 of the profile serialized with sorted keys.
 The card hash is the SHA-256 of the card without `gates` and the profile hash, serialized the same way.
-Gates stay outside the hash, so tightening a known-defect gate keeps runs comparable; anything else that changes what runs changes the hash.
+Gates stay outside the card hash; anything else that changes what runs changes it.
+`runner_version` covers `cards/`, so a committed gate change still changes the fingerprint, and runs on either side of it do not compare.
 
 **Profiles.**
 A profile has a `name`, per-traffic-kind rates under `traffic`, and role environment under `settings`.
-Settings whose name starts with `KAFKA_PRODUCER_` configure the generator's Kafka producer instead.
+Settings whose name starts with `KAFKA_PRODUCER_` configure the generator's Kafka producer.
+Every role gets every setting, so these also change the roles' own producers.
 A scorecard records the profile's name and hash, never its numbers.
 
 ### Runner
@@ -433,9 +437,9 @@ export interface Runner {
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Status rules.**
   - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, the intake accepted fewer than `minOffered` of the target units before the drive ended, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
-  - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a `role.kill` causing it, even if every delivery later arrives.
+  - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a `role.kill` causing it, even if every delivery later arrives. The role-exit rule applies once `role.kill` arrives; until then the supervisor restarts the role and the status does not see the exit.
   - `passed` otherwise.
-- **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written.
+- **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written. A run interrupted after the capture keeps the status's code, because the event was sent.
 
 ### Environment
 
@@ -496,7 +500,7 @@ export function startProviderEdge(options: {
 ```
 
 ```text
-POST   /_faults      { name, params?, match?: { host? | recipient? }, dose: { count } | { share }, for? }  -> 201 { id }
+POST   /_faults      { name, params, match?: { host? | recipient? }, dose: { count } | { share }, for? }  -> 201 { id }
 DELETE /_faults/:id
 DELETE /_faults      clears every fault
 GET    /_truth?after=<seq>&limit=<n>   -> { records: TruthRecord[], next: number }, at most 1000 records a page
@@ -575,6 +579,7 @@ export interface Judge {
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
   check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
   measure(measurements: Named[]): Promise<Measurement[]>
+  evidence(): { journal: JournalEntry[]; truth: TruthRecord[] } // journal.json and truth.json
 }
 
 export type InvariantResult = {
@@ -635,7 +640,7 @@ A 4xx answer other than 429 stops at once and names the variable to check.
 | `SCENARIO_RUNS_READ_KEY`      | A personal API key that can only query that project |
 
 None set: the runner writes no event, reports `recorded: false` and exits by status.
-All set: it writes and reads back, and exits 3 when either fails.
+All set: it writes and reads back, and exits 3 when either fails, unless the run was interrupted after the capture, which keeps the status's code.
 Some set: a configuration error, exit 2, before anything starts.
 
 #### Scorecard schema, version 1
@@ -671,21 +676,23 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 
 **Verdict**
 
-| Property          | Type            | Meaning                                                                                              |
-| ----------------- | --------------- | ---------------------------------------------------------------------------------------------------- |
-| `status`          | string          | `passed`, `failed` or `invalid`                                                                      |
-| `status_reason`   | string          | Why, in one line                                                                                     |
-| `started_at`      | string          | ISO 8601 time the run started                                                                        |
-| `ended_at`        | string          | ISO 8601 time the run ended, also the event's timestamp                                              |
-| `duration_s`      | number          | Seconds from start to end                                                                            |
-| `units_target`    | number or null  | Units the profile asked for                                                                          |
-| `units_offered`   | number or null  | Units the intake accepted before the drive ended                                                     |
-| `converged`       | boolean or null | Whether the stack converged within `convergeWithin`                                                  |
-| `unfinished_jobs` | number or null  | Jobs still unfinished when convergence ended                                                         |
-| `valve_timeline`  | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error |
-| `evidence_dir`    | string          | The evidence directory on the box that ran the card                                                  |
+| Property            | Type            | Meaning                                                                                              |
+| ------------------- | --------------- | ---------------------------------------------------------------------------------------------------- |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                      |
+| `status_reason`     | string          | Why, in one line                                                                                     |
+| `started_at`        | string          | ISO 8601 time the run started                                                                        |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                              |
+| `duration_s`        | number          | Seconds from start to end                                                                            |
+| `units_target`      | number or null  | Units the profile asked for                                                                          |
+| `units_offered`     | number or null  | Units the intake accepted before the drive ended                                                     |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                  |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                         |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                  |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                           |
 
-**Invariants**, one group per invariant the card names, with `<name>` the invariant's name:
+**Invariants**, one group per judged invariant, with `<name>` the invariant's name.
+A run that stops before judging has no groups, so a missing group means not judged, never passed:
 
 | Property               | Type           | Meaning                                                |
 | ---------------------- | -------------- | ------------------------------------------------------ |
@@ -694,7 +701,6 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 | `inv_<name>_gate`      | number or null | The card's gate for it, `null` when the card sets none |
 | `inv_<name>_violation` | string or null | The first violation, `null` when it held               |
 | `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                      |
-| `invariants_failed`    | string[]       | Names of the invariants that failed                    |
 
 **Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, and `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`.
 The unit is in the measurement's definition and in the evidence.
@@ -728,13 +734,13 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 
 ### The provider edge grows from `fake-ses.ts`
 
-- **Decision.** The SES v2 handler moved into the provider edge, and `startFakeSes` became a thin adapter over `startProviderEdge` with its old interface. Its single fault became one undosed entry in the edge's fault list.
+- **Decision.** The SES v2 handler moved into the provider edge, and `startFakeSes` became a thin adapter over `startProviderEdge` with its old interface. Its single fault became one entry in the edge's fault list, dosed at share 1.
 - **Why.** One implementation and one fault model serve both the email service's Jest suites and the runner, and those suites prove the move broke nothing. A container fake would drop configuration-set, tag and header validation and emit no feedback.
 - **Cost.** Two callers share one server's behavior; moving the Jest callers onto the edge directly is a later change.
 
 ### The edge runs inside the runner process
 
-- **Decision.** `Environment.up` calls `startProviderEdge` on port 4566, as Jest does.
+- **Decision.** `Environment.up` calls `startProviderEdge` in process on port 4566, as Jest's adapter does on a free port.
 - **Why.** The local runner needs no second process to supervise; the HTTP contract is the same either way.
 - **Cost.** The cloud slice needs the edge as its own process, which comes with the cloud image.
 
@@ -748,7 +754,7 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 
 - **Decision.** The repository ships an invented `synthetic` profile with the repository's default settings. A measured profile, with production's settings, is kept outside the repository and passed by path.
 - **Why.** This repository is public, and a measured profile describes production.
-- **Cost.** Capacity numbers mean something only with a measured profile.
+- **Cost.** Capacity numbers mean something only with a measured profile. A measured profile carries the card's profile name, so only `profile_hash` tells it from the shipped one.
 
 ### One query past Cyclotron's seam, on purpose
 
