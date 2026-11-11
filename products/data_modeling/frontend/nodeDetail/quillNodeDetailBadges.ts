@@ -27,3 +27,5 @@ const LEMON_TAG_BADGE_VARIANTS: Partial<Record<LemonTagType, QuillBadgeVariant>>
 export function schemaStatusBadgeVariant(status: keyof typeof StatusTagSetting): QuillBadgeVariant {
     return LEMON_TAG_BADGE_VARIANTS[StatusTagSetting[status]] ?? 'default'
 }
+
+export const DATA_WAREHOUSE_ICON_COLOR = 'var(--color-product-data-warehouse-light)'

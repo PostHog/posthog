@@ -92,6 +92,7 @@ export function QuillNodeDetailMaterialization({ id }: { id: string }): JSX.Elem
                     <QuillMaterializationRunHistory
                         viewId={panelSavedQuery.id}
                         kind={kind}
+                        materialized={!!panelSavedQuery.is_materialized}
                         showRefreshMode={kind !== 'endpoint' && !!panelSavedQuery.has_incremental_history}
                     />
                 </>

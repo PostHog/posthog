@@ -1,11 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
+import { IconColumns } from '@posthog/icons'
 import {
     Button,
     Collapsible,
     CollapsibleContent,
     CollapsibleTrigger,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    IconStack,
+    IconStackItem,
     Skeleton,
     Table,
     TableBody,
@@ -25,6 +32,7 @@ import { QuillCheckCallout } from 'products/data_quality/frontend/QuillCheckCall
 
 import { NodeDetailQueryEditor } from './NodeDetailQueryEditor'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { DATA_WAREHOUSE_ICON_COLOR } from './quillNodeDetailBadges'
 
 const COLUMNS_PAGE_SIZE = 10
 
@@ -45,9 +53,17 @@ function ColumnsTable({ columns }: { columns: DatabaseSchemaField[] }): JSX.Elem
                 </TableHeader>
                 {pageColumns.length === 0 ? (
                     <TableEmpty>
-                        <Text size="xs" variant="muted">
-                            Columns appear after the view runs.
-                        </Text>
+                        <Empty>
+                            <EmptyHeader>
+                                <IconStack>
+                                    <IconStackItem color={DATA_WAREHOUSE_ICON_COLOR}>
+                                        <IconColumns />
+                                    </IconStackItem>
+                                </IconStack>
+                                <EmptyTitle>No columns yet</EmptyTitle>
+                                <EmptyDescription>Columns appear after the view runs.</EmptyDescription>
+                            </EmptyHeader>
+                        </Empty>
                     </TableEmpty>
                 ) : (
                     <TableBody>

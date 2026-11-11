@@ -1,10 +1,16 @@
 import { useActions, useValues } from 'kea'
 import { Fragment, useState } from 'react'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconClock, IconRefresh, IconWarning } from '@posthog/icons'
 import {
     Badge,
     Button,
+    Empty,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyTitle,
+    IconStack,
+    IconStackItem,
     Heading,
     Progress,
     Select,
@@ -53,7 +59,7 @@ import {
 import { MaterializationRunError } from 'products/data_warehouse/frontend/shared/components/MaterializationRunError'
 
 import { MATERIALIZATION_ENGINE_LABELS } from '../modelsUsageLogic'
-import { RUN_STATUS_BADGE_VARIANTS, runStatusLabel } from './quillNodeDetailBadges'
+import { DATA_WAREHOUSE_ICON_COLOR, RUN_STATUS_BADGE_VARIANTS, runStatusLabel } from './quillNodeDetailBadges'
 
 const WIDE_ONLY_CELL = 'hidden @min-[48rem]/main-content:table-cell'
 const COLUMN_COUNT = 7
@@ -162,13 +168,44 @@ function JobLogs({ job, viewId }: { job: DataModelingJobApi; viewId: string }): 
     )
 }
 
+function RunHistoryEmpty({
+    failed,
+    materialized,
+    kind,
+}: {
+    failed: boolean
+    materialized: boolean
+    kind: 'view' | 'endpoint'
+}): JSX.Element {
+    const [title, description] = failed
+        ? ["Couldn't load runs", 'Use Refresh runs to try again.']
+        : materialized
+          ? ['No runs yet', 'Runs show up here after the first refresh. Use Sync now to start one.']
+          : ['No runs yet', `Materialize this ${kind} to store its results and refresh them on a schedule.`]
+    return (
+        <Empty>
+            <EmptyHeader>
+                <IconStack>
+                    <IconStackItem color={DATA_WAREHOUSE_ICON_COLOR}>
+                        {failed ? <IconWarning /> : <IconClock />}
+                    </IconStackItem>
+                </IconStack>
+                <EmptyTitle>{title}</EmptyTitle>
+                <EmptyDescription>{description}</EmptyDescription>
+            </EmptyHeader>
+        </Empty>
+    )
+}
+
 export function QuillMaterializationRunHistory({
     viewId,
     kind,
+    materialized,
     showRefreshMode,
 }: {
     viewId: string
     kind: 'view' | 'endpoint'
+    materialized: boolean
     showRefreshMode: boolean
 }): JSX.Element {
     const jobsLogic = materializationJobsLogic({ viewId, kind })
@@ -241,7 +278,7 @@ export function QuillMaterializationRunHistory({
                     </Button>
                 </div>
             </div>
-            {runHistoryError && (
+            {runHistoryError && jobs.length > 0 && (
                 <QuillCheckCallout tone="destructive">
                     Couldn't load runs. Use Refresh runs to try again.
                 </QuillCheckCallout>
@@ -272,9 +309,7 @@ export function QuillMaterializationRunHistory({
                     </TableBody>
                 ) : jobs.length === 0 ? (
                     <TableEmpty>
-                        <Text size="xs" variant="muted">
-                            No runs available
-                        </Text>
+                        <RunHistoryEmpty failed={runHistoryError} materialized={materialized} kind={kind} />
                     </TableEmpty>
                 ) : (
                     <TableBody>

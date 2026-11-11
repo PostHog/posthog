@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconExpand45, IconExternal } from '@posthog/icons'
+import { IconExpand45, IconExternal, IconGitBranch } from '@posthog/icons'
 import {
     Button,
     Dialog,
@@ -12,6 +12,8 @@ import {
     EmptyDescription,
     EmptyHeader,
     EmptyTitle,
+    IconStack,
+    IconStackItem,
 } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
@@ -22,6 +24,7 @@ import { QuillCheckCallout } from 'products/data_quality/frontend/QuillCheckCall
 import { LineageGraph } from '../lineage/LineageGraph'
 import { LINEAGE_FIT_VIEW_OPTIONS, nodeLineageUrl } from './NodeDetailLineage'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { DATA_WAREHOUSE_ICON_COLOR } from './quillNodeDetailBadges'
 import { QuillNodeDetailLineageTypeFilter } from './QuillNodeDetailLineageTypeFilter'
 
 export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
@@ -52,6 +55,11 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
         return (
             <Empty className="min-h-64 rounded-lg border border-border">
                 <EmptyHeader>
+                    <IconStack>
+                        <IconStackItem color={DATA_WAREHOUSE_ICON_COLOR}>
+                            <IconGitBranch />
+                        </IconStackItem>
+                    </IconStack>
                     <EmptyTitle>No connected models</EmptyTitle>
                     <EmptyDescription>
                         Lineage shows the sources this model reads from and the models that use it. This model has no
