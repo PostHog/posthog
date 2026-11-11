@@ -76,6 +76,7 @@ from products.signals.backend.models import (
     SignalSourceConfig,
 )
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_REASON, sanitized_repository
+from products.signals.backend.report_chart_probe import empty_trends_chart_ids
 from products.signals.backend.report_charts import ChartSize, ReportChart, chart_batch_error
 from products.signals.backend.report_content_gates import organization_report_metrics_enabled
 from products.signals.backend.report_generation.resolve_reviewers import (
@@ -1101,6 +1102,55 @@ def _build_edit_charts(charts: list[ReportChartInput] | None) -> list[ReportChar
     if charts is None:
         return None
     return _build_charts(charts)
+
+
+def _reject_empty_charts(team: Team, author: ReportAuthor, tool: str, charts: Sequence[ReportChart]) -> None:
+    """Refuse a write whose Trends charts return no data, so the author fixes them before they ship.
+
+    Runs after the gates and before the safety judge: a gated call must not spend queries, and a
+    refused chart must not cost a judge call. Reads the DB and ClickHouse, so call it on a sync thread.
+
+    Scout runs only. A person files through an endpoint that needs `inbox:write` alone, and a refusal
+    tells the caller which filters match no data, so it would read events without `query:read`.
+    """
+    if author.scout_run is None:
+        return
+    empty = empty_trends_chart_ids(team, charts)
+    if not empty:
+        return
+    if _author_trial_store(author) is None:
+        _capture_empty_charts_rejected(team=team, author=author, tool=tool, chart_count=len(charts), empty=empty)
+    raise InvalidScoutReportError(
+        f"{tool} refused: chart(s) {', '.join(repr(chart_id) for chart_id in empty)} returned no data "
+        "(every series is empty or zero over its date range), so the reader would see an empty chart. "
+        "Check each filter against the data. When you copy a filter from a saved insight, keep its "
+        "string values exactly as stored and do not add a second level of backslash escaping to a regex. "
+        "If zero is the finding, remove the chart and state the zero in the summary."
+    )
+
+
+def _capture_empty_charts_rejected(
+    *, team: Team, author: ReportAuthor, tool: str, chart_count: int, empty: Sequence[str]
+) -> None:
+    """Capture `signals_scout_report_charts_rejected`: how often a scout writes a chart with no data."""
+    try:
+        posthoganalytics.capture(
+            event="signals_scout_report_charts_rejected",
+            distinct_id=str(team.uuid),
+            properties={
+                **author.event_properties(),
+                "tool": tool,
+                "chart_count": chart_count,
+                "empty_chart_count": len(empty),
+                "empty_chart_ids": list(empty),
+            },
+            groups=groups(team.organization, team),
+        )
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to capture charts-rejected analytics event",
+            extra={"team_id": team.id, **author.log_extra()},
+        )
 
 
 def _build_links(links: list[ReportLinkInput] | None) -> list[ReportLink]:
@@ -2418,6 +2468,9 @@ async def emit_report(
         return await finish(_gate_skip_result(preflight))
 
     await database_sync_to_async(_assert_emit_link_targets_live, thread_sensitive=False)(team, built_links)
+    await database_sync_to_async(_reject_empty_charts, thread_sensitive=False)(
+        team, author, "emit_report", chart_contents
+    )
 
     async with funded_report(
         team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
@@ -2634,6 +2687,7 @@ def emit_report_sync(
         return finish(_gate_skip_result(preflight))
 
     _assert_emit_link_targets_live(team, built_links)
+    _reject_empty_charts(team, author, "emit_report", chart_contents)
 
     with funded_report_sync(
         team=team, run_id=run.task_run_id if run else None, emission_key=emit_key
@@ -3480,6 +3534,9 @@ async def edit_report(
     built_reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
         team, suggested_reviewers, skill_name=author.skill_name
     )
+    await database_sync_to_async(_reject_empty_charts, thread_sensitive=False)(
+        team, author, "edit_report", built_charts or ()
+    )
     _raise_if_unsafe_edit(
         await judge_edited_report_content(
             team_id=team.id,
@@ -3622,6 +3679,7 @@ def edit_report_sync(
     # Reviewers resolve before the judge too: resolution is the one step that rejects caller input
     # (an unresolvable user_uuid 400s), so a bad reviewer must not cost a judge call first.
     built_reviewers = _build_suggested_reviewers(team, suggested_reviewers, skill_name=author.skill_name)
+    _reject_empty_charts(team, author, "edit_report", built_charts or ())
     _raise_if_unsafe_edit(
         async_to_sync(judge_edited_report_content)(
             team_id=team.id,
