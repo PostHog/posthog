@@ -728,6 +728,40 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(reloaded.json()["path"], "Campaigns/Welcome back")
         self.assertEqual(reloaded.json()["ref"], workflow_id)
 
+    @parameterized.expand(
+        [("recents", "file_system/", {"order_by": "-last_viewed_at"}), ("frequent", "file_system/frequent/", {})]
+    )
+    def test_sidebar_reads_resolve_access_only_for_viewed_template_files(self, _name, path, params) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        viewed, *unviewed = [
+            self.client.post(templates_url, {"name": f"Synthetic email {i}", "type": "email"}, format="json").json()[
+                "id"
+            ]
+            for i in range(11)
+        ]
+        self.client.post(
+            f"/api/projects/{self.team.id}/file_system/log_view/",
+            {"type": "message_template", "ref": viewed},
+            format="json",
+        )
+        file_rows_read: list[int] = []
+
+        def count_file_rows(execute: Any, sql: str, params: Any, many: bool, context: dict[str, Any]) -> Any:
+            result = execute(sql, params, many, context)
+            if 'FROM "posthog_filesystem"' in sql:
+                file_rows_read.append(context["cursor"].rowcount)
+            return result
+
+        with connection.execute_wrapper(count_file_rows):
+            response = self.client.get(f"/api/projects/{self.team.id}/{path}", params)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertLess(max(file_rows_read), len(unviewed), file_rows_read)
+
 
 class TestWorkflowFilesUnderRealTransactions(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
