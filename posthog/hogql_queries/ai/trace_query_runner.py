@@ -89,12 +89,23 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
     query: TraceQuery
     cached_response: CachedTraceQueryResponse
 
-    def __init__(self, *args: Any, bound_events_to_date_range: bool = False, **kwargs: Any):
+    def __init__(
+        self,
+        *args: Any,
+        bound_events_to_date_range: bool = False,
+        posthog_tables_only: bool = False,
+        bypass_property_access_control: bool = False,
+        **kwargs: Any,
+    ) -> None:
         super().__init__(*args, **kwargs)
         # The trace view wants the whole trace whatever the date picker says, so the default reads
         # `ai_events` unbounded. A caller that grades a trace "as of" an instant opts in here, which
         # holds the event rows to `dateRange.date_to` before the SQL aggregates the totals.
         self._bound_events_to_date_range = bound_events_to_date_range
+        # See query_ai_events. The trace view keeps the full catalog because its property filters
+        # and modifiers can reference warehouse tables and group types.
+        self._posthog_tables_only = posthog_tables_only
+        self._bypass_property_access_control = bypass_property_access_control
 
     def _calculate(self):
         query_result = query_ai_events(
@@ -108,6 +119,8 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            posthog_tables_only=self._posthog_tables_only,
+            bypass_property_access_control=self._bypass_property_access_control,
         )
 
         columns: list[str] = query_result.columns or []
@@ -258,8 +271,8 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         )
         return cast(ast.SelectQuery, query)
 
-    def get_cache_payload(self):
-        return {
+    def get_cache_payload(self) -> dict[str, Any]:
+        payload = {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
             "schema_version": 11,
@@ -267,6 +280,9 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
             # a bounded and an unbounded read of the same trace must not share a cache entry.
             "bound_events_to_date_range": self._bound_events_to_date_range,
         }
+        if self._bypass_property_access_control:
+            payload["bypass_property_access_control"] = True
+        return payload
 
     @cached_property
     def _date_range(self):

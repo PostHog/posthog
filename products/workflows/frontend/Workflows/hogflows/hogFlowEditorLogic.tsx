@@ -1,45 +1,40 @@
-import {
-    Edge,
-    EdgeChange,
-    MarkerType,
-    Node,
-    NodeChange,
-    Position,
-    ReactFlowInstance,
-    applyEdgeChanges,
-    applyNodeChanges,
-    getOutgoers,
-} from '@xyflow/react'
+import { getOutgoers } from '@xyflow/react'
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import type { DragEvent, RefObject } from 'react'
+import posthog from 'posthog-js'
+import type { DragEvent } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { AppMetricsTotalsRequest, loadAppMetricsTotals } from 'lib/components/AppMetrics/appMetricsLogic'
+import { AppMetricsTotalsResponse } from 'lib/components/AppMetrics/appMetricsLogic'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual, reconcileById } from 'lib/utils/objects'
 import { templateToConfiguration } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import type { HogFunctionTemplateType, UserBasicType } from '../../../../../frontend/src/types'
+import type {
+    HogFunctionTemplateType,
+    IntegrationType,
+    TeamPublicType,
+    TeamType,
+    UserBasicType,
+} from '../../../../../frontend/src/types'
+import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
-import { getFormattedNodes } from './react_flow_utils/autolayout'
-import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
-import { getSmartStepPath } from './react_flow_utils/SmartEdge'
+import { getEdgeId } from './edgeId'
+import { getTeamUtmDefaults, newEmailUtmConfig, utmKeysFollowingSavedDefault } from './steps/components/utmDefaults'
+import type { UtmTagValues } from './steps/components/UtmTagFields'
+import type { UtmTagKey } from './steps/components/UtmTagFields'
 import { getHogFlowStep } from './steps/HogFlowSteps'
-import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
-import { isWorkflowTreeComplete } from './tree/workflowTree'
+import { CyclotronInputType } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 import type { HogFlowEdge } from './types'
-
-const getEdgeId = (edge: HogFlow['edges'][number]): string =>
-    `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
 
 export function computeInsertEdges(
     edges: HogFlow['edges'],
@@ -75,32 +70,6 @@ export function computeInsertEdges(
 /**
  * Helper to get branch label with custom name fallback
  */
-const getBranchLabel = (action: HogFlowAction | undefined, edge: HogFlow['edges'][0]): string => {
-    if (!action) {
-        return `If condition #${(edge.index || 0) + 1} matches`
-    }
-
-    switch (action.type) {
-        case 'wait_until_condition': {
-            const waitAction = action as Extract<HogFlowAction, { type: 'wait_until_condition' }>
-            const customName = waitAction.config.condition?.name
-            return customName || 'If condition matches'
-        }
-        case 'random_cohort_branch': {
-            const cohortAction = action as Extract<HogFlowAction, { type: 'random_cohort_branch' }>
-            const cohort = cohortAction.config.cohorts?.[edge.index || 0]
-            return cohort?.name || `If cohort #${(edge.index || 0) + 1} matches`
-        }
-        case 'conditional_branch': {
-            const branchAction = action as Extract<HogFlowAction, { type: 'conditional_branch' }>
-            const condition = branchAction.config.conditions?.[edge.index || 0]
-            return condition?.name || `If condition #${(edge.index || 0) + 1} matches`
-        }
-        default:
-            return `If condition #${(edge.index || 0) + 1} matches`
-    }
-}
-
 /**
  * Computes the new edges after moving a node to a new position in the graph.
  * Extracted into pure function to be easier to test.
@@ -169,15 +138,70 @@ export function computeMoveEdges(
     return newEdges
 }
 
+const BRANCHING_STEP_TYPES: HogFlowAction['type'][] = [
+    'conditional_branch',
+    'random_cohort_branch',
+    'wait_until_condition',
+]
+
+/** A step moves on its own when it has one next step and no paths of its own to carry along. */
+export function canMoveStep(workflow: HogFlow, actionId: string): boolean {
+    const action = workflow.actions.find((candidate) => candidate.id === actionId)
+    if (!action || action.type === 'trigger' || action.type === 'exit' || BRANCHING_STEP_TYPES.includes(action.type)) {
+        return false
+    }
+    return new Set(workflow.edges.filter((edge) => edge.from === actionId).map((edge) => edge.to)).size === 1
+}
+
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export const HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH = 592
-export type HogFlowEditorLayout = 'simple' | 'advanced'
 export type HogFlowEditorActionMetrics = {
     actionId: string
     succeeded: number
     failed: number
     filtered: number
+}
+
+/** Turns metric totals broken down by step and metric into one entry per step. */
+export function actionMetricsFromTotals(
+    response: AppMetricsTotalsResponse
+): Record<string, HogFlowEditorActionMetrics> {
+    const res: Record<string, HogFlowEditorActionMetrics> = {}
+    Object.values(response).forEach((value) => {
+        let [instanceId, metricName] = value.breakdowns
+
+        if (!metricName) {
+            return
+        }
+
+        if (!instanceId) {
+            // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
+            if (['succeeded', 'failed'].includes(metricName)) {
+                instanceId = EXIT_NODE_ID
+            } else if (['rate_limited', 'triggered'].includes(metricName)) {
+                instanceId = TRIGGER_NODE_ID
+                if (['rate_limited'].includes(metricName)) {
+                    metricName = 'failed'
+                }
+                if (['triggered'].includes(metricName)) {
+                    metricName = 'succeeded'
+                }
+            }
+        }
+
+        res[instanceId] = res[instanceId] || {
+            actionId: instanceId,
+            succeeded: 0,
+            failed: 0,
+            filtered: 0,
+        }
+        if (metricName in res[instanceId]) {
+            ;(res[instanceId] as any)[metricName] = value.total
+        }
+    })
+
+    return res
 }
 
 export type OutputMappingSuggestion = {
@@ -189,35 +213,31 @@ export type OutputMappingSuggestion = {
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
+    on_error?: HogFlowAction['on_error']
     getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
     getOutputMappingSuggestions?: () => Promise<OutputMappingSuggestion[]>
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface hogFlowEditorLogicValues {
+    integrations: IntegrationType[] | null // integrationsLogic
     categories: MessageCategory[] // optOutCategoriesLogic
     categoriesLoading: boolean // optOutCategoriesLogic
+    currentTeam: TeamPublicType | TeamType | null // teamLogic
     edgesByActionId: Record<string, HogFlowEdge[]> // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
     workflow: HogFlow // workflowLogic
-    actionMetricsById: Record<string, HogFlowEditorActionMetrics> | null
-    actionMetricsByIdLoading: boolean
-    animatingEdgePair: string | null
     dropzoneNodes: DropzoneNode[]
     edges: HogFlowActionEdge[]
-    editorLayout: HogFlowEditorLayout
     highlightedDropzoneNodeId: string | null
     isCopyingNode: boolean
     isMovingNode: boolean
-    isZoomedOutFar: boolean
     mode: HogFlowEditorMode
     movingNodeId: string | null
     nodeToBeAdded: CreateActionType | HogFlowActionNode | null
     nodes: HogFlowActionNode[]
     nodesById: Record<string, HogFlowActionNode>
     panelWidth: number | null
-    reactFlowInstance: ReactFlowInstance<Node, Edge> | null
-    reactFlowWrapper: RefObject<HTMLDivElement> | null
     selectedNode: HogFlowActionNode | null
     selectedNodeCanBeCopiedOrMoved: boolean
     selectedNodeCanBeDeleted: boolean
@@ -522,7 +542,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -633,54 +655,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-native-push'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_push'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-twilio'
                                 template_uuid?: string | undefined
                             }
@@ -729,9 +703,70 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -767,6 +802,9 @@ export interface hogFlowEditorLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -796,6 +834,11 @@ export interface hogFlowEditorLogicActions {
                                           tag_names?: string[] | undefined
                                       }
                                       type: 'batch'
+                                  }
+                                | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
                                   }
                                 | {
                                       filters: {
@@ -933,6 +976,9 @@ export interface hogFlowEditorLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -962,6 +1008,11 @@ export interface hogFlowEditorLogicActions {
                                 tag_names?: string[] | undefined
                             }
                             type: 'batch'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {
@@ -1072,7 +1123,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -1378,7 +1431,9 @@ export interface hogFlowEditorLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
+                                                        | 'replay_vision_scan'
                                                         | 'signals_scout'
                                                         | 'string'
                                                         | 'task_mcp_installations'
@@ -1489,54 +1544,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-native-push'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_push'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-twilio'
                                 template_uuid?: string | undefined
                             }
@@ -1585,9 +1592,70 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-email'
                                 template_uuid?: string | undefined
                                 tracking_enabled?: boolean | undefined
+                                utm_params?:
+                                    | {
+                                          utm_campaign?: string | undefined
+                                          utm_content?: string | undefined
+                                          utm_medium?: string | undefined
+                                          utm_source?: string | undefined
+                                      }
+                                    | undefined
+                                utm_params_from_default?:
+                                    | ('utm_campaign' | 'utm_content' | 'utm_medium' | 'utm_source')[]
+                                    | undefined
+                                utm_tags_enabled?: boolean | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1623,6 +1691,9 @@ export interface hogFlowEditorLogicActions {
                       | {
                             config:
                                 | {
+                                      type: 'api'
+                                  }
+                                | {
                                       type: 'schedule'
                                   }
                                 | {
@@ -1652,6 +1723,11 @@ export interface hogFlowEditorLogicActions {
                                           tag_names?: string[] | undefined
                                       }
                                       type: 'batch'
+                                  }
+                                | {
+                                      cohort_id: number | null
+                                      transition: 'entered' | 'left'
+                                      type: 'cohort'
                                   }
                                 | {
                                       filters: {
@@ -1789,6 +1865,9 @@ export interface hogFlowEditorLogicActions {
                   team_id: number
                   trigger?:
                       | {
+                            type: 'api'
+                        }
+                      | {
                             type: 'schedule'
                         }
                       | {
@@ -1818,6 +1897,11 @@ export interface hogFlowEditorLogicActions {
                                 tag_names?: string[] | undefined
                             }
                             type: 'batch'
+                        }
+                      | {
+                            cohort_id: number | null
+                            transition: 'entered' | 'left'
+                            type: 'cohort'
                         }
                       | {
                             filters: {
@@ -1928,7 +2012,9 @@ export interface hogFlowEditorLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
+                                | 'replay_vision_scan'
                                 | 'signals_scout'
                                 | 'string'
                                 | 'task_mcp_installations'
@@ -1969,21 +2055,11 @@ export interface hogFlowEditorLogicActions {
     setWorkflowInfo: (workflow: Partial<HogFlow>) => {
         workflow: Partial<HogFlow>
     } // workflowLogic
-    clearAnimatingEdgePair: () => {
-        value: true
-    }
     clearPanelWidth: () => {
         value: true
     }
     copyNodeToHighlightedDropzone: () => {
         value: true
-    }
-    duplicateNodeBelow: (actionId: string) => {
-        actionId: string
-    }
-    fitView: (options?: { duration?: number; noZoom?: boolean }) => {
-        duration?: number | undefined
-        noZoom?: boolean | undefined
     }
     handlePaneClick: () => {
         value: true
@@ -1991,32 +2067,12 @@ export interface hogFlowEditorLogicActions {
     hideDropzones: () => {
         value: true
     }
-    loadActionMetricsById: (
-        params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
-        timezone: string
+    markUtmSavedAsTeamDefault: (
+        actionId: string,
+        saved: UtmTagValues
     ) => {
-        params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
-        timezone: string
-    }
-    loadActionMetricsByIdFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadActionMetricsByIdSuccess: (
-        actionMetricsById: Record<string, HogFlowEditorActionMetrics>,
-        payload?: {
-            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
-            timezone: string
-        }
-    ) => {
-        actionMetricsById: Record<string, HogFlowEditorActionMetrics>
-        payload?: {
-            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>
-            timezone: string
-        }
+        actionId: string
+        saved: Partial<Record<UtmTagKey, string>>
     }
     moveNodeToEdge: (
         movingNodeId: string,
@@ -2044,24 +2100,11 @@ export interface hogFlowEditorLogicActions {
         joinEdges: HogFlowEdge[] | undefined
         targetEdge: HogFlowEdge | undefined
     }
-    onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => {
-        edges: EdgeChange<HogFlowActionEdge>[]
-    }
-    onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => {
-        nodes: NodeChange<HogFlowActionNode>[]
-    }
     onNodesDelete: (deleted: HogFlowActionNode[]) => {
         deleted: HogFlowActionNode[]
     }
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
-    }
-    setAnimatingEdgePair: (
-        from: string,
-        to: string
-    ) => {
-        from: string
-        to: string
     }
     setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => {
         dropzoneNodes: DropzoneNode[]
@@ -2069,14 +2112,8 @@ export interface hogFlowEditorLogicActions {
     setEdges: (edges: HogFlowActionEdge[]) => {
         edges: HogFlowActionEdge[]
     }
-    setEditorLayout: (editorLayout: HogFlowEditorLayout) => {
-        editorLayout: HogFlowEditorLayout
-    }
     setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => {
         highlightedDropzoneNodeId: string | null
-    }
-    setIsZoomedOutFar: (isZoomedOutFar: boolean) => {
-        isZoomedOutFar: boolean
     }
     setMode: (mode: HogFlowEditorMode) => {
         mode: 'build' | 'logs' | 'metrics' | 'test' | 'variables'
@@ -2084,20 +2121,11 @@ export interface hogFlowEditorLogicActions {
     setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => {
         nodeToBeAdded: CreateActionType | HogFlowActionNode | null
     }
-    setNodes: (nodes: HogFlowActionNode[]) => {
-        nodes: HogFlowActionNode[]
-    }
     setNodesRaw: (nodes: HogFlowActionNode[]) => {
         nodes: HogFlowActionNode[]
     }
     setPanelWidth: (panelWidth: number) => {
         panelWidth: number
-    }
-    setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => {
-        reactFlowInstance: ReactFlowInstance<Node, Edge>
-    }
-    setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => {
-        reactFlowWrapper: RefObject<HTMLDivElement>
     }
     setSelectedNodeId: (selectedNodeId: string | null) => {
         selectedNodeId: string | null
@@ -2158,6 +2186,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
+            integrationsLogic,
+            ['integrations'],
+            teamLogic,
+            ['currentTeam'],
         ],
         actions: [
             workflowLogic,
@@ -2167,10 +2199,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         ],
     })),
     actions({
-        onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => ({ edges }),
-        onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => ({ nodes }),
         onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
-        setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
             dropzoneNodes,
         }),
@@ -2180,10 +2209,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         setEdges: (edges: HogFlowActionEdge[]) => ({ edges }),
         setSelectedNodeId: (selectedNodeId: string | null) => ({ selectedNodeId }),
         resetFlowFromHogFlow: (hogFlow: HogFlow) => ({ hogFlow }),
-        setReactFlowInstance: (reactFlowInstance: ReactFlowInstance<Node, Edge>) => ({
-            reactFlowInstance,
-        }),
-        setReactFlowWrapper: (reactFlowWrapper: RefObject<HTMLDivElement>) => ({ reactFlowWrapper }),
         onDragOver: (event: DragEvent) => ({ event }),
         onDrop: (event?: DragEvent, targetEdge?: HogFlowEdge, joinEdges?: HogFlowEdge[]) => ({
             event,
@@ -2192,12 +2217,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }),
         setNodeToBeAdded: (nodeToBeAdded: CreateActionType | HogFlowActionNode | null) => ({ nodeToBeAdded }),
         setHighlightedDropzoneNodeId: (highlightedDropzoneNodeId: string | null) => ({ highlightedDropzoneNodeId }),
-        setEditorLayout: (editorLayout: HogFlowEditorLayout) => ({ editorLayout }),
         setMode: (mode: HogFlowEditorMode) => ({ mode }),
         setPanelWidth: (panelWidth: number) => ({ panelWidth }),
         clearPanelWidth: true,
-        setAnimatingEdgePair: (from: string, to: string) => ({ from, to }),
-        clearAnimatingEdgePair: true,
         startCopyingNode: (node: HogFlowActionNode) => ({ node }),
         stopCopyingNode: true,
         copyNodeToHighlightedDropzone: true,
@@ -2215,22 +2237,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             isBranchJoinDropzone,
             joinEdges,
         }),
-        duplicateNodeBelow: (actionId: string) => ({ actionId }),
-        loadActionMetricsById: (
-            params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
-            timezone: string
-        ) => ({ params, timezone }),
-        fitView: (options: { duration?: number; noZoom?: boolean } = {}) => options,
+        markUtmSavedAsTeamDefault: (actionId: string, saved: UtmTagValues) => ({ actionId, saved }),
         handlePaneClick: true,
-        setIsZoomedOutFar: (isZoomedOutFar: boolean) => ({ isZoomedOutFar }),
     }),
     reducers(() => ({
-        editorLayout: [
-            'simple' as HogFlowEditorLayout,
-            {
-                setEditorLayout: (_, { editorLayout }) => editorLayout,
-            },
-        ],
         mode: [
             'build' as HogFlowEditorMode,
             {
@@ -2289,12 +2299,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 stopMovingNode: () => false,
             },
         ],
-        isZoomedOutFar: [
-            false,
-            {
-                setIsZoomedOutFar: (_, { isZoomedOutFar }) => isZoomedOutFar,
-            },
-        ],
         movingNodeId: [
             null as string | null,
             {
@@ -2307,27 +2311,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             {
                 setNodeToBeAdded: (_, { nodeToBeAdded }) => nodeToBeAdded,
                 startCopyingNode: (_, { node }) => node.data,
-            },
-        ],
-        reactFlowInstance: [
-            null as ReactFlowInstance<Node, Edge> | null,
-            {
-                setReactFlowInstance: (_, { reactFlowInstance }) => reactFlowInstance,
-            },
-        ],
-        reactFlowWrapper: [
-            null as RefObject<HTMLDivElement> | null,
-            {
-                setReactFlowWrapper: (_, { reactFlowWrapper }) => reactFlowWrapper,
-            },
-        ],
-        animatingEdgePair: [
-            null as string | null,
-            {
-                setAnimatingEdgePair: (_: string | null, { from, to }: { from: string; to: string }) =>
-                    `${from}->${to}`,
-                clearAnimatingEdgePair: () => null,
-                setMode: () => null,
             },
         ],
     })),
@@ -2394,145 +2377,20 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                return !branchingTypes.includes(selectedNode?.data.type ?? '')
+                return !!selectedNode && !BRANCHING_STEP_TYPES.includes(selectedNode.data.type)
             },
         ],
     }),
-    loaders(() => ({
-        actionMetricsById: [
-            null as Record<string, HogFlowEditorActionMetrics> | null,
-            {
-                loadActionMetricsById: async ({ params, timezone }, breakpoint) => {
-                    await breakpoint(10)
-                    const _params: AppMetricsTotalsRequest = {
-                        ...params,
-                        breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
-                    }
-                    const response = await loadAppMetricsTotals(_params, timezone)
-                    await breakpoint(10)
-
-                    const res: Record<string, HogFlowEditorActionMetrics> = {}
-                    Object.values(response).forEach((value) => {
-                        let [instanceId, metricName] = value.breakdowns
-
-                        if (!metricName) {
-                            return
-                        }
-
-                        if (!instanceId) {
-                            // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
-                            if (['succeeded', 'failed'].includes(metricName)) {
-                                instanceId = EXIT_NODE_ID
-                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
-                                instanceId = TRIGGER_NODE_ID
-                                if (['rate_limited'].includes(metricName)) {
-                                    metricName = 'failed'
-                                }
-                                if (['triggered'].includes(metricName)) {
-                                    metricName = 'succeeded'
-                                }
-                            }
-                        }
-
-                        res[instanceId] = res[instanceId] || {
-                            actionId: instanceId,
-                            succeeded: 0,
-                            failed: 0,
-                            filtered: 0,
-                        }
-                        if (metricName in res[instanceId]) {
-                            ;(res[instanceId] as any)[metricName] = value.total
-                        }
-                    })
-
-                    return res
-                },
-            },
-        ],
-    })),
     listeners(({ values, actions }) => {
-        let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
-            onEdgesChange: ({ edges }) => {
-                actions.setEdges(applyEdgeChanges(edges, values.edges))
-            },
-            onNodesChange: ({ nodes }) => {
-                actions.setNodes(applyNodeChanges(nodes, values.nodes))
-            },
-            setAnimatingEdgePair: () => {
-                if (animationTimeout) {
-                    clearTimeout(animationTimeout)
-                }
-                animationTimeout = setTimeout(() => {
-                    animationTimeout = null
-                    actions.clearAnimatingEdgePair()
-                }, 1500)
-            },
-
             resetFlowFromHogFlow: ({ hogFlow }) => {
                 try {
-                    const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => {
-                        const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
-                        const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
-
-                        return {
-                            // Only these values are set by the user
-                            source: edge.from,
-                            target: edge.to,
-
-                            // All other values are derived
-                            id: getEdgeId(edge),
-                            type: 'smart',
-                            deletable: false,
-                            reconnectable: false,
-                            selectable: false,
-                            focusable: false,
-                            markerEnd: {
-                                type: MarkerType.ArrowClosed,
-                            },
-                            data: {
-                                edge,
-                                label: isOnlyEdgeForNode
-                                    ? undefined
-                                    : edge.type === 'continue'
-                                      ? `No match`
-                                      : getBranchLabel(edgeSourceAction, edge),
-                            },
-                            labelShowBg: false,
-                            targetHandle: `target_${edge.to}`,
-                            sourceHandle:
-                                edge.type === 'continue'
-                                    ? `continue_${edge.from}`
-                                    : `branch_${edge.from}_${edge.index}`,
-                        }
-                    })
-
-                    const handlesByIdByNodeId: Record<string, Record<string, StepViewNodeHandle>> = {}
-
-                    edges.forEach((edge) => {
-                        if (!handlesByIdByNodeId[edge.source]) {
-                            handlesByIdByNodeId[edge.source] = {}
-                        }
-                        if (!handlesByIdByNodeId[edge.target]) {
-                            handlesByIdByNodeId[edge.target] = {}
-                        }
-
-                        handlesByIdByNodeId[edge.source][edge.sourceHandle ?? ''] = {
-                            id: edge.sourceHandle,
-                            type: 'source',
-                            position: Position.Bottom,
-                            ...BOTTOM_HANDLE_POSITION,
-                        }
-
-                        handlesByIdByNodeId[edge.target][edge.targetHandle ?? ''] = {
-                            id: edge.targetHandle,
-                            type: 'target',
-                            position: Position.Top,
-                            ...TOP_HANDLE_POSITION,
-                        }
-                    })
+                    const edges: HogFlowActionEdge[] = hogFlow.edges.map((edge) => ({
+                        id: getEdgeId(edge),
+                        source: edge.from,
+                        target: edge.to,
+                        data: { edge },
+                    }))
 
                     const nodes: HogFlowActionNode[] = hogFlow.actions.map((action: HogFlowAction) => {
                         const step = getHogFlowStep(action, values.hogFunctionTemplatesById)
@@ -2551,7 +2409,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             type: 'action',
                             data: migratedAction,
                             position: { x: 0, y: 0 },
-                            handles: Object.values(handlesByIdByNodeId[migratedAction.id] ?? {}),
                             deletable: !['trigger', 'exit'].includes(migratedAction.type),
                             selectable: true,
                             draggable: false,
@@ -2559,26 +2416,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     })
 
-                    // Reuse unchanged edge references so ReactFlow only reprocesses edges that
-                    // actually changed (matching its own applyEdgeChanges contract).
+                    // Keep unchanged references so a save round trip doesn't re-render every step.
                     actions.setEdges(reconcileById(values.edges, edges, (edge) => edge.id))
-                    actions.setNodes(nodes)
+                    actions.setNodesRaw(reconcileById(values.nodes, nodes, (node) => node.id))
                 } catch (error) {
                     console.error('Error resetting flow from hog flow', error)
                     lemonToast.error('Error updating workflow')
                 }
-            },
-
-            setNodes: async ({ nodes }, breakpoint) => {
-                const formattedNodes = await getFormattedNodes(nodes, values.edges)
-                // Drop this layout run if a newer setNodes was dispatched while elk was working,
-                // so overlapping rebuilds can't finish out of order and let a stale layout win.
-                breakpoint()
-
-                // Reconcile after layout so positions participate in the equality check: a node
-                // that moved gets a fresh reference, an untouched one keeps its identity and its
-                // ReactFlow subtree doesn't re-render.
-                actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
             },
 
             onNodesDelete: ({ deleted }) => {
@@ -2595,7 +2439,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // Find the deleted node
                             const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
                             if (deletedNode) {
-                                // The React Flow layout may still be pending, so rewire from the canonical workflow.
                                 const outgoer = values.workflow.edges.find((edge) => edge.from === deletedNode.id)
                                 if (outgoer) {
                                     // Change target to the first outgoer
@@ -2620,7 +2463,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
 
             showDropzones: () => {
-                const { nodes, edges, isMovingNode, movingNodeId } = values
+                const { nodesById, edges, isMovingNode, movingNodeId } = values
 
                 const dropzoneNodes: DropzoneNode[] = []
 
@@ -2628,11 +2471,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 if (isMovingNode && movingNodeId) {
                     const incomingEdges = edges.filter((e) => e.target === movingNodeId)
                     const outgoingEdges = edges.filter((e) => e.source === movingNodeId)
-                    // Only skip in the simple linear case (1 incoming, 1 outgoing)
-                    // where placing on adjacent edges would result in the same position
+                    // A move drops the step's outgoing edge before it splits the target, so that edge can never take the step.
+                    if (outgoingEdges.length === 1) {
+                        skipEdgeIds.add(outgoingEdges[0].id)
+                    }
+                    // With one incoming edge, placing the step there leaves it where it is.
                     if (incomingEdges.length === 1 && outgoingEdges.length === 1) {
                         skipEdgeIds.add(incomingEdges[0].id)
-                        skipEdgeIds.add(outgoingEdges[0].id)
                     }
                 }
 
@@ -2640,26 +2485,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     if (skipEdgeIds.has(edge.id)) {
                         return
                     }
-                    const sourceNode = nodes.find((n) => n.id === edge.source)
-                    const targetNode = nodes.find((n) => n.id === edge.target)
+                    const sourceNode = nodesById[edge.source]
+                    const targetNode = nodesById[edge.target]
 
                     if (sourceNode && targetNode) {
-                        const sourceHandle = sourceNode.handles?.find((h) => h.id === edge.sourceHandle)
-                        const targetHandle = targetNode.handles?.find((h) => h.id === edge.targetHandle)
-
-                        const [, labelX, labelY] = getSmartStepPath({
-                            sourceX: sourceNode.position.x + (sourceHandle?.x || 0),
-                            sourceY: sourceNode.position.y + (sourceHandle?.y || 0),
-                            targetX: targetNode.position.x + (targetHandle?.x || 0),
-                            targetY: targetNode.position.y + (targetHandle?.y || 0),
-                            edges,
-                            currentEdgeId: edge.id,
-                        })
-
                         dropzoneNodes.push({
                             id: `dropzone_edge_${edge.id}`,
                             type: 'dropzone',
-                            position: { x: labelX - NODE_WIDTH / 2, y: labelY - NODE_HEIGHT / 2 },
+                            position: { x: 0, y: 0 },
                             data: {
                                 edge,
                             },
@@ -2683,10 +2516,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             dropzoneNodes.push({
                                 id: branchJoinDropzoneTargetId,
                                 type: 'dropzone',
-                                position: {
-                                    x: targetNode.position.x,
-                                    y: targetNode.position.y - NODE_HEIGHT,
-                                },
+                                position: { x: 0, y: 0 },
                                 data: {
                                     edge,
                                     isBranchJoinDropzone: true,
@@ -2731,6 +2561,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
 
                     let config = partialNewAction.config
                     if (!isHogFlowActionNode) {
+                        // pinned: analytics event name
+                        posthog.capture('workflow step added', {
+                            step_type: partialNewAction.type,
+                            template_id: 'template_id' in config ? config.template_id : undefined,
+                        })
                         const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
                         if (dynamicInputs && 'inputs' in config) {
                             config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
@@ -2749,6 +2584,48 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
+                    // A copied email keeps its own UTM choice. Without the team loaded the UTM keys stay out, so
+                    // the API copies the team defaults on save.
+                    if (
+                        !isHogFlowActionNode &&
+                        partialNewAction.type === 'function_email' &&
+                        !('utm_tags_enabled' in config) &&
+                        values.currentTeam
+                    ) {
+                        config = {
+                            ...config,
+                            ...newEmailUtmConfig(getTeamUtmDefaults(values.currentTeam.workflows_config)),
+                        }
+                    }
+
+                    if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
+                        const emailInput = config.inputs?.email
+                        const team = values.currentTeam
+                        const sender = resolveDefaultEmailSender(
+                            values.integrations,
+                            team && 'workflows_config' in team
+                                ? team.workflows_config?.default_email_integration_id
+                                : null
+                        )
+                        if (sender && emailInput?.value && !emailInput.value.from?.integrationId) {
+                            config = {
+                                ...config,
+                                inputs: {
+                                    ...config.inputs,
+                                    email: {
+                                        ...emailInput,
+                                        value: {
+                                            ...emailInput.value,
+                                            from: { ...emailInput.value.from, integrationId: sender.integrationId },
+                                        },
+                                    },
+                                },
+                            }
+                            // pinned: analytics event name
+                            posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+                        }
+                    }
+
                     const newAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
@@ -2761,6 +2638,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         updated_at: Date.now(),
                         ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).output_variable
                             ? { output_variable: (partialNewAction as CreateActionType).output_variable }
+                            : {}),
+                        ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).on_error
+                            ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
 
@@ -2867,49 +2747,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // We can clear the dropzones now
                 actions.hideDropzones()
             },
-            setReactFlowInstance: () => {
-                // TRICKY: Slight race condition here where the react flow instance is not set yet
-                setTimeout(() => {
-                    actions.fitView({ duration: 0 })
-                }, 100)
-            },
-            setSelectedNodeId: ({ selectedNodeId }) => {
-                if (selectedNodeId) {
-                    actions.fitView({ noZoom: true })
-                }
-            },
-            fitView: ({ duration, noZoom }) => {
-                const { reactFlowWrapper, reactFlowInstance } = values
-                if (!reactFlowWrapper?.current || !reactFlowInstance) {
-                    return
-                }
-                // Get the width of the wrapper
-                const wrapperWidth = reactFlowWrapper.current.getBoundingClientRect()?.width ?? 0
-                const panel = reactFlowWrapper.current.parentElement?.querySelector<HTMLElement>(
-                    '[data-attr="workflow-editor-panel"]'
-                )
-                const panelWidth =
-                    panel && getComputedStyle(panel).position === 'absolute'
-                        ? Math.min(panel.getBoundingClientRect().width, wrapperWidth)
-                        : 0
-                // Get the width of the thing we are going to fit to the view
-                const nodesWidth =
-                    reactFlowInstance.getNodesBounds(values.selectedNode ? [values.selectedNode] : values.nodes)
-                        ?.width ?? 0
-                // Adjust the width for the zoom factor to be relative to the wrapper width
-                const nodesWidthAdjusted = nodesWidth * reactFlowInstance.getZoom()
-                // Calculate the padding right to fit the panel width to the wrapper width
-                // Looks complicated but its basically the difference between the wrapper width and the nodes width adjusted for the zoom factor
-                const paddingRight = wrapperWidth - nodesWidthAdjusted / 2 - (wrapperWidth - panelWidth) / 2
-
-                reactFlowInstance.fitView({
-                    padding: panelWidth > 0 ? { right: `${paddingRight}px` } : 0.2,
-                    maxZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                    minZoom: noZoom ? reactFlowInstance.getZoom() : undefined,
-                    nodes: values.selectedNode ? [values.selectedNode] : values.nodes,
-                    duration: duration ?? 100,
-                })
-            },
             startCopyingNode: () => {
                 actions.showDropzones()
             },
@@ -2934,10 +2771,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.hideDropzones()
             },
             moveNodeToHighlightedDropzone: () => {
-                // Uses computeMoveEdges (pure function) to manipulate edges in a single
-                // setWorkflowInfo call rather than onNodesDelete + onDrop (like copy does).
-                // This preserves node identity and avoids a race condition where two async
-                // layout computations from separate setWorkflowInfo calls complete out of order.
+                // Changes the edges in one setWorkflowInfo call, unlike copy, so the step keeps its identity.
                 const movingNodeId = values.movingNodeId!
                 const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
                 if (!dropzoneNode) {
@@ -2977,16 +2811,19 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setWorkflowInfo({ actions: values.workflow.actions, edges: newEdges })
                 actions.setSelectedNodeId(movingNodeId)
             },
-            duplicateNodeBelow: ({ actionId }) => {
-                const action = values.workflow.actions.find((action) => action.id === actionId)
-                const targetEdge = values.workflow.edges.find((edge) => edge.from === actionId)
-
-                if (!action || action.type === 'trigger' || action.type === 'exit' || !targetEdge) {
+            markUtmSavedAsTeamDefault: ({ actionId, saved }) => {
+                // The save takes a round trip, so start from the step as it is now to keep edits made meanwhile.
+                const latest = values.workflow.actions.find((action) => action.id === actionId)
+                if (!latest || latest.type !== 'function_email') {
                     return
                 }
-
-                actions.setNodeToBeAdded(action)
-                actions.onDrop(undefined, targetEdge)
+                actions.setWorkflowAction(actionId, {
+                    ...latest,
+                    config: {
+                        ...latest.config,
+                        utm_params_from_default: utmKeysFollowingSavedDefault(latest.config.utm_params ?? {}, saved),
+                    },
+                })
             },
             handlePaneClick: () => {
                 actions.setSelectedNodeId(null)
@@ -3000,14 +2837,11 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         }
     }),
 
-    subscriptions(({ actions, values }) => ({
+    subscriptions(({ actions }) => ({
         workflow: (hogFlow?: HogFlow, oldHogFlow?: HogFlow) => {
             // Auto-save round-trips can emit a deep-equal workflow; skipping the rebuild avoids
-            // re-deriving every node and edge (including the async layout pass) for no change.
+            // re-deriving every node and edge for no change.
             if (hogFlow && !objectsEqual(hogFlow, oldHogFlow)) {
-                if (values.editorLayout === 'simple' && !isWorkflowTreeComplete(hogFlow)) {
-                    actions.setEditorLayout('advanced')
-                }
                 actions.resetFlowFromHogFlow(hogFlow)
             }
         },
@@ -3031,25 +2865,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
         return {
             setSelectedNodeId: () => syncProperty('node', values.selectedNodeId ?? null),
             setMode: () => syncProperty('mode', values.mode),
-            setEditorLayout: () => syncProperty('view', values.editorLayout === 'simple' ? 'linear' : 'graph'),
         }
     }),
     urlToAction(({ actions, values }) => {
         const reactToTabChange = (_: any, search: Record<string, string>): void => {
-            const { node = null, mode, view } = search
+            const { node = null, mode } = search
             if (node !== values.selectedNodeId) {
                 actions.setSelectedNodeId(node ?? null)
             }
             if (mode && HOG_FLOW_EDITOR_MODES.includes(mode as HogFlowEditorMode) && mode !== values.mode) {
                 actions.setMode(mode as HogFlowEditorMode)
-            }
-            const requestedEditorLayout = view === 'graph' ? 'advanced' : 'simple'
-            const editorLayout =
-                requestedEditorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)
-                    ? 'advanced'
-                    : requestedEditorLayout
-            if (editorLayout !== values.editorLayout) {
-                actions.setEditorLayout(editorLayout)
             }
         }
 
@@ -3059,9 +2884,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
-            if (values.editorLayout === 'simple' && !isWorkflowTreeComplete(values.workflow)) {
-                actions.setEditorLayout('advanced')
-            }
             actions.resetFlowFromHogFlow(values.workflow)
 
             const handleKeyDown = (e: KeyboardEvent): void => {

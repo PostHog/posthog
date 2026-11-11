@@ -4,6 +4,8 @@ from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.models.comment import Comment
 from posthog.models.integration import Integration
 from posthog.models.team import Team
@@ -162,6 +164,94 @@ class TestEmailThreadAccountLinks(BaseTest):
         assert remaining.account_external_id == "renamed-group-2"
         assert remaining.match_source == "organization_member"
         assert list_account_email_thread_messages(self.team.id, "account-1", str(self.thread.id)) is None
+
+    @parameterized.expand(
+        [
+            ("known_email", ["customer@example.com"], [], True),
+            ("email_domain", [], ["example.com"], True),
+            ("either_field", ["customer@other.example.com"], ["example.com"], True),
+            ("different_domain", [], ["other.example.com"], False),
+            ("internal_participant", ["csm@example.com"], [], False),
+            ("empty_fields", [], [], False),
+        ]
+    )
+    def test_filters_matching_threads_by_customer_email_properties(
+        self, _name: str, emails: list[str], domains: list[str], expected_match: bool
+    ) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        other_thread = EmailThread.objects.for_team(other_team.id).create(
+            team=other_team,
+            canonical_thread_key="<other-team-thread@example.com>",
+            subject="Other team",
+        )
+        EmailThreadParticipant.objects.for_team(other_team.id).create(
+            team=other_team,
+            thread=other_thread,
+            email="customer@example.com",
+            kind=EmailThreadParticipantKind.CUSTOMER,
+        )
+
+        threads = list_email_threads_for_account_matching(
+            self.team.id, participant_emails=emails, participant_domains=domains
+        )
+
+        assert [thread.id for thread in threads] == ([str(self.thread.id)] if expected_match else [])
+        assert (
+            list_email_threads_for_account_matching(
+                self.team.id,
+                participant_emails=emails,
+                participant_domains=domains,
+                after_id=str(self.thread.id),
+            )
+            == []
+        )
+
+    @parameterized.expand([("known_email",), ("email_domain",)])
+    def test_property_replacement_preserves_identity_links(self, property_source: str) -> None:
+        replace_email_thread_account_links(
+            self.team.id,
+            str(self.thread.id),
+            [
+                EmailThreadAccountLinkInput(account_id=account_id, account_external_id=account_id, match_source=source)
+                for account_id, source in (
+                    ("removed-property-account", property_source),
+                    ("group-account", "person_group"),
+                    ("member-account", "organization_member"),
+                )
+            ],
+        )
+
+        replace_email_thread_account_links(
+            self.team.id,
+            str(self.thread.id),
+            [
+                EmailThreadAccountLinkInput(
+                    account_id=account_id, account_external_id=account_id, match_source=property_source
+                )
+                for account_id in ("new-property-account", "group-account")
+            ],
+            match_sources=["known_email", "email_domain"],
+        )
+
+        assert set(
+            EmailThreadAccountLink.objects.for_team(self.team.id)
+            .filter(thread=self.thread)
+            .values_list("account_id", "match_source")
+        ) == {
+            ("new-property-account", property_source),
+            ("group-account", "person_group"),
+            ("member-account", "organization_member"),
+        }
+
+        replace_email_thread_account_links(
+            self.team.id, str(self.thread.id), [], match_sources=["known_email", "email_domain"]
+        )
+
+        assert set(
+            EmailThreadAccountLink.objects.for_team(self.team.id)
+            .filter(thread=self.thread)
+            .values_list("account_id", "match_source")
+        ) == {("group-account", "person_group"), ("member-account", "organization_member")}
 
     def test_resolves_one_gmail_owner_across_integrations(self) -> None:
         first_integration = Integration.objects.create(

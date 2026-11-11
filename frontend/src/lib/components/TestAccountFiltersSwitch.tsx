@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import React from 'react'
 
-import { IconGear } from '@posthog/icons'
+import { IconExternal, IconGear } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonSwitchProps } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -29,7 +29,25 @@ export function getUnusedTestAccountFilterReason(
     return `Only ${labels.join(' and ')} filters from your internal and test account settings apply here.`
 }
 
-type TestAccountFilterProps = Partial<LemonSwitchProps> & {
+export function getTestAccountFilterSwitchDisabledReason({
+    filters,
+    applicableFilterTypes,
+    disabledReason,
+    showNewTabIcon,
+}: {
+    filters: readonly { type?: string | null }[]
+    applicableFilterTypes?: string[]
+    disabledReason?: string | false | null
+    showNewTabIcon: boolean
+}): string | undefined {
+    if (filters.length === 0) {
+        return `You haven't set any internal test filters. Click the ${showNewTabIcon ? 'link' : 'gear'} icon to configure.`
+    }
+    const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
+    return unusedReason ?? (disabledReason || undefined)
+}
+
+export type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     checked: boolean
     onChange: (checked: boolean) => void
     /** When set, the toggle is disabled with an explanatory reason unless the team has at least one
@@ -38,6 +56,7 @@ type TestAccountFilterProps = Partial<LemonSwitchProps> & {
     /** Runs instead of navigating to project settings when the gear is clicked. Surfaces that hold
      * unsaved state, such as a wizard step, use this to configure the filters without leaving. */
     onConfigure?: () => void
+    settingsLinkIcon?: 'gear' | 'new-tab'
 }
 
 export function TestAccountFilterSwitch({
@@ -45,22 +64,22 @@ export function TestAccountFilterSwitch({
     onChange,
     applicableFilterTypes,
     onConfigure,
+    settingsLinkIcon = 'gear',
     ...props
 }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
-    const filters = currentTeam?.test_account_filters || []
-    const hasFilters = filters.length > 0
-    const unusedReason = applicableFilterTypes ? getUnusedTestAccountFilterReason(filters, applicableFilterTypes) : null
+    const showNewTabIcon = settingsLinkIcon === 'new-tab' && !onConfigure
     return (
         <LemonSwitch
             id="test-account-filter"
             bordered
             {...props}
-            disabledReason={
-                !hasFilters
-                    ? "You haven't set any internal test filters. Click the gear icon to configure."
-                    : (unusedReason ?? props.disabledReason)
-            }
+            disabledReason={getTestAccountFilterSwitchDisabledReason({
+                filters: currentTeam?.test_account_filters || [],
+                applicableFilterTypes,
+                disabledReason: props.disabledReason,
+                showNewTabIcon,
+            })}
             checked={checked}
             onChange={onChange}
             label={
@@ -71,7 +90,7 @@ export function TestAccountFilterSwitch({
                         disabledReason below actively sends people here when no filters are set up.
                         Callers that can configure the filters in place pass onConfigure instead. */}
                     <LemonButton
-                        icon={<IconGear />}
+                        icon={showNewTabIcon ? <IconExternal className="size-3.5" /> : <IconGear />}
                         size="small"
                         noPadding
                         className="ml-1"

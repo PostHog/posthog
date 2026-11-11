@@ -30,11 +30,14 @@ export function EmailSendingRateLimitPicker({ value, onChange }: EmailSendingRat
             <span className="flex gap-1 items-center">
                 <IconClock className="text-lg" />
                 <span className="text-md font-semibold">Email sending rate limit (optional)</span>
-                <Tooltip title="Sending a large volume too quickly can hurt deliverability. Emails over the limit are delayed until capacity frees up, not dropped.">
+                <Tooltip title="Sending a large volume too quickly can hurt deliverability.">
                     <IconInfo className="text-secondary" />
                 </Tooltip>
             </span>
-            <p className="mb-0">Spread the emails out over time instead of sending all at once.</p>
+            <p className="mb-0">
+                Spread emails out over time. The limit counts emails to all recipients together, not per person. Emails
+                over the limit wait in a queue and send later.
+            </p>
             <LemonCheckbox
                 checked={!!value}
                 onChange={(checked) => onChange(checked ? DEFAULT_RATE_LIMIT : null)}

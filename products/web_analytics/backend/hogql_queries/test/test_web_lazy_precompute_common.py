@@ -1,12 +1,12 @@
 import json
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 
 import time_machine
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
@@ -33,11 +33,15 @@ from posthog.hogql import ast
 from posthog import redis
 from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, reset_query_tags, tags_context
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
+from posthog.models import Team
+from posthog.models.event.new_events_schema import events_route_scope, new_events_schema_for_request
+from posthog.redis import TEST_clear_clients
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     TtlSchedule,
 )
+from products.cohorts.backend.models.cohort import Cohort
 from products.web_analytics.backend.hogql_queries.stats_table import WebStatsTableQueryRunner
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import can_use_lazy_precompute
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
@@ -47,7 +51,6 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     REVALIDATION_START_DELAY_SECONDS,
     REVALIDATION_TRIGGER,
     SESSION_SETTLING_SECONDS,
-    STALE_WHILE_REVALIDATE_SECONDS,
     STICKY_WARM_SHAPES_KEY,
     TEAM_SHAPE_SET_TTL_SECONDS,
     VOLUME_FLOOR_READY_KEY,
@@ -56,6 +59,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     DateRangeOverMax,
     PerQueryOptedOut,
     PropertyAccessControlled,
+    ReachesRetentionFloor,
     UnsupportedFilterType,
     _oom_pin_key,
     _sticky_team_count_key,
@@ -63,6 +67,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     check_common_eligibility,
     compute_filters_eligibility_hash,
     compute_shape_cap_key,
+    enqueue_stale_revalidation,
     get_sticky_warm_shapes,
     handle_stale_served,
     host_filter_expr,
@@ -79,6 +84,7 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
     web_ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import ensure_web_overview_precomputed
 from products.web_analytics.backend.hogql_queries.web_stats_lazy_precompute import (
     can_use_lazy_precompute as can_use_stats_lazy_precompute,
 )
@@ -213,6 +219,72 @@ class TestCheckCommonEligibility(BaseTest):
         prop = PersonPropertyFilter(key="email", value="a@b.com", operator=PropertyOperator.EXACT)
         with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
             self._check(use_precompute=None, properties=[prop])
+
+    @parameterized.expand(
+        [
+            # With 1-month retention at 2026-03-20 12:00 UTC, the build floor is 2026-02-25.
+            ("not_enforced", False, "2026-02-01", None, True),
+            ("current_period_reaches_floor", True, "2026-02-24", None, False),
+            ("compare_period_reaches_floor", True, "2026-03-10", "2026-02-24", False),
+            ("both_periods_after_floor", True, "2026-03-10", "2026-02-25", True),
+        ]
+    )
+    def test_range_reaching_the_retention_floor_goes_live(
+        self, _name: str, enforced: bool, date_from: str, compare_from: str | None, eligible: bool
+    ) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+
+        def check() -> None:
+            check_common_eligibility(
+                team=self.team,
+                use_web_analytics_precompute=None,
+                conversion_goal=None,
+                sampling=None,
+                modifiers=None,
+                properties=[],
+                resolve_date_range=lambda: (
+                    datetime.fromisoformat(date_from).replace(tzinfo=UTC),
+                    datetime(2026, 3, 20, tzinfo=UTC),
+                ),
+                resolve_compare_date_from=lambda: (
+                    datetime.fromisoformat(compare_from).replace(tzinfo=UTC) if compare_from else None
+                ),
+            )
+
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk], EVENTS_DATA_RETENTION_ENFORCED=enforced
+            ),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            if eligible:
+                check()
+            else:
+                with self.assertRaises(ReachesRetentionFloor):
+                    check()
+
+    @parameterized.expand([("no_compare", False, True), ("compare_reaches_floor", True, False)])
+    def test_runner_gate_sends_a_floor_reaching_compare_period_live(
+        self, _name: str, compare: bool, eligible: bool
+    ) -> None:
+        self.team.event_retention_months = 1
+        self.team.save()
+        runner = WebOverviewQueryRunner(
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="2026-03-01", date_to="2026-03-19"),
+                compareFilter=CompareFilter(compare=compare),
+                properties=[],
+            ),
+            team=self.team,
+        )
+        with (
+            override_settings(
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk], EVENTS_DATA_RETENTION_ENFORCED=True
+            ),
+            time_machine.travel(datetime(2026, 3, 20, 12, tzinfo=UTC), tick=False),
+        ):
+            assert can_use_lazy_precompute(runner, log_prefix="web_overview") is eligible
 
     @mock.patch(f"{_COMMON}.team_has_property_access_rules", return_value=True)
     def test_team_with_property_access_controls_falls_through_to_live(self, _mock) -> None:
@@ -455,7 +527,7 @@ def _stats(
     )
 
 
-class TestComputeFiltersEligibilityHash(BaseTest):
+class TestComputeFiltersEligibilityHash(SimpleTestCase):
     def test_stable_across_calls_with_identical_query(self) -> None:
         q = _overview()
         assert compute_filters_eligibility_hash(q, "UTC") == compute_filters_eligibility_hash(q, "UTC")
@@ -534,7 +606,7 @@ class TestComputeFiltersEligibilityHash(BaseTest):
         int(h, 16)
 
 
-class TestComputeShapeCapKey(BaseTest):
+class TestComputeShapeCapKey(SimpleTestCase):
     def test_date_range_variants_share_one_slot(self) -> None:
         # Buckets are reused across requested ranges (the namespace sentinelizes time
         # windows), so date-range variants of one shape must map to one cap key —
@@ -710,6 +782,54 @@ class TestWebEnsurePrecomputed(BaseTest):
             {"traffic_classification": "cookieless-missing-ua-v1"} if enabled else None
         )
 
+    @parameterized.expand(
+        [
+            ("no_bot_filter", [], {"traffic_classification": "cookieless-missing-ua-v1"}),
+            (
+                "bot_filter",
+                [EventPropertyFilter(key="$virt_is_bot", operator=PropertyOperator.EXACT, value=["false"])],
+                {"traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1"},
+            ),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_only_queries_that_classify_traffic_get_a_new_hash(
+        self, _name: str, properties: list, expected: dict, mock_ensure: mock.Mock
+    ) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview(properties=properties),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=True),
+        )
+        ensure_web_overview_precomputed(runner, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 8, tzinfo=UTC))
+        assert mock_ensure.call_args.kwargs["cache_key_context"] == expected
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_test_account_cohort_that_classifies_traffic_gets_a_new_hash(self, mock_ensure: mock.Mock) -> None:
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
+        bot_leaf = {
+            "type": "behavioral",
+            "key": "$pageview",
+            "event_type": "events",
+            "value": "performed_event",
+            "event_filters": [{"key": "$virt_is_bot", "type": "event", "value": ["true"], "operator": "exact"}],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="bots", filters={"properties": {"type": "AND", "values": [bot_leaf]}}
+        )
+        self.team.test_account_filters = [{"key": "id", "type": "cohort", "value": cohort.pk, "operator": "not_in"}]
+        self.team.save()
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=_overview().model_copy(update={"filterTestAccounts": True}),
+            modifiers=HogQLQueryModifiers(cookielessTrafficIsRegular=True),
+        )
+        ensure_web_overview_precomputed(runner, datetime(2026, 1, 1, tzinfo=UTC), datetime(2026, 1, 8, tzinfo=UTC))
+        assert mock_ensure.call_args.kwargs["cache_key_context"] == {
+            "traffic_classification": "cookieless-missing-ua-v1+sdk-missing-ua-v1"
+        }
+
     def tearDown(self):
         redis.get_client().delete(_oom_pin_key(self.team.pk))
         super().tearDown()
@@ -803,14 +923,16 @@ class TestWebEnsurePrecomputed(BaseTest):
     def test_stale_while_revalidate_grace_by_trigger(self, _name, tags, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        if tags is not None:
-            with tags_context(**tags):
+        # Sentinel override proves the grace flows from the setting, not a hardcoded value.
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=1234):
+            if tags is not None:
+                with tags_context(**tags):
+                    web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+            else:
                 web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
-        else:
-            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         grace = mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"]
         if tags is None:
-            assert grace == STALE_WHILE_REVALIDATE_SECONDS
+            assert grace == 1234
         else:
             assert grace is None, f"background context {tags} must not be served stale"
 
@@ -823,15 +945,16 @@ class TestWebEnsurePrecomputed(BaseTest):
             ("force_async", ExecutionMode.CALCULATE_ASYNC_ALWAYS.value, None),
             # A normal (non-forced) read must keep the grace, or every read pays a
             # synchronous recompute and the serve-stale optimization is lost.
-            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, STALE_WHILE_REVALIDATE_SECONDS),
+            ("blocking", ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE.value, 1234),
         ]
     )
     @mock.patch(f"{_COMMON}.ensure_precomputed")
     def test_forced_refresh_bypasses_stale_grace(self, _name, execution_mode, expected_grace, mock_ensure):
         mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[])
         reset_query_tags()
-        with tags_context(execution_mode=execution_mode):
-            web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        with override_settings(WEB_ANALYTICS_PRECOMPUTE_STALE_GRACE_SECONDS=1234):
+            with tags_context(execution_mode=execution_mode):
+                web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
         assert mock_ensure.call_args.kwargs["stale_while_revalidate_seconds"] == expected_grace
 
     @parameterized.expand(
@@ -1132,6 +1255,34 @@ class TestVolumeFloor(BaseTest):
             assert can_use_lazy_precompute(runner, log_prefix="web_overview") is False
 
 
+class TestRevalidationEventsTable(SimpleTestCase):
+    def setUp(self) -> None:
+        TEST_clear_clients()
+        self.addCleanup(TEST_clear_clients)
+
+    def test_rebuilds_keep_the_events_table_and_debounce_each_table_separately(self) -> None:
+        team = Team(id=44, timezone="UTC")
+        query = WebOverviewQuery(dateRange=DateRange(date_from="-7d"), properties=[])
+        with (
+            mock.patch(
+                "products.web_analytics.backend.tasks.lazy_precompute_revalidation"
+                ".revalidate_web_analytics_precompute.apply_async"
+            ) as enqueue,
+            new_events_schema_for_request(),
+        ):
+            for native in (False, True, False, True):
+                with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=native)):
+                    enqueue_stale_revalidation(team=team, query=query, family="web_overview")
+
+        assert [
+            call.kwargs["kwargs"]["query"]["modifiers"]["useNewEventsSchema"] for call in enqueue.call_args_list
+        ] == [
+            False,
+            True,
+        ]
+        assert query.modifiers is None
+
+
 class TestStaleRevalidationEnqueue(BaseTest):
     def setUp(self):
         super().setUp()
@@ -1298,6 +1449,41 @@ class TestServeLiveWarmBehind(BaseTest):
             team=self.team, runner=self._runner(), family="web_overview", ttl_seconds={"default": 3600}, table=None
         )
         mock_enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "oldest_of_current_and_previous_in_utc",
+                [
+                    (True, datetime(2024, 1, 15, 11, 0, tzinfo=UTC)),
+                    (True, datetime(2024, 1, 15, 11, 30, tzinfo=timezone(timedelta(hours=2)))),
+                ],
+                "2024-01-15T09:30:00+00:00",
+            ),
+            (
+                "miss_does_not_count",
+                [
+                    (False, datetime(2024, 1, 15, 8, 0, tzinfo=UTC)),
+                    (True, datetime(2024, 1, 15, 11, 0, tzinfo=UTC)),
+                ],
+                "2024-01-15T11:00:00+00:00",
+            ),
+            ("nothing_served", [(False, None)], None),
+        ]
+    )
+    @mock.patch(f"{_COMMON}.record_sticky_warm_shape")
+    @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_runner_reports_oldest_served_computed_at(
+        self, _name, ensures, expected, mock_ensure, _mock_enqueue, _mock_sticky
+    ):
+        runner = WebOverviewQueryRunner(team=self.team, query=_overview())
+        for ready, computed_at in ensures:
+            mock_ensure.return_value = LazyComputationResult(ready=ready, job_ids=[], computed_at=computed_at)
+            web_ensure_precomputed(
+                team=self.team, runner=runner, family="web_overview", ttl_seconds={"default": 3600}, table=None
+            )
+        assert runner.lazy_precompute_computed_at_iso() == expected
 
     @mock.patch(f"{_COMMON}.enqueue_stale_revalidation")
     @mock.patch(f"{_COMMON}.ensure_precomputed")

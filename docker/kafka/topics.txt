@@ -16,6 +16,7 @@ clickhouse_app_metrics
 clickhouse_app_metrics2
 clickhouse_billing_usage_records
 clickhouse_document_embeddings
+clickhouse_email_status
 clickhouse_error_tracking_fingerprint_issue_state
 clickhouse_error_tracking_issue_fingerprint
 clickhouse_events_json
@@ -54,3 +55,4 @@ heatmaps_ingestion
 ingestion-clientwarnings-main-1
 log_entries
 plugin_log_entries
+realtime_only_events_json

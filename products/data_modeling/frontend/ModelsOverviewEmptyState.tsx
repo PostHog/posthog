@@ -10,10 +10,9 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 const HedgehogFloat = pngHoggie(float)
 
-export type ModelsOverviewChecksStatus = 'disabled' | 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
+export type ModelsOverviewChecksStatus = 'unknown' | 'none' | 'all-passed' | 'some-not-passed'
 
 const HEALTHY_DESCRIPTIONS: Record<ModelsOverviewChecksStatus, string> = {
-    disabled: 'Your models are up to date.',
     unknown: 'Your models are up to date.',
     none: 'Your models are up to date. Add data quality checks to test your data.',
     'all-passed': 'Your models are up to date and all data quality checks passed.',
@@ -56,15 +55,13 @@ export function ModelsOverviewEmptyState({ variant, checksStatus }: ModelsOvervi
                                 Create view
                             </LemonButton>
                         </AccessControlAction>
-                        {checksStatus !== 'disabled' && (
-                            <LemonButton
-                                type="secondary"
-                                to={urls.models('data-quality')}
-                                data-attr="models-overview-checks"
-                            >
-                                {checksStatus === 'none' ? 'Set up checks' : 'View checks'}
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            type="secondary"
+                            to={urls.models('data-quality')}
+                            data-attr="models-overview-checks"
+                        >
+                            {checksStatus === 'none' ? 'Set up checks' : 'View checks'}
+                        </LemonButton>
                         {!firstView && (
                             <LemonButton
                                 type="secondary"

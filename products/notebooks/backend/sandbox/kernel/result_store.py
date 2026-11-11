@@ -6,7 +6,7 @@ pyarrow slice that never queues behind a running cell and never touches the data
 (the node's code is not a HogQL query, so there is nothing to re-query).
 
 Frames live only on the sandbox disk: after a sandbox death the file is gone and the
-node has to be re-run — the documented alive-only trade-off in sql_v2_result_delivery.md.
+node has to be re-run. This alive-only trade-off is deliberate.
 """
 
 import os

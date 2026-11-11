@@ -25,7 +25,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
             onClose={closeModal}
             closable={!creating}
             title="New service dashboard"
-            description="One insight per metric, charted with its recommended aggregation."
+            description="One insight per metric, charted as one line per series."
             footer={
                 <>
                     <LemonButton
@@ -81,7 +81,7 @@ export function MetricsStarterDashboardModal(): JSX.Element {
                     options={metricOptions.map((option) => ({
                         // Composite key: the same name can exist under two OTel types.
                         key: metricOptionKey(option.name, option.metric_type),
-                        label: `${option.name} (${option.metric_type})`,
+                        label: option.name,
                     }))}
                     placeholder="Pick the metrics to chart"
                     data-attr="metrics-starter-dashboard-metrics"

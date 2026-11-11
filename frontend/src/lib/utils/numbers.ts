@@ -81,10 +81,13 @@ export function significantDecimalPlaces(value: number, minimum?: number | null)
 
 /** Format number with comma as the thousands separator. */
 export function humanFriendlyNumber(
-    d: number,
+    d: number | null | undefined,
     maximumFractionDigits: number = DEFAULT_DECIMAL_PLACES,
     minimumFractionDigits: number = 0
 ): string {
+    if (d == null) {
+        return '-'
+    }
     return d.toLocaleString('en-US', {
         maximumFractionDigits: validateFractionDigits(maximumFractionDigits, DEFAULT_DECIMAL_PLACES),
         minimumFractionDigits: validateFractionDigits(minimumFractionDigits, 0),

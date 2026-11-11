@@ -472,7 +472,7 @@ def build_team_digest_data(
         "crash_free": get_crash_free_sessions(team, filter_test_accounts),
         "source_maps_recommendation": get_source_maps_recommendation_for_team(team),
         "test_account_filters_skipped": not filter_test_accounts,
-        "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error_tracking?utm_source=error_tracking_weekly_digest",
+        "error_tracking_url": f"{settings.SITE_URL}/project/{team.pk}/error-tracking?utm_source=error_tracking_weekly_digest",
         "ingestion_failures_url": build_ingestion_failures_url(team.pk),
     }
 

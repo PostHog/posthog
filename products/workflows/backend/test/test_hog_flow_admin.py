@@ -1,5 +1,7 @@
+import pytest
 from unittest.mock import patch
 
+from django.contrib import admin
 from django.contrib.admin.models import CHANGE, LogEntry
 from django.contrib.admin.sites import AdminSite
 from django.contrib.contenttypes.models import ContentType
@@ -9,10 +11,13 @@ from django.http import HttpRequest
 from django.test import RequestFactory, TestCase
 from django.utils import timezone
 
+from posthog.admin import register_all_admin
 from posthog.models.user import User
 
 from products.workflows.backend.admin.hog_flow_admin import HogFlowAdmin
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow_template import HogFlowTemplate
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 
 
 class TestHogFlowAdminEmailAudit(TestCase):
@@ -56,3 +61,11 @@ class TestHogFlowAdminEmailAudit(TestCase):
         entry = self._admin_history()
         assert entry.user_id == self.user.pk
         assert "Resumed" in entry.change_message
+
+
+@pytest.mark.parametrize("model", [HogFlow, HogFlowTemplate, HogFlowBatchJob], ids=lambda m: m.__name__)
+def test_workflows_models_are_registered_in_admin(model):
+    # The admin classes register only when autodiscovery imports this product's admin package.
+    # Tests skip the lazy admin registry, so trigger registration explicitly.
+    register_all_admin()
+    assert admin.site.is_registered(model), f"{model.__name__} is not registered in Django admin"

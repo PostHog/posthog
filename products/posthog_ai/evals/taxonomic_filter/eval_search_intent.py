@@ -21,13 +21,13 @@ label moves to it, and expect the baseline to step when the prompt or the model 
 Public rather than private: the value is the comparison across runs, and every case is synthetic.
 
 No CI job runs this suite. Run it by hand, with AI_GATEWAY_URL and AI_GATEWAY_API_KEY set for the
-decision model, and with the harness's own BRAINTRUST_API_KEY and LLM_GATEWAY_ANTHROPIC_API_KEY:
+decision model, and with the harness's own LLM_GATEWAY_ANTHROPIC_API_KEY:
     hogli evals eval_search_intent
     hogli evals eval_search_intent --eval email_in_events_tab
 
 It scores the `production` version of the managed prompt. Set SEARCH_INTENT_PROMPT_VERSION to score
 another version. Fetching it needs POSTHOG_PERSONAL_API_KEY with read access to the PostHog project;
-without it the suite scores the bundled copy, and the output reports `prompt_version: None`.
+without it the production run scores the bundled copy, while an explicit version fails clearly.
 """
 
 from __future__ import annotations
@@ -38,14 +38,15 @@ import asyncio
 import dataclasses
 
 from posthog.llm.system_one_client import system_one_configured
-from posthog.taxonomic_search_intent.classify import SEARCH_INTENT_MODEL, classify_search_intent
+from posthog.taxonomic_search_intent.classify import classify_search_intent
 from posthog.taxonomic_search_intent.contracts import SearchIntentRequest
-from posthog.taxonomic_search_intent.prompt import SEARCH_INTENT_PROMPT_LABEL, fetch_search_intent_prompt
+from posthog.taxonomic_search_intent.prompt import fetch_search_intent_prompt
 
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
+from products.posthog_ai.evals.offline_config import offline_suite
 from products.posthog_ai.evals.taxonomic_filter.scorers import (
     SEARCH_INTENT_KEY,
     NoWrongSwitch,
@@ -323,11 +324,7 @@ async def eval_search_intent(ctx: EvalContext) -> None:
             "eval_search_intent needs AI_GATEWAY_URL (https) and AI_GATEWAY_API_KEY to reach the decision model"
         )
     version = os.environ.get("SEARCH_INTENT_PROMPT_VERSION")
-    prompt = await asyncio.to_thread(
-        fetch_search_intent_prompt,
-        label=None if version else SEARCH_INTENT_PROMPT_LABEL,
-        version=int(version) if version else None,
-    )
+    prompt = await asyncio.to_thread(fetch_search_intent_prompt, version=int(version) if version else None)
 
     async def task(case: BaseEvalCase, task_ctx: EvalContext) -> dict:
         if task_ctx.demo_data is None:
@@ -345,22 +342,27 @@ async def eval_search_intent(ctx: EvalContext) -> None:
             intent = await asyncio.to_thread(classify_search_intent, request, use_cache=False, prompt=prompt)
         except Exception as error:
             return {
-                "model": SEARCH_INTENT_MODEL,
+                "model": prompt.model,
                 "prompt_version": prompt.version,
                 "intent": None,
                 "error": f"{type(error).__name__}: {error}",
             }
         answer = dataclasses.asdict(intent)
         return {
-            "model": SEARCH_INTENT_MODEL,
+            "model": prompt.model,
             "prompt_version": prompt.version,
             "intent": answer,
             "latency_ms": round((time.monotonic() - started) * 1000),
             "last_message": f"{case.prompt!r} in {request.active_group_type}: {answer}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="ml-inference-search-intent",
+        offline_suite=offline_suite(
+            "taxonomic_filter/eval_search_intent::eval_search_intent",
+            metrics=["search_intent_match", "switch_when_needed", "no_wrong_switch"],
+            suite_kind=SUITE_KIND,
+        ),
         cases=[*WRONG_TAB_CASES, *RIGHT_TAB_CASES, *PARTIAL_CASES, *CONTEXT_CASES],
         scorers=[SearchIntentMatch(), SwitchWhenNeeded(), NoWrongSwitch()],
         task=task,

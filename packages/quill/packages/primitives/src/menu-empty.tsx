@@ -3,9 +3,13 @@ import * as React from 'react'
 import { buttonVariants } from './button'
 import { cn } from './lib/utils'
 
-function MenuEmpty({ className, children, ...props }: React.ComponentProps<'div'>): React.ReactElement {
+const MenuEmpty = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MenuEmpty(
+    { className, children, ...props },
+    ref
+) {
     return (
         <div
+            ref={ref}
             {...props}
             data-slot="menu-empty"
             role="status"
@@ -15,6 +19,6 @@ function MenuEmpty({ className, children, ...props }: React.ComponentProps<'div'
             {children}
         </div>
     )
-}
+})
 
 export { MenuEmpty }

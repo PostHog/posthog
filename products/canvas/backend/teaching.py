@@ -17,11 +17,11 @@ from django.utils import timezone
 from posthog.models.user import User
 
 from products.canvas.backend import build_service
+from products.canvas.backend.facade.enums import TEACHING_CANVAS_NAME
 from products.canvas.backend.models import Canvas
 from products.canvas.backend.source import synthetic_source_project
 
 TEACHING_CANVAS_TEMPLATE_ID = "desktop-onboarding-teaching"
-TEACHING_CANVAS_NAME = "Explore PostHog Desktop"
 
 # Template ids the create API refuses, so a user-created canvas can never be
 # mistaken for (or pre-claim and suppress) a PostHog-seeded one.

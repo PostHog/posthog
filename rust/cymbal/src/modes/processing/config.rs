@@ -200,6 +200,10 @@ pub struct ProcessingConfig {
     #[envconfig(default = "")]
     pub spike_alert_enabled_team_ids: String,
 
+    // Teams whose frame code variables are dropped, for old SDK senders we cannot upgrade.
+    #[envconfig(from = "ERROR_TRACKING_DROP_CODE_VARIABLES_TEAM_IDS", default = "")]
+    pub drop_code_variables_team_ids: String,
+
     // ----------------------------------------------------------------------
     // Remote resolution (cymbal.resolution.v1).
     // ----------------------------------------------------------------------

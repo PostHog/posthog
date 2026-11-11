@@ -1,11 +1,13 @@
 import json
 import datetime as dt
+from contextlib import nullcontext
 from dataclasses import dataclass
 
 import pytest
 from unittest.mock import AsyncMock, patch
 
 from google.genai.errors import APIError
+from prometheus_client import CollectorRegistry
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -19,6 +21,7 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants impo
 )
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.types import CleanupSweepInputs, CleanupSweepResult
 
+_PUSHED_REGISTRY = "products.replay_vision.backend.temporal.metrics.pushed_metrics_registry"
 _NOW = dt.datetime(2026, 6, 12, 12, 0, 0, tzinfo=dt.UTC)
 
 
@@ -93,7 +96,7 @@ async def _track(client, *, file_name: str, workflow_id: str, age: dt.timedelta)
 def _patch_clients(raw_client: _StubRawClient, temporal: _StubTemporal):
     return (
         patch(
-            "products.replay_vision.backend.temporal.gemini_cleanup_sweep.activities.RawGenAIClient",
+            "products.replay_vision.backend.temporal.gemini_cleanup_sweep.activities.gemini_files_client",
             return_value=raw_client,
         ),
         patch(
@@ -333,3 +336,15 @@ async def test_mixed_cycle_aggregates_correctly(activity_environment, fixed_now,
     assert result.skipped_invalid_value == 1
     assert result.deleted == 2
     assert sorted(raw.files.deleted) == ["files/done", "files/orphan"]
+
+
+@pytest.mark.asyncio
+async def test_pushes_the_backlog_seen_before_deleting(activity_environment, fixed_now, gemini_redis):
+    await _track(gemini_redis, file_name="files/old", workflow_id="wf-1", age=SWEEP_MIN_AGE * 10)
+    raw, tmp = _StubRawClient(), _StubTemporal({"wf-1": _Outcome(status=WorkflowExecutionStatus.COMPLETED)})
+    p1, p2 = _patch_clients(raw, tmp)
+    pushed = CollectorRegistry()
+    with p1, p2, patch(_PUSHED_REGISTRY, lambda _job: nullcontext(pushed)):
+        result = await activity_environment.run(sweep_gemini_files_activity, CleanupSweepInputs())
+    assert result.deleted == 1
+    assert pushed.get_sample_value("replay_vision_gemini_cleanup_backlog") == 1

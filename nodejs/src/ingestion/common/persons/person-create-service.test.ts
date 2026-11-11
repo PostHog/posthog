@@ -173,7 +173,7 @@ describe('PersonCreateService', () => {
             mockPersonStore.createPerson.mockResolvedValue(conflictResult)
             mockPersonStore.fetchForUpdate.mockResolvedValue(existingPerson)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, , idOwned] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -186,6 +186,7 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
+            expect(idOwned).toBe(true)
             expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
         })
 
@@ -215,7 +216,7 @@ describe('PersonCreateService', () => {
             })
             mockPersonStore.fetchForUpdate.mockResolvedValue(null)
 
-            const [person, created] = await personCreateService.createPerson(
+            const [person, created, , idOwned] = await personCreateService.createPerson(
                 createdAt,
                 properties,
                 propertiesOnce,
@@ -228,6 +229,7 @@ describe('PersonCreateService', () => {
 
             expect(person).toEqual(holder)
             expect(created).toBe(false)
+            expect(idOwned).toBe(false)
         })
 
         it('should prefer the distinct ID match over the uuid holder when both exist', async () => {

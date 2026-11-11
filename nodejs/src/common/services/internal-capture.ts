@@ -28,11 +28,17 @@ type CapturePayloadFormat = {
     properties: Record<string, any>
 }
 
+/** An internal event carries the server's IP, not the user's. GeoIP would turn it into a wrong or
+ * placeholder location and write that over the person's real location. */
+export function disableGeoipWithoutClientIp(properties: Record<string, any>): Record<string, any> {
+    return properties.$ip ? properties : { $geoip_disable: true, ...properties }
+}
+
 export class InternalCaptureService {
     constructor(private config: Pick<CommonConfig, 'CAPTURE_INTERNAL_URL'>) {}
 
     private prepareEvent(event: InternalCaptureEvent): CapturePayloadFormat {
-        const properties = { ...(event.properties ?? {}), capture_internal: true }
+        const properties = { ...disableGeoipWithoutClientIp(event.properties ?? {}), capture_internal: true }
         const now = DateTime.utc().toISO()
         return {
             api_key: event.team_token,

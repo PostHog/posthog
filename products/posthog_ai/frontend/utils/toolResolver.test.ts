@@ -119,6 +119,34 @@ describe('toolResolver', () => {
         })
 
         it.each([
+            {
+                caseName: 'a Pi proxy search as a tool search with the query as its input',
+                meta: { posthog: { toolName: 'mcp', mcpProxy: { kind: 'search', query: 'issue' } } },
+                expected: { resolvedKey: 'ToolSearch', innerInput: { query: 'issue' } },
+            },
+            {
+                caseName: 'a Pi proxy call by the tool it names until the server reports the MCP server',
+                meta: { posthog: { toolName: 'mcp', mcpProxy: { kind: 'tool', name: 'linear_create_issue' } } },
+                expected: { resolvedKey: 'mcp', proxiedToolName: 'linear_create_issue' },
+            },
+            {
+                caseName: 'a Pi proxy call by its MCP descriptor once the server reports it',
+                meta: {
+                    posthog: {
+                        toolName: 'mcp__linear__create_issue',
+                        mcp: { server: 'linear', tool: 'create_issue' },
+                        mcpProxy: { kind: 'tool', name: 'linear_create_issue' },
+                    },
+                },
+                expected: { resolvedKey: 'mcp__linear__create_issue' },
+            },
+        ])('resolves $caseName', ({ meta, expected }) => {
+            expect(
+                resolveToolCall({ rawServerName: 'posthog', rawToolName: '', input: { search: 'issue' }, meta })
+            ).toEqual({ ...expected, claudeToolName: undefined })
+        })
+
+        it.each([
             [{ posthog: { mcp: { server: 'other', tool: 'exec' } } }, 'exec', 'mcp__other__exec'],
             [{ posthog: { toolName: 'mcp__other__exec' } }, 'exec', 'mcp__other__exec'],
             [

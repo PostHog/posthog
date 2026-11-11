@@ -83,7 +83,7 @@ class TestQuarantineStamping:
             ("lift", "older", True, False),
         ],
         ids=[
-            "lift-without-sha",
+            "legacy-lift-without-sha",
             "run-contains-lift",
             "branch-forked-before-lift",
             "ancestry-unknown",
@@ -95,7 +95,7 @@ class TestQuarantineStamping:
     ):
         from products.visual_review.backend.models import QuarantinedIdentifier
 
-        mocker.patch.object(github_api, "default_branch_head_sha", return_value=lifted_at_sha)
+        mocker.patch.object(github_api, "default_branch_head_sha", return_value=lifted_at_sha or "lift")
         mocker.patch.object(github_api, "get_github_integration_for_repo")
         mocker.patch.object(github_api, "_get_merge_base_sha", return_value=merge_base)
 
@@ -124,6 +124,8 @@ class TestQuarantineStamping:
         quarantine.unquarantine_identifier(
             repo_id=repo.id, identifier="Button-primary", run_type=RunType.STORYBOOK, team_id=team.id
         )
+        if lifted_at_sha is None:
+            QuarantinedIdentifier.objects.filter(identifier="Button-primary").update(lifted_at_sha=None)
         if superseded:
             QuarantinedIdentifier.objects.create(
                 repo=repo,

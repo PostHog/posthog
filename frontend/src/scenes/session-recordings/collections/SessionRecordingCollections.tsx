@@ -14,7 +14,7 @@ import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { AccessControlLevel, AccessControlResourceType, SessionRecordingPlaylistType } from '~/types'
 
 import { BuiltInCollections } from './BuiltInCollections'
-import { COLUMN_WIDTHS, countColumn, nameColumn, progressColumn, watchNextColumn } from './collectionColumns'
+import { COLUMN_WIDTHS, countColumn, nameColumn, watchNextColumn } from './collectionColumns'
 import { CollectionSectionHeading } from './CollectionSectionHeading'
 import { SessionRecordingCollectionsEmptyState } from './SessionRecordingCollectionsEmptyState'
 import { PLAYLISTS_PER_PAGE, sessionRecordingCollectionsLogic } from './sessionRecordingCollectionsLogic'
@@ -37,6 +37,7 @@ export function SessionRecordingCollections(): JSX.Element {
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
+                            data-attr="collections-toggle-pinned"
                             size="small"
                             onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                             icon={pinned ? <IconPinFilled /> : <IconPin />}
@@ -70,7 +71,6 @@ export function SessionRecordingCollections(): JSX.Element {
                 )
             },
         },
-        progressColumn(),
         watchNextColumn(),
         {
             width: COLUMN_WIDTHS.actions,
@@ -100,6 +100,7 @@ export function SessionRecordingCollections(): JSX.Element {
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     <LemonButton
+                                        data-attr="collections-delete"
                                         status="danger"
                                         onClick={() => deletePlaylist(playlist)}
                                         fullWidth

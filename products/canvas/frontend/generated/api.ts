@@ -18,10 +18,13 @@ import type {
     CanvasBuildActionApi,
     CanvasBuildApi,
     CanvasBuildsResponseApi,
+    CanvasCommentDetailApi,
+    CanvasCommentsResponseApi,
     CanvasConnectorCallApi,
     CanvasConnectorCallResultApi,
     CanvasConnectorsResponseApi,
     CanvasCreateApi,
+    CanvasDraftApi,
     CanvasErrorReportResultApi,
     CanvasFixRequestResultApi,
     CanvasLayoutPatchApi,
@@ -43,19 +46,21 @@ import type {
     CanvasStateResponseApi,
     CanvasStateSetApi,
     CanvasStateValueResponseApi,
+    CanvasToolInvokeApi,
+    CanvasToolResultApi,
     CanvasValidateRequestApi,
     CanvasValidateResponseApi,
     CanvasViewResponseApi,
     CanvasesBuildsRetrieveParams,
+    CanvasesCommentsListParams,
+    CanvasesCommentsRetrieveParams,
     CanvasesConnectorsRetrieveParams,
-    CanvasesDraftsRetrieveParams,
     CanvasesLayoutRetrieveParams,
     CanvasesListParams,
     CanvasesSourceRetrieveParams,
     CanvasesStateRetrieveParams,
     CanvasesStateValueRetrieveParams,
     CanvasesVersionsRetrieveParams,
-    PaginatedCanvasDraftListApi,
     PaginatedCanvasListApi,
     PaginatedCanvasVersionListApi,
     PatchedCanvasUpdateApi,
@@ -251,6 +256,74 @@ export const canvasesBuildActionCreate = async (
     })
 }
 
+export const getCanvasesCommentsListUrl = (projectId: string, id: string, params?: CanvasesCommentsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/comments/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/comments/`
+}
+
+/**
+ * The comment threads on this canvas, newest first. Open threads only unless include_resolved is set.
+ */
+export const canvasesCommentsList = async (
+    projectId: string,
+    id: string,
+    params?: CanvasesCommentsListParams,
+    options?: RequestInit
+): Promise<CanvasCommentsResponseApi> => {
+    return apiMutator<CanvasCommentsResponseApi>(getCanvasesCommentsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCanvasesCommentsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: CanvasesCommentsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/canvases/${id}/comments/${rootCommentId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/canvases/${id}/comments/${rootCommentId}/`
+}
+
+/**
+ * One comment thread on this canvas: the root comment and its replies, oldest first.
+ */
+export const canvasesCommentsRetrieve = async (
+    projectId: string,
+    id: string,
+    rootCommentId: string,
+    params?: CanvasesCommentsRetrieveParams,
+    options?: RequestInit
+): Promise<CanvasCommentDetailApi> => {
+    return apiMutator<CanvasCommentDetailApi>(getCanvasesCommentsRetrieveUrl(projectId, id, rootCommentId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getCanvasesConnectorsCallUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/connectors/call/`
 }
@@ -304,20 +377,8 @@ export const canvasesDraftCreate = async (
     })
 }
 
-export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string, params?: CanvasesDraftsRetrieveParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/canvases/${id}/drafts/?${stringifiedParams}`
-        : `/api/projects/${projectId}/canvases/${id}/drafts/`
+export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/drafts/`
 }
 
 /**
@@ -329,10 +390,9 @@ export const getCanvasesDraftsRetrieveUrl = (projectId: string, id: string, para
 export const canvasesDraftsRetrieve = async (
     projectId: string,
     id: string,
-    params?: CanvasesDraftsRetrieveParams,
     options?: RequestInit
-): Promise<PaginatedCanvasDraftListApi> => {
-    return apiMutator<PaginatedCanvasDraftListApi>(getCanvasesDraftsRetrieveUrl(projectId, id, params), {
+): Promise<CanvasDraftApi[]> => {
+    return apiMutator<CanvasDraftApi[]>(getCanvasesDraftsRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -747,6 +807,32 @@ export const canvasesStateValueRetrieve = async (
     })
 }
 
+export const getCanvasesToolsInvokeUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/canvases/${id}/tools/invoke/`
+}
+
+/**
+ * Run one PostHog MCP tool as the viewer.
+ *
+ * The canvas must declare the tool in capabilities.posthog.tools. The
+ * tool runs on the MCP server with a token minted for the viewer, so it
+ * has the viewer's own permissions, exactly as if they called it from
+ * an MCP client.
+ */
+export const canvasesToolsInvoke = async (
+    projectId: string,
+    id: string,
+    canvasToolInvokeApi: CanvasToolInvokeApi,
+    options?: RequestInit
+): Promise<CanvasToolResultApi> => {
+    return apiMutator<CanvasToolResultApi>(getCanvasesToolsInvokeUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(canvasToolInvokeApi),
+    })
+}
+
 export const getCanvasesValidateCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/canvases/${id}/validate/`
 }
@@ -835,7 +921,7 @@ export const getCanvasesActionsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * List the action registry: every verb a canvas may declare and invoke.
+ * List the action registry: every verb and PostHog MCP tool a canvas may declare and invoke.
  */
 export const canvasesActionsRetrieve = async (
     projectId: string,

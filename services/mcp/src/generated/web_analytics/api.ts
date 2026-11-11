@@ -88,6 +88,14 @@ export const HeatmapsListQueryParams = () => zod.object({
         .describe(
             "Number of hottest-first points to skip, for paging through cooler coordinates. Ignored for the 'scrolldepth' type."
         ),
+    timestamp_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Inclusive UTC instant. Supply with timestamp_to to override date bounds.'),
+    timestamp_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Exclusive UTC instant. Supply with timestamp_from to override date bounds.'),
     type: zod
         .string()
         .min(1)
@@ -198,6 +206,14 @@ export const HeatmapsEventsRetrieveQueryParams = () => zod.object({
         .describe(
             "JSON array of the heatmap coordinates to drill into, e.g. '[{\"x\": 0.5, \"y\": 100}]'. Each point needs 'x' (relative x, 0..1) and 'y' (absolute client-y pixels) matching values returned by the heatmaps list endpoint; an optional 'target_fixed' boolean matches fixed-position elements. Returns the individual session interactions behind those spots."
         ),
+    timestamp_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Inclusive UTC instant. Supply with timestamp_to to override date bounds.'),
+    timestamp_to: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe('Exclusive UTC instant. Supply with timestamp_from to override date bounds.'),
     type: zod
         .string()
         .min(1)

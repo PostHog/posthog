@@ -262,7 +262,7 @@ class TestBuildClusterData:
 
 
 class TestEmitClusterEvents:
-    @patch("posthog.temporal.ai_observability.trace_clustering.event_emission.create_event")
+    @patch("posthog.temporal.ai_observability.generated_event_usage.create_event")
     @patch("posthog.temporal.ai_observability.trace_clustering.event_emission.fetch_item_summaries")
     def test_emits_event_with_correct_properties(self, mock_fetch_summaries, mock_create_event, mock_team):
         mock_fetch_summaries.return_value = {
@@ -300,7 +300,7 @@ class TestEmitClusterEvents:
         assert call_kwargs["properties"]["$ai_clustering_job_id"] == "123"
         assert call_kwargs["properties"]["$ai_clustering_job_name"] == "OpenAI traces"
 
-    @patch("posthog.temporal.ai_observability.trace_clustering.event_emission.create_event")
+    @patch("posthog.temporal.ai_observability.generated_event_usage.create_event")
     @patch("posthog.temporal.ai_observability.trace_clustering.event_emission.fetch_item_summaries")
     def test_returns_cluster_data_list(self, mock_fetch_summaries, mock_create_event, mock_team):
         mock_fetch_summaries.return_value = {}

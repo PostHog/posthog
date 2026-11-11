@@ -15,6 +15,7 @@ from products.web_analytics.backend.api.web_analytics_path_cleaning_suggestions 
 )
 from products.web_analytics.backend.presentation.views.capture_settings import HeatmapCaptureSettingsViewSet
 from products.web_analytics.backend.presentation.views.content_autopilot import (
+    ContentAutopilotOpportunityViewSet,
     ContentAutopilotProposalViewSet,
     ContentAutopilotRunViewSet,
     ContentAutopilotSiteProfileViewSet,
@@ -58,6 +59,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"web_analytics_content_autopilot_proposals",
         ContentAutopilotProposalViewSet,
         "project_web_analytics_content_autopilot_proposals",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"web_analytics_content_autopilot_opportunities",
+        ContentAutopilotOpportunityViewSet,
+        "project_web_analytics_content_autopilot_opportunities",
         ["team_id"],
     )
     routers.projects.register(

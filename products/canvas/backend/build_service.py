@@ -48,6 +48,7 @@ from posthog.storage import object_storage
 from products.canvas.backend import error_reports
 from products.canvas.backend.capabilities import CapabilityWidening, capability_widening
 from products.canvas.backend.contract import CANVAS_BUILDER_DIR, contract_limits
+from products.canvas.backend.facade.contracts import CanvasBuildCapacityExceeded, CanvasVersionConflict
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import (
     SYNTHETIC_INDEX_HTML,
@@ -120,18 +121,6 @@ CANVAS_BUILD_ACTIVE = Gauge("posthog_canvas_builds_active", "Canvas builds curre
 
 
 CANVAS_BUILDER_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "NODE_ENV": "production"}
-
-
-class CanvasBuildCapacityExceeded(Exception):
-    """The team already has the maximum number of in-flight builds."""
-
-
-class CanvasVersionConflict(Exception):
-    """A guarded publish was based on a version that is no longer the head."""
-
-    def __init__(self, current_version_id: str | None) -> None:
-        super().__init__("The canvas changed since it was read.")
-        self.current_version_id = current_version_id
 
 
 def node_executable() -> str:

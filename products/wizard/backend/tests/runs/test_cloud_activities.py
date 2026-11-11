@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -14,10 +15,13 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from opentelemetry.trace import StatusCode
+from structlog.testing import capture_logs
 from temporalio.contrib.opentelemetry import OpenTelemetryInterceptor
 from temporalio.exceptions import ApplicationError, ApplicationErrorCategory, CancelledError
 from temporalio.testing import ActivityEnvironment
 from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput
+
+from posthog.models.github_integration_base import GitHubIntegrationError
 
 from products.wizard.backend.facade import api as wizard_facade
 from products.wizard.backend.facade.contracts import (
@@ -45,6 +49,7 @@ from products.wizard.backend.logic.workers.service import (
     WizardWorkerResult,
     WizardWorkerTimeoutError,
 )
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.temporal.activities.errors import (
     WIZARD_REPOSITORY_ACCESS_ERROR_TYPE,
     WIZARD_WORKER_EXECUTION_ERROR_TYPE,
@@ -67,6 +72,7 @@ def _create_cloud_run(
     *,
     program_id: str = "posthog-integration",
     registry_payload: object = None,
+    branch: str | None = None,
 ) -> WizardRunDTO:
     with (
         patch("posthoganalytics.get_feature_flag_payload", return_value=registry_payload),
@@ -85,7 +91,7 @@ def _create_cloud_run(
                 created_by_id=user_id,
                 environment=WizardRunEnvironment.CLOUD,
                 idempotency_key="test-cloud-activity",
-                workspace=GitRepositoryWorkspace(repository="posthog/posthog"),
+                workspace=GitRepositoryWorkspace(repository="posthog/posthog", branch=branch),
                 program_id=program_id,
             )
         )
@@ -179,6 +185,7 @@ def test_provision_worker_uses_persisted_run_identity(team, user) -> None:
     worker_record = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
     assert worker_record.sandbox_id == "worker-id"
     assert worker_record.cleanup_status == "active"
+    assert worker_record.resource_usage is not None
     assert worker_record.resource_usage["cpu_cores"] == 2.0
 
     provision.reset_mock()
@@ -188,9 +195,10 @@ def test_provision_worker_uses_persisted_run_identity(team, user) -> None:
     provision.assert_not_called()
 
 
+@pytest.mark.parametrize("branch", [None, "release/next"])
 @pytest.mark.django_db(transaction=True)
-def test_clone_repository_rechecks_access_before_preparing_workspace(team, user) -> None:
-    run = _create_cloud_run(team.id, user.id)
+def test_clone_repository_rechecks_access_before_preparing_workspace(team, user, branch: str | None) -> None:
+    run = _create_cloud_run(team.id, user.id, branch=branch)
     worker = _worker(run)
 
     with (
@@ -209,7 +217,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user)
     ):
         result = async_to_sync(_run_clone_repository)(worker)
 
-    assert result == _workspace(run)
+    assert result == replace(_workspace(run), base_branch=branch)
     assert wizard_facade.get_run(team.id, run.id).stage == "preparing_workspace"
     resolve_integration.assert_called_once_with(team.id)
     repository_accessible.assert_called_once_with(team.id, 456, "posthog/posthog")
@@ -218,6 +226,7 @@ def test_clone_repository_rechecks_access_before_preparing_workspace(team, user)
             sandbox_id=worker.sandbox_id,
             github_integration_id=456,
             repository="posthog/posthog",
+            branch=branch,
         )
     )
 
@@ -294,7 +303,11 @@ def test_clone_repository_keeps_transient_clone_failure_retryable(team, user) ->
             True,
         ),
         (
-            WizardWorkerExecutionError("execution", 1, wizard_error_code="PHW_DETECT_NO_POSTHOG_SDK"),
+            WizardWorkerExecutionError(
+                "execution",
+                1,
+                wizard_error=WizardErrorLine(code="PHW_DETECT_NO_POSTHOG_SDK", message="Missing SDK"),
+            ),
             "PHW_DETECT_NO_POSTHOG_SDK",
             True,
         ),
@@ -335,6 +348,7 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
             side_effect=worker_error,
         ) as execute,
         pytest.raises(ApplicationError) as error,
+        capture_logs() as logs,
     ):
         get_run.return_value.program.command = ()
         get_run.return_value.program.wizard_version = "2.60.0"
@@ -357,6 +371,16 @@ def test_execute_wizard_maps_worker_error(worker_error: Exception, error_type: s
     assert error.value.__cause__ is None
     assert error.value.__context__ is None
     assert not error.value.details
+    failure_logs = [log for log in logs if log["event"] == "wizard_execution_failed"]
+    if isinstance(worker_error, WizardWorkerExecutionError):
+        assert len(failure_logs) == 1
+        expected_error = worker_error.wizard_error
+        assert failure_logs[0]["log_level"] == "warning"
+        assert failure_logs[0]["wizard_error_code"] == (expected_error.code if expected_error else None)
+        assert failure_logs[0]["wizard_error_message"] == (expected_error.message if expected_error else None)
+    else:
+        assert not failure_logs
+    assert "fake-wizard-api-key-for-test" not in str(logs)
     if isinstance(worker_error, ApplicationError):
         assert error.value.next_retry_delay == worker_error.next_retry_delay
         assert error.value.category == worker_error.category
@@ -391,6 +415,71 @@ def test_execute_wizard_preserves_cancellation() -> None:
         async_to_sync(_run_execute_wizard)(workspace)
 
     assert error.value is cancellation
+
+
+@pytest.mark.parametrize(
+    "handoff_error, error_type, non_retryable, logged",
+    (
+        (
+            WizardWorkerExecutionError(
+                "publishing", 1, "GitHub signed commit failed with status code 502.", retryable=True
+            ),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            False,
+            {"stage": "publishing", "exit_code": 1},
+        ),
+        (
+            WizardWorkerExecutionError("publishing", 1, "Could not read staged file 'fake-wizard-api-key-for-test'."),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            True,
+            {"stage": "publishing", "exit_code": 1},
+        ),
+        (
+            WizardWorkerExecutionError("diff capture", 1, detail="fake-wizard-api-key-for-test"),
+            WIZARD_WORKER_EXECUTION_ERROR_TYPE,
+            True,
+            {"stage": "diff capture", "exit_code": 1},
+        ),
+        (
+            GitHubIntegrationError("fake-wizard-api-key-for-test", status_code=503),
+            "GitHubIntegrationError",
+            False,
+            {"stage": None, "status_code": 503},
+        ),
+    ),
+)
+def test_create_run_artifacts_retries_only_transient_failures_and_logs_the_step(
+    handoff_error: Exception, error_type: str, non_retryable: bool, logged: dict[str, object]
+) -> None:
+    workspace = PreparedGitRepositoryWorkspace(
+        team_id=7,
+        run_id=uuid4(),
+        sandbox_id="worker-id",
+        repository="posthog/posthog",
+        root_path="/tmp/workspace/repos/posthog/posthog",
+        github_integration_id=456,
+    )
+
+    with (
+        patch("products.wizard.backend.temporal.activities.handoff.wizard_facade.update_run_stage"),
+        patch(
+            "products.wizard.backend.temporal.activities.handoff.cloud_worker.create_git_repository_handoff",
+            side_effect=handoff_error,
+        ),
+        pytest.raises(ApplicationError) as error,
+        capture_logs() as logs,
+    ):
+        async_to_sync(_run_create_run_artifacts)(workspace)
+
+    assert error.value.type == error_type
+    assert error.value.non_retryable is non_retryable
+    assert error.value.message == "Wizard activity failed."
+    failure_logs = [log for log in logs if log["event"] == "wizard_handoff_failed"]
+    assert len(failure_logs) == 1
+    assert failure_logs[0]["log_level"] == "warning"
+    assert failure_logs[0]["retryable"] is not non_retryable
+    assert {key: failure_logs[0][key] for key in logged} == logged
+    assert "fake-wizard-api-key-for-test" not in str(logs)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -445,5 +534,6 @@ def test_create_run_artifacts_persists_git_diff_and_pull_request(_write: MagicMo
     assert pull_request_artifact.number == pull_request.number
     assert wizard_facade.get_run(team.id, run.id).status == WizardRunStatus.COMPLETED
     worker = apps.get_model("wizard", "WizardWorker").objects.for_team(team.id).get(run_id=run.id)
+    assert worker.resource_usage is not None
     assert worker.resource_usage["provider_cpu_usage_usec"] == 1_000_000
     assert worker.resource_usage["provider_billed_cpu_usage_usec"] == 2_000_000

@@ -266,7 +266,14 @@ export async function createUserTeamAndOrganization(
     })
 
     // Map drop_events_older_than_seconds to drop_events_older_than for database insertion
-    const { drop_events_older_than_seconds, ...otherTeamOverrides } = teamOverrides
+    const { drop_events_older_than_seconds, flag_evaluations_mode, ...otherTeamOverrides } = teamOverrides
+    // The team reads flag_evaluations_mode from its organization's config row, not from posthog_team.
+    if (flag_evaluations_mode !== undefined) {
+        await insertRow(db, 'feature_flags_organizationfeatureflagsconfig', {
+            organization_id: organizationId,
+            flag_evaluations_mode,
+        })
+    }
     const teamData: Record<string, any> = {
         id: teamId,
         project_id: teamId,

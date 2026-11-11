@@ -101,6 +101,11 @@ async def enrich_signup_organization_activity(
         if not org_exists:
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
+        # The personal email domain list can grow while a recheck waits, so a domain the trigger
+        # accepted can be a personal email provider by now.
+        if not gates.is_work_domain(inputs.domain):
+            logger.info("signup_enrichment_recheck_skipped_not_work_email")
+            return {"matched": False, "fields_filled": 0, "not_work_email": True}
 
     # Region-local on purpose: EU enrichment lands in the EU internal project, US in US — the
     # same split the usage report uses. Never fall back to a cross-region client here.
@@ -252,19 +257,17 @@ class SignupEnrichmentWorkflow(PostHogWorkflow):
         first_result = await _execute_enrich_activity(inputs, is_recheck=False)
         first_attempt_matched = bool(first_result.get("matched"))
 
-        if workflow.patched("signup-enrichment-recheck-child-2026-09"):
-            try:
-                await workflow.start_child_workflow(
-                    SignupEnrichmentRecheckWorkflow.run,
-                    SignupEnrichmentRecheckInputs(signup=inputs, first_attempt_matched=first_attempt_matched),
-                    id=f"signup-enrichment-recheck-{inputs.organization_id}",
-                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                )
-            except WorkflowAlreadyStartedError:
-                LOGGER.bind(organization_id=inputs.organization_id).info("signup_enrichment_recheck_already_pending")
-            return first_result
-
-        # Executions recorded before the recheck child existed replay through this path.
-        await workflow.sleep(RECHECK_DELAY)
-        return await _execute_enrich_activity(inputs, is_recheck=True, first_attempt_matched=first_attempt_matched)
+        # Keep this call until no execution that recorded this patch through workflow.patched() can
+        # replay, including closed executions inside namespace retention. Their replays fail without it.
+        workflow.deprecate_patch("signup-enrichment-recheck-child-2026-09")
+        try:
+            await workflow.start_child_workflow(
+                SignupEnrichmentRecheckWorkflow.run,
+                SignupEnrichmentRecheckInputs(signup=inputs, first_attempt_matched=first_attempt_matched),
+                id=f"signup-enrichment-recheck-{inputs.organization_id}",
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+            )
+        except WorkflowAlreadyStartedError:
+            LOGGER.bind(organization_id=inputs.organization_id).info("signup_enrichment_recheck_already_pending")
+        return first_result

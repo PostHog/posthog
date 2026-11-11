@@ -17,19 +17,20 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { isCompanionProduct } from 'lib/logic/billing/companionProducts'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { toSentenceCase } from 'lib/utils/strings'
 import { couponLogic } from 'scenes/coupons/couponLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { membersLogic } from '~/models/membersLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingProductV2Type } from '~/types'
 
 import { BillingHero } from './BillingHero'
-import { billingLogic } from './billingLogic'
 import { BillingNoAccess } from './BillingNoAccess'
 import { BillingProduct } from './BillingProduct'
 import { BillingSummary } from './BillingSummary'
@@ -58,6 +59,9 @@ export function Billing(): JSX.Element {
         minimumBillingAccessLevel,
         canOnlyViewUsageAndSpend,
         hasSupportAddonPlan,
+        billingManagedByPartnerNotice,
+        billingManagedByVercelNotice,
+        isBillingManagedByVercel,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -161,6 +165,18 @@ export function Billing(): JSX.Element {
                 </LemonBanner>
             )}
 
+            {billingManagedByPartnerNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByPartnerNotice}
+                </LemonBanner>
+            )}
+
+            {billingManagedByVercelNotice && (
+                <LemonBanner type="info" className="max-w-300 mb-2">
+                    {billingManagedByVercelNotice}
+                </LemonBanner>
+            )}
+
             {billing?.trial ? (
                 <LemonBanner type="info" hideIcon className="max-w-300 mb-2">
                     <div className="flex items-center gap-4">
@@ -187,7 +203,14 @@ export function Billing(): JSX.Element {
                     )}
                 >
                     {showBillingSummary && (
-                        <div className={clsx('flex-1', { 'flex-grow-0': showCreditCTAHero })}>
+                        <div
+                            className={clsx('flex-1', {
+                                'flex-grow-0': showCreditCTAHero,
+                                // flex-1 sets a 0 basis, so with flex-grow-0 the summary gets only its min-content width and its text and button wrap.
+                                // The 20rem basis with no shrink keeps it at that width or wider, because the default min-width still holds the content width.
+                                '@3xl:shrink-0 @3xl:basis-80': showCreditCTAHero && billing?.has_active_subscription,
+                            })}
+                        >
                             <BillingSummary />
                         </div>
                     )}
@@ -253,7 +276,8 @@ export function Billing(): JSX.Element {
             )
                 ?.filter(
                     (product: BillingProductV2Type) =>
-                        !product.inclusion_only || product.addons.find((a) => !a.inclusion_only)
+                        !isCompanionProduct(product) &&
+                        (!product.inclusion_only || product.addons.find((a) => !a.inclusion_only))
                 )
                 ?.map((x: BillingProductV2Type) => (
                     <div key={x.type}>
@@ -262,7 +286,7 @@ export function Billing(): JSX.Element {
                 ))}
 
             <div>
-                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct ? (
+                {billing?.subscription_level == 'paid' && !!platformAndSupportProduct && !isBillingManagedByVercel ? (
                     <>
                         <LemonDivider />
                         <UnsubscribeCard product={platformAndSupportProduct} />

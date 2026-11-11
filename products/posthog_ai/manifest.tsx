@@ -52,6 +52,7 @@ export const manifest: ProductManifest = {
             iconType: 'task',
             iconColor: ['var(--color-product-tasks-light)', 'var(--color-product-tasks-dark)'],
             href: urls.taskTracker(),
+            searchKeywords: ['coding agent', 'background agent'],
             sceneKey: 'TaskTracker',
             flag: FEATURE_FLAGS.TASKS,
         },

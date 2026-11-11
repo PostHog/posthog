@@ -26,6 +26,27 @@ export async function getFreePort(): Promise<number> {
     })
 }
 
+// A worker needs two adjacent free ports: HTTP, and HTTP + grpcPortOffset for the stream.
+export async function getFreeWorkerPort(grpcPortOffset: number): Promise<number> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+        // Below the ephemeral range (Linux 32768+, macOS 49152+), so outbound connections
+        // cannot take either port between this check and the worker's bind.
+        const port = 20_000 + Math.floor(Math.random() * 12_000)
+        if ((await isPortFree(port)) && (await isPortFree(port + grpcPortOffset))) {
+            return port
+        }
+    }
+    throw new Error('could not find adjacent free ports for a worker')
+}
+
+export function isPortFree(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        const server = net.createServer()
+        server.once('error', () => resolve(false))
+        server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
+    })
+}
+
 export class ServiceProcess {
     private readonly child: ChildProcessWithoutNullStreams
     private readonly exited: Promise<ProcessExit>
@@ -99,7 +120,8 @@ export class ServiceProcess {
         return { ...result, output: this.getOutput() }
     }
 
-    async stop(): Promise<void> {
+    /** SIGTERM, then SIGKILL once `graceMs` passes without an exit. */
+    async stop(graceMs = 10_000): Promise<void> {
         if (this.stopping || this.hasExited) {
             return
         }
@@ -107,7 +129,7 @@ export class ServiceProcess {
         this.stopping = true
         this.kill('SIGTERM')
 
-        const stopped = await Promise.race([this.exited.then(() => true), delay(10_000).then(() => false)])
+        const stopped = await Promise.race([this.exited.then(() => true), delay(graceMs).then(() => false)])
         if (!stopped) {
             this.kill('SIGKILL')
             await this.exited
@@ -116,6 +138,11 @@ export class ServiceProcess {
 
     getOutput(): string {
         return this.output
+    }
+
+    /** The exit, once the process has exited; null while it runs. */
+    exitInfo(): ProcessExit | null {
+        return this.exitResult ? { ...this.exitResult, output: this.getOutput() } : null
     }
 
     private capture(stream: 'stdout' | 'stderr', chunk: Buffer): void {

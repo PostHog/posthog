@@ -17,8 +17,7 @@ export interface TrendsBarResultLike {
     days?: string[]
     compare?: boolean
     compare_label?: string | null
-    action?: { order?: number } | null
-    // Formula rows carry a top-level `order` instead of `action.order`.
+    // The series index, or the formula index on a formula row.
     order?: number | null
     breakdown_value?: unknown
     filter?: unknown
@@ -207,7 +206,7 @@ export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M 
 
     // Stacked breakdowns share a band and genuinely stack, so they stay as N sparse series.
     const labels = visible.map((r) => {
-        const seriesId = r.action?.order ?? r.order ?? 0
+        const seriesId = r.order ?? 0
         return `${seriesId}${BAND_KEY_SEP}${r.compare_label ?? ''}`
     })
     const series = visible.map((r, index) => {

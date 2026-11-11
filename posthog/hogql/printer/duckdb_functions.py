@@ -76,6 +76,7 @@ def _handle_current_timestamp(args: list[str]) -> str:
 
 
 DUCKDB_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
+    "sha1": lambda args: f"sha1({args[0]})",
     "argMaxIf": _handle_arg_max_if,
     "argMinIf": _handle_arg_min_if,
     "dateAdd": _handle_date_add,

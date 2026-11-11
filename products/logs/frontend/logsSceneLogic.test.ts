@@ -497,4 +497,36 @@ describe('logsSceneLogic', () => {
             expect(router.values.searchParams).not.toHaveProperty('groupBys')
         })
     })
+
+    describe('patterns compare URL sync', () => {
+        it.each([
+            ['the preceding baseline', 'preceding', true, 'preceding'],
+            ['the last-week baseline', 'lastWeek', true, 'lastWeek'],
+            ['an unrecognised baseline leaves compare off', 'nonsense', false, 'preceding'],
+        ])('applies compare from the URL: %s', async (_, urlValue, expectedEnabled, expectedBaseline) => {
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', { compare: urlValue })
+            }).toFinishAllListeners()
+
+            expect(logic.values.compareEnabled).toEqual(expectedEnabled)
+            expect(logic.values.baselineMode).toEqual(expectedBaseline)
+        })
+
+        it('writes the baseline while compare is on and drops the param when it is off', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setCompareEnabled(true)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.compare).toEqual('preceding')
+
+            await expectLogic(logic, () => {
+                logic.actions.setBaselineMode('lastWeek')
+            }).toFinishAllListeners()
+            expect(router.values.searchParams.compare).toEqual('lastWeek')
+
+            await expectLogic(logic, () => {
+                logic.actions.setCompareEnabled(false)
+            }).toFinishAllListeners()
+            expect(router.values.searchParams).not.toHaveProperty('compare')
+        })
+    })
 })

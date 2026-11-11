@@ -27,11 +27,11 @@ logger = structlog.get_logger(__name__)
 #
 # This is a gap budget, not a total-runtime budget, and the distinction is load-bearing. A
 # python node materializes one input per referenced upstream node, one after another, each
-# with its own 11 minute data-plane deadline, and only then executes for up to 5 minutes. No
-# fixed total-runtime budget can hold: two inputs already outrun 20 minutes while the cell is
-# working correctly. `touch_run_progress` re-anchors the clock on every input the kernel
-# fetches, so what must fit here is the longest gap between two signs of life — one input's
-# wait plus the execute cap — rather than their sum over N inputs.
+# with its own 11 minute data-plane deadline, and only then executes, for hours when it trains
+# a model. No fixed total-runtime budget can hold. `touch_run_progress` re-anchors the clock on
+# every input the kernel fetches and on every heartbeat it sends while a cell executes, so what
+# must fit here is the longest gap between two signs of life — one input's wait — rather than
+# their sum.
 KERNEL_RUN_RESULT_GRACE_SECONDS = 20 * 60
 
 
@@ -97,6 +97,13 @@ def touch_run_progress(team_id: int, notebook_short_id: str, run_id: str) -> Non
         # The id comes out of a signed token, so a malformed one means the minting side has a
         # bug. Swallow it here rather than failing the sandbox's fetch over it.
         logger.warning("notebook_run_progress_touch_invalid_run_id", run_id=run_id, team_id=team_id)
+
+
+def seconds_until_kernel_run_is_stale(run: NotebookNodeRun) -> float | None:
+    """How long a RUNNING kernel run has left before the watchdog may fail it, or None when it never will."""
+    if run.node_type == NotebookNodeRun.NodeType.HOGQL or run.status != NotebookNodeRun.Status.RUNNING:
+        return None
+    return max(KERNEL_RUN_RESULT_GRACE_SECONDS - (timezone.now() - run.updated_at).total_seconds(), 0.0)
 
 
 def expire_stale_kernel_run(run: NotebookNodeRun) -> bool:

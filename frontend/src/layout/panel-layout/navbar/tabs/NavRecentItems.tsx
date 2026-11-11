@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { getFileSystemIconType, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
-import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { NavLink } from '../NavLink'
 import { navRecentsLogic } from './navRecentsLogic'
@@ -33,7 +33,7 @@ export function NavRecentItems(): JSX.Element {
                         key={item.id}
                         to={item.href ?? ''}
                         label={getItemName(item)}
-                        icon={iconForType(item.type as FileSystemIconType)}
+                        icon={iconForType(getFileSystemIconType(item))}
                         isCollapsed={false}
                         data-attr={`nav-recent-item-${item.id}`}
                         onClick={() => reportNavItemClicked('recent', 'recents', item.type)}

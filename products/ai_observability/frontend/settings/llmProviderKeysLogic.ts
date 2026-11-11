@@ -3,23 +3,24 @@ import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { evaluationsPartialUpdate, llmAnalyticsProviderKeysDependentConfigsRetrieve } from '../generated/api'
+import type {
+    LLMProviderEnumApi,
+    LLMProviderKeyApi,
+    ProviderKeyDependentConfigsApi,
+    ProviderKeyDependentEvaluationApi,
+} from '../generated/api.schemas'
+
 export type LLMProviderKeyState = 'unknown' | 'ok' | 'invalid' | 'error'
-export type LLMProvider =
-    | 'openai'
-    | 'anthropic'
-    | 'gemini'
-    | 'openrouter'
-    | 'fireworks'
-    | 'azure_openai'
-    | 'together_ai'
-    | 'minimax'
-    | 'zeabur'
-    | 'openai_compatible'
+export type LLMProvider = LLMProviderEnumApi
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
+export const DEFAULT_SYSTEM_ONE_BASE_URL: string = ''
+export const DEFAULT_SYSTEM_ONE_MODEL: string = ''
 
 export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     openai: 'OpenAI',
@@ -30,7 +31,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     azure_openai: 'Azure OpenAI',
     together_ai: 'Together AI',
     minimax: 'MiniMax',
-    zeabur: 'Zeabur AI Hub',
+    system_one: 'System One',
     openai_compatible: 'OpenAI-compatible',
 }
 
@@ -43,11 +44,23 @@ export function isLLMProvider(value: string): value is LLMProvider {
 /** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
 export function toLLMProvider(raw: string): LLMProvider | null {
     const normalized = raw.toLowerCase()
+    if (normalized === 'system one') {
+        return 'system_one'
+    }
     if (isLLMProvider(normalized)) {
         return normalized
     }
     console.error(`[AI observability] Unknown LLM provider: "${raw}"`)
     return null
+}
+
+export function normalizeSystemOneBaseUrlForComparison(input: string): string {
+    try {
+        const url = new URL(input.trim())
+        return `${url.origin}${url.pathname.replace(/\/+$/, '')}${url.search}${url.hash}`
+    } catch {
+        return input.trim().replace(/\/+$/, '')
+    }
 }
 
 const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
@@ -65,6 +78,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
 
     const normalized = provider.trim().toLowerCase()
+    if (normalized === 'system one') {
+        return 'system_one'
+    }
     if (normalized === 'google' || normalized === 'google-ai-studio') {
         return 'gemini'
     }
@@ -77,9 +93,6 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     if (normalized === 'mini max' || normalized === 'mini-max') {
         return 'minimax'
     }
-    if (normalized === 'zeabur ai hub' || normalized === 'zeabur-ai-hub') {
-        return 'zeabur'
-    }
     if (normalized === 'openai-compatible' || normalized === 'openai compatible') {
         return 'openai_compatible'
     }
@@ -87,7 +100,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
 
-export interface LLMProviderKey {
+export interface LLMProviderKey extends Partial<
+    Pick<LLMProviderKeyApi, 'base_url_display' | 'system_one_model_display'>
+> {
     id: string
     provider: LLMProvider
     name: string
@@ -150,7 +165,7 @@ export interface EvaluationConfig {
     updated_at: string
 }
 
-export interface CreateLLMProviderKeyPayload {
+export interface CreateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
     provider: LLMProvider
     name: string
     api_key: string
@@ -160,7 +175,7 @@ export interface CreateLLMProviderKeyPayload {
     base_url?: string
 }
 
-export interface UpdateLLMProviderKeyPayload {
+export interface UpdateLLMProviderKeyPayload extends Pick<LLMProviderKeyApi, 'base_url' | 'system_one_model'> {
     name?: string
     api_key?: string
     azure_endpoint?: string
@@ -176,31 +191,79 @@ export interface KeyValidationResult {
     error_field?: string | null
 }
 
-export interface DependentEvaluation {
-    id: string
-    name: string
-    model_configuration_id: string
+/** Serializer fields that the edit modal renders an input for. */
+export type EditKeyField = 'name' | 'api_key' | 'azure_endpoint' | 'api_version' | 'base_url' | 'system_one_model'
+
+export interface ProviderKeyFieldError {
+    field: EditKeyField
+    message: string
 }
 
-export interface AlternativeKey {
-    id: string
-    name: string
-    provider: LLMProvider
+// An Anthropic key keeps the API it was created for, so only Foundry keys show the endpoint.
+export function isFoundryKey(key: LLMProviderKey): boolean {
+    return key.provider === 'anthropic' && !!key.azure_endpoint_display
 }
 
-export interface DependentConfigsResponse {
-    evaluations: DependentEvaluation[]
-    alternative_keys: AlternativeKey[]
+function editKeyFieldsFor(key: LLMProviderKey): EditKeyField[] {
+    if (key.provider === 'azure_openai') {
+        return ['name', 'api_key', 'azure_endpoint', 'api_version']
+    }
+    if (isFoundryKey(key)) {
+        return ['name', 'api_key', 'azure_endpoint']
+    }
+    if (key.provider === 'openai_compatible') {
+        return ['name', 'api_key', 'base_url']
+    }
+    if (key.provider === 'system_one') {
+        return ['name', 'api_key', 'base_url', 'system_one_model']
+    }
+    return ['name', 'api_key']
+}
+
+function getKeyFieldError(fields: EditKeyField[], errorObject: unknown): ProviderKeyFieldError | null {
+    if (!(errorObject instanceof ApiError) || errorObject.status !== 400 || !errorObject.detail) {
+        return null
+    }
+    const field = fields.find((candidate) => candidate === errorObject.attr)
+    return field ? { field, message: errorObject.detail } : null
+}
+
+/**
+ * Attributes a validation 400 from saving an edited key to the edit modal input that shows it.
+ * Returns null when the modal has no input for the rejected field, so the caller toasts instead.
+ */
+export function getEditKeyFieldError(key: LLMProviderKey, errorObject: unknown): ProviderKeyFieldError | null {
+    return getKeyFieldError(editKeyFieldsFor(key), errorObject)
+}
+
+/**
+ * Attributes a validation 400 from creating a key to the add modal input that shows it. Only the System One
+ * model ID shows its error inline there; other rejections toast.
+ */
+export function getNewKeyFieldError(errorObject: unknown): ProviderKeyFieldError | null {
+    return getKeyFieldError(['system_one_model'], errorObject)
+}
+
+/** Evaluations a provider key problem turned off, offered back once the key works again. */
+export interface TurnedOffEvaluations {
+    keyId: string
+    evaluations: ProviderKeyDependentEvaluationApi[]
+}
+
+/** Whether an evaluation is off because of its provider key, as opposed to a person turning it off. */
+export function turnedOffByKey(evaluation: ProviderKeyDependentEvaluationApi): boolean {
+    return !evaluation.enabled && !!evaluation.status_reason?.startsWith('provider_key')
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface llmProviderKeysLogicValues {
     activeProviderKey: LLMProviderKey | null | undefined
-    dependentConfigs: DependentConfigsResponse | null
+    dependentConfigs: ProviderKeyDependentConfigsApi | null
     dependentConfigsLoading: boolean
     editingKey: LLMProviderKey | null
     evaluationConfig: EvaluationConfig | null
     evaluationConfigLoading: boolean
+    keyFieldError: ProviderKeyFieldError | null
     keyToDelete: LLMProviderKey | null
     newKeyModalOpen: boolean
     preValidationResult: KeyValidationResult | null
@@ -208,6 +271,10 @@ export interface llmProviderKeysLogicValues {
     providerKeys: LLMProviderKey[]
     providerKeysLoading: boolean
     requiresProviderKey: boolean
+    systemOneBaseUrl: string
+    systemOneModel: string
+    turnedOffEvaluations: TurnedOffEvaluations | null
+    turnedOffEvaluationsLoading: boolean
     validatingKeyId: string | null
 }
 
@@ -275,12 +342,12 @@ export interface llmProviderKeysLogicActions {
         errorObject?: any
     }
     loadDependentConfigsSuccess: (
-        dependentConfigs: DependentConfigsResponse | null,
+        dependentConfigs: ProviderKeyDependentConfigsApi | null,
         payload?: {
             keyId: string
         }
     ) => {
-        dependentConfigs: DependentConfigsResponse | null
+        dependentConfigs: ProviderKeyDependentConfigsApi | null
         payload?: {
             keyId: string
         }
@@ -314,6 +381,27 @@ export interface llmProviderKeysLogicActions {
     ) => {
         providerKeys: LLMProviderKey[]
         payload?: any
+    }
+    loadTurnedOffEvaluations: ({ keyId }: { keyId: string }) => {
+        keyId: string
+    }
+    loadTurnedOffEvaluationsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadTurnedOffEvaluationsSuccess: (
+        turnedOffEvaluations: TurnedOffEvaluations | null,
+        payload?: {
+            keyId: string
+        }
+    ) => {
+        turnedOffEvaluations: TurnedOffEvaluations | null
+        payload?: {
+            keyId: string
+        }
     }
     preValidateKey: ({
         apiKey,
@@ -363,11 +451,35 @@ export interface llmProviderKeysLogicActions {
     setEditingKey: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
     }
+    setKeyFieldError: (fieldError: ProviderKeyFieldError | null) => {
+        fieldError: ProviderKeyFieldError | null
+    }
     setKeyToDelete: (key: LLMProviderKey | null) => {
         key: LLMProviderKey | null
     }
     setNewKeyModalOpen: (open: boolean) => {
         open: boolean
+    }
+    setSystemOneBaseUrl: (baseUrl: string) => {
+        baseUrl: string
+    }
+    setSystemOneModel: (model: string) => {
+        model: string
+    }
+    turnEvaluationsBackOn: () => any
+    turnEvaluationsBackOnFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    turnEvaluationsBackOnSuccess: (
+        turnedOffEvaluations: TurnedOffEvaluations | null,
+        payload?: any
+    ) => {
+        turnedOffEvaluations: TurnedOffEvaluations | null
+        payload?: any
     }
     updateProviderKey: ({ id, payload }: { id: string; payload: UpdateLLMProviderKeyPayload }) => {
         id: string
@@ -435,14 +547,33 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     path(['products', 'ai_observability', 'settings', 'llmProviderKeysLogic']),
 
     actions({
+        setSystemOneBaseUrl: (baseUrl: string) => ({ baseUrl }),
+        setSystemOneModel: (model: string) => ({ model }),
         clearPreValidation: true,
         setNewKeyModalOpen: (open: boolean) => ({ open }),
         setEditingKey: (key: LLMProviderKey | null) => ({ key }),
+        setKeyFieldError: (fieldError: ProviderKeyFieldError | null) => ({ fieldError }),
         setKeyToDelete: (key: LLMProviderKey | null) => ({ key }),
         confirmDelete: (replacementKeyId?: string) => ({ replacementKeyId }),
     }),
 
     reducers({
+        systemOneBaseUrl: [
+            DEFAULT_SYSTEM_ONE_BASE_URL,
+            {
+                setSystemOneBaseUrl: (_, { baseUrl }) => baseUrl,
+                setNewKeyModalOpen: () => DEFAULT_SYSTEM_ONE_BASE_URL,
+                setEditingKey: (_, { key }) => key?.base_url_display ?? DEFAULT_SYSTEM_ONE_BASE_URL,
+            },
+        ],
+        systemOneModel: [
+            DEFAULT_SYSTEM_ONE_MODEL,
+            {
+                setSystemOneModel: (_, { model }) => model,
+                setNewKeyModalOpen: () => DEFAULT_SYSTEM_ONE_MODEL,
+                setEditingKey: (_, { key }) => key?.system_one_model_display ?? DEFAULT_SYSTEM_ONE_MODEL,
+            },
+        ],
         newKeyModalOpen: [
             false,
             {
@@ -453,6 +584,18 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             null as LLMProviderKey | null,
             {
                 setEditingKey: (_, { key }) => key,
+            },
+        ],
+        keyFieldError: [
+            null as ProviderKeyFieldError | null,
+            {
+                setKeyFieldError: (_, { fieldError }) => fieldError,
+                createProviderKey: () => null,
+                updateProviderKey: () => null,
+                setNewKeyModalOpen: () => null,
+                setEditingKey: () => null,
+                setSystemOneBaseUrl: (state) => (state?.field === 'base_url' ? null : state),
+                setSystemOneModel: (state) => (state?.field === 'system_one_model' ? null : state),
             },
         ],
         validatingKeyId: [
@@ -482,22 +625,66 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     }),
 
     loaders(({ values, actions }) => ({
+        turnedOffEvaluations: [
+            null as TurnedOffEvaluations | null,
+            {
+                loadTurnedOffEvaluations: async ({
+                    keyId,
+                }: {
+                    keyId: string
+                }): Promise<TurnedOffEvaluations | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const response = await llmAnalyticsProviderKeysDependentConfigsRetrieve(String(teamId), keyId)
+                    const evaluations = [...response.evaluations, ...response.active_key_evaluations].filter(
+                        turnedOffByKey
+                    )
+                    return evaluations.length > 0 ? { keyId, evaluations } : null
+                },
+                turnEvaluationsBackOn: async (): Promise<TurnedOffEvaluations | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    const turnedOff = values.turnedOffEvaluations
+                    if (!teamId || !turnedOff) {
+                        return null
+                    }
+                    // Each one goes through the normal update, so the server still checks it can run.
+                    const outcomes = await Promise.allSettled(
+                        turnedOff.evaluations.map((evaluation) =>
+                            evaluationsPartialUpdate(String(teamId), evaluation.id, { enabled: true })
+                        )
+                    )
+                    const failed = turnedOff.evaluations.filter((_, index) => outcomes[index].status === 'rejected')
+                    const turnedOn = turnedOff.evaluations.length - failed.length
+                    if (turnedOn > 0) {
+                        lemonToast.success(`Turned ${pluralize(turnedOn, 'evaluation')} back on`)
+                    }
+                    if (failed.length > 0) {
+                        const reason = (
+                            outcomes.find((outcome) => outcome.status === 'rejected') as PromiseRejectedResult
+                        ).reason
+                        lemonToast.error(
+                            `Couldn't turn ${pluralize(failed.length, 'evaluation')} back on: ${reason?.detail || reason?.message || 'Unknown error'}`
+                        )
+                    }
+                    return failed.length > 0 ? { keyId: turnedOff.keyId, evaluations: failed } : null
+                },
+            },
+        ],
         dependentConfigs: [
-            null as DependentConfigsResponse | null,
+            null as ProviderKeyDependentConfigsApi | null,
             {
                 loadDependentConfigs: async ({
                     keyId,
                 }: {
                     keyId: string
-                }): Promise<DependentConfigsResponse | null> => {
+                }): Promise<ProviderKeyDependentConfigsApi | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
                     }
-                    // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. llmAnalyticsProviderKeysDependentConfigsRetrieve() from 'products/ai_observability/frontend/generated/api' serves this route, but its generated types do not describe this call yet, so fix the endpoint's OpenAPI schema first.
-                    return await api.get(
-                        `/api/environments/${teamId}/llm_analytics/provider_keys/${keyId}/dependent_configs/`
-                    )
+                    return await llmAnalyticsProviderKeysDependentConfigsRetrieve(String(teamId), keyId)
                 },
             },
         ],
@@ -680,14 +867,37 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
         loadEvaluationConfigFailure: ({ error }) => {
             lemonToast.error(`Failed to load evaluation config: ${error || 'Unknown error'}`)
         },
-        createProviderKeyFailure: ({ error }) => {
+        createProviderKeyFailure: ({ error, errorObject }) => {
+            const fieldError = getNewKeyFieldError(errorObject)
+            if (fieldError) {
+                actions.setKeyFieldError(fieldError)
+                return
+            }
             lemonToast.error(`Failed to create API key: ${error || 'Unknown error'}`)
         },
-        updateProviderKeyFailure: ({ error }) => {
+        updateProviderKeyFailure: ({ error, errorObject }) => {
+            const fieldError = values.editingKey ? getEditKeyFieldError(values.editingKey, errorObject) : null
+            if (fieldError) {
+                actions.setKeyFieldError(fieldError)
+                return
+            }
             lemonToast.error(`Failed to update API key: ${error || 'Unknown error'}`)
         },
         deleteProviderKeyFailure: ({ error }) => {
             lemonToast.error(`Failed to delete API key: ${error || 'Unknown error'}`)
+        },
+        // A key that works again leaves the evaluations its problem turned off, so offer them back.
+        validateProviderKeySuccess: ({ providerKeys, payload }) => {
+            const key = providerKeys.find((candidate: LLMProviderKey) => candidate.id === payload?.id)
+            if (key?.state === 'ok') {
+                actions.loadTurnedOffEvaluations({ keyId: key.id })
+            }
+        },
+        updateProviderKeySuccess: ({ providerKeys, payload }) => {
+            const key = providerKeys.find((candidate: LLMProviderKey) => candidate.id === payload?.id)
+            if (key?.state === 'ok') {
+                actions.loadTurnedOffEvaluations({ keyId: key.id })
+            }
         },
         setKeyToDelete: ({ key }) => {
             if (key) {

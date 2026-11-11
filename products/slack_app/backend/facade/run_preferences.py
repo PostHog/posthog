@@ -11,20 +11,30 @@ from products.slack_app.backend.services.model_catalogue import (
     describe_run_model,
     group_by_runtime,
 )
+from products.slack_app.backend.services.model_router import (
+    MODEL_ROUTER_INSTRUCTIONS,
+    ModelRouterOption,
+    model_router_options,
+)
 from products.slack_app.backend.services.run_preferences import (
     LiveRunModelChange,
     find_model_choice,
+    resolve_effective_runtime_adapter,
     resolve_live_run_override,
     resolve_run_preferences,
 )
 
 __all__ = [
+    "MODEL_ROUTER_INSTRUCTIONS",
     "LiveRunModelChange",
     "ModelChoice",
+    "ModelRouterOption",
     "available_model_choices",
     "describe_run_model",
     "find_model_choice",
     "group_by_runtime",
+    "model_router_options",
+    "resolve_effective_runtime_adapter",
     "resolve_live_run_override",
     "resolve_run_preferences",
 ]

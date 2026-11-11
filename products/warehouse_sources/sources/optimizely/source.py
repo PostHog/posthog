@@ -1,0 +1,185 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.sources.optimizely._config import OptimizelySourceConfig
+from products.warehouse_sources.sources.optimizely.optimizely import (
+    OptimizelyResumeConfig,
+    optimizely_source,
+    validate_credentials as validate_optimizely_credentials,
+)
+from products.warehouse_sources.sources.optimizely.settings import ENDPOINTS
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ProductKey,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    detect,
+)
+
+
+@SourceRegistry.register
+class OptimizelySource(ResumableSource[OptimizelySourceConfig, OptimizelyResumeConfig]):
+    codebase_detection = detect(
+        env=("^OPTIMIZELY_", "^NEXT_PUBLIC_OPTIMIZELY_SDK_KEY$", "^EXPO_PUBLIC_OPTIMIZELY_SDK_KEY$"),
+        script_hosts=("cdn.optimizely.com", "cdn-pci.optimizely.com", "optimizely-edge.com"),
+        npm=(
+            "@optimizely/optimizely-sdk",
+            "@optimizely/react-sdk",
+            "@optimizely/express",
+            "@optimizely/edge-delivery",
+            "@optimizely/sdk-plugin-pending-events",
+            "@optimizely/js-web-sdk",
+            "@optimizely/optimizely-sdk-core",
+            "@optimizely/js-sdk-logging",
+            "@optimizely/js-sdk-utils",
+            "@optimizely/js-sdk-event-processor",
+            "@optimizely/js-sdk-datafile-manager",
+            "@optimizely/optimizely-connector",
+            "optimizely-client-sdk",
+            "optimizely-server-sdk",
+            "optimizely-node",
+            "cordova-plugin-optimizely",
+            "@flags-sdk/optimizely",
+        ),
+        pypi=("optimizely-sdk", "optimizely"),
+        cocoapods=(
+            "OptimizelySwiftSDK",
+            "OptimizelySDKiOS",
+            "OptimizelySDKTVOS",
+            "OptimizelySDKCore",
+            "OptimizelySDKShared",
+            "OptimizelySDKDatafileManager",
+            "OptimizelySDKEventDispatcher",
+            "OptimizelySDKUserProfileService",
+            "OptimizelySDKUserProfile",
+        ),
+        composer=("optimizely/optimizely-sdk",),
+        go=("github.com/optimizely/go-sdk", "github.com/optimizely/agent"),
+        maven=(
+            "com.optimizely.ab:core-api",
+            "com.optimizely.ab:android-sdk",
+            "com.optimizely.ab:core-httpclient-impl",
+            "com.optimizely.ab:android-sdk-datafile-handler",
+            "com.optimizely.ab:android-sdk-event-handler",
+            "com.optimizely.ab:android-sdk-odp",
+            "com.optimizely.ab:android-sdk-shared",
+            "com.optimizely.ab:android-sdk-user-profile",
+        ),
+        pub=("optimizely_flutter_sdk",),
+        rubygems=("optimizely-sdk",),
+        swiftpm=("github.com/optimizely/swift-sdk",),
+        alternative_to=(ProductKey.EXPERIMENTS,),
+    )
+
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://library.optimizely.com/docs/api/app/v2/index.html"
+
+    lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.OPTIMIZELY
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.optimizely.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            "401 Client Error: Unauthorized for url: https://api.optimizely.com": "Optimizely authentication failed. Please check your personal access token.",
+        }
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.OPTIMIZELY,
+            category=DataWarehouseSourceCategory.ANALYTICS,
+            label="Optimizely",
+            caption="""Enter your Optimizely personal access token to pull your experimentation data into the PostHog Data warehouse.
+
+An admin can generate a personal access token in Optimizely under Account Settings > API Access. Tokens are non-expiring. Project-scoped data (experiments and their results, audiences, attributes, events, pages, campaigns and their results) is synced across all projects the token can access.""",
+            iconPath="/static/services/optimizely.com.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/optimizely",
+            releaseStatus=ReleaseStatus.GA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_token",
+                        label="Personal access token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )
+
+    def get_schemas(
+        self,
+        config: OptimizelySourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        # No v2 list endpoint has an updated-since filter; the entities are
+        # low-volume experiment config, so full refresh is the honest mode.
+        schemas = [
+            SourceSchema(
+                name=endpoint,
+                supports_incremental=False,
+                supports_append=False,
+                incremental_fields=[],
+            )
+            for endpoint in ENDPOINTS
+        ]
+
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+
+        return schemas
+
+    def validate_credentials(
+        self,
+        config: OptimizelySourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        if validate_optimizely_credentials(config.api_token):
+            return True, None
+
+        return False, "Invalid Optimizely personal access token"
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[OptimizelyResumeConfig]:
+        return ResumableSourceManager[OptimizelyResumeConfig](inputs, OptimizelyResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: OptimizelySourceConfig,
+        resumable_source_manager: ResumableSourceManager[OptimizelyResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return optimizely_source(
+            api_token=config.api_token,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
+        )

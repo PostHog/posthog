@@ -104,10 +104,11 @@ PostHog queries can take several seconds each, and a board usually runs several.
 rendering on all of them:
 
 - Fire independent queries concurrently on mount; never chain unrelated queries with sequential
-  `await`s. The host caps a canvas at 8 in-flight data requests and rejects the ninth ("Canvas
-  data request exceeds runtime limits") rather than queuing it — a board that needs more than 8
-  consolidates them (one query returning every row, sliced client-side) or throttles the overflow
-  behind a small concurrency limiter, still with one state per section.
+  `await`s. The host runs 8 data requests at a time and makes the rest wait in a 32-deep queue,
+  so a board with more sections than slots still loads, section by section. A board wide enough to
+  outlast the queue gets its extra requests refused, with the reason in the error message, and the
+  runtime sends each one again after a backoff before it gives up; a board that wide consolidates
+  its queries (one query returning every row, sliced client-side), still one state per section.
 - Give every query its own `{ loading, error, data }` state and let each card, chart, or table
   swap its skeleton for data the moment its own result arrives. One shared `loading` flag or a
   single `Promise.all` across independent queries makes the fastest metric wait for the slowest —
@@ -231,9 +232,11 @@ channel. Use `canvas-state-set` when the user asks to change those values; read 
 unrelated keys, and use the scope the canvas source expects.
 
 Canvas discussions use the generic comment tools. Read them with `comments-list` filtered to
-`scope=desktop_canvas`, the canvas id as `item_id`, and its `discussion_task_id` as `task_id`. Create
-a root comment or reply with `comments-create`, using the same scope and ids (put the task id in
-`item_context.taskId`). The same public-channel and personal-channel visibility rules apply.
+`scope=canvas` and the canvas id as `item_id`. Create a root comment or reply with
+`comments-create`, using the same scope and item id. A thread belongs to the canvas, so a task id is
+optional. Put one in `item_context.taskId` only when that task generated or published the canvas;
+the API refuses any other task. The space of the canvas controls access: a user who can see the
+space can read and write its comments.
 
 ## PostHog writes — ph.actions
 
@@ -255,6 +258,35 @@ canvas) differ in payload shape, auth, and behavior. Invoking looks like:
 
 ```tsx
 const { result } = await ph.actions.invoke('tasks.create', { title, description })
+```
+
+## PostHog MCP tools — ph.tools
+
+`ph.tools` runs a PostHog MCP tool as the viewer, with the viewer's own permissions. The tool runs
+on the PostHog MCP server, so its input is the same input you pass when you call that tool
+yourself. Use it when a board needs a control that a PostHog MCP tool already covers, such as
+the rollout of a feature flag.
+
+- Declare every tool in `capabilities.posthog.tools`. Only an allowlist of tools is available to
+  canvases. The `tools` list of the `canvases-actions-retrieve` tool names them, with
+  `read_only` and `destructive` for each one. Read a tool's input schema with `info <tool>`.
+- `ph.tools.read(tool, args)` takes read-only tools only. It can run on load or render.
+- `ph.tools.call(tool, args)` changes data. Call it only from a click. The host shows the viewer
+  the tool and its arguments and asks them to confirm, and it rejects calls made on load or render.
+- Both return the tool's JSON result, and throw with the tool's error message when it fails.
+  Render that message, and disable the button while the call is in flight.
+
+A feature flag write needs the flag's current `version`. Read it, write with it, and keep the
+version the write returns. On a version conflict, read the flag again before the next write:
+
+```tsx
+const flag = await ph.tools.read('feature-flag-get-definition', { id: flagId })
+const updated = await ph.tools.call('feature-flag-set-release-condition-rollout', {
+  id: flagId,
+  condition_index: 0,
+  rollout_percentage: 25,
+  version: flag.version,
+})
 ```
 
 ## Live third-party data — ph.connectors

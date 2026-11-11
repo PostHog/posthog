@@ -22,15 +22,10 @@ const STATE_TAG: Record<
         type: 'warning',
         title: 'Never fails today, but its worst diff is already close to the threshold. The next unrelated rendering change turns it red.',
     },
-    noisy: {
-        label: 'Noisy',
-        type: 'muted',
-        title: 'Renders more than one image, and the tolerated variants absorb it with room to spare. Nothing to do.',
-    },
     clean: {
         label: 'Clean',
         type: 'success',
-        title: 'Matched its baseline on every run in the window.',
+        title: 'Nothing failed the gate in the last 7 days, and any small diff stays well under the threshold.',
     },
 }
 

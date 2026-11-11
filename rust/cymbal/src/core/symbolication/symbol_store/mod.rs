@@ -3,12 +3,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use chunk_id::OrChunkId;
+use posthog_symbol_data::SymbolDataError;
 use reqwest::Url;
 use sourcemap::OwnedSourceMapCache;
+use tokio::sync::OwnedSemaphorePermit;
 
 use crate::{
     error::ResolveError,
     langs::hermes::HermesRef,
+    metric_consts::SYMBOL_SET_SIZE_LIMIT_EXCEEDED,
     symbolication::symbol_store::{
         apple::AppleRef,
         hermesmap::ParsedHermesMap,
@@ -50,12 +53,41 @@ pub trait Fetcher: Send + Sync + 'static {
     async fn fetch(&self, team_id: i32, r: Self::Ref) -> Result<Self::Fetched, Self::Err>;
 }
 
+pub struct ParsePermit(Option<OwnedSemaphorePermit>);
+
+impl ParsePermit {
+    pub fn none() -> Self {
+        Self(None)
+    }
+
+    pub fn limited(permit: OwnedSemaphorePermit) -> Self {
+        Self(Some(permit))
+    }
+
+    pub fn is_limited(&self) -> bool {
+        self.0.is_some()
+    }
+}
+
+// The size limits are set from production sizes, so a count here can be a real upload that
+// outgrew them rather than an attack.
+pub(crate) fn record_size_limit_exceeded(
+    error: &SymbolDataError,
+    kind: &'static str,
+    limit: &'static str,
+) {
+    if matches!(error, SymbolDataError::DecompressedTooLarge(_)) {
+        metrics::counter!(SYMBOL_SET_SIZE_LIMIT_EXCEEDED, "kind" => kind, "limit" => limit)
+            .increment(1);
+    }
+}
+
 #[async_trait]
 pub trait Parser: Send + Sync + 'static {
     type Source;
     type Set;
     type Err;
-    async fn parse(&self, data: Self::Source) -> Result<Self::Set, Self::Err>;
+    async fn parse(&self, data: Self::Source, permit: ParsePermit) -> Result<Self::Set, Self::Err>;
 }
 
 #[async_trait]
@@ -179,7 +211,7 @@ where
 
     async fn lookup(&self, team_id: i32, r: Self::Ref) -> Result<Arc<Self::Set>, Self::Err> {
         let fetched = self.fetch(team_id, r).await?;
-        let parsed = self.parse(fetched).await?;
+        let parsed = self.parse(fetched, ParsePermit::none()).await?;
         Ok(Arc::new(parsed))
     }
 }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime
 from uuid import UUID
 
@@ -97,6 +98,35 @@ def responsible_user(claim: ReportClaim) -> User | None:
     return User.objects.filter(id=tasks[0].created_by_id).first()
 
 
+def responsible_users(claims: Iterable[ReportClaim]) -> dict[UUID, User]:
+    """`responsible_user` for many claims in a fixed number of queries, keyed by claim id."""
+    claims = list(claims)
+    result = {claim.claim_id: claim.actor_user for claim in claims if claim.actor_user is not None}
+    task_claims = [claim for claim in claims if claim.actor_user is None and claim.actor_task_id is not None]
+    if not task_claims:
+        return result
+    creator_by_task = tasks_facade.get_task_creator_ids(
+        [claim.actor_task_id for claim in task_claims if claim.actor_task_id is not None],
+        {claim.team_id for claim in task_claims},
+    )
+    users = User.objects.in_bulk(set(creator_by_task.values()))
+    for claim in task_claims:
+        creator_id = creator_by_task.get(str(claim.actor_task_id))
+        if creator_id in users:
+            result[claim.claim_id] = users[creator_id]
+    return result
+
+
+def reports_claimed_for_user(*, team_id: int, user_id: int) -> Q:
+    """Reports the user claimed, themselves or through their external agents.
+
+    Internal task claims do not count: auto-start runs tasks as a suggested reviewer who never took the work on.
+    """
+    own_claims = active_claims(team_id=team_id).filter(created_by_id=user_id)
+    own_legacy = legacy_claims(team_id=team_id).filter(actor_user_id=user_id)
+    return Q(id__in=own_claims.values("report_id")) | Q(id__in=own_legacy.values("report_id"))
+
+
 def reports_with_active_claim(*, team_id: int, actor: ArtefactAttribution | None = None) -> Q:
     claims = active_claims(team_id=team_id)
     legacy = legacy_claims(team_id=team_id)
@@ -118,4 +148,33 @@ def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
         and claim.actor_user_id == actor.user_id
         and (str(claim.actor_task_id) if claim.actor_task_id else None) == actor.task_id
         and claim.actor_agent == actor.agent_name
+    )
+
+
+def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
+    return actor_owns_claim(claim, actor) or (
+        actor.kind == "user"
+        and actor.user_id is not None
+        and claim.actor_kind == "agent"
+        and claim.actor_user_id == actor.user_id
+    )
+
+
+def is_user_claim_of(claim: ReportClaim, user_id: int | None) -> bool:
+    """Whether a person holds the claim directly, not through an agent or an internal task."""
+    return claim.actor_kind == "user" and user_id is not None and claim.actor_user_id == user_id
+
+
+def is_user_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
+    """Whether the person holding the claim started the task, so the task works under their claim."""
+    if claim.actor_kind != "user":
+        return False
+    tasks = tasks_facade.get_tasks_by_ids([task_id], [claim.team_id])
+    return bool(tasks) and is_user_claim_of(claim, tasks[0].created_by_id)
+
+
+def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
+    """Whether the actor can resume the claim and add work to it. Only the owner can release it."""
+    return actor_owns_claim(claim, actor) or (
+        actor.task_id is not None and is_user_claim_of_task_creator(claim, actor.task_id)
     )

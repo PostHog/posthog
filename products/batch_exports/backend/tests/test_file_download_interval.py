@@ -3,7 +3,7 @@ import datetime as dt
 import pytest
 import time_machine
 
-from products.batch_exports.backend.api.file_download import (
+from products.batch_exports.backend.presentation.views.file_download import (
     FileDownloadBatchExportOnDemandSerializer,
     FileDownloadCountRowsRequestSerializer,
 )

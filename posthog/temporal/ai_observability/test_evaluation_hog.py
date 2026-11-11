@@ -33,6 +33,25 @@ MISSING_ARGUMENT_SOURCE = """
 return jsonParse()
 """
 
+# The VM keeps the handler of `parse` after `parse` returns inside `try`, so the later uncaught throw
+# jumps into a frame that no longer exists and the VM raises IndexError.
+THROW_AFTER_RETURN_IN_TRY_SOURCE = """
+fun parse(text) {
+    try {
+        return jsonParse(text)
+    } catch (e) {
+        return null
+    }
+}
+fun fail(reason) {
+    throw Error(reason)
+}
+let parsed := parse('{"score": 1}')
+let score := parsed.score
+let threshold := 2
+return fail('score below threshold')
+"""
+
 EVALUATION = {"id": "01890000-0000-0000-0000-000000000000", "team_id": 1}
 
 
@@ -105,6 +124,73 @@ def test_numeric_hog_na_omits_score() -> None:
     assert result == {"result_type": "numeric", "reasoning": "", "allows_na": True, "applicable": False}
 
 
+@pytest.mark.parametrize(
+    "mode,source,categories,applicable",
+    [
+        ("single", "return 'resolved'", ["resolved"], True),
+        ("multiple", "return ['resolved', 'polite']", ["resolved", "polite"], True),
+        ("multiple", "return []", [], True),
+        ("multiple", "return null", None, False),
+    ],
+)
+def test_categorical_hog_preserves_labels_and_applicability(
+    mode: str, source: str, categories: list[str] | None, applicable: bool
+) -> None:
+    config = {
+        "options": [{"key": "resolved", "label": "Resolved"}, {"key": "polite", "label": "Polite"}],
+        "selection_mode": mode,
+        "allows_na": True,
+    }
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"), {}, True, output_type="categorical", output_config=config
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "categorical", "output_config": config},
+        allows_na=True,
+        unit_label=None,
+    )
+    assert result == {
+        "result_type": "categorical",
+        "reasoning": "",
+        "allows_na": True,
+        "applicable": applicable,
+        **({"categories": categories} if categories is not None else {}),
+    }
+
+
+@pytest.mark.parametrize(
+    "mode,source,terminal",
+    [
+        ("single", "return 'unknown'", False),
+        ("single", "return []", False),
+        ("single", "return ['resolved', 'polite']", False),
+        ("multiple", "return ['resolved', 'resolved']", False),
+        ("single", "return 1", True),
+        ("multiple", "return true", True),
+        ("multiple", "return [1]", True),
+    ],
+)
+def test_invalid_categorical_hog_only_disables_for_wrong_types(mode: str, source: str, terminal: bool) -> None:
+    config = {
+        "options": [{"key": "resolved", "label": "Resolved"}, {"key": "polite", "label": "Polite"}],
+        "selection_mode": mode,
+    }
+    raw = execute_hog_eval_bytecode(
+        compile_ai_observability_hog(source, "destination"), {}, False, output_type="categorical", output_config=config
+    )
+    result = finalize_hog_eval_result(
+        raw,
+        evaluation={**EVALUATION, "output_type": "categorical", "output_config": config},
+        allows_na=False,
+        unit_label=None,
+    )
+    assert is_terminal_user_error_result(result) is terminal
+    assert result["skipped"] is True
+    assert result["skip_reason"] == ("hog_error" if terminal else "hog_input_error")
+    assert "categories" not in result
+
+
 def run_source(source: str, property_value: object = "", *, allows_na: bool = True) -> dict:
     bytecode = compile_ai_observability_hog(source, "destination")
     return execute_hog_eval_bytecode(bytecode, {"properties": {"$ai_output": property_value}}, allows_na=allows_na)
@@ -132,12 +218,18 @@ class TestHogInputErrorClassification:
         assert result["verdict"] is False
 
     # A source that fails on every unit must not be classified as an input error, or it skips
-    # forever while blaming the customer's data. A wrong-arity builtin is a broken source: the VM
-    # raises HogVMException, which is neither an input error nor our bug. finalize_hog_eval_result
-    # turns it into a terminal hog_error that disables the evaluation and tells the user, instead of
-    # paging us once per unit.
-    def test_wrong_arity_builtin_is_a_broken_source(self) -> None:
-        result = run_source(MISSING_ARGUMENT_SOURCE)
+    # forever while blaming the customer's data. A wrong-arity builtin or an uncaught throw is a
+    # broken source: the VM raises HogVMException or IndexError, which is neither an input error nor our bug.
+    # finalize_hog_eval_result turns it into a terminal hog_error that disables the evaluation and
+    # tells the user, instead of paging us once per unit.
+    @parameterized.expand(
+        [
+            ("wrong_arity_builtin", MISSING_ARGUMENT_SOURCE),
+            ("throw_after_return_in_try", THROW_AFTER_RETURN_IN_TRY_SOURCE),
+        ]
+    )
+    def test_broken_source_disables_the_evaluation(self, _name: str, source: str) -> None:
+        result = run_source(source)
 
         assert result["error"] is not None
         assert "user_input_error" not in result

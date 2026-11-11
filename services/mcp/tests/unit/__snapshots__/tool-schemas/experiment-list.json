@@ -38,7 +38,7 @@
             "type": "string"
         },
         "search": {
-            "description": "Free-text search applied to the experiment name (case-insensitive).",
+            "description": "Free-text search applied to the experiment name and its feature flag key (case-insensitive).",
             "type": "string"
         },
         "status": {

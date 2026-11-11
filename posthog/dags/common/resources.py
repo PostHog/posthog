@@ -1,10 +1,8 @@
 import json
 import socket
 import asyncio
-from collections.abc import Generator
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
 import dagster
 import psycopg2
@@ -19,14 +17,10 @@ from posthog.clickhouse.backoff import ExponentialBackoff
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
-    Workload,
     get_clickhouse_creds,
     is_file_backed_user,
 )
 from posthog.clickhouse.cluster import ClickhouseCluster, RetryPolicy, get_cluster
-from posthog.kafka_client.client import _KafkaProducer
-from posthog.kafka_client.profiles import KafkaClusterProfile
-from posthog.kafka_client.routing import get_producer
 from posthog.redis import get_client, redis
 from posthog.utils import initialize_self_capture_api_token
 
@@ -74,7 +68,7 @@ def _dedicated_user_connection_overrides(creds: ClickHouseCredentials) -> dict[s
     untouched, so the pool authenticates as this user with this user's credential.
     """
     overrides: dict[str, Any] = {"user": creds.user}
-    if is_file_backed_user(creds, Workload.DEFAULT, creds.user):
+    if is_file_backed_user(creds, creds.user):
         overrides["credential_provider"] = creds.read_password
     else:
         overrides["password"] = creds.password
@@ -112,9 +106,10 @@ class ClickhouseClusterResource(dagster.ConfigurableResource):
         )
 
 
-class OpsClickhouseClusterResource(dagster.ConfigurableResource):
+class SatelliteClickhouseClusterResource(dagster.ConfigurableResource):
     max_execution_time: int
     max_memory_usage: int
+    satellite_cluster: str
 
     # OPS is discoverable only from the migrations host/cluster: satellite discovery runs
     # clusterAllReplicas(ops, system.clusters) WHERE cluster = <migrations cluster>, which the default
@@ -127,7 +122,7 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
             context.log,
             host=self.host,
             cluster=self.cluster,
-            satellite_clusters=[settings.CLICKHOUSE_OPS_CLUSTER],
+            satellite_clusters=[self.satellite_cluster],
             client_settings={
                 "max_execution_time": str(self.max_execution_time),
                 "max_memory_usage": str(self.max_memory_usage),
@@ -141,6 +136,10 @@ class OpsClickhouseClusterResource(dagster.ConfigurableResource):
                 exceptions=_is_retryable_clickhouse_exception,
             ),
         )
+
+
+class OpsClickhouseClusterResource(SatelliteClickhouseClusterResource):
+    satellite_cluster: str = settings.CLICKHOUSE_OPS_CLUSTER
 
 
 class BackupsClickhouseClusterResource(dagster.ConfigurableResource):
@@ -280,27 +279,6 @@ class PostHogAnalyticsResource(dagster.ConfigurableResource):
         return None
 
 
-class PostgresURLResource(dagster.ConfigurableResource):
-    """
-    Postgres connection that parses a connection URL.
-    Delegates to PostgresResource for actual connection logic.
-    Expects format: postgres://user:pass@host:port/dbname
-    """
-
-    connection_url: str
-
-    def create_resource(self, context: dagster.InitResourceContext) -> psycopg2.extensions.connection:
-        parsed = urlparse(self.connection_url)
-        pg = PostgresResource(
-            host=parsed.hostname or "",
-            port=str(parsed.port or 5432),
-            database=parsed.path.lstrip("/"),
-            user=parsed.username or "",
-            password=parsed.password or "",
-        )
-        return pg.create_resource(context)
-
-
 class PostgresURL(dagster.ConfigurableResource):
     """A Postgres connection URL handed to the op unopened.
 
@@ -313,27 +291,6 @@ class PostgresURL(dagster.ConfigurableResource):
 
     def create_resource(self, context: dagster.InitResourceContext) -> str:
         return self.connection_url
-
-
-@dagster.resource
-def kafka_producer_resource(context: dagster.InitResourceContext) -> Generator[_KafkaProducer]:
-    """Yield a singleton Kafka producer bound to the INGESTION (WarpStream) profile; flush on teardown.
-
-    Every existing consumer of this resource (`detach_distinct_id_op`,
-    `person_property_reconciliation`, `person_property_reconciliation_restore`)
-    produces to `clickhouse_person` / `clickhouse_person_distinct_id`, which the
-    routing map sends to the INGESTION profile. Binding the resource here keeps
-    that explicit so a chart misconfiguration (missing `KAFKA_INGESTION_HOSTS`)
-    fails loud rather than silently dropping writes via the DEFAULT fallback.
-
-    Ops producing to topics on a different profile must call
-    `posthog.kafka_client.routing.get_producer(topic=...)` directly.
-    """
-    producer = get_producer(profile=KafkaClusterProfile.INGESTION)
-    try:
-        yield producer
-    finally:
-        producer.flush()
 
 
 def _is_retryable_http_error(exception: BaseException) -> bool:

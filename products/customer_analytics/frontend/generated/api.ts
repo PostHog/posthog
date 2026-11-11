@@ -12,6 +12,8 @@ import type {
     AccountApi,
     AccountNotebookApi,
     AccountNotesListParams,
+    AccountPersonsPageApi,
+    AccountPersonsQueryRequestApi,
     AccountPresenceApi,
     AccountPresenceListRequestApi,
     AccountPresenceViewerApi,
@@ -24,17 +26,23 @@ import type {
     AccountTrackRuleRunViewApi,
     AccountTrackRulesConfigApi,
     AccountTrackRulesRunsListParams,
+    AccountViewApi,
+    AccountViewCreateApi,
+    AccountViewUpdateApi,
+    AccountViewsDestroyParams,
     AccountsByExternalIdRetrieveParams,
     AccountsEmailThreadMessagesListParams,
     AccountsEmailThreadsListParams,
     AccountsListParams,
     AccountsMeetingsListParams,
     AccountsNotebooksListParams,
+    AccountsPersonsRetrieveParams,
     AccountsRelationshipsListParams,
     AccountsSummariesListParams,
     AccountsSupportTicketMessagesListParams,
     AccountsTableQueryRequestApi,
     AccountsTableQueryResponseApi,
+    ActorsQueryResponseApi,
     AnnouncementApi,
     AnnouncementChannelApi,
     AnnouncementsListParams,
@@ -62,6 +70,8 @@ import type {
     CustomerProfileConfigsListParams,
     CustomerTaskActivityPageApi,
     CustomerTaskApi,
+    CustomerTaskBulkUpdateApi,
+    CustomerTaskBulkUpdateResultApi,
     CustomerTaskCreateApi,
     CustomerTaskPageApi,
     CustomerTaskUpdateApi,
@@ -71,6 +81,7 @@ import type {
     EventStreamMemberWriteApi,
     EventStreamTestMessageApi,
     ExternalAccountApi,
+    ExternalAccountCreateApi,
     ExternalAccountListPageApi,
     FeatureRequestAddAccountApi,
     FeatureRequestApi,
@@ -107,6 +118,7 @@ import type {
     PaginatedGroupUsageMetricListApi,
     PaginatedMeetingListApi,
     PatchedAccountApi,
+    PatchedAccountNotebookUpdateApi,
     PatchedAccountRelationshipDefinitionApi,
     PatchedCustomPropertyDefinitionApi,
     PatchedCustomPropertySourceUpdateApi,
@@ -169,6 +181,26 @@ export const customerAnalyticsExternalAccountRetrieve = async (
     return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountRetrieveUrl(params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCustomerAnalyticsExternalAccountCreateUrl = () => {
+    return `/api/customer_analytics/external/account`
+}
+
+/**
+ * Create an account by external ID. If the account already exists, return it unchanged with HTTP 200. Accepts the team secret API token or a project secret API key with the `account:write` scope.
+ * @summary Create an external customer analytics account
+ */
+export const customerAnalyticsExternalAccountCreate = async (
+    externalAccountCreateApi: ExternalAccountCreateApi,
+    options?: RequestInit
+): Promise<ExternalAccountApi> => {
+    return apiMutator<ExternalAccountApi>(getCustomerAnalyticsExternalAccountCreateUrl(), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalAccountCreateApi),
     })
 }
 
@@ -442,6 +474,110 @@ export const accountTrackRulesRunsList = async (
     })
 }
 
+export const getAccountViewsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_views/`
+}
+
+/**
+ * @summary List account views
+ */
+export const accountViewsList = async (projectId: string, options?: RequestInit): Promise<AccountViewApi[]> => {
+    return apiMutator<AccountViewApi[]>(getAccountViewsListUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/account_views/`
+}
+
+/**
+ * @summary Create a personal account view
+ */
+export const accountViewsCreate = async (
+    projectId: string,
+    accountViewCreateApi: AccountViewCreateApi,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountViewCreateApi),
+    })
+}
+
+export const getAccountViewsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Get an account view
+ */
+export const accountViewsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountViewsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Update an account view
+ */
+export const accountViewsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    accountViewUpdateApi: AccountViewUpdateApi,
+    options?: RequestInit
+): Promise<AccountViewApi> => {
+    return apiMutator<AccountViewApi>(getAccountViewsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountViewUpdateApi),
+    })
+}
+
+export const getAccountViewsDestroyUrl = (projectId: string, id: string, params: AccountViewsDestroyParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/account_views/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/account_views/${id}/`
+}
+
+/**
+ * @summary Delete an account view
+ */
+export const accountViewsDestroy = async (
+    projectId: string,
+    id: string,
+    params: AccountViewsDestroyParams,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getAccountViewsDestroyUrl(projectId, id, params), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
 export const getAccountsListUrl = (projectId: string, params?: AccountsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -585,6 +721,28 @@ export const accountsNotebooksRetrieve = async (
     })
 }
 
+export const getAccountsNotebooksPartialUpdateUrl = (projectId: string, accountId: string, shortId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
+}
+
+/**
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
+ */
+export const accountsNotebooksPartialUpdate = async (
+    projectId: string,
+    accountId: string,
+    shortId: string,
+    patchedAccountNotebookUpdateApi?: PatchedAccountNotebookUpdateApi,
+    options?: RequestInit
+): Promise<AccountNotebookApi> => {
+    return apiMutator<AccountNotebookApi>(getAccountsNotebooksPartialUpdateUrl(projectId, accountId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedAccountNotebookUpdateApi),
+    })
+}
+
 export const getAccountsNotebooksDestroyUrl = (projectId: string, accountId: string, shortId: string) => {
     return `/api/projects/${projectId}/accounts/${accountId}/notebooks/${shortId}/`
 }
@@ -680,6 +838,59 @@ export const accountsRelationshipsEndCreate = async (
     return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsEndCreateUrl(projectId, accountId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getAccountsPersonsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/accounts/${id}/persons/?${stringifiedParams}`
+        : `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+export const accountsPersonsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AccountsPersonsRetrieveParams,
+    options?: RequestInit
+): Promise<AccountPersonsPageApi> => {
+    return apiMutator<AccountPersonsPageApi>(getAccountsPersonsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAccountsPersonsQueryCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${id}/persons/`
+}
+
+/**
+ * Run an account-user table query. Requires query, account, and person read scopes.
+ */
+export const accountsPersonsQueryCreate = async (
+    projectId: string,
+    id: string,
+    accountPersonsQueryRequestApi: AccountPersonsQueryRequestApi,
+    options?: RequestInit
+): Promise<ActorsQueryResponseApi> => {
+    return apiMutator<ActorsQueryResponseApi>(getAccountsPersonsQueryCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountPersonsQueryRequestApi),
     })
 }
 
@@ -1420,8 +1631,8 @@ export const getCustomPropertySourcesBackfillUrl = (projectId: string, id: strin
 
 /**
  * Person and group sources only: start a backfill that reads the whole warehouse table and
- * populates person or group properties for historical rows. Coalesces if one is already running
- * for the table.
+ * populates person or group properties for historical rows. If one is already running for the
+ * table, queue a follow-up that observes the latest mapping.
  */
 export const customPropertySourcesBackfill = async (
     projectId: string,
@@ -1863,6 +2074,26 @@ export const customerTasksRestoreCreate = async (
     return apiMutator<CustomerTaskApi>(getCustomerTasksRestoreCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getCustomerTasksBulkUpdateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/customer_tasks/bulk_update/`
+}
+
+/**
+ * Update selected tasks in one transaction. No tasks change if any task fails validation.
+ */
+export const customerTasksBulkUpdateCreate = async (
+    projectId: string,
+    customerTaskBulkUpdateApi: CustomerTaskBulkUpdateApi,
+    options?: RequestInit
+): Promise<CustomerTaskBulkUpdateResultApi> => {
+    return apiMutator<CustomerTaskBulkUpdateResultApi>(getCustomerTasksBulkUpdateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customerTaskBulkUpdateApi),
     })
 }
 
@@ -2564,7 +2795,7 @@ export const getUserCustomerAnalyticsConfigRetrieveUrl = (projectId: string, id:
 }
 
 /**
- * Get the requesting user's account sidebar and task digest configuration for this project. The first read creates an empty configuration row.
+ * Get the requesting user's account sidebar and task digest configuration for this project. Project defaults are returned until the user saves a personal pinned-property selection.
  * @summary Get account sidebar configuration
  */
 export const userCustomerAnalyticsConfigRetrieve = async (
@@ -2583,7 +2814,7 @@ export const getUserCustomerAnalyticsConfigPartialUpdateUrl = (projectId: string
 }
 
 /**
- * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties and relationships can be pinned.
+ * Replace the requesting user's ordered account sidebar properties when pinned_properties is provided, and change the task digest email preferences when task_digest is provided. Anything omitted keeps its current value. At most 50 account custom properties, relationships, and account fields can be pinned.
  * @summary Update account sidebar configuration
  */
 export const userCustomerAnalyticsConfigPartialUpdate = async (

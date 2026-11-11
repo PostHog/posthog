@@ -5,9 +5,8 @@
 
 use std::time::{Duration, Instant};
 
-use common_kafka::kafka_producer::KafkaContext;
+use common_kafka::kafka_producer::{spawn_bounded_flush_on_shutdown, KafkaContext};
 use lifecycle::{ComponentOptions, Manager};
-use personhog_leader::kafka::spawn_bounded_flush_on_shutdown;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::ClientConfig;
 

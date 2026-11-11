@@ -1,3 +1,8 @@
+import asyncio
+import threading
+from collections.abc import Callable
+from concurrent.futures import Future
+from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
@@ -11,6 +16,7 @@ from parameterized import parameterized
 
 from ee.hogai.context.context import AssistantContextManager
 from ee.hogai.tool_errors import MaxToolFatalError, MaxToolRetryableError
+from ee.hogai.tools.docs_search_shadow import compare_docs_results, fetch_inkeep_with_shadow, inkeep_result_urls
 from ee.hogai.tools.search import (
     DOC_ITEM_TEMPLATE,
     DOCS_SEARCH_NO_RESULTS_TEMPLATE,
@@ -175,3 +181,307 @@ class TestFormatInkeepDocsResponse(SimpleTestCase):
         result = format_inkeep_docs_response(self._payload("https://posthog.com/questions/why-no-recordings"))
 
         self.assertEqual(result, DOCS_SEARCH_NO_RESULTS_TEMPLATE)
+
+
+def _docs_payload(*docs: tuple[str, str]) -> dict:
+    return {
+        "content": [
+            {
+                "type": doc_type,
+                "record_type": "page",
+                "url": url,
+                "title": url,
+                "source": {"type": "text", "content": [{"type": "text", "text": "Body"}]},
+            }
+            for doc_type, url in docs
+        ]
+    }
+
+
+class TestDocsShadowOverlap(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "normalizes_host_query_and_slash",
+                _docs_payload(("document", "https://www.PostHog.com/docs/flags/?q=1#section")),
+                ["https://posthog.com/docs/flags/"],
+                1,
+                True,
+                1,
+                1.0,
+            ),
+            (
+                "drops_community_questions",
+                _docs_payload(
+                    ("document", "https://posthog.com/questions/how-do-i-mask-inputs"),
+                    ("document", "https://posthog.com/docs/session-replay"),
+                    ("other", "https://posthog.com/docs/ignored"),
+                ),
+                [
+                    "https://posthog.com/questions/how-do-i-mask-inputs",
+                    "https://posthog.com/docs/session-replay",
+                ],
+                1,
+                False,
+                2,
+                1.0,
+            ),
+            (
+                "empty_business_knowledge",
+                _docs_payload(("document", "https://posthog.com/docs/flags")),
+                [],
+                0,
+                False,
+                0,
+                0.0,
+            ),
+            (
+                "duplicate_chunks_count_once",
+                _docs_payload(("document", "https://posthog.com/docs/flags")),
+                ["https://posthog.com/docs/flags", "https://posthog.com/docs/flags#install"],
+                1,
+                True,
+                1,
+                1.0,
+            ),
+            (
+                "skips_url_with_invalid_port",
+                _docs_payload(
+                    ("document", "https://posthog.com:99999/docs/other"),
+                    ("document", "https://posthog.com/docs/flags"),
+                ),
+                ["https://posthog.com/docs/flags"],
+                1,
+                True,
+                1,
+                1.0,
+            ),
+        ]
+    )
+    def test_overlap(
+        self,
+        _name: str,
+        payload: dict,
+        bk_urls: list[str],
+        overlap_count: int,
+        top1_match: bool,
+        bk_count: int,
+        recall_at_k: float,
+    ) -> None:
+        comparison = compare_docs_results(inkeep_result_urls(payload), bk_urls)
+        self.assertEqual(comparison.overlap_count, overlap_count)
+        self.assertEqual(comparison.top1_match, top1_match)
+        self.assertEqual(comparison.bk_count, bk_count)
+        self.assertEqual(comparison.inkeep_count, 1)
+        self.assertEqual(comparison.recall_at_k, recall_at_k)
+
+
+class _InlineExecutor:
+    def submit(self, fn: Callable[..., Any], /, *args: Any, **kwargs: Any) -> Future:
+        future: Future = Future()
+        try:
+            future.set_result(fn(*args, **kwargs))
+        except BaseException as exc:
+            future.set_exception(exc)
+        return future
+
+
+def _shadow_team() -> MagicMock:
+    team = MagicMock()
+    team.id = 1
+    team.organization_id = "org"
+    team.uuid = "team-uuid"
+    return team
+
+
+def _search_results(*urls: str) -> list[MagicMock]:
+    return [MagicMock(url=url) for url in urls]
+
+
+class TestDocsShadowFailure(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("timeout", True),
+            ("exception", False),
+        ]
+    )
+    async def test_bk_failure_leaves_inkeep_output_unchanged(self, _name: str, slow: bool) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+        expected = format_inkeep_docs_response(payload, include_system_reminder=False)
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            if slow:
+                return _search_results("https://posthog.com/docs/flags")
+            raise RuntimeError("search down")
+
+        with (
+            patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=True),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch("ee.hogai.tools.docs_search_shadow.SHADOW_TIMEOUT_SECONDS", -1 if slow else 60),
+            patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
+        ):
+            result = await fetch_inkeep_with_shadow(
+                team=_shadow_team(),
+                query="how do flags work",
+                fetch_inkeep=fetch_inkeep,
+                surface="posthog_ai",
+            )
+
+        self.assertEqual(result, payload)
+        self.assertEqual(format_inkeep_docs_response(result, include_system_reminder=False), expected)
+        capture.assert_called_once()
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["bk_error"], "timeout" if slow else "exception")
+        self.assertEqual(properties["bk_urls"], [])
+        self.assertEqual(capture.call_args.kwargs["distinct_id"], "team-uuid")
+        self.assertNotIn("how do flags work", str(properties))
+
+    async def test_capture_sends_only_public_docs_urls(self) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            return _search_results("https://posthog.com/docs/flags", "https://internal.example.com/t/secret-token")
+
+        with (
+            patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=True),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
+        ):
+            await fetch_inkeep_with_shadow(
+                team=_shadow_team(), query="how do flags work", fetch_inkeep=fetch_inkeep, surface="mcp"
+            )
+
+        properties = capture.call_args.kwargs["properties"]
+        self.assertEqual(properties["bk_urls"], ["https://posthog.com/docs/flags"])
+        self.assertEqual(properties["bk_count"], 2)
+        self.assertEqual(properties["overlap_count"], 1)
+        self.assertNotIn("secret-token", str(properties))
+
+    @parameterized.expand(
+        [
+            ("flag_off", False, 1),
+            ("no_free_search_slot", True, 0),
+        ]
+    )
+    async def test_skipped_shadow_does_not_search_or_capture(self, _name: str, flag: bool, free_slots: int) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+        called = False
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            nonlocal called
+            called = True
+            return []
+
+        with (
+            patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=flag),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch("ee.hogai.tools.docs_search_shadow._search_slots", threading.BoundedSemaphore(1)) as slots,
+            patch("ee.hogai.tools.docs_search_shadow.posthoganalytics.capture") as capture,
+        ):
+            for _ in range(1 - free_slots):
+                slots.acquire()
+            result = await fetch_inkeep_with_shadow(
+                team=_shadow_team(),
+                query="how do flags work",
+                fetch_inkeep=fetch_inkeep,
+                surface="mcp",
+            )
+
+        self.assertEqual(result, payload)
+        self.assertFalse(called)
+        capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("flag",),
+            ("capture",),
+        ]
+    )
+    async def test_bookkeeping_failure_leaves_inkeep_output_unchanged(self, kind: str) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+        expected = format_inkeep_docs_response(payload, include_system_reminder=False)
+        searched = False
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            nonlocal searched
+            searched = True
+            return []
+
+        flag_effect = RuntimeError("flag down") if kind == "flag" else None
+        with (
+            patch(
+                "ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag",
+                return_value=True,
+                side_effect=flag_effect,
+            ),
+            patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+            patch("ee.hogai.tools.docs_search_shadow._shadow_executor", _InlineExecutor()),
+            patch(
+                "ee.hogai.tools.docs_search_shadow.posthoganalytics.capture",
+                side_effect=RuntimeError("capture down"),
+            ),
+        ):
+            result = await fetch_inkeep_with_shadow(
+                team=_shadow_team(),
+                query="how do flags work",
+                fetch_inkeep=fetch_inkeep,
+                surface="mcp",
+            )
+
+        self.assertEqual(result, payload)
+        self.assertEqual(format_inkeep_docs_response(result, include_system_reminder=False), expected)
+        self.assertEqual(searched, kind == "capture")
+
+    async def test_slow_search_does_not_hold_the_response(self) -> None:
+        payload = _docs_payload(("document", "https://posthog.com/docs/flags"))
+        release = threading.Event()
+        captured = threading.Event()
+
+        async def fetch_inkeep() -> dict:
+            return payload
+
+        def bk_search(*_args: object, **_kwargs: object) -> list:
+            release.wait(timeout=10)
+            return _search_results("https://posthog.com/docs/flags")
+
+        try:
+            with (
+                patch("ee.hogai.tools.docs_search_shadow.has_docs_shadow_feature_flag", return_value=True),
+                patch("ee.hogai.tools.docs_search_shadow.search_knowledge_for_team", bk_search),
+                patch(
+                    "ee.hogai.tools.docs_search_shadow.posthoganalytics.capture",
+                    side_effect=lambda **_kwargs: captured.set(),
+                ) as capture,
+            ):
+                result = await asyncio.wait_for(
+                    fetch_inkeep_with_shadow(
+                        team=_shadow_team(),
+                        query="how do flags work",
+                        fetch_inkeep=fetch_inkeep,
+                        surface="posthog_ai",
+                    ),
+                    timeout=5,
+                )
+                self.assertFalse(captured.is_set())
+                release.set()
+                self.assertTrue(captured.wait(timeout=10))
+        finally:
+            release.set()
+
+        self.assertEqual(result, payload)
+        self.assertEqual(capture.call_args.kwargs["properties"]["overlap_count"], 1)

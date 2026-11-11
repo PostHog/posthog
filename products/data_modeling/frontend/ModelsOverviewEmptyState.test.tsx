@@ -38,11 +38,10 @@ describe('ModelsOverviewEmptyState', () => {
     })
 
     it.each([
-        ['disabled' as const, undefined],
         ['none' as const, 'Set up checks'],
         ['all-passed' as const, 'View checks'],
         ['some-not-passed' as const, 'View checks'],
-    ])('offers %s checks as %s', (checksStatus: ModelsOverviewChecksStatus, label: string | undefined) => {
+    ])('offers %s checks as %s', (checksStatus: ModelsOverviewChecksStatus, label: string) => {
         render(<ModelsOverviewEmptyState variant="healthy" checksStatus={checksStatus} />)
 
         expect(screen.queryByTestId('models-overview-checks')?.textContent).toEqual(label)

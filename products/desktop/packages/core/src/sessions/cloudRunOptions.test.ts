@@ -7,6 +7,7 @@ import {
   getCloudRunSource,
   getCloudRuntimeOptions,
   resolveCloudResumeOptions,
+  sendConfiguredCloudPrompt,
 } from "./cloudRunOptions";
 
 describe("getCloudPrAuthorshipMode", () => {
@@ -218,5 +219,93 @@ describe("resolveCloudResumeOptions", () => {
       reasoningLevel: "high",
       initialPermissionMode: "auto",
     });
+  });
+});
+
+describe("sendConfiguredCloudPrompt", () => {
+  it.each(["acp", "pi"] as const)(
+    "sends with the selected model and effort on %s",
+    async (runtime) => {
+      const agent = { model: "old-model", effort: "low" };
+      const messages: Array<typeof agent & { content: unknown }> = [];
+      await sendConfiguredCloudPrompt(
+        async (method, params) => {
+          if (method === "user_message") {
+            messages.push({ ...agent, content: params.content });
+            return {};
+          }
+          if (method === "pi/rpc") {
+            const command = params.command as {
+              type: string;
+              modelId?: string;
+              level?: string;
+            };
+            if (command.type === "set_model")
+              agent.model = String(command.modelId);
+            else agent.effort = String(command.level);
+            return { success: true };
+          }
+          if (params.configId === "model") agent.model = String(params.value);
+          else agent.effort = String(params.value);
+          return {
+            configOptions: Object.entries(agent).map(([id, currentValue]) => ({
+              id,
+              currentValue,
+            })),
+          };
+        },
+        { model: "selected-model", reasoningLevel: "high" },
+        "Continue",
+        runtime,
+      );
+      expect(messages).toEqual([
+        { content: "Continue", model: "selected-model", effort: "high" },
+      ]);
+    },
+  );
+
+  it.each(["model", "effort"])(
+    "keeps the message unsent when %s is not accepted",
+    async (rejected) => {
+      const messages: unknown[] = [];
+      await expect(
+        sendConfiguredCloudPrompt(
+          async (method, params) => {
+            if (method === "user_message") {
+              messages.push(params.content);
+              return {};
+            }
+            return {
+              configOptions: [
+                {
+                  id: params.configId,
+                  currentValue:
+                    params.configId === rejected ? "old-value" : params.value,
+                },
+              ],
+            };
+          },
+          { model: "selected-model", reasoningLevel: "high" },
+          "Continue",
+        ),
+      ).rejects.toThrow("did not accept");
+      expect(messages).toEqual([]);
+    },
+  );
+
+  it("keeps a Pi message unsent after a rejected model change", async () => {
+    const messages: unknown[] = [];
+    await expect(
+      sendConfiguredCloudPrompt(
+        async (method, params) => {
+          if (method === "user_message") messages.push(params.content);
+          return { success: false, error: "Unavailable model" };
+        },
+        { model: "selected-model" },
+        "Continue",
+        "pi",
+      ),
+    ).rejects.toThrow("did not accept");
+    expect(messages).toEqual([]);
   });
 });

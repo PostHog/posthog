@@ -38,8 +38,10 @@
 
 mod decode;
 mod event_only;
+mod exactness;
 mod plan;
 mod projection;
+mod row_filter;
 
 use std::collections::BTreeSet;
 
@@ -47,8 +49,10 @@ use hogvm::Operation;
 use serde_json::Value;
 
 pub use decode::DecodeError;
+pub use exactness::{ColumnExactness, Exactness};
 pub use plan::{GlobalsBuild, GlobalsPlan};
 pub use projection::AnalysisBudget;
+pub use row_filter::{event_equalities, EventEqualities, EventRowFilter, PropertyAlternatives};
 
 /// What a static pass could establish about one condition's bytecode.
 #[derive(Debug, Clone, PartialEq, Eq)]

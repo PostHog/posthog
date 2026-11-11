@@ -94,7 +94,11 @@ function LoginAsContent({
             <p className="ImpersonationNotice__message">
                 {ticketContext.email ? (
                     <>
-                        Customer: <span className="text-success">{ticketContext.email}</span>
+                        Customer:{' '}
+                        <span className={ticketContext.isEmailUnverified ? undefined : 'text-success'}>
+                            {ticketContext.email}
+                        </span>
+                        {ticketContext.isEmailUnverified && ' (not verified)'}
                     </>
                 ) : (
                     'No customer email on this ticket'

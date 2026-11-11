@@ -21,6 +21,9 @@ import { ScoutWriteScopesPicker } from './ScoutWriteScopesPicker'
  * The switches stay live for everyone. Only the person the scout's runs act as or a project admin
  * may save, and the client cannot resolve the former, so the API refuses and its message names who
  * can.
+ *
+ * A scout with a tool list gets its write access from that list, and the API rejects a
+ * `write_scopes` change on it, so the section only shows what the list grants.
  */
 export function ScoutWriteAccessSection({
     config,
@@ -38,7 +41,12 @@ export function ScoutWriteAccessSection({
     const selected = draft ?? saved
     const changed = [...selected].sort().join() !== [...saved].sort().join()
     const heldLabels = scoutWriteScopeLabels(saved)
-    const disabledReason = updating ? 'Saving scout settings' : undefined
+    const fromToolList = config.allowed_mcp_tools != null
+    const disabledReason = fromToolList
+        ? "Write access comes from this scout's tool list"
+        : updating
+          ? 'Saving scout settings'
+          : undefined
 
     return (
         <div className="border-t border-primary pt-2">
@@ -70,27 +78,36 @@ export function ScoutWriteAccessSection({
                         ),
                         content: (
                             <div className="flex flex-col gap-2">
+                                {fromToolList && (
+                                    <p className="text-[11.5px] text-muted mb-0">
+                                        This scout's tool list sets its write access. Edit the tools to change it.
+                                    </p>
+                                )}
                                 <ScoutWriteScopesPicker
                                     compact
                                     selectedScopes={selected}
                                     onChange={setDraft}
                                     disabledReason={disabledReason}
                                 />
-                                <div className="flex justify-end">
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        loading={updating}
-                                        disabledReason={disabledReason ?? (changed ? undefined : 'No changes to save')}
-                                        onClick={() => {
-                                            onUpdate(config.id, { write_scopes: selected })
-                                            setDraft(null)
-                                        }}
-                                        data-attr="scout-write-access-save"
-                                    >
-                                        Save write access
-                                    </LemonButton>
-                                </div>
+                                {!fromToolList && (
+                                    <div className="flex justify-end">
+                                        <LemonButton
+                                            size="small"
+                                            type="secondary"
+                                            loading={updating}
+                                            disabledReason={
+                                                disabledReason ?? (changed ? undefined : 'No changes to save')
+                                            }
+                                            onClick={() => {
+                                                onUpdate(config.id, { write_scopes: selected })
+                                                setDraft(null)
+                                            }}
+                                            data-attr="scout-write-access-save"
+                                        >
+                                            Save write access
+                                        </LemonButton>
+                                    </div>
+                                )}
                             </div>
                         ),
                     },

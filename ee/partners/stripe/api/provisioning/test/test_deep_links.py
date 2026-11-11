@@ -77,6 +77,23 @@ class TestDeepLinks(StripeProvisioningTestBase):
         assert res.status_code == 302
         assert res["Location"] == f"/verify_email/{self.user.uuid}?reason=stripe_deep_link&email_sent=false"
 
+    def test_blocked_account_lands_on_login_without_a_session(self):
+        self.client.logout()
+        self._cache_deep_link_token("stripe_blocked_token")
+        with patch("ee.partners.stripe.api.provisioning.login.account_refused", return_value=True):
+            res = self.client.get(f"{LOGIN_URL}?token=stripe_blocked_token")
+        assert res.status_code == 302
+        assert res["Location"] == "/login?error_code=access_blocked"
+        assert self.client.get("/api/users/@me/").status_code == 401
+
+    def test_deep_link_refused_when_an_access_rule_blocks_the_account(self):
+        token = self._get_bearer_token()
+        with patch("ee.partners.stripe.api.provisioning.authentication.account_refused", return_value=True):
+            res = self._post_signed_with_bearer(DEEP_LINKS_URL, data={"purpose": "dashboard"}, token=token)
+        assert res.status_code == 403
+        assert res.json()["error"]["code"] == "forbidden"
+        assert "access_blocked" in res.json()["error"]["message"]
+
     def test_deep_link_refused_when_the_application_cannot_issue_them(self):
         self.stripe_app.update_provisioning(can_issue_deep_links=False)
         token = self._get_bearer_token()

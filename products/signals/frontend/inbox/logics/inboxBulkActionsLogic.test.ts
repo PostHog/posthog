@@ -1,6 +1,10 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { signalsReportsBulkClaimBodyIdsMax } from 'products/signals/frontend/generated/api.zod'
 
 import { inboxBulkActionsLogic } from './inboxBulkActionsLogic'
 
@@ -15,6 +19,21 @@ describe('inboxBulkActionsLogic', () => {
 
     afterEach(() => {
         logic.unmount()
+    })
+
+    // A write that timed out can still have saved, so a bulk action where every write failed must not leave the
+    // lists showing the old state.
+    it.each([
+        {
+            action: 'dismiss',
+            run: () => logic.actions.bulkDismiss({ reason: 'wontfix_irrelevant', note: '', correctedRepository: null }),
+        },
+        { action: 'resolve', run: () => logic.actions.bulkResolve('no_action_needed', '') },
+    ])('asks every surface to reload after a $action where every write failed', async ({ run }) => {
+        useMocks({ post: { '/api/projects/:team_id/signals/reports/:id/state/': () => [500, {}] } })
+        logic.actions.setSelectedReportIds(['r1', 'r2'])
+
+        await expectLogic(logic, run).toDispatchActions([logic.actionCreators.reportWriteFailed(['r1', 'r2'])])
     })
 
     it('toggles a report in and out of the selection', async () => {
@@ -99,5 +118,24 @@ describe('inboxBulkActionsLogic', () => {
         await expectLogic(logic, () => logic.actions.selectRange('c')).toMatchValues({
             selectedReportIds: ['c'],
         })
+    })
+
+    // The endpoint rejects a request over its id limit, so a larger selection must be split, or nothing is claimed.
+    it('claims a selection over the endpoint limit in batches and counts every claim', async () => {
+        const batchSizes: number[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/bulk_claim/': async ({ request }) => {
+                    const { ids } = (await request.json()) as { ids: string[] }
+                    batchSizes.push(ids.length)
+                    return [200, { results: [], claimed_count: ids.length, conflict_count: 0, not_found_count: 0 }]
+                },
+            },
+        })
+        const reportIds = Array.from({ length: signalsReportsBulkClaimBodyIdsMax + 1 }, (_, index) => `r-${index}`)
+
+        await expectLogic(logic, () => logic.actions.bulkClaim(reportIds)).toDispatchActions(['bulkClaimSuccess'])
+
+        expect(batchSizes).toEqual([signalsReportsBulkClaimBodyIdsMax, 1])
     })
 })

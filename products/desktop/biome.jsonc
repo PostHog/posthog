@@ -101,10 +101,7 @@
     },
     {
       // Files using unknownAtRules
-      "includes": [
-        "packages/ui/src/styles/globals.css",
-        "apps/mobile/global.css"
-      ],
+      "includes": ["packages/ui/src/styles/globals.css"],
       "linter": {
         "enabled": false
       }
@@ -118,18 +115,6 @@
       "linter": {
         "enabled": false
       },
-      "formatter": {
-        "enabled": false
-      }
-    },
-    {
-      // Object-tag kind registry generated from posthog/object_tags/kinds.py; the
-      // generator's byte-stable output is what `hogli build:object-tags --check`
-      // compares against, so no formatter may touch it.
-      "includes": [
-        "packages/core/src/inbox/objectKinds.generated.ts",
-        "packages/shared/src/objectTagKinds.generated.ts"
-      ],
       "formatter": {
         "enabled": false
       }

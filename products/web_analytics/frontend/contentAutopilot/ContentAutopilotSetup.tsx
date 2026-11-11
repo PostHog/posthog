@@ -3,10 +3,16 @@ import { useActions, useValues } from 'kea'
 import { IconArrowLeft, IconArrowRight, IconTrash } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonDialog } from '@posthog/lemon-ui'
 
-import { contentAutopilotLogic } from './contentAutopilotLogic'
-import { ContentAutopilotSetupStepIndicator } from './ContentAutopilotSetupStepIndicator'
+import { GuidedWizardStep, GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
+
+import { ContentAutopilotOnboardingStep, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotSiteFields } from './ContentAutopilotSiteFields'
 import { ContentAutopilotSourceFields } from './ContentAutopilotSourceFields'
+
+const SETUP_STEPS: GuidedWizardStep<ContentAutopilotOnboardingStep>[] = [
+    { step: 'site', label: 'Site' },
+    { step: 'sources', label: 'Sources' },
+]
 
 export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boolean }): JSX.Element => {
     const {
@@ -80,7 +86,7 @@ export const ContentAutopilotSetup = ({ onboarding = false }: { onboarding?: boo
 
     return (
         <LemonCard hoverEffect={false} className="mx-auto w-full max-w-3xl p-6">
-            <ContentAutopilotSetupStepIndicator currentStep={onboardingStep} />
+            <GuidedWizardStepper steps={SETUP_STEPS} currentStep={onboardingStep} aria-label="Setup progress" />
             <div className="my-6 border-t" />
 
             {onboardingStep === 'site' ? (

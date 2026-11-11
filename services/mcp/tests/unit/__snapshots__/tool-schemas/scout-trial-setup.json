@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "context_id": {
+            "description": "Saved comparison context to inspect instead of the current source skill.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

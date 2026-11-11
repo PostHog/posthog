@@ -3,6 +3,7 @@ import datetime as dt
 import pytest
 import unittest.mock
 
+from products.batch_exports.backend.facade.enums import BatchExportRunStatus
 from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.temporal.batch_exports import (
     make_internal_events_payload,
@@ -29,7 +30,7 @@ BASE_PROPERTIES = {
 }
 
 
-def make_payloads(status: BatchExportRun.Status, error: str | None = "Oh No!", was_paused: bool = False):
+def make_payloads(status: BatchExportRunStatus, error: str | None = "Oh No!", was_paused: bool = False):
     return make_internal_events_payload(
         status,
         TEAM_ID,

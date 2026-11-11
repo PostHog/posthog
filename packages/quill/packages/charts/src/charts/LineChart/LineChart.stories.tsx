@@ -63,6 +63,31 @@ export const StackedArea: Story = {
     },
 }
 
+/** `stroke.width` sets each line's width; `0` drops the stroke so only the fill or points draw. */
+export const StrokeWidth: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'thin', label: 'width 1', color: '', data: [20, 35, 28, 60, 45, 70, 52], stroke: { width: 1 } },
+            { key: 'default', label: 'default (2)', color: '', data: [30, 45, 38, 70, 55, 80, 62] },
+            { key: 'thick', label: 'width 5', color: '', data: [40, 55, 48, 80, 65, 90, 72], stroke: { width: 5 } },
+            {
+                key: 'fill-only',
+                label: 'width 0 + fill',
+                color: '',
+                data: [8, 14, 11, 22, 18, 26, 20],
+                stroke: { width: 0 },
+                fill: { opacity: 0.4 },
+            },
+        ]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={BASIC} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const PercentStacked: Story = {
     render: () => {
         const theme = useReactiveTheme()
@@ -302,6 +327,19 @@ export const LogScale: Story = {
     render: () => {
         const theme = useReactiveTheme()
         const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 1000, 100, 10, 1] }]
+        return (
+            <Stage>
+                <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
+/** A log axis cannot place zero or a negative value, so the line breaks there. */
+export const LogScaleWithZero: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [{ key: 'lat', label: 'Latency', color: '', data: [1, 10, 100, 0, 100, 10, 1] }]
         return (
             <Stage>
                 <LineChart series={series} labels={DAYS} config={{ ...BASIC, yScaleType: 'log' }} theme={theme} />

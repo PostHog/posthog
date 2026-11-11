@@ -6,6 +6,7 @@ import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { lazyWithRetry } from 'lib/utils/retryImport'
+import { SceneContentFallback } from 'scenes/SceneContentFallback'
 import { urls } from 'scenes/urls'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -84,7 +85,13 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
                 resourceType={{ type: 'inbox' }}
             />
             <LemonTabs<AlertsTab> activeKey={activeTab} onChange={switchTab} tabs={tabs} sceneInset />
-            <Suspense fallback={<AlertsPanelSkeleton />}>
+            <Suspense
+                fallback={
+                    <SceneContentFallback>
+                        <AlertsPanelSkeleton />
+                    </SceneContentFallback>
+                }
+            >
                 {activeTab === AlertsTab.LOGS ? <LogsAlertingSection /> : <InsightAlerts alertId={alertId} />}
             </Suspense>
         </>

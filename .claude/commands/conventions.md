@@ -52,6 +52,7 @@ Hence the explicit separation between the data and view layers.
   - Before building new UI, read a few comparable scenes or components and model yours on the ones that follow these conventions. The codebase contains legacy that predates them — an existing violation is not license to repeat it. Conventions outrank precedent, and compliant precedent outranks invention.
   - Extract a shared component once the same shape appears in several places and the call sites read as content, not markup. Keep new generics next to the feature that uses them, and promote to `lib/` only when a second feature needs them. Don't build wrappers with a single consumer, and don't add boolean variant props so one caller can switch half the component off — that's two components.
   - Interactive elements are real `<button>`/`<a>` elements (`LemonButton` renders one) — never `onClick` on a `<div>`.
+  - With `focusBasedKeyboardNavigation` enabled, `LemonMenu` moves focus between its trigger and menu items with the arrow keys, including after the menu reopens. Custom triggers must forward `onFocus` and `onKeyDown` to preserve keyboard navigation and focus return.
   - Loading, empty, and error are three different screens. Never show an empty state from data that hasn't resolved yet — branch on the loading state first.
   - When renaming a feature, sweep code symbols completely — but analytics-facing strings (event names, property names and values, `data-attr` values) and persisted keys are a frozen API: leave them as-is, with a comment noting they're pinned.
 - Scenes
@@ -80,6 +81,8 @@ Hence the explicit separation between the data and view layers.
   - Write [logic tests](https://keajs.org/docs/intro/testing) for all logic files.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
   - Add all new presentational elements and scenes to [our storybook](https://storybook.posthog.net/). Run `pnpm storybook` locally.
+  - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
+  - A story must render the same picture on every run. Read [Deterministic stories](../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) when a story flakes or before you write one that loads data, measures itself, or uses timers.
 
 ---
 

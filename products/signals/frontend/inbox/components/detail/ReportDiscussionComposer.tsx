@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef, useState } from 'react'
 
-import { IconSparkles } from '@posthog/icons'
+import { IconChat, IconSparkles } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import { Composer } from 'products/posthog_ai/frontend/api/composer'
 import {
     AttachedContextBar,
-    Composer,
     pickHeadline,
     type SuggestionGroup,
     type SuggestionItem,
@@ -30,13 +31,23 @@ export function ReportDiscussionComposer({
     report: SignalReport
     reportUrl: string
 }): JSX.Element {
-    const { isDiscussing, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const { discussReport } = useActions(inboxTaskKickoffLogic)
+    const {
+        isDiscussing,
+        isCreatingPr,
+        aiConsentDisabledReason,
+        metricCheckReplacementDisabledReason,
+        lastReportRun,
+        reportDiscussionDraft: draft,
+        reportDiscussionIntent,
+    } = useValues(inboxTaskKickoffLogic)
+    const { discussReport, openReportTask, setReportDiscussionDraft } = useActions(inboxTaskKickoffLogic)
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
-    const [draft, setDraft] = useState('')
     const [activeSuggestionGroup, setActiveSuggestionGroup] = useState<SuggestionGroup | null>(null)
     const [headline] = useState(() => pickHeadline())
-    const suggestions = isActionCapableReport(report) ? (report.suggested_prompts ?? []) : []
+    const suggestions =
+        isActionCapableReport(report) && reportDiscussionIntent !== 'check_metrics'
+            ? (report.suggested_prompts ?? [])
+            : []
     const loading = isDiscussing || isCreatingPr
     const promptLength = useMemo(
         () => (draft.length >= REPORT_DISCUSSION_QUESTION_MAX_LENGTH * 0.9 ? Array.from(draft.trim()).length : null),
@@ -61,7 +72,9 @@ export function ReportDiscussionComposer({
     )
     const disabledReason = isOverLengthLimit
         ? `Your message is too long. Shorten it to ${REPORT_DISCUSSION_QUESTION_MAX_LENGTH.toLocaleString()} characters or fewer.`
-        : (aiConsentDisabledReason ?? undefined)
+        : (aiConsentDisabledReason ??
+          (reportDiscussionIntent === 'check_metrics' ? metricCheckReplacementDisabledReason : null) ??
+          undefined)
 
     const submit = (prompt: string, source: 'typed' | 'suggested'): void => {
         const trimmed = prompt.trim()
@@ -69,6 +82,7 @@ export function ReportDiscussionComposer({
             !trimmed ||
             loading ||
             aiConsentDisabledReason ||
+            (reportDiscussionIntent === 'check_metrics' && metricCheckReplacementDisabledReason) ||
             Array.from(trimmed).length > REPORT_DISCUSSION_QUESTION_MAX_LENGTH
         ) {
             return
@@ -79,11 +93,24 @@ export function ReportDiscussionComposer({
             surface: 'detail_pane',
             extra: discussQuestionProperties({ source, suggestionCount: suggestions.length }),
         })
-        discussReport(report, reportUrl, trimmed)
+        if (reportDiscussionIntent) {
+            discussReport(report, reportUrl, trimmed, undefined, reportDiscussionIntent)
+        } else {
+            discussReport(report, reportUrl, trimmed)
+        }
     }
 
     const selectSuggestion = (suggestion: SuggestionItem): void => {
         submit(suggestion.content, 'suggested')
+    }
+
+    const lastRun = lastReportRun?.reportId === report.id ? lastReportRun : null
+    const resumeLastRun = (): void => {
+        if (!lastRun) {
+            return
+        }
+        captureInboxReportAction({ report, actionType: 'resume_discussion', surface: 'detail_pane' })
+        openReportTask(report, lastRun.taskId, lastRun.runId)
     }
 
     return (
@@ -99,7 +126,7 @@ export function ReportDiscussionComposer({
                 >
                     <Composer.Root
                         value={draft}
-                        onChange={setDraft}
+                        onChange={setReportDiscussionDraft}
                         onSubmit={() => submit(draft, 'typed')}
                         loading={loading}
                         disabled={loading}
@@ -111,7 +138,11 @@ export function ReportDiscussionComposer({
                                 <AttachedContextBar />
                             </Composer.Header>
                             <Composer.Field>
-                                <Composer.Placeholder>Ask a question</Composer.Placeholder>
+                                <Composer.Placeholder>
+                                    {reportDiscussionIntent === 'check_metrics'
+                                        ? 'Describe a better metric'
+                                        : 'Ask a question'}
+                                </Composer.Placeholder>
                                 <Composer.Textarea autoFocus data-attr="max-chat-input" />
                             </Composer.Field>
                             {promptLength !== null && (
@@ -139,6 +170,17 @@ export function ReportDiscussionComposer({
                         />
                     )}
                 </Suggestions.Root>
+                {lastRun && (
+                    <LemonButton
+                        type="tertiary"
+                        size="small"
+                        icon={<IconChat />}
+                        onClick={resumeLastRun}
+                        data-attr="inbox-report-ask-ai-resume"
+                    >
+                        Go back to your last conversation
+                    </LemonButton>
+                )}
             </div>
         </div>
     )

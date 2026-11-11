@@ -2,6 +2,9 @@
 
 from typing import Any
 
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationRecord
+
 from . import model
 from .github import GitHubIntegration
 from .gitlab import GitLabIntegration
@@ -22,7 +25,7 @@ def is_supported_external_issue_provider(kind: str) -> bool:
     return kind in SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 
-def external_issue_url(integration: model.Integration, external_context: dict[str, Any] | None) -> str:
+def external_issue_url(integration: IntegrationRecord, external_context: dict[str, Any] | None) -> str:
     """Link to an external issue from the identifier its integration client stored.
 
     Returns an empty string when the context does not carry the provider's identifier, so a
@@ -45,7 +48,7 @@ def external_issue_url(integration: model.Integration, external_context: dict[st
         repository_path = (
             str(repository)
             if "/" in str(repository)
-            else f"{GitHubIntegration(integration).organization()}/{repository}"
+            else f"{GitHubIntegration(integration, source='external_issues', priority=Priority.CRITICAL).organization()}/{repository}"
         )
         resource_path = "pull" if context.get("resource_type") == "pull_request" else "issues"
         return f"https://github.com/{repository_path}/{resource_path}/{number}"

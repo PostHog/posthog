@@ -1,9 +1,4 @@
-from typing import cast
-
-from django.http import HttpRequest
-
-from posthog.models import Team, User
-from posthog.utils import render_template
+from posthog.models import Team
 
 from .app_data_generator import AppDataGenerator
 from .insight_variables_data_generator import InsightVariablesDataGenerator
@@ -12,12 +7,6 @@ from .web_data_generator import WebDataGenerator
 
 ORGANIZATION_NAME = "Hogflix"
 TEAM_NAME = "Hogflix Demo App"
-
-
-def demo_route(request: HttpRequest):
-    user = cast(User, request.user)  # The user must be logged in because of login_required()
-    project_api_token = user.team.api_token if user.team is not None else None
-    return render_template("demo.html", request=request, context={"api_token": project_api_token})
 
 
 def create_demo_data(team: Team, dashboards=True):

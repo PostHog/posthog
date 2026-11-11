@@ -11,6 +11,19 @@ pub struct Config {
     #[envconfig(from = "REDIS_URL")]
     pub redis_url: Option<String>,
 
+    /// Largest estimated row set one remote-write request may expand to. It is
+    /// separate from MAX_REQUEST_BODY_SIZE_BYTES, so the body limit can grow for
+    /// large vmagent blocks without raising the memory one request can hold.
+    #[envconfig(from = "REMOTE_WRITE_MAX_EXPANDED_BYTES", default = "167772160")] // 160 MiB
+    pub remote_write_max_expanded_bytes: u64,
+
+    /// Comma-separated project tokens whose remote-write series get the OTel
+    /// `k8s.*` resource attributes copied from their `namespace`, `pod`, `node`,
+    /// `container`, `deployment` and `daemonset` labels. Empty turns it off.
+    /// The copy changes series fingerprints, so it is opt-in per project.
+    #[envconfig(from = "REMOTE_WRITE_K8S_RESOURCE_ATTRIBUTE_TOKENS", default = "")]
+    pub remote_write_k8s_resource_attribute_tokens: String,
+
     /// When false the gate still tracks series and reports metrics but leaves
     /// every row labelled, so the switch can flip once the metrics2 read path
     /// takes labels from the series rollup.
@@ -20,7 +33,7 @@ pub struct Config {
     #[envconfig(from = "METRICS_SERIES_LABEL_INTERVAL_SECS", default = "1800")]
     pub metrics_series_label_interval_secs: u64,
 
-    #[envconfig(from = "METRICS_SERIES_REDIS_TIMEOUT_MS", default = "250")]
+    #[envconfig(from = "METRICS_SERIES_REDIS_TIMEOUT_MS", default = "1000")]
     pub metrics_series_redis_timeout_ms: u64,
 
     /// Total time the service waits at startup for the series cache seed. When

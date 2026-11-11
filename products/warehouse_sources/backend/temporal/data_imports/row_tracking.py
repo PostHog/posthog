@@ -27,7 +27,12 @@ from posthog.settings import EE_AVAILABLE
 from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 
-from products.warehouse_sources.backend.billing import FREE_HISTORICAL_WINDOW, FREE_PERIOD_END, FREE_PERIOD_START
+from products.warehouse_sources.backend.billing import (
+    FREE_HISTORICAL_WINDOW,
+    FREE_PERIOD_END,
+    FREE_PERIOD_START,
+    is_in_free_historical_window,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob, billable_destination_multiplier
 
 if TYPE_CHECKING:
@@ -282,7 +287,8 @@ def _rows_synced_in_billing_period(
 # Billing answers a request it could not finish in time with a 408, and a request it could not
 # serve with a 5xx. Both clear on a retry, and the check runs once per sync, so a few seconds of
 # retry is cheaper than a sync that skips the limit.
-_TRANSIENT_BILLING_STATUS_CODES = frozenset({408, 429, 500, 502, 503, 504})
+# A 429 is not retried: a retry within seconds lands in the same rate-limit window and only adds counted requests.
+_TRANSIENT_BILLING_STATUS_CODES = frozenset({408, 500, 502, 503, 504})
 
 
 def _is_transient_billing_error(error: BaseException) -> bool:
@@ -320,7 +326,7 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
         await logger.adebug("Running will_hit_billing_limit")
 
         # Handle free period for newly created data sources
-        if source.created_at >= datetime.now(UTC) - FREE_HISTORICAL_WINDOW:
+        if is_in_free_historical_window(source.created_at):
             await logger.ainfo(
                 f"Skipping billing limits check for newly created data source for 7-days free rows. source.created_at = {source.created_at}"
             )
@@ -430,6 +436,11 @@ async def will_hit_billing_limit(team_id: int, source: "ExternalDataSource", log
 
         return False
     except Exception as e:
+        if getattr(e, "status_code", None) == 429:
+            await logger.awarning(f"BillingLimits: billing service rate limited the check, failing open: {e}")
+
+            return False
+
         if _is_transient_billing_error(e):
             # Billing refused with a status that clears on its own, and the retries above are
             # spent. The check already fails open, so this is infrastructure noise rather than a

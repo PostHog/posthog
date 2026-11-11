@@ -1,5 +1,7 @@
 from django.db import models
 
+AUTOMATED_UPDATE_SLACK_CHANNEL_IDS = "automated_update_slack_channel_ids"
+
 
 class Channel(models.TextChoices):
     WIDGET = "widget", "Widget"
@@ -42,6 +44,13 @@ class Priority(models.TextChoices):
     MEDIUM = "medium", "Medium"
     HIGH = "high", "High"
     CRITICAL = "critical", "Critical"
+
+
+class TicketMessageType(models.TextChoices):
+    CUSTOMER_MESSAGE = "customer_message", "Customer message"
+    SENT_REPLY = "sent_reply", "Sent reply"
+    INTERNAL_NOTE = "internal_note", "Internal note"
+    AI_DRAFT = "ai_draft", "AI draft"
 
 
 class OrganizationIdSource(models.TextChoices):

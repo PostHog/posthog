@@ -18,15 +18,16 @@ const pathsWithoutProjectId = [
     'embedded',
     'interview',
     'cli',
+    'device',
     'render_query',
 ]
 
 // Instance-level pages that live under a product's own path prefix rather than
 // under `/instance/*`, so they need an exact (rather than first-segment) exemption.
 // The startsWith(exactPath + '/') check below also exempts nested staff tools from
-// other products, e.g. the cohorts staff tools at /feature_flags/staff/cohorts —
+// other products, e.g. the cohorts staff tools at /feature-flags/staff/cohorts —
 // renaming this path affects them too.
-const exactPathsWithoutProjectId = ['/feature_flags/staff', '/experiments/staff']
+const exactPathsWithoutProjectId = ['/feature-flags/staff', '/experiments/staff']
 
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
@@ -124,6 +125,16 @@ export function stripTrailingSlash(path: string): string {
     return path
 }
 
+export const urlPatternOptions = {
+    // :TRICKY: What chars to allow in named segment values i.e. ":key"
+    // in "/url/:key". Default: "a-zA-Z0-9-_~ %".
+    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'|:",
+}
+
+export function pathFromWindowToRoutes(path: string): string {
+    return stripTrailingSlash(removeProjectIdIfPresent(path))
+}
+
 /**
  * Strips the trailing slash of the path only, so a query string or hash that ends in a slash
  * (e.g. `?next=/oauth/authorize/`) survives. Safe on a full URL as well as a bare path.
@@ -137,8 +148,8 @@ export function stripTrailingSlashFromUrl(url: string): string {
 }
 
 export function removeFlagIdIfPresent(path: string): string {
-    if (path.match(/^\/feature_flags\/\d+/)) {
-        return path.replace(/(feature_flags).*$/, '$1/')
+    if (path.match(/^\/feature-flags\/\d+/)) {
+        return path.replace(/(feature-flags).*$/, '$1/')
     }
     return path
 }
@@ -188,4 +199,9 @@ export function getProjectSwitchTargetUrl(
 
     // Default: keep the same route structure but with new project ID
     return `/project/${newTeamId}${route}`
+}
+
+/** True for `root` itself and for any path below it. Takes paths without the project prefix. */
+export function isUnderPath(path: string, root: string): boolean {
+    return path === root || path.startsWith(`${root}/`)
 }

@@ -7,9 +7,15 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
-import { PluginEvent } from '~/plugin-scaffold'
+import type { TeamManager } from '~/common/utils/team-manager'
+import { PluginEvent, Properties } from '~/plugin-scaffold'
 
-import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
+import {
+    CyclotronJobInvocationResult,
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+} from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
 import { HogExecutorService } from '../services/hog-executor.service'
@@ -17,10 +23,17 @@ import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
-import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
+import {
+    HogFunctionMonitoringService,
+    MonitoringOutput,
+    TransformationsMonitoringConfig,
+    createTransformationsMonitoringService,
+} from '../services/monitoring/hog-function-monitoring.service'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { HogConfigurationError } from '../utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
-import { createInvocation } from '../utils/invocation-utils'
+import { createInputsFailureResult, createInvocation } from '../utils/invocation-utils'
+import { geoipNoopResult } from './geoip-noop'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -63,6 +76,42 @@ export const hogTransformationUnexpectedErrors = new Counter({
     help: 'Number of unexpected errors during transformation execution. Any occurrence should trigger an alert as the transformation is skipped.',
 })
 
+export const hogTransformationProtectedPropertyWrites = new Counter({
+    name: 'hog_transformation_protected_property_writes_total',
+    help: 'Transformations that added, changed or removed a capture-owned $ai_gateway* property. The write is reverted; any occurrence is a billing-exemption forgery attempt worth an alert.',
+})
+
+// Capture stamps these after verifying the AI gateway's signature and the usage report exempts
+// verified events from the AI meter, so transformations must not be able to write them.
+const PROTECTED_PROPERTY_PREFIX = '$ai_gateway'
+
+function pickProtectedProperties(properties: Properties | undefined): Properties {
+    const picked: Properties = {}
+    if (!properties) {
+        return picked
+    }
+    for (const key in properties) {
+        if (key.startsWith(PROTECTED_PROPERTY_PREFIX)) {
+            picked[key] = properties[key]
+        }
+    }
+    return picked
+}
+
+function restoreProtectedProperties(properties: Properties, protectedProperties: Properties): boolean {
+    const written = pickProtectedProperties(properties)
+    for (const key in written) {
+        delete properties[key]
+    }
+    Object.assign(properties, protectedProperties)
+
+    const protectedKeys = Object.keys(protectedProperties)
+    if (Object.keys(written).length !== protectedKeys.length) {
+        return true
+    }
+    return protectedKeys.some((key) => written[key] !== protectedProperties[key])
+}
+
 export interface TransformationResult extends HogTransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
@@ -91,6 +140,7 @@ export class HogTransformerService implements HogTransformer {
 
     public async stop(): Promise<void> {
         await this.processInvocationResults()
+        await this.hogFunctionMonitoringService.stop()
     }
 
     public async processInvocationResults(): Promise<void> {
@@ -158,7 +208,7 @@ export class HogTransformerService implements HogTransformer {
     }
 
     public transformEventAndProduceMessages(event: PluginEvent): Promise<TransformationResult> {
-        return instrumentFn(`hogTransformer.transformEventAndProduceMessages`, () =>
+        return instrumentFn({ key: `hogTransformer.transformEventAndProduceMessages`, span: false }, () =>
             this.transformEventAndProduceMessagesImpl(event)
         )
     }
@@ -178,6 +228,7 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const results: CyclotronJobInvocationResult[] = []
+        const protectedProperties = pickProtectedProperties(event.properties)
 
         // Create globals once and update the event properties after each transformation
         const globals = this.createInvocationGlobals(event)
@@ -299,6 +350,10 @@ export class HogTransformerService implements HogTransformer {
             globals.event.distinct_id = event.distinct_id
         }
 
+        if (event.properties && restoreProtectedProperties(event.properties, protectedProperties)) {
+            hogTransformationProtectedPropertyWrites.inc()
+        }
+
         return {
             event,
             invocationResults: results,
@@ -323,9 +378,23 @@ export class HogTransformerService implements HogTransformer {
         globals: HogFunctionInvocationGlobals
     ): Promise<CyclotronJobInvocationResult> {
         const transformationFunctions = await this.getTransformationFunctions()
-        const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        let globalsWithInputs: HogFunctionInvocationGlobalsWithInputs
+        try {
+            globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
+        } catch (error) {
+            // Returned rather than thrown, so the error reaches the transformation's own logs.
+            if (!(error instanceof HogConfigurationError)) {
+                throw error
+            }
+            return createInputsFailureResult(hogFunction, globals, error)
+        }
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
+
+        const geoipNoop = geoipNoopResult(invocation)
+        if (geoipNoop) {
+            return geoipNoop
+        }
 
         if (isLegacyPluginHogFunction(hogFunction)) {
             return await this.pluginExecutor.execute(invocation)
@@ -355,7 +424,8 @@ export type HogTransformerServiceConfig = Pick<
     | 'CDP_HOG_RUST_VM_BATCH_EXECUTION_ENABLED'
     | 'MMDB_FILE_LOCATION'
     | 'TRANSFORMATIONS_HOG_TIMEOUT_MS'
->
+> &
+    TransformationsMonitoringConfig
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -364,6 +434,7 @@ export interface HogTransformerServiceDeps {
     encryptedFields: EncryptedFields
     integrationManager: IntegrationManagerService
     monitoringOutputs: IngestionOutputs<MonitoringOutput>
+    teamManager: Pick<TeamManager, 'getTeam'>
 }
 
 /**
@@ -382,7 +453,11 @@ export function createHogTransformerService(
         hogInputsService
     )
     const pluginExecutor = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
-    const hogFunctionMonitoringService = new HogFunctionMonitoringService(deps.monitoringOutputs)
+    const hogFunctionMonitoringService = createTransformationsMonitoringService(
+        deps.monitoringOutputs,
+        config,
+        deps.teamManager
+    )
     return new HogTransformerService(
         hogFunctionManager,
         hogExecutor,

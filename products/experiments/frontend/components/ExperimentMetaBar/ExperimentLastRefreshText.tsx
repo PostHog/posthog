@@ -12,5 +12,10 @@ export function ExperimentLastRefreshText({ lastRefresh }: { lastRefresh: string
                 ? 'text-warning'
                 : ''
 
-    return <span className={colorClass}>{lastRefresh ? <TZLabel time={lastRefresh} /> : 'a while ago'}</span>
+    return (
+        <span className={colorClass}>
+            {/* align-baseline overrides TZLabel's align-middle, which sits the text a pixel below its siblings */}
+            {lastRefresh ? <TZLabel time={lastRefresh} className="align-baseline" /> : 'a while ago'}
+        </span>
+    )
 }

@@ -8,16 +8,19 @@ import { DashboardType, HogFunctionType, InsightModel } from '~/types'
 
 import { buildAlertFilterConfig } from 'products/alerts/frontend/logic/alertNotifications'
 import { AlertType } from 'products/alerts/frontend/types'
+import { membersList, rolesList } from 'products/platform_features/frontend/generated/api'
 
 import api from '../../api'
+import { AccessControlExportResult, AccessControlRule, generateAccessControlHCL } from './accessControlHclExporter'
 import { DashboardExportResult, generateDashboardHCL } from './dashboardHclExporter'
 import { InsightExportResult, generateInsightHCL } from './insightHclExporter'
 
-export type TerraformExportResult = DashboardExportResult | InsightExportResult
+export type TerraformExportResult = DashboardExportResult | InsightExportResult | AccessControlExportResult
 
 export type TerraformExportResource =
     | { type: 'insight'; data: Partial<InsightModel> }
     | { type: 'dashboard'; data: DashboardType }
+    | { type: 'access_control'; data: { projectId: number; projectName: string; organizationId: string } }
 
 export interface TerraformExportState {
     loading: boolean
@@ -122,6 +125,46 @@ async function exportInsight(
     }
 }
 
+async function fetchAllPages<T>(
+    fetchPage: (offset: number) => Promise<{ results: T[]; next?: string | null }>
+): Promise<T[]> {
+    const all: T[] = []
+    for (;;) {
+        const page = await fetchPage(all.length)
+        all.push(...page.results)
+        if (!page.next || page.results.length === 0) {
+            return all
+        }
+    }
+}
+
+async function exportAccessControl(
+    { projectId, organizationId }: { projectId: number; organizationId: string },
+    checkStale: () => boolean
+): Promise<AccessControlExportResult> {
+    const [projectResponse, resourceResponse, roles, members] = await Promise.all([
+        // nosemgrep: prefer-codegen-api -- the access control endpoints are excluded from the OpenAPI schema
+        api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/access_controls`),
+        // nosemgrep: prefer-codegen-api -- the access control endpoints are excluded from the OpenAPI schema
+        api.get<{ access_controls: AccessControlRule[] }>(`api/projects/${projectId}/resource_access_controls`),
+        fetchAllPages((offset) => rolesList(organizationId, { offset })),
+        fetchAllPages((offset) => membersList(organizationId, { offset })),
+    ])
+
+    if (checkStale()) {
+        throw new Error('Fetch cancelled')
+    }
+
+    return generateAccessControlHCL({
+        projectId,
+        organizationId,
+        projectRules: projectResponse.access_controls,
+        resourceRules: resourceResponse.access_controls,
+        roles,
+        members,
+    })
+}
+
 async function exportDashboard(
     dashboard: DashboardType,
     checkStale: () => boolean,
@@ -208,6 +251,9 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
             if (res.type === 'dashboard') {
                 return exportDashboard(res.data, checkStale, currentTeamId)
             }
+            if (res.type === 'access_control') {
+                return exportAccessControl(res.data, checkStale)
+            }
             return exportInsight(res.data, checkStale, currentTeamId)
         },
         [currentTeamId]
@@ -231,7 +277,11 @@ export function useTerraformExport(resource: TerraformExportResource, isOpen: bo
                 }
             } catch (e) {
                 posthog.captureException(e instanceof Error ? e : new Error(String(e)), {
-                    extra: { context: 'TerraformExporter', resourceType: resource.type, resourceId: resource.data.id },
+                    extra: {
+                        context: 'TerraformExporter',
+                        resourceType: resource.type,
+                        resourceId: resource.type === 'access_control' ? resource.data.projectId : resource.data.id,
+                    },
                 })
                 if (!isStale()) {
                     setState({

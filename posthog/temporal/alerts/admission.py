@@ -10,6 +10,7 @@ from posthog.temporal.alerts.retry_policy import alert_timeouts
 logger = structlog.get_logger(__name__)
 
 # Admitted alert ids scored by lease expiry; a check joins when started, not when its query runs.
+# Production's set. A caller with its own budget passes its own key, so the two never share slots.
 INFLIGHT_KEY = "alerts:evaluations:inflight"
 
 # A check cannot outlive its workflow's execution timeout, so a lease this long can never lapse
@@ -102,42 +103,46 @@ def _decode(member: bytes | str) -> str:
     return member.decode() if isinstance(member, bytes) else member
 
 
-def admit_evaluation_slots(alert_ids: list[str], *, limit: int, expires_at: float) -> list[str]:
+def admit_evaluation_slots(
+    alert_ids: list[str], *, limit: int, expires_at: float, key: str = INFLIGHT_KEY
+) -> list[str]:
     """Admit candidates in order while the set has room and return the ids held under expires_at."""
-    admitted = redis.get_client().eval(_ADMIT_SCRIPT, 1, INFLIGHT_KEY, time.time(), limit, expires_at, *alert_ids)
+    admitted = redis.get_client().eval(_ADMIT_SCRIPT, 1, key, time.time(), limit, expires_at, *alert_ids)
     return [_decode(member) for member in admitted]
 
 
-def hold_evaluation_slot(alert_id: str, *, limit: int, lease_seconds: float = SLOT_LEASE_SECONDS) -> float | None:
+def hold_evaluation_slot(
+    alert_id: str, *, limit: int, lease_seconds: float = SLOT_LEASE_SECONDS, key: str = INFLIGHT_KEY
+) -> float | None:
     """Take the slot for a check that is about to run and return the expiry that identifies this holder.
 
     Returns None when the check no longer holds a slot and the set is full.
     """
     expires_at = time.time() + lease_seconds
-    held = redis.get_client().eval(_HOLD_SCRIPT, 1, INFLIGHT_KEY, time.time(), limit, expires_at, alert_id)
+    held = redis.get_client().eval(_HOLD_SCRIPT, 1, key, time.time(), limit, expires_at, alert_id)
     return expires_at if held else None
 
 
-def refresh_evaluation_slot(alert_id: str, *, held_until: float, expires_at: float) -> bool:
+def refresh_evaluation_slot(alert_id: str, *, held_until: float, expires_at: float, key: str = INFLIGHT_KEY) -> bool:
     """Move the holder's expiry to expires_at and report whether the holder still owned the slot."""
-    owned = redis.get_client().eval(_REFRESH_OWNED_SCRIPT, 1, INFLIGHT_KEY, alert_id, held_until, expires_at)
+    owned = redis.get_client().eval(_REFRESH_OWNED_SCRIPT, 1, key, alert_id, held_until, expires_at)
     return bool(owned)
 
 
-def release_evaluation_slots(alert_ids: list[str], *, held_until: float) -> None:
+def release_evaluation_slots(alert_ids: list[str], *, held_until: float, key: str = INFLIGHT_KEY) -> None:
     """Free the slots that still carry the expiry their writer was given."""
     if alert_ids:
-        redis.get_client().eval(_RELEASE_OWNED_SCRIPT, 1, INFLIGHT_KEY, held_until, *alert_ids)
+        redis.get_client().eval(_RELEASE_OWNED_SCRIPT, 1, key, held_until, *alert_ids)
 
 
-def release_evaluation_slot(alert_id: str, *, held_until: float) -> None:
+def release_evaluation_slot(alert_id: str, *, held_until: float, key: str = INFLIGHT_KEY) -> None:
     """Free a slot, but only if the holder identified by held_until still owns it.
 
     Best effort: the check this belongs to already ran, so a failure is logged rather than raised.
     """
     for attempt in range(_BOOKKEEPING_ATTEMPTS):
         try:
-            release_evaluation_slots([alert_id], held_until=held_until)
+            release_evaluation_slots([alert_id], held_until=held_until, key=key)
             return
         except Exception:
             if attempt == _BOOKKEEPING_ATTEMPTS - 1:
@@ -146,7 +151,7 @@ def release_evaluation_slot(alert_id: str, *, held_until: float) -> None:
             time.sleep(_BOOKKEEPING_RETRY_SECONDS)
 
 
-def inflight_alert_ids() -> set[str]:
+def inflight_alert_ids(key: str = INFLIGHT_KEY) -> set[str]:
     client = redis.get_client()
-    client.zremrangebyscore(INFLIGHT_KEY, "-inf", time.time())
-    return {_decode(member) for member in client.zrange(INFLIGHT_KEY, 0, -1)}
+    client.zremrangebyscore(key, "-inf", time.time())
+    return {_decode(member) for member in client.zrange(key, 0, -1)}

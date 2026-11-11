@@ -7,10 +7,12 @@ def create_project_secret_api_key(
     created_by: User | None = None,
     label: str = "Test key",
     scopes: list[str] | None = None,
+    value: str | None = None,
 ) -> tuple[ProjectSecretAPIKey, str]:
     """Create a PSAK the way the API does (hashed secure_value, masked display value) and
-    return it along with the plaintext token, which is never stored."""
-    value = generate_random_token_secret()
+    return it along with the plaintext token, which is never stored. Pass ``value`` to
+    build the row the #63111 backfill writes for an existing legacy token."""
+    value = value or generate_random_token_secret()
     key = ProjectSecretAPIKey.objects.create(
         team=team,
         label=label,

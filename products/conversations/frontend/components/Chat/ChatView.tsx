@@ -4,6 +4,8 @@ import { LemonCard } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
 import type {
     AITriageSource,
     AiReplyFeedbackRating,
@@ -13,6 +15,8 @@ import type {
     TicketChannel,
     TicketStatus,
 } from '../../types'
+import type { SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
+import type { SupportEditorProps } from '../Editor'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -70,6 +74,8 @@ export interface ChatViewProps {
     sendConfirmationMessage?: string
     /** When provided, renders a dropdown next to the send button to send and set the ticket status in one go */
     sendAndSetStatusOptions?: { value: TicketStatus; statusLabel: string }[]
+    /** Composer header and send menu in place of draft mode; see MessageInput */
+    simplifiedReplies?: SimplifiedRepliesProps
     /** Other unsaved ticket edits that sending with a status would also persist */
     unsavedTicketChanges?: string[]
     latestAiMessageId?: string | null
@@ -88,6 +94,13 @@ export interface ChatViewProps {
     fullEmailLoadingMessageId?: string | null
     onViewFullEmail?: (messageId: string) => void
     composerPrefillAt?: number
+    composerInsertAt?: number
+    composerInsertContent?: string | null
+    macroPicker?: React.ReactNode
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
+    /** Stores a file of any type for the reply. Leave unset to hide the attach button. */
+    onAttachFile?: SupportEditorProps['onAttachFile']
     aiSources?: AITriageSource[]
     aiDraftApplying?: boolean
     onApplyAiDraft?: (message: ChatMessage) => void
@@ -122,6 +135,7 @@ export function ChatView({
     onDraftModeChange,
     sendConfirmationMessage,
     sendAndSetStatusOptions,
+    simplifiedReplies,
     unsavedTicketChanges,
     latestAiMessageId,
     latestAiDraftId,
@@ -138,6 +152,12 @@ export function ChatView({
     fullEmailLoadingMessageId,
     onViewFullEmail,
     composerPrefillAt,
+    composerInsertAt,
+    composerInsertContent,
+    macroPicker,
+    enableMacros,
+    onAttachFile,
+    onInsertMacro,
     aiSources,
     aiDraftApplying,
     onApplyAiDraft,
@@ -195,12 +215,19 @@ export function ChatView({
                     onDraftModeChange={onDraftModeChange}
                     sendConfirmationMessage={sendConfirmationMessage}
                     sendAndSetStatusOptions={sendAndSetStatusOptions}
+                    simplifiedReplies={simplifiedReplies}
                     unsavedTicketChanges={unsavedTicketChanges}
                     editingMessageId={editingMessageId}
                     onCancelEdit={onCancelEdit}
                     collapseUntilActive={collapseUntilActive}
                     threadId={threadId}
                     composerPrefillAt={composerPrefillAt}
+                    composerInsertAt={composerInsertAt}
+                    composerInsertContent={composerInsertContent}
+                    macroPicker={macroPicker}
+                    enableMacros={enableMacros}
+                    onAttachFile={onAttachFile}
+                    onInsertMacro={onInsertMacro}
                 />
             </div>
         </LemonCard>

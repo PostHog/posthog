@@ -7,7 +7,7 @@ import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
 
 // app_source value the Node.js legacy-plugin producer writes into clickhouse_app_metrics2.
-// Keep in sync with nodejs/src/cdp/legacy-plugins/app-metrics.ts.
+// Keep in sync with nodejs/src/cdp/consumers/cdp-legacy-event.consumer.ts.
 const LEGACY_PLUGIN_APP_SOURCE = 'legacy_plugin'
 
 const LEGACY_PLUGIN_METRIC_KEYS = ['succeeded', 'succeeded_on_retry', 'failed'] as const

@@ -228,7 +228,8 @@ You are an expert analyst...
 
 ## Evaluation
 
-PostHog uses Braintrust to test AI effectiveness. See `ee/hogai/eval/` for examples, and implement new ones for the use case you're working on.
+Use the [sandbox eval harness](../../products/posthog_ai/eval_harness/README.md) to test PostHog AI 2.0.
+Run `hogli evals --list` to find existing suites. Add cases under `products/posthog_ai/evals/` or `products/<product>/evals/` and follow [`/writing-evals`](../../.agents/skills/writing-evals/SKILL.md).
 
 For expert feedback, tag `@team-posthog-ai` on LLM-related PRs! Before doing that, test your feature with various user prompts, especially tricky ones.
 

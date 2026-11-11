@@ -58,13 +58,15 @@
         border-color: var(--primary);
     }
 
-    .quill-checkbox[data-checked] {
+    .quill-checkbox[data-checked],
+    .quill-checkbox[data-indeterminate] {
         color: var(--primary-foreground);
         background-color: var(--primary);
         border-color: var(--primary);
     }
 
-    :is(.dark, [theme='dark']) .quill-checkbox[data-checked] {
+    :is(.dark, [theme='dark']) .quill-checkbox[data-checked],
+    :is(.dark, [theme='dark']) .quill-checkbox[data-indeterminate] {
         background-color: var(--primary);
     }
 

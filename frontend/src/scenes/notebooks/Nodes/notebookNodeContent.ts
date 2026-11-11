@@ -369,6 +369,20 @@ export const collectSqlV2Nodes = (content?: JSONContent | null): SqlV2NodeSummar
             }
         })
 
+/** Node ids of every cell a whole-notebook run would execute, in document order.
+ *
+ * Wider than `collectSqlV2Nodes`, which only reports cells that export a dataframe: the
+ * backend plan runs every SQL and Python cell that has code, so a notebook of Python cells
+ * alone is perfectly runnable and used to be denied the Run all button. */
+export const collectRunnableCellNodeIds = (content?: JSONContent | null): string[] =>
+    collectNotebookDataframeNodes(content)
+        .filter(
+            ({ node }) =>
+                (node.type === NotebookNodeType.SQLV2 || node.type === NotebookNodeType.PythonV2) &&
+                !!String(node.attrs?.code ?? '').trim()
+        )
+        .map(({ nodeId }) => nodeId)
+
 export type NotebookFrameNodeSummary = {
     nodeId: string
     name: string

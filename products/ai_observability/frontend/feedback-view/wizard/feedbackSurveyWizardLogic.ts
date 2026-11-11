@@ -6,7 +6,6 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from 'scenes/surveys/constants'
 import { isThumbQuestion } from 'scenes/surveys/utils'
@@ -15,6 +14,8 @@ import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { Survey, SurveyAppearance, SurveyQuestionBranchingType, SurveyQuestionType, SurveyType } from '~/types'
+
+import { reportSurveyCreated } from 'products/surveys/frontend/surveyUsage'
 
 import type { TeamPublicType, TeamType } from '../../../../../frontend/src/types'
 
@@ -264,7 +265,7 @@ export const feedbackSurveyWizardLogic = kea<feedbackSurveyWizardLogicType>([
                         enable_partial_responses: true,
                     })
 
-                    eventUsageLogic.actions.reportSurveyCreated(survey, false, 'llm_analytics')
+                    reportSurveyCreated(survey, false, 'llm_analytics')
                     addProductIntent({
                         product_type: ProductKey.SURVEYS,
                         intent_context: ProductIntentContext.SURVEY_CREATED,

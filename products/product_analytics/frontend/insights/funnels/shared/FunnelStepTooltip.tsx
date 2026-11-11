@@ -2,26 +2,31 @@ import { useValues } from 'kea'
 
 import { TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 
+import { toDisplayEntityFilter } from 'lib/components/EntityFilterInfo'
+import { getDisplayNameFromEntityFilter } from 'lib/insights/entityFilterNames'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
-import { formatBreakdownLabel, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema/schema-general'
+import { BreakdownFilter, FunnelsQuery } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelTooltipHeaderLabel, hasBreakdown } from '../funnelUtils'
-import { getActionFilterFromFunnelStep } from './funnelStepTableUtils'
+import { getFunnelStepEntity } from './funnelStepSeries'
 
 export interface FunnelStepTooltipProps {
     showPersonsModal: boolean
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     groupTypeLabel: string
+    querySource: FunnelsQuery | null
     breakdownFilter: BreakdownFilter | null | undefined
     comparePeriodDateRange?: string | null
     aggregateConversionRate?: number | null
+    /** True when the aggregate rate covers only the breakdown values selected in the table, not the baseline. */
+    isPartialBreakdownSelection?: boolean
     /** True when the cursor is over the unfilled track area (drop-off region) rather than the bar. */
     isDropOffHover?: boolean
     /** Series color — renders a swatch dot next to the step header. */
@@ -33,9 +38,11 @@ export function FunnelStepTooltip({
     stepIndex,
     series,
     groupTypeLabel,
+    querySource,
     breakdownFilter,
     comparePeriodDateRange,
     aggregateConversionRate,
+    isPartialBreakdownSelection = false,
     isDropOffHover = false,
     color,
 }: FunnelStepTooltipProps): JSX.Element {
@@ -43,7 +50,8 @@ export function FunnelStepTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const eventName =
-        getDisplayNameFromEntityFilter(getActionFilterFromFunnelStep(series)) ?? series.name ?? series.action_id
+        getDisplayNameFromEntityFilter(toDisplayEntityFilter(getFunnelStepEntity(querySource, stepIndex, series))) ??
+        series.name
 
     const breakdownLabel = hasBreakdown(series.breakdown_value)
         ? formatBreakdownLabel(
@@ -79,7 +87,10 @@ export function FunnelStepTooltip({
         }
         rows.push({ label: 'Conversion so far', value: percentage(series.conversionRates.total, 2, true) })
         if (stepIndex > 0 && aggregateConversionRate != null) {
-            rows.push({ label: 'Baseline conversion rate', value: percentage(aggregateConversionRate, 2, true) })
+            rows.push({
+                label: isPartialBreakdownSelection ? 'Conversion rate of selected values' : 'Baseline conversion rate',
+                value: percentage(aggregateConversionRate, 2, true),
+            })
         }
         if (stepIndex > 0 && series.median_conversion_time != null) {
             rows.push({

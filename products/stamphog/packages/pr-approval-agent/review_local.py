@@ -2,8 +2,9 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = [
-#     "claude-agent-sdk==0.2.113",
+#     "claude-agent-sdk==0.2.164",
 #     "anthropic==0.80.0",
+#     "openai==3.26.0",
 #     "posthoganalytics==7.20.4",
 #     "pyyaml==6.0.3",
 # ]
@@ -41,6 +42,7 @@ comes from the environment (ANTHROPIC_API_KEY).
 `--pregate` is the server's gate-only pre-check (see pregate()). The server runs it on the worker,
 in a temporary tree that holds the trusted policy files, this engine and, when the server could read
 them, the PR head's AGENT_APPROVALS.md files, before it waits for other bots or makes a sandbox.
+`--attest` runs the same gates in the same tree before the server posts an approval (see attest()).
 """
 
 import os
@@ -65,7 +67,7 @@ from familiarity import (
     familiarity_from_facts,
 )
 from gates import POLICY, assign_tier, dependency_manifests_without_lockfile, substantive_size
-from gateway import REVIEWER_MODEL
+from gateway import SUMMARY_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
     CommitProvenance,
@@ -75,6 +77,7 @@ from github import (
     _normalize_reviews_for_prompt,
     _prompt_worthy_author,
     _reaction_emoji,
+    git_touched_paths,
     is_bot_author,
     pr_provenance,
     provenance_from_messages,
@@ -182,8 +185,12 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
     base_ref = base.get("ref") or default_branch
 
     files = _git_diff_files(base_sha, head_sha, REPO_ROOT, merge_base_sha) if checkout else []
-    if not files:
-        files = [_convert_api_file(f) for f in context.get("files") or []]
+    if files:
+        touched_paths = git_touched_paths(base_sha, head_sha, REPO_ROOT, merge_base_sha)
+    else:
+        api_files = context.get("files") or []
+        files = [_convert_api_file(f) for f in api_files]
+        touched_paths = [path for f in api_files for path in (f.get("filename"), f.get("previous_filename")) if path]
 
     # Drop only EMPTY COMMENTED reviews from the offline reviews. A bare COMMENTED top-level review
     # carries no readable body — yet _summarize_assurance would surface its author as a current-head
@@ -245,6 +252,8 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
                 }
             )
 
+    review_evidence = [item for item in context.get("review_evidence") or [] if isinstance(item, dict)]
+
     return PRData(
         number=int(pr.get("number") or 0),
         repo=context.get("repo") or "",
@@ -259,6 +268,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         head_sha=head_sha,
         merge_base_sha=merge_base_sha,
         files=files,
+        touched_paths=touched_paths,
         reviews=_normalize_reviews_for_prompt(reviews, head_sha),
         review_comments=review_comments,
         check_runs=context.get("check_runs") or [],
@@ -267,6 +277,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
         default_branch=default_branch,
+        review_evidence=review_evidence,
     )
 
 
@@ -283,54 +294,24 @@ def _context_provenance(context: dict, pr: PRData) -> CommitProvenance | None:
     return pr_provenance(pr.base_sha, pr.head_sha, REPO_ROOT)
 
 
-def _apply_ownership_summary(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
-    """Mirror Pipeline._summarize_ownership with team membership injected instead of fetched.
+def _author_team_slugs(context: dict) -> set[str]:
+    """Every team that the server found the author on, for the pipeline's membership checks.
 
-    review_pr.py resolves membership with one `gh` call per owning team. The sandbox holds no
-    token, so the server supplies every team that the author belongs to, and this function does the
-    intersection.
-
-    `author_on_owning_team` matters beyond the summary text. The reviewer prompt reads that key with
-    a default of True, so an unset key tells the reviewer that the author owns the code, whoever
-    opened the PR. An unresolvable lookup arrives as an empty set and yields "not on any owning
-    team". review_pr.py fails in the same direction, and that direction is the safe one for a bot that
-    approves.
+    review_pr.py asks GitHub once per team. The sandbox holds no token, so the server supplies the set.
+    It decides two things. The reviewer prompt reads `author_on_owning_team` with a default of True,
+    so the ownership summary must always set it. A deny category's `exempt_author_teams` reads it too.
+    An unresolvable lookup arrives as an empty set, which yields "not on any owning team" and denies
+    owner-only paths. review_pr.py fails in the same direction, and that direction is the safe one
+    for a bot that approves.
     """
-    cl = pipeline.classification
-    ownership = cl.get("ownership", {})
-    individuals = ownership.get("individuals", [])
-    teams = ownership.get("teams", [])
-    if ownership.get("team_count", 0) == 0 and not individuals:
-        cl["ownership_summary"] = "no owned paths touched"
-        return
-
-    author = pipeline.pr.author
-    author_teams = [team for team in teams if team.split("/")[-1] in author_team_slugs]
-
-    parts = []
-    if teams:
-        parts.append(f"touches {', '.join(teams)}")
-    if individuals:
-        # Individuals never enter the membership check. The author either is one of them or is
-        # not.
-        suffix = f" (author {author} is one of them)" if f"@{author}" in individuals else ""
-        parts.append(f"individually owned by {', '.join(individuals)}{suffix}")
-    if author_teams:
-        parts.append(f"author {author} is on {', '.join(author_teams)}")
-    elif teams:
-        parts.append(f"author {author} is not on any owning team")
-    if ownership.get("cross_team"):
-        parts.append("cross-team change")
-
-    cl["ownership_summary"] = "; ".join(parts)
-    cl["author_on_owning_team"] = bool(author_teams)
+    return {str(slug) for slug in context.get("author_team_slugs") or []}
 
 
-def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
+def _run_gates_offline(pipeline: Pipeline) -> None:
     """Run the four deterministic gate checks, the same ones that _run_gates runs.
 
-    Mirrors Pipeline._run_gates, and replaces _summarize_ownership's `gh` membership lookup with the
-    server-injected team set (see _apply_ownership_summary).
+    Mirrors Pipeline._run_gates without the console output. Set `pipeline.author_team_slugs` first
+    (see _author_team_slugs), or the membership checks call `gh`, which the sandbox cannot do.
     """
     gates = [
         ("prerequisites", pipeline._check_prerequisites),
@@ -342,7 +323,7 @@ def _run_gates_offline(pipeline: Pipeline, author_team_slugs: set[str]) -> None:
         passed, message = check()
         pipeline.gate_results.append(GateResult(name, passed, message))
 
-    _apply_ownership_summary(pipeline, author_team_slugs)
+    pipeline._summarize_ownership()
 
 
 def _familiarity_offline(
@@ -591,14 +572,15 @@ def pregate(context: dict) -> dict:
     if "commit_messages" in context:
         pipeline.provenance = _context_provenance(context, pipeline.pr)
     folder_policies_known = context.get("folder_policies_known") is True
-    outcome = {"final": False, "needs_summary": False, "summary_model": REVIEWER_MODEL, "result": None}
+    outcome = {"final": False, "needs_summary": False, "summary_model": SUMMARY_MODEL, "result": None}
 
     if pipeline.pr.author_is_bot and not pipeline.self_driving:
         pipeline._refuse_bot_author()
         return {**outcome, "final": True, "result": pipeline.to_dict()}
 
+    pipeline.author_team_slugs = _author_team_slugs(context)
     pipeline._classify()
-    _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+    _run_gates_offline(pipeline)
     if _blocked_only_by_pending_migration_check(pipeline):
         if not _pending_migration_outcome_is_known(pipeline, folder_policies_known):
             return {**outcome, "not_final_reason": "pending_migration_check"}
@@ -618,6 +600,56 @@ def pregate(context: dict) -> dict:
     }
     pipeline._capture_review_completed("DENIED", "GATES-ONLY")
     return {**outcome, "final": True, "needs_summary": True, "result": pipeline.to_dict()}
+
+
+def attest(context: dict) -> dict:
+    """Gate-only check that the hosted server runs before it posts an approval from the sandbox.
+
+    The sandbox prints its verdict and its gate results on stdout, and the server cannot authenticate
+    that output. So the server runs the deterministic gates again on the worker, under the trusted
+    policy and on the file list it read from GitHub. ``attested`` is True only when this run reaches
+    every condition that the sandbox needs before it may ask the LLM: no refused bot author, every
+    gate passed, and no reviewer in flight. ``reason`` names the first condition that failed.
+
+    Two inputs come from the checkout in the sandbox, so an unknown value fails the check rather
+    than guessing. The folder files can lower a size ceiling, so ``folder_policies_known`` must be
+    set. The manifest scripts scan can add a deny, so each dependency manifest without its lockfile
+    needs its texts in ``manifest_contents``. Without them the reason is ``dependency_manifest``,
+    and ``manifests`` names the paths for the server to read and pass in on a second run.
+    """
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+
+    def outcome(reason: str) -> dict:
+        gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
+        return {"attested": not reason, "reason": reason, "gates": gates}
+
+    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+        return outcome("bot_author")
+    if context.get("folder_policies_known") is not True:
+        return outcome("folder_policies_unknown")
+    manifests = dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+    manifest_contents = context.get("manifest_contents")
+    if manifests:
+        if not isinstance(manifest_contents, dict) or any(path not in manifest_contents for path in manifests):
+            return {**outcome("dependency_manifest"), "manifests": manifests}
+        pipeline.manifest_contents = manifest_contents
+
+    pipeline.author_team_slugs = _author_team_slugs(context)
+    pipeline._classify()
+    _run_gates_offline(pipeline)
+    if any(not gate.passed for gate in pipeline.gate_results):
+        return outcome("gate_failed")
+    if pipeline._in_flight_bot_reviewers() or pipeline.pr.pending_review_evidence():
+        return outcome("review_in_flight")
+    return outcome("")
 
 
 def run(context: dict) -> dict:
@@ -644,8 +676,9 @@ def run(context: dict) -> dict:
 
     try:
         with _timed_phase("gates"):
+            pipeline.author_team_slugs = _author_team_slugs(context)
             pipeline._classify()
-            _run_gates_offline(pipeline, {str(slug) for slug in context.get("author_team_slugs") or []})
+            _run_gates_offline(pipeline)
         gate_verdict = pipeline._gate_verdict()
 
         # A `Migration risk` check that has not reported yet is a race with CI, and not a judgment
@@ -674,6 +707,23 @@ def run(context: dict) -> dict:
                     f"{bot_list} still {'have' if len(in_flight) > 1 else 'has'} a review in flight (👀) — "
                     "not approving over an unfinished review. The review re-runs on the next push, or "
                     "re-request one once the reviewer finishes."
+                ),
+                "risk": "unknown",
+                "issues": [],
+            }
+            return pipeline.to_dict()
+
+        # The server waited for these reviews too, so a review still pending here outlasted the
+        # server's budget. Same answer as an in-flight bot: WAIT, never approve over it.
+        if gate_verdict != "DENIED" and (pending := pipeline.pr.pending_review_evidence()):
+            reviewers = " and ".join(str(item.get("reviewer")) for item in pending)
+            verb = "are" if len(pending) > 1 else "is"
+            pipeline.final_verdict = "WAIT"
+            pipeline.reviewer_output = {
+                "verdict": "WAIT",
+                "reasoning": (
+                    f"{reviewers} {verb} still reviewing this commit, so stamphog does not approve yet. "
+                    "The review runs again on the next push, or you can re-request it once that review finishes."
                 ),
                 "risk": "unknown",
                 "issues": [],
@@ -721,6 +771,9 @@ def main() -> None:
     parser.add_argument("--context", required=True, help="Path to the review context JSON")
     parser.add_argument("--repo-dir", default=None, help="Checkout directory (defaults to cwd)")
     parser.add_argument("--pregate", action="store_true", help="Gates only, no checkout and no LLM (server pre-check)")
+    parser.add_argument(
+        "--attest", action="store_true", help="Gates only, no checkout and no LLM (server check before an approval)"
+    )
     args = parser.parse_args()
 
     if args.repo_dir:
@@ -733,6 +786,10 @@ def main() -> None:
         pregate_result = pregate(context)
         flush_analytics()
         print(json.dumps(pregate_result), flush=True)
+        return
+    if args.attest:
+        # A crash exits non-zero, and the server treats that as a failed check and posts no approval.
+        print(json.dumps(attest(context)), flush=True)
         return
 
     launched_at = _launched_at_ms()

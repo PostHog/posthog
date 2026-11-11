@@ -15,7 +15,6 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 }
 
 describe('app entry boot', () => {
-    let configured: boolean
     let modulesLoaded: string[]
     let bootApp: jest.Mock
     let stylesheet: ReturnType<typeof deferred<boolean>>
@@ -24,7 +23,6 @@ describe('app entry boot', () => {
     beforeEach(() => {
         jest.resetModules()
         jest.useFakeTimers()
-        configured = false
         modulesLoaded = []
         bootApp = jest.fn()
         stylesheet = deferred<boolean>()
@@ -35,14 +33,7 @@ describe('app entry boot', () => {
         documentListeners = jest.spyOn(document, 'addEventListener')
         jest.doMock('react', () => React)
         jest.doMock('react-dom/client', () => ({ createRoot }))
-        jest.doMock('lib/configureZod', () => {
-            configured = true
-            return {}
-        })
         jest.doMock('scenes/App', () => {
-            if (!configured) {
-                throw new Error('App evaluated before Zod configuration')
-            }
             modulesLoaded.push('App')
             return {
                 App: (): JSX.Element => {
@@ -54,9 +45,6 @@ describe('app entry boot', () => {
             }
         })
         jest.doMock('scenes/bootApp', () => {
-            if (!configured) {
-                throw new Error('bootApp evaluated before Zod configuration')
-            }
             modulesLoaded.push('bootApp')
             return { bootApp }
         })
@@ -71,6 +59,7 @@ describe('app entry boot', () => {
         await act(async () => window.__posthogAppRoot?.unmount())
         delete window.__posthogAppRoot
         delete window.ESBUILD_CSS_READY
+        delete window.POSTHOG_APP_CONTEXT_REQUEST
         document.body.innerHTML = ''
         jest.clearAllTimers()
         jest.useRealTimers()
@@ -91,7 +80,6 @@ describe('app entry boot', () => {
             const documentState = jest.spyOn(document, 'readyState', 'get').mockReturnValue(readyState)
             await loadEntry()
 
-            expect(configured).toBe(readyState === 'complete')
             expect(modulesLoaded).toEqual(readyState === 'complete' ? ['App', 'bootApp'] : [])
             if (readyState === 'loading') {
                 documentState.mockReturnValue('complete')
@@ -110,6 +98,21 @@ describe('app entry boot', () => {
             expect(bootApp).toHaveBeenCalledTimes(1)
         }
     )
+
+    it('loads modules while the user data is pending and boots once it arrives', async () => {
+        const userData = deferred<{ app_context: object; feature_flags: null }>()
+        window.POSTHOG_APP_CONTEXT_REQUEST = userData.promise
+        await loadEntry()
+        await act(async () => stylesheet.resolve(true))
+
+        expect(modulesLoaded).toEqual(['App', 'bootApp'])
+        expect(bootApp).not.toHaveBeenCalled()
+
+        await act(async () => userData.resolve({ app_context: {}, feature_flags: null }))
+
+        expect(document.querySelector('[data-attr="boot-test-app"]')).toBeInTheDocument()
+        expect(bootApp).toHaveBeenCalledTimes(1)
+    })
 
     it.each(['loaded', 'absent'] as const)('boots when the stylesheet is %s', async (stylesheetState) => {
         if (stylesheetState === 'absent') {
@@ -157,20 +160,14 @@ describe('app entry boot', () => {
         expect(bootApp).toHaveBeenCalledTimes(1)
     })
 
-    it.each(['configuration', 'module'] as const)(
+    it.each(['scenes/App', 'scenes/bootApp'])(
         'shows an early %s failure through the boot error boundary after CSS is ready',
-        async (failureStage) => {
+        async (failingModule) => {
             jest.spyOn(console, 'error').mockImplementation(() => {})
             const error = new Error('Boot dependency failed')
-            if (failureStage === 'configuration') {
-                jest.doMock('lib/configureZod', () => {
-                    throw error
-                })
-            } else {
-                jest.doMock('scenes/App', () => {
-                    throw error
-                })
-            }
+            jest.doMock(failingModule, () => {
+                throw error
+            })
 
             await loadEntry()
             await act(async () => {

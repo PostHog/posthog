@@ -6,21 +6,15 @@ their enums, and the in-module helpers cross-product object-consumers need (HogQ
 builders that traverse the saved-query DAG, dispatch on ``isinstance``, or call model
 methods). The models' heavy dependencies (HogQL, temporal) are deferred inside their
 methods, so importing this adds nothing beyond the models Django loads at ``setup()``.
-
-Note: ``NodeType`` here is ``models.node.NodeType`` (table/view/matview/endpoint). The
-distinct resolver enum ``models.modeling.NodeType`` is exposed via ``facade.modeling``.
 """
 
 from products.data_modeling.backend.graph import Graph
-from products.data_modeling.backend.models.dag import (
-    DAG,
-    DEFAULT_DAG_NAME,
-    RESERVED_DAG_NAMES,
-    REVENUE_ANALYTICS_DAG_NAME,
-)
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
 from products.data_modeling.backend.models.data_modeling_job import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
     DataModelingJobEngine,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
 )
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
@@ -35,17 +29,27 @@ from products.data_modeling.backend.models.datawarehouse_saved_query_column_anno
     DataWarehouseSavedQueryColumnAnnotation,
 )
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
-from products.data_modeling.backend.models.edge import Edge
+from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, LineageIssueKind, Node, NodeType
+from products.data_modeling.backend.models.view_engine import (
+    CONNECTION_SAVE_REASON,
+    ViewCapability,
+    ViewColumnSource,
+    ViewEngine,
+    ViewEngineDialect,
+    ViewEngineTarget,
+)
 
 __all__ = [
+    "CONNECTION_SAVE_REASON",
     "DAG",
     "DEFAULT_DAG_NAME",
-    "RESERVED_DAG_NAMES",
-    "REVENUE_ANALYTICS_DAG_NAME",
+    "NON_SCHEDULING_EDGES",
     "SAVED_QUERY_NODE_TYPES",
+    "TERMINAL_JOB_STATUSES",
     "DataModelingJob",
     "DataModelingJobEngine",
+    "DataModelingJobRunMode",
     "DataModelingJobStatus",
     "DataWarehouseManagedViewSet",
     "DataWarehouseSavedQuery",
@@ -56,6 +60,11 @@ __all__ = [
     "LineageIssueKind",
     "Node",
     "NodeType",
+    "ViewCapability",
+    "ViewColumnSource",
+    "ViewEngine",
+    "ViewEngineDialect",
+    "ViewEngineTarget",
     "aget_saved_query_by_id",
     "aget_table_by_saved_query_id",
     "asave_saved_query",

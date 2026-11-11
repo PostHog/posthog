@@ -8,11 +8,13 @@ from django.conf import settings
 from temporalio import common
 from temporalio.client import Client, Schedule, ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleSpec
 
+from posthog.scheduling.jitter import deterministic_offset
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.ingestion_acceptance_test.config import configured_lanes
 from posthog.temporal.ingestion_acceptance_test.types import IngestionAcceptanceTestInput
 
 SCHEDULE_ID = "ingestion-acceptance-test-schedule"
+SCHEDULE_INTERVAL = timedelta(minutes=15)
 WORKFLOW_NAME = "ingestion-acceptance-test"
 
 
@@ -44,6 +46,7 @@ async def create_ingestion_acceptance_test_schedule(client: Client) -> None:
 
 
 def _build_schedule(inputs: IngestionAcceptanceTestInput) -> Schedule:
+    schedule_id = _lane_schedule_id(inputs.lane) if inputs.lane else SCHEDULE_ID
     return Schedule(
         action=ScheduleActionStartWorkflow(
             WORKFLOW_NAME,
@@ -54,7 +57,13 @@ def _build_schedule(inputs: IngestionAcceptanceTestInput) -> Schedule:
                 maximum_attempts=1,  # Don't retry - we want to know immediately if it fails
             ),
         ),
-        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=15))]),
+        spec=ScheduleSpec(
+            intervals=[
+                ScheduleIntervalSpec(
+                    every=SCHEDULE_INTERVAL, offset=deterministic_offset(schedule_id, SCHEDULE_INTERVAL)
+                )
+            ]
+        ),
     )
 
 

@@ -1,8 +1,10 @@
+import inspect
 import importlib
 from pathlib import Path
 
 import posthog.egress
 from posthog.egress.limiter.policies import _REGISTRY, Priority, resolve_policy
+from posthog.egress.transport.transport import AsyncEgressClient, RecordedEgressClient
 
 _EGRESS_ROOT = Path(posthog.egress.__file__).parent
 
@@ -23,6 +25,18 @@ def _cites_sources(readme: Path) -> bool:
 def test_every_domain_documents_itself_in_a_readme_with_sources() -> None:
     missing = [domain.name for domain in _domain_dirs() if not _cites_sources(domain / "README.md")]
     assert missing == []
+
+
+def test_every_domain_client_names_its_domain_on_spans() -> None:
+    mislabeled = []
+    for domain in _domain_dirs():
+        module = importlib.import_module(f"posthog.egress.{domain.name}.transport")
+        for name, cls in inspect.getmembers(module, inspect.isclass):
+            if cls.__module__ != module.__name__ or not issubclass(cls, (RecordedEgressClient, AsyncEgressClient)):
+                continue
+            if vars(cls).get("egress_domain") != domain.name:
+                mislabeled.append(name)
+    assert mislabeled == []
 
 
 def test_only_reviewed_domains_run_a_flat_policy() -> None:

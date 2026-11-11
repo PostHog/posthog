@@ -87,10 +87,6 @@ export const INJECTED_BLOCK_PRESENTATION: Record<
 
 export function visibleInjectedBlocks(
   blocks: InjectedBlock[],
-  canOpenTabs: boolean,
 ): InjectedBlock[] {
-  return blocks.filter((block) => {
-    const { chip, tab } = INJECTED_BLOCK_PRESENTATION[block.kind];
-    return chip && (canOpenTabs || !tab);
-  });
+  return blocks.filter((block) => INJECTED_BLOCK_PRESENTATION[block.kind].chip);
 }

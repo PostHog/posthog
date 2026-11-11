@@ -8,20 +8,53 @@ import { Counter, Gauge } from 'prom-client'
  */
 const GHOST_SAMPLE_RATE = 16
 
+export interface NativeRefDedupCacheStats {
+    entries: number
+    evictions: number
+    wouldHit: number
+    wouldMiss: number
+}
+
+interface NativeCacheSource {
+    stats: () => NativeRefDedupCacheStats
+    reported: Omit<NativeRefDedupCacheStats, 'entries'>
+}
+
+/** Native caches count on their side of the FFI. Scrapes add what they counted since the last scrape. */
+const nativeCaches = new Map<string, NativeCacheSource>()
+
+function reportNativeTotal(
+    field: keyof NativeCacheSource['reported'],
+    inc: (name: string, value: number) => void
+): void {
+    for (const [name, source] of nativeCaches) {
+        const total = source.stats()[field]
+        inc(name, total - source.reported[field])
+        source.reported[field] = total
+    }
+}
+
 const evictionsTotal = new Counter({
     name: 'ml_mirror_ref_cache_evictions_total',
     help: 'Refs dropped from a dedup cache to make room for newer ones',
     labelNames: ['cache'],
+    collect() {
+        reportNativeTotal('evictions', (name, value) => this.labels(name).inc(value))
+    },
 })
 
 const capacityProbeTotal = new Counter({
     name: 'ml_mirror_ref_cache_capacity_probe_total',
     help: 'Sampled cache misses split by whether the ref was evicted recently enough that twice the capacity would still hold it. would_hit / (would_hit + would_miss) is the share of misses that doubling the cache would recover, so a value near zero means the cache is big enough and a high value means it is undersized',
     labelNames: ['cache', 'verdict'],
+    collect() {
+        reportNativeTotal('wouldHit', (name, value) => this.labels(name, 'would_hit').inc(value))
+        reportNativeTotal('wouldMiss', (name, value) => this.labels(name, 'would_miss').inc(value))
+    },
 })
 
 /** Read at scrape time by the entries gauge, which keeps the hot path free of a gauge write per ref. */
-const liveCaches = new Map<string, RefDedupCache>()
+const liveCaches = new Map<string, { readonly size: number }>()
 
 // Never referenced again: constructing it registers it, and it pulls its own values at scrape time.
 new Gauge({
@@ -40,6 +73,27 @@ const capacityGauge = new Gauge({
     help: 'Configured maximum for a dedup cache, so utilization reads off the metrics instead of the deployed config',
     labelNames: ['cache'],
 })
+
+function validateRefCacheMax(name: string, max: number): void {
+    // These arrive from env, where `overrideConfigWithEnv` parseFloats whatever it is given: the
+    // source default is written `1_000_000`, which parses to 1, and a typo parses to NaN. Both
+    // reach the cache as a `max` it rejects with an error naming neither the knob nor the cache.
+    if (!Number.isInteger(max) || max < 0) {
+        throw new Error(`${name} ref cache max must be 0 or a positive integer, got ${max}`)
+    }
+}
+
+/** The addon keeps the ghost list and the counters, so the metrics pull them at scrape time. */
+export function registerNativeRefDedupCache(name: string, max: number, stats: () => NativeRefDedupCacheStats): void {
+    validateRefCacheMax(name, max)
+    nativeCaches.set(name, { stats, reported: { evictions: 0, wouldHit: 0, wouldMiss: 0 } })
+    liveCaches.set(name, {
+        get size() {
+            return stats().entries
+        },
+    })
+    capacityGauge.labels(name).set(max)
+}
 
 /** Independent of the ref format, so a change to how refs are built cannot skew which ones are sampled. */
 function sampleBucket(ref: string): number {
@@ -68,12 +122,7 @@ export class RefDedupCache {
         max: number,
         private readonly ghostSampleRate: number = GHOST_SAMPLE_RATE
     ) {
-        // These arrive from env, where `overrideConfigWithEnv` parseFloats whatever it is given: the
-        // source default is written `1_000_000`, which parses to 1, and a typo parses to NaN. Both
-        // reach lru-cache as a `max` it rejects with an error naming neither the knob nor the cache.
-        if (!Number.isInteger(max) || max < 0) {
-            throw new Error(`${name} ref cache max must be 0 or a positive integer, got ${max}`)
-        }
+        validateRefCacheMax(name, max)
         liveCaches.set(name, this)
         capacityGauge.labels(name).set(max)
         if (max === 0) {

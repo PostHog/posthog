@@ -17,6 +17,14 @@ const up = (percent: number): WoWChangeApi => ({
 })
 
 const recapMock: WebAnalyticsRecapResponseApi = {
+    metadata: {
+        data_status: 'ok',
+        date_from: '2023-01-25T00:00:00Z',
+        date_to: '2023-02-01T00:00:00Z',
+        timezone: 'UTC',
+        filter_test_accounts: true,
+        notes: [],
+    },
     visitors: { current: 12402, previous: 10510, change: up(18) },
     pageviews: { current: 38211, previous: 33100, change: up(15) },
     sessions: { current: 15890, previous: 14002, change: up(13) },

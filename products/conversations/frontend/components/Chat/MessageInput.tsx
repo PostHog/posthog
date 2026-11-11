@@ -1,5 +1,5 @@
 import { JSONContent } from '@tiptap/core'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconLock } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
@@ -7,9 +7,13 @@ import { LemonButton, LemonCheckbox, LemonInput, LemonSwitch, Tooltip } from '@p
 import { RichContentEditorType } from 'lib/components/RichContentEditor/types'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
+import type { TicketMacroApi } from 'products/conversations/frontend/generated/api.schemas'
+
 import type { TicketChannel, TicketStatus } from '../../types'
 import { channelIcon, getReplyPlaceholder, hasReplyChannelBranding } from '../Channels/ChannelsTag'
-import { SupportEditor, serializeToMarkdown } from '../Editor'
+import { ComposerHeader, SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
+import { SupportEditor, type SupportEditorProps, serializeToMarkdown } from '../Editor'
+import { SendMenu } from '../SendMenu/SendMenu'
 
 export interface MessageInputProps {
     onSendMessage: (
@@ -35,6 +39,8 @@ export interface MessageInputProps {
     isPrivate?: boolean
     /** Called when private checkbox changes */
     onPrivateChange?: (isPrivate: boolean) => void
+    /** Stores a file of any type for the reply. Leave unset to hide the attach button. */
+    onAttachFile?: SupportEditorProps['onAttachFile']
     /** Extra actions rendered next to the send button */
     extraActions?: React.ReactNode
     /** Blocks sending customer-facing messages (private notes stay available). Shown as the button's disabled tooltip. */
@@ -61,6 +67,15 @@ export interface MessageInputProps {
     threadId?: string
     /** When this changes, seed the editor from draftContent even if it is already mounted. */
     composerPrefillAt?: number
+    /** When this changes, insert composerInsertContent at the cursor, or replace the draft if it is empty. */
+    composerInsertAt?: number
+    composerInsertContent?: string | null
+    /** Shown on the left of the send bar. The agent ticket scene passes the macro menu. */
+    macroPicker?: React.ReactNode
+    enableMacros?: boolean
+    onInsertMacro?: (macro: TicketMacroApi) => void
+    /** When set, a header names where the reply goes, and Send opens a menu of every way to send. Replaces draft mode. */
+    simplifiedReplies?: SimplifiedRepliesProps
 }
 
 export function MessageInput({
@@ -88,21 +103,33 @@ export function MessageInput({
     collapseUntilActive = false,
     threadId,
     composerPrefillAt = 0,
+    composerInsertAt = 0,
+    composerInsertContent = null,
+    macroPicker,
+    enableMacros = false,
+    onAttachFile,
+    onInsertMacro,
+    simplifiedReplies,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
     const [localIsPrivate, setLocalIsPrivate] = useState(false)
     const [composerExpanded, setComposerExpanded] = useState(false)
+    const [sendMenuOpen, setSendMenuOpen] = useState(false)
     const lastThreadIdRef = useRef(threadId)
     if (lastThreadIdRef.current !== threadId) {
         lastThreadIdRef.current = threadId
         setComposerExpanded(false)
     }
     const editorRef = useRef<RichContentEditorType | null>(null)
+    const composerRef = useRef<HTMLDivElement>(null)
     const lastSeededEditId = useRef<string | null>(null)
     const draftContentRef = useRef(draftContent)
     draftContentRef.current = draftContent
     const isEditing = !!editingMessageId
+    // The send menu asks before every send, so it replaces draft mode rather than adding a second confirm.
+    const draftModeActive = draftMode && !simplifiedReplies
+    const sendsThroughMenu = !!simplifiedReplies && !isEditing
 
     useEffect(() => {
         setIsEmpty(!draftContent)
@@ -169,6 +196,35 @@ export function MessageInput({
         queueMicrotask(() => setIsEmpty(editor.isEmpty()))
     }, [composerPrefillAt])
 
+    useEffect(() => {
+        if (!composerInsertAt || !composerInsertContent) {
+            return
+        }
+        const html = composerInsertContent
+        // After the edit-restore effect, which queues its own setContent microtask.
+        queueMicrotask(() => {
+            const editor = editorRef.current
+            if (!editor) {
+                return
+            }
+            if (editor.isEmpty()) {
+                editor.setContent(html)
+            } else {
+                editor.insertContent(html)
+            }
+            queueMicrotask(() => {
+                const current = editorRef.current
+                if (!current) {
+                    return
+                }
+                const empty = current.isEmpty()
+                setIsEmpty(empty)
+                onDraftChange?.(empty ? null : current.getJSON())
+                current.focus()
+            })
+        })
+    }, [composerInsertAt, composerInsertContent, onDraftChange])
+
     // Support controlled or uncontrolled isPrivate
     const isPrivate = controlledIsPrivate ?? localIsPrivate
     const setIsPrivate = onPrivateChange ?? setLocalIsPrivate
@@ -226,7 +282,7 @@ export function MessageInput({
                                     <li key={change}>{change}</li>
                                 ))}
                             </ul>
-                            {draftMode && !isPrivate && sendConfirmationMessage ? (
+                            {draftModeActive && !isPrivate && sendConfirmationMessage ? (
                                 <p>{sendConfirmationMessage}</p>
                             ) : null}
                         </>
@@ -234,7 +290,7 @@ export function MessageInput({
                     primaryButton: { children: `${sendVerb} and save`, type: 'primary', onClick: doSend },
                     secondaryButton: { children: 'Cancel' },
                 })
-            } else if (!isEditing && draftMode && !isPrivate && sendConfirmationMessage) {
+            } else if (!isEditing && draftModeActive && !isPrivate && sendConfirmationMessage) {
                 // Private notes are never sent externally, so they skip the draft-mode confirmation.
                 LemonDialog.open({
                     title: 'Ready to send?',
@@ -262,7 +318,7 @@ export function MessageInput({
           : isEmpty
             ? 'No message'
             : isUploading
-              ? 'Uploading image...'
+              ? 'Uploading file...'
               : undefined
     const sendControlDisabledReason =
         typeof sendDisabledReason === 'string'
@@ -271,7 +327,30 @@ export function MessageInput({
               ? 'Sending is disabled'
               : undefined
 
-    const showFullComposer = !collapseUntilActive || composerExpanded || !!draftContent || !!editingMessageId
+    const closeSendMenu = useCallback((): void => {
+        setSendMenuOpen(false)
+        editorRef.current?.focus()
+    }, [])
+    const sendFromMenu = (statusAfterSend?: TicketStatus): void => {
+        setSendMenuOpen(false)
+        handleSubmit(statusAfterSend)
+    }
+
+    const sendButtonContent = isEditing ? (
+        'Save'
+    ) : isPrivate ? (
+        'Attach'
+    ) : showChannelLogo ? (
+        <span className="inline-flex items-center gap-1.5">
+            {buttonText}
+            <span className="text-sm dark:grayscale">{channelIcon[channel]}</span>
+        </span>
+    ) : (
+        buttonText
+    )
+
+    const showFullComposer =
+        !collapseUntilActive || composerExpanded || !!draftContent || !!editingMessageId || !!composerInsertAt
 
     if (!showFullComposer) {
         return (
@@ -288,7 +367,7 @@ export function MessageInput({
     }
 
     return (
-        <div>
+        <div ref={composerRef}>
             <SupportEditor
                 initialContent={typeof draftContent === 'string' ? null : draftContent}
                 placeholder={resolvedPlaceholder}
@@ -301,40 +380,56 @@ export function MessageInput({
                     }
                 }}
                 onUpdate={handleUpdate}
-                onPressCmdEnter={() => handleSubmit()}
+                onPressCmdEnter={() => {
+                    // With the send menu, the shortcut opens it rather than sending: every send is confirmed there.
+                    if (!sendsThroughMenu) {
+                        handleSubmit()
+                    } else if (!sendBlockedReason) {
+                        setSendMenuOpen(true)
+                    }
+                }}
                 onUploadingChange={setIsUploading}
+                onAttachFile={onAttachFile}
                 disabled={messageSending || !!sendDisabledReason}
                 minRows={minRows}
+                enableMacros={enableMacros}
+                onInsertMacro={onInsertMacro}
                 className={
                     isPrivate || isEditing
                         ? 'bg-warning-highlight border-warning'
-                        : draftMode
+                        : draftModeActive
                           ? 'bg-success-highlight border-success'
                           : undefined
                 }
+                header={
+                    simplifiedReplies && !isEditing ? (
+                        <ComposerHeader isPrivate={isPrivate} channel={channel} {...simplifiedReplies} />
+                    ) : undefined
+                }
             />
-            <div className="flex justify-between items-center mt-2">
-                {showPrivateOption ? (
-                    <Tooltip title="Private notes are only visible to your team, not to the customer.">
-                        <span>
-                            <LemonCheckbox
-                                checked={isPrivate || isEditing}
-                                onChange={setIsPrivate}
-                                disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
-                                label={
-                                    <span className="inline-flex items-center gap-1">
-                                        <IconLock className="text-sm" />
-                                        {isEditing ? 'Editing private note' : 'Attach as private note'}
-                                    </span>
-                                }
-                            />
-                        </span>
-                    </Tooltip>
-                ) : (
-                    <div />
-                )}
+            <div className="flex flex-wrap justify-between items-center gap-2 mt-2">
+                <div className="flex flex-wrap items-center gap-2">
+                    {macroPicker}
+                    {showPrivateOption ? (
+                        <Tooltip title="Private notes are only visible to your team, not to the customer.">
+                            <span>
+                                <LemonCheckbox
+                                    checked={isPrivate || isEditing}
+                                    onChange={setIsPrivate}
+                                    disabledReason={isEditing ? 'Editing a private note' : sendControlDisabledReason}
+                                    label={
+                                        <span className="inline-flex items-center gap-1">
+                                            <IconLock className="text-sm" />
+                                            {isEditing ? 'Editing private note' : 'Attach as private note'}
+                                        </span>
+                                    }
+                                />
+                            </span>
+                        </Tooltip>
+                    ) : null}
+                </div>
                 <div className="flex items-center gap-2">
-                    {onDraftModeChange && (
+                    {onDraftModeChange && !simplifiedReplies && (
                         <Tooltip
                             title={
                                 isPrivate || isEditing
@@ -363,47 +458,56 @@ export function MessageInput({
                             Cancel
                         </LemonButton>
                     )}
-                    <LemonButton
-                        type="primary"
-                        onClick={() => handleSubmit()}
-                        loading={messageSending}
-                        disabledReason={sendBlockedReason}
-                        sideAction={
-                            !isEditing && sendAndSetStatusOptions?.length
-                                ? {
-                                      'aria-label': `${sendVerb} and set ticket status`,
-                                      disabled: messageSending,
-                                      disabledReason: sendBlockedReason,
-                                      dropdown: {
-                                          placement: 'bottom-end',
-                                          overlay: sendAndSetStatusOptions.map((option) => (
-                                              <LemonButton
-                                                  key={option.value}
-                                                  fullWidth
-                                                  size="small"
-                                                  onClick={() => handleSubmit(option.value)}
-                                              >
-                                                  {`${sendVerb} and set ${option.statusLabel}`}
-                                              </LemonButton>
-                                          )),
-                                      },
-                                  }
-                                : undefined
-                        }
-                    >
-                        {isEditing ? (
-                            'Save'
-                        ) : isPrivate ? (
-                            'Attach'
-                        ) : showChannelLogo ? (
-                            <span className="inline-flex items-center gap-1.5">
-                                {buttonText}
-                                <span className="text-sm dark:grayscale">{channelIcon[channel]}</span>
-                            </span>
-                        ) : (
-                            buttonText
-                        )}
-                    </LemonButton>
+                    {sendsThroughMenu ? (
+                        <SendMenu
+                            visible={sendMenuOpen}
+                            onVisibilityChange={setSendMenuOpen}
+                            onSend={sendFromMenu}
+                            onCancel={closeSendMenu}
+                            composerRef={composerRef}
+                            verb={sendVerb}
+                            isPrivate={isPrivate}
+                            channel={channel}
+                            audience={sendConfirmationMessage}
+                            statusLabel={simplifiedReplies?.statusLabel}
+                            statusOptions={sendAndSetStatusOptions}
+                            disabledReason={sendBlockedReason}
+                            loading={messageSending}
+                        >
+                            {sendButtonContent}
+                        </SendMenu>
+                    ) : (
+                        <LemonButton
+                            type="primary"
+                            onClick={() => handleSubmit()}
+                            loading={messageSending}
+                            disabledReason={sendBlockedReason}
+                            sideAction={
+                                !isEditing && sendAndSetStatusOptions?.length
+                                    ? {
+                                          'aria-label': `${sendVerb} and set ticket status`,
+                                          disabled: messageSending,
+                                          disabledReason: sendBlockedReason,
+                                          dropdown: {
+                                              placement: 'bottom-end',
+                                              overlay: sendAndSetStatusOptions.map((option) => (
+                                                  <LemonButton
+                                                      key={option.value}
+                                                      fullWidth
+                                                      size="small"
+                                                      onClick={() => handleSubmit(option.value)}
+                                                  >
+                                                      {`${sendVerb} and set ${option.statusLabel}`}
+                                                  </LemonButton>
+                                              )),
+                                          },
+                                      }
+                                    : undefined
+                            }
+                        >
+                            {sendButtonContent}
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </div>

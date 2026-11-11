@@ -1,4 +1,8 @@
 import asyncio
+import threading
+import dataclasses
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -6,21 +10,32 @@ from types import SimpleNamespace
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment
 
+from posthog.schema import PrecomputationMode
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
+from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.temporal.common.errors import NonReportableError
+from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
 
-from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
-from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
+from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
@@ -28,19 +43,22 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
-    CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS,
+    CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
+    TIMEOUT_MAX_METRIC_ATTEMPTS,
+    MetricOutOfTimeFailure,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
 )
-from products.experiments.backend.temporal.recalc_fingerprint import compute_recalc_fingerprint
 from products.experiments.backend.temporal.recalculation_activities import calculate_experiment_metric_for_recalculation
 from products.experiments.backend.temporal.recalculation_logic import (
     _calculate_experiment_metric_for_recalculation_sync,
     _cancel_metric_query_sync,
+    _capacity_retry_delay_seconds,
     _discover_experiment_metrics_sync,
-    _store_result,
+    _record_metric_out_of_time_failure_sync,
     _update_recalculation_progress_sync,
 )
 from products.experiments.stats.shared.statistics import StatisticError
@@ -48,8 +66,14 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 _discover_raw = _discover_experiment_metrics_sync.func  # type: ignore[attr-defined]
 _update_raw = _update_recalculation_progress_sync.func  # type: ignore[attr-defined]
-_calculate_raw = _calculate_experiment_metric_for_recalculation_sync.func  # type: ignore[attr-defined]
 _cancel_raw = _cancel_metric_query_sync.func  # type: ignore[attr-defined]
+_record_out_of_time_raw = _record_metric_out_of_time_failure_sync.func  # type: ignore[attr-defined]
+
+
+def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
+    calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+    assert calculation_config is not None
+    return calculation_config.calculation_key()
 
 
 def _discover(recalculation_id: str):
@@ -62,19 +86,44 @@ def _update(update: RecalculationProgressUpdate):
         return _update_raw(update)
 
 
+def _record_out_of_time(failure: MetricOutOfTimeFailure) -> None:
+    with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
+        _record_out_of_time_raw(failure)
+
+
 def _calculate(
     experiment_id: int,
     metric_uuid: str,
     recalculation_id: str,
     query_to: str,
-    metric_type: str = "primary",
+    role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    precomputation_mode: PrecomputationMode | None = None,
+    calculation_key_version: int = 1,
+    task_queue: str = "",
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
-        return _calculate_raw(
-            experiment_id, metric_uuid, recalculation_id, query_to, metric_type, is_final_attempt, attempt
+        return _calculate_experiment_metric_for_recalculation_sync(
+            experiment_id,
+            metric_uuid,
+            recalculation_id,
+            query_to,
+            role,
+            is_final_attempt,
+            attempt,
+            precomputation_mode,
+            calculation_key_version,
+            task_queue,
         )
+
+
+@contextmanager
+def _patched_runner() -> Iterator[MagicMock]:
+    with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        # A MagicMock in this attribute can't be stored in `metric_errors`.
+        mock_runner.return_value.exposures_path = None
+        yield mock_runner
 
 
 @pytest.mark.django_db(transaction=True)
@@ -106,13 +155,13 @@ class TestRecalculationActivities(BaseTest):
     ) -> ExperimentMetricsRecalculation:
         return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, trigger=trigger)
 
-    def _attach_saved_metric(self, exp: Experiment, uuid: str, metric_type: str) -> None:
+    def _attach_saved_metric(self, exp: Experiment, uuid: str, role: str) -> None:
         saved = ExperimentSavedMetric.objects.create(
             team=self.team,
             name=f"saved-{uuid}",
             query={"uuid": uuid, "kind": "ExperimentMetric", "metric_type": "mean"},
         )
-        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": metric_type})
+        ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": role})
 
     @parameterized.expand(
         [
@@ -162,13 +211,13 @@ class TestRecalculationActivities(BaseTest):
             ),
         ]
     )
-    def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_types):
+    def test_discover_persists_metric_uuids(self, name: str, primary, secondary, saved, expected_uuids, expected_roles):
         exp = self._experiment(flag_key=f"discover-{name}")
         exp.metrics = primary
         exp.metrics_secondary = secondary
         exp.save()
-        for uuid, metric_type in saved:
-            self._attach_saved_metric(exp, uuid, metric_type)
+        for uuid, role in saved:
+            self._attach_saved_metric(exp, uuid, role)
         recalc = self._recalc(exp)
 
         metrics = _discover(str(recalc.id))
@@ -176,7 +225,73 @@ class TestRecalculationActivities(BaseTest):
         recalc.refresh_from_db()
         assert set(recalc.metric_uuids) == expected_uuids
         assert {m.metric_uuid for m in metrics} == expected_uuids
-        assert {m.metric_type for m in metrics} == expected_types
+        assert {m.role for m in metrics} == expected_roles
+
+    @parameterized.expand(
+        [
+            # name, activity queue flag, team_enabled, runtime_hours, funnel_order_type, route_check_fails, expected route
+            ("eligible", "on", True, 36, "ordered", False, "precompute-q", None),
+            ("team_disabled", "on", False, 36, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("below_min_runtime", "on", True, 6, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("metric_not_eligible", "on", True, 36, "unordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("route_check_fails", "on", False, 36, "ordered", True, "precompute-q", None),
+            ("flag_off", "off", True, 36, "ordered", False, None, None),
+            ("flag_check_fails", "error", True, 36, "ordered", False, None, None),
+        ]
+    )
+    @override_settings(
+        EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE="activity-q",
+        EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE="precompute-q",
+    )
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
+    def test_discover_routes_each_metric(
+        self,
+        name: str,
+        flag: str,
+        team_enabled: bool,
+        runtime_hours: int,
+        funnel_order_type: str,
+        route_check_fails: bool,
+        expected_task_queue: str | None,
+        expected_mode: PrecomputationMode | None,
+    ):
+        exp = self._experiment(flag_key=f"route-{name}")
+        exp.start_date = timezone.now() - timedelta(hours=runtime_hours)
+        exp.metrics = [
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": "purchase"}],
+                "funnel_order_type": funnel_order_type,
+            }
+        ]
+        exp.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = team_enabled
+        config.save()
+        recalc = self._recalc(exp)
+
+        with (
+            patch(
+                "products.experiments.backend.recalculation._organization_flag_enabled",
+                return_value=flag == "on",
+                side_effect=Exception("flags down") if flag == "error" else None,
+            ),
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
+                side_effect=Exception("boom") if route_check_fails else ExperimentQueryRunner,
+            ) as runner,
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.get_or_create_team_extension",
+                wraps=get_or_create_team_extension,
+            ) as config_read,
+        ):
+            metrics = _discover(str(recalc.id))
+
+        assert [(m.task_queue, m.precomputation_mode) for m in metrics] == [(expected_task_queue, expected_mode)]
+        assert runner.called is (flag == "on")
+        assert config_read.called is (flag == "on")
 
     @parameterized.expand(
         [
@@ -393,9 +508,13 @@ class TestRecalculationActivities(BaseTest):
 
     @parameterized.expand(
         [
-            # trigger, expect_reuse: only a metric-scoped change reuses the prior completed window.
+            # trigger, expect_reuse: only metric-scoped triggers reuse the prior completed window.
             (ExperimentMetricsRecalculation.Trigger.METRIC_CONFIG_CHANGE, True),
+            (ExperimentMetricsRecalculation.Trigger.MANUAL_RETRY, True),
+            (ExperimentMetricsRecalculation.Trigger.HEAL_LATEST_RUN, True),
             (ExperimentMetricsRecalculation.Trigger.EXPERIMENT_CONFIG_CHANGE, False),
+            (ExperimentMetricsRecalculation.Trigger.COLD_RUN, False),
+            (ExperimentMetricsRecalculation.Trigger.SCHEDULED, False),
             (ExperimentMetricsRecalculation.Trigger.MANUAL, False),
             (ExperimentMetricsRecalculation.Trigger.AUTO_REFRESH, False),
         ]
@@ -665,7 +784,8 @@ class TestCalculateActivity(BaseTest):
         assert result.error_step == "discovery"
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
-        assert "m1" in recalc.metric_errors
+        assert recalc.metric_errors["m1"]["error_type"] == "validation_error"
+        assert recalc.metric_errors["m1"]["retriable"] is False
 
     def test_bad_metric_type_fails_at_calculation(self):
         # An unknown metric_type is unschedulable, so the calc lookup fails the metric permanently
@@ -707,7 +827,7 @@ class TestCalculateActivity(BaseTest):
         ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": "primary"})
         recalc = self._recalc(exp, metric_uuids=["s1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
             with pytest.raises(RuntimeError, match="kaboom"):
                 _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO)
@@ -723,7 +843,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-transient", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
 
             # Non-final attempt: re-raises, but nothing is recorded.
@@ -741,57 +861,108 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
-            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
-            # the explicit next_retry_delay; a generic transient on attempt 2 follows the policy backoff
-            # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
-            # (which can embed the executed query, warehouse secrets included) never reaches the API field.
+            # (name, exc, attempt, expected_error_type, expected_delay_seconds, expected_max_attempts,
+            # expected_message) — backpressure uses the explicit next_retry_delay; a generic transient on
+            # attempt 2 follows the policy backoff (5 * 2^1). The generic exception carries a fake credential
+            # to lock in that raw exception text (which can embed the executed query, warehouse secrets
+            # included) never reaches the API field.
             (
                 "backpressure",
                 ConcurrencyLimitExceeded("quota"),
+                2,
                 "rate_limited",
-                60,
+                47.5,
+                CAPACITY_MAX_METRIC_ATTEMPTS,
                 "The query was deferred because the cluster is at capacity.",
             ),
             (
                 "generic_transient",
                 RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
+                2,
                 "server_error",
                 10,
+                MAX_METRIC_ATTEMPTS,
                 "The query failed with a server error.",
+            ),
+            (
+                "timeout",
+                ClickHouseQueryTimeOut(),
+                1,
+                "timeout",
+                5,
+                TIMEOUT_MAX_METRIC_ATTEMPTS,
+                "The query timed out.",
             ),
         ]
     )
     @time_machine.travel("2026-05-29T13:00:00Z", tick=False)
     def test_transient_attempt_records_retry_state_and_success_clears_it(
-        self, name: str, exc: Exception, expected_error_type: str, expected_delay_seconds: int, expected_message: str
+        self,
+        name: str,
+        exc: Exception,
+        attempt: int,
+        expected_error_type: str,
+        expected_delay_seconds: float,
+        expected_max_attempts: int,
+        expected_message: str,
     ):
         # The retry entry is what the UI shows between attempts; without it the metric looks stuck. It must
         # carry the attempt counters and a next_retry_at estimate, and vanish once the metric resolves.
         exp = self._experiment(flag_key=f"calc-retry-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with (
+            _patched_runner() as mock_runner,
+            patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
+        ):
             mock_runner.return_value.run.side_effect = exc
             with pytest.raises((type(exc), ApplicationError)):
-                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=attempt)
 
         recalc.refresh_from_db()
         entry = recalc.metric_retries["m1"]
-        assert entry["attempt"] == 2
-        assert entry["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert entry["attempt"] == attempt
+        assert entry["max_attempts"] == expected_max_attempts
         assert entry["error_type"] == expected_error_type
         assert entry["message"] == expected_message
         assert "AKIAFAKESECRET" not in entry["message"]
         next_retry_at = datetime.fromisoformat(entry["next_retry_at"])
         assert (next_retry_at - timezone.now()).total_seconds() == expected_delay_seconds
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
-            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=3)
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, attempt=attempt + 1)
 
         assert result.success is True
         recalc.refresh_from_db()
         assert recalc.metric_retries == {}
+
+    @parameterized.expand(
+        [
+            # A transient error that used its final attempt: a heal or manual retry can still succeed.
+            ("exhausted_transient", RuntimeError("transient blip"), "server_error", True),
+            # Permanent errors stop on the first attempt and need a config or data change first.
+            ("validation", ValidationError("bad hogql"), "validation_error", False),
+            ("value_error", ValueError("bad metric"), "server_error", False),
+        ]
+    )
+    def test_terminal_failure_records_error_type_and_retriability(
+        self, name: str, exc: Exception, expected_error_type: str, expected_retriable: bool
+    ):
+        exp = self._experiment(flag_key=f"calc-terminal-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _patched_runner() as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            mock_runner.return_value.exposures_path = ExposuresPath.DIRECT_SCAN
+            with pytest.raises(Exception):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+
+        recalc.refresh_from_db()
+        entry = recalc.metric_errors["m1"]
+        assert entry["error_type"] == expected_error_type
+        assert entry["retriable"] is expected_retriable
+        assert entry["exposures_path"] == "direct_scan"
 
     def test_terminal_failure_clears_retry_state(self):
         # A metric that retried and then failed for good must not keep a stale "retrying" entry alongside
@@ -799,7 +970,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-retry-terminal", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = RuntimeError("transient blip")
             with pytest.raises(RuntimeError):
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
@@ -815,6 +986,78 @@ class TestCalculateActivity(BaseTest):
 
     @parameterized.expand(
         [
+            ("not_persisted_by_any_attempt", RuntimeError("transient blip"), False),
+            ("persisted_by_final_attempt", RuntimeError("transient blip"), True),
+            # The last attempt wrote its result but died before it reported success.
+            ("completed_by_last_attempt", None, False),
+        ]
+    )
+    def test_out_of_time_failure_persists_once(
+        self, name: str, last_attempt_error: Exception | None, final_attempt_persisted: bool
+    ):
+        exp = self._experiment(flag_key=f"calc-out-of-time-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        with _patched_runner() as mock_runner:
+            if last_attempt_error is None:
+                mock_runner.return_value.run.return_value.model_dump.return_value = {}
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
+            else:
+                mock_runner.return_value.run.side_effect = last_attempt_error
+                with pytest.raises(RuntimeError):
+                    _calculate(
+                        exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=final_attempt_persisted, attempt=2
+                    )
+        recalc.refresh_from_db()
+        errors_before = dict(recalc.metric_errors)
+
+        with _record_captures() as captured:
+            _record_out_of_time(
+                MetricOutOfTimeFailure(
+                    recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", role="primary"
+                )
+            )
+
+        recalc.refresh_from_db()
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.fingerprint == _recalc_fingerprint(_calculation_key(exp, "m1"))
+        assert recalc.metric_retries == {}
+        if last_attempt_error is None:
+            assert row.status == ExperimentMetricResult.Status.COMPLETED
+            assert recalc.metric_errors == {}
+            assert captured == []
+        elif final_attempt_persisted:
+            assert row.status == ExperimentMetricResult.Status.FAILED
+            assert recalc.metric_errors == errors_before
+            assert captured == []
+        else:
+            assert row.status == ExperimentMetricResult.Status.FAILED
+            assert recalc.metric_errors["m1"]["error_type"] == "timeout"
+            assert recalc.metric_errors["m1"]["retriable"] is True
+            assert [c["event"] for c in captured] == ["experiment metric error"]
+            assert captured[0]["properties"]["error_type"] == "timeout"
+
+    def test_late_result_after_out_of_time_failure_replaces_the_timeout(self):
+        exp = self._experiment(flag_key="calc-out-of-time-late-result", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+        _record_out_of_time(
+            MetricOutOfTimeFailure(
+                recalculation_id=str(recalc.id), experiment_id=exp.id, metric_uuid="m1", role="primary"
+            )
+        )
+
+        with _patched_runner() as mock_runner:
+            mock_runner.return_value.run.return_value.model_dump.return_value = {}
+            result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=3)
+
+        recalc.refresh_from_db()
+        assert result.success is True
+        assert ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1").status == (
+            ExperimentMetricResult.Status.COMPLETED
+        )
+        assert recalc.metric_errors == {}
+
+    @parameterized.expand(
+        [
             ("org_quota", ConcurrencyLimitExceeded("org quota saturated")),
             ("cluster_at_capacity", ClickHouseAtCapacity()),
         ]
@@ -822,22 +1065,23 @@ class TestCalculateActivity(BaseTest):
     def test_backpressure_bounce_defers_with_retry_delay_and_no_capture(self, name: str, exc: Exception):
         # A query bouncing off the per-org ClickHouse limiter or the cluster's at-capacity guard is
         # backpressure, not a fault: it must re-raise as an ApplicationError carrying next_retry_delay
-        # (overriding the retry policy's 5s exponential schedule with the flat quota-wait delay), must never
+        # (overriding the retry policy's 5s schedule with the capacity backoff band), must never
         # reach capture_exception (a saturated org would spam error tracking with expected bounces), and must
         # persist nothing before the final attempt.
         exp = self._experiment(flag_key=f"calc-quota-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with (
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            _patched_runner() as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
+            patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
         ):
             mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
             assert exc_info.value.type == type(exc).__name__
-            assert exc_info.value.next_retry_delay == timedelta(seconds=CONCURRENCY_LIMIT_RETRY_DELAY_SECONDS)
+            assert exc_info.value.next_retry_delay == timedelta(seconds=47.5)
             mock_capture.assert_not_called()
             recalc.refresh_from_db()
             assert recalc.metric_errors == {}
@@ -851,6 +1095,37 @@ class TestCalculateActivity(BaseTest):
             assert "m1" in recalc.metric_errors
             row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
             assert row.status == ExperimentMetricResult.Status.FAILED
+
+    @parameterized.expand(
+        [
+            ("capacity", ClickHouseAtCapacity(), CAPACITY_MAX_METRIC_ATTEMPTS, "rate_limited"),
+            ("timeout", ClickHouseQueryTimeOut(), TIMEOUT_MAX_METRIC_ATTEMPTS, "timeout"),
+        ]
+    )
+    def test_error_class_cap_fails_the_metric_before_the_policy_limit(
+        self, name: str, exc: Exception, cap: int, expected_error_type: str
+    ):
+        exp = self._experiment(flag_key=f"calc-class-cap-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _patched_runner() as mock_runner:
+            mock_runner.return_value.run.side_effect = exc
+            with pytest.raises((type(exc), ApplicationError)):
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=cap - 1)
+            recalc.refresh_from_db()
+            assert "m1" in recalc.metric_retries
+            assert recalc.metric_errors == {}
+
+            with pytest.raises(ApplicationError) as exc_info:
+                _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=cap)
+
+        assert exc_info.value.non_retryable is True
+        recalc.refresh_from_db()
+        assert recalc.metric_retries == {}
+        assert recalc.metric_errors["m1"]["error_type"] == expected_error_type
+        assert recalc.metric_errors["m1"]["retriable"] is True
+        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
+        assert row.status == ExperimentMetricResult.Status.FAILED
 
     @parameterized.expand(
         [
@@ -869,7 +1144,7 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key=f"calc-permanent-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.side_effect = exc
 
             with pytest.raises(ApplicationError) as exc_info:
@@ -877,12 +1152,16 @@ class TestCalculateActivity(BaseTest):
 
         assert exc_info.value.non_retryable is True
         assert exc_info.value.type == expected_type
+        # Validation errors are user config, not defects: the raised error must carry the
+        # non-reportable marker so the activity interceptor doesn't send it to error tracking.
+        assert isinstance(exc_info.value, NonReportableError) == (expected_type == "validation_error")
         recalc.refresh_from_db()
         assert "m1" in recalc.metric_errors
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.status == ExperimentMetricResult.Status.FAILED
 
-    def test_query_to_is_passed_as_as_of_to_runner(self):
+    @parameterized.expand([("auto", None), ("direct", PrecomputationMode.DIRECT)])
+    def test_run_window_and_precompute_mode_reach_the_runner(self, _name: str, mode: PrecomputationMode | None):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
         # as_of, not just stored on the result row. Without as_of the runner falls back to its own now(),
         # so every metric in the run queries a slightly different time window — silently violating the
@@ -891,25 +1170,27 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-as-of", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
-            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, precomputation_mode=mode)
 
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
+        assert kwargs["workload"] == Workload.OFFLINE
+        assert kwargs["query"].precomputation_mode == mode
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's
         # time window is experiment.start_date, threaded into the runner via the experiment object it
-        # constructs and stored on the result row via _store_result(query_from=experiment.start_date).
+        # constructs and stored on the result row by the result store's run write (query_from=experiment.start_date).
         # This test pins the stored-row side. If the runner ever changes how it derives query_from, or if a
         # future refactor decouples the stored value from what the runner actually queries, the same class
         # of silent-miscalculation bug we just fixed for query_to could reappear here.
         exp = self._experiment(flag_key="calc-query-from", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -926,12 +1207,48 @@ class TestCalculateActivity(BaseTest):
         exp = self._experiment(flag_key="calc-query-id", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.query_id == f"experiment_metric_recalc_{recalc.id}_m1_attempt01"
+
+    @parameterized.expand(
+        [
+            ("activity_queue", "activity-q", "activity-q", ClickHouseUser.EXPERIMENTS),
+            ("precompute_queue", "activity-q", "precompute-q", ClickHouseUser.EXPERIMENTS),
+            ("main_queue", "activity-q", "main-q", ClickHouseUser.CACHE_WARMUP),
+            ("collapsed_queues", "main-q", "main-q", ClickHouseUser.CACHE_WARMUP),
+        ]
+    )
+    def test_queries_run_as_the_clickhouse_user_of_their_task_queue(
+        self, name: str, activity_task_queue: str, task_queue: str, expected_user: ClickHouseUser
+    ):
+        exp = self._experiment(flag_key=f"calc-ch-user-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        def run_metric_and_precompute_queries(**kwargs):
+            sync_execute("SELECT 1", flush=False)
+            # The precompute insert runs inside its own tags_context, as run_lazy_computation_insert does.
+            with tags_context(client_query_id="precompute-job"):
+                sync_execute("SELECT 2", flush=False)
+            return MagicMock(model_dump=MagicMock(return_value={}))
+
+        with (
+            override_settings(
+                EXPERIMENTS_RECALCULATION_TASK_QUEUE="main-q",
+                EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE=activity_task_queue,
+                EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE="precompute-q",
+            ),
+            patch("posthog.clickhouse.client.execute.get_client_from_pool") as client_from_pool,
+            _patched_runner() as mock_runner,
+        ):
+            client_from_pool.return_value.__enter__.return_value.execute.return_value = []
+            mock_runner.return_value.run.side_effect = run_metric_and_precompute_queries
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, task_queue=task_queue)
+
+        assert [call.args[3] for call in client_from_pool.call_args_list] == [expected_user, expected_user]
 
     def test_multiple_failures_accumulate_in_metric_errors(self):
         # Two metrics fail in sequence (not in parallel — that would need threads + a real Postgres). Pins the
@@ -955,15 +1272,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-skip-existing", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                metric,
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-            )
-        )
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         existing = ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -979,7 +1288,7 @@ class TestCalculateActivity(BaseTest):
         recalc.metric_retries = {"m1": {"attempt": 3, "max_attempts": 8}}
         recalc.save(update_fields=["metric_retries"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             result = _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         mock_runner.assert_not_called()
@@ -1010,7 +1319,7 @@ class TestCalculateActivity(BaseTest):
         )
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1022,15 +1331,7 @@ class TestCalculateActivity(BaseTest):
         metric = _mean_metric("m1")
         exp = self._experiment(flag_key="calc-excluded", metrics=[metric])
         query_to = datetime.fromisoformat(_QUERY_TO)
-        recalc_fp = compute_recalc_fingerprint(
-            compute_metric_fingerprint(
-                metric,
-                exp.start_date,
-                get_experiment_stats_method(exp),
-                exp.exposure_criteria,
-                only_count_matured_users=exp.only_count_matured_users,
-            )
-        )
+        recalc_fp = _recalc_fingerprint(_calculation_key(exp, "m1"))
         ExperimentMetricResult.objects.create(
             experiment=exp,
             metric_uuid="m1",
@@ -1044,89 +1345,50 @@ class TestCalculateActivity(BaseTest):
         exp.save(update_fields=["excluded_variants"])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
-        with patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner:
+        with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
             _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
         mock_runner.assert_called_once()
 
-    def test_store_result_updates_existing_row_with_different_fingerprint_in_place(self):
-        # The unique constraint is (experiment, metric_uuid, query_to); fingerprint is not part of it. A row may
-        # already occupy that key under a different fingerprint (an earlier run written under the old per-run
-        # scheme, or the timeseries workflow). _store_result must update that row in place, not insert a second
-        # one and crash with IntegrityError. This is what unsticks experiments already collided in production.
-        exp = self._experiment(flag_key="store-upsert-key", metrics=[_mean_metric("m1")])
+    @parameterized.expand([("key_version_1", 1), ("key_version_2", 2)])
+    def test_a_settings_change_before_the_runner_reads_them_is_not_stored_under_the_earlier_key(
+        self, _name: str, key_version: int
+    ) -> None:
+        metric = _mean_metric("m1")
+        exp = self._experiment(flag_key="calc-settings-race", metrics=[metric])
         recalc = self._recalc(exp, metric_uuids=["m1"])
-        query_to = datetime.fromisoformat(_QUERY_TO)
-        ExperimentMetricResult.objects.create(
-            experiment=exp,
-            metric_uuid="m1",
-            fingerprint="legacy-fingerprint-from-a-prior-run",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            result={"stale": True},
+        team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        runners: list[ExperimentQueryRunner] = []
+
+        def change_settings_then_build_runner(*args, **kwargs) -> ExperimentQueryRunner:
+            # Version 1 hashes the stats method, and version 2 also hashes the CUPED team default.
+            Experiment.objects.filter(id=exp.id).update(stats_config={"method": "frequentist"})
+            team_config.default_cuped_enabled = not team_config.default_cuped_enabled
+            team_config.save()
+            runner = ExperimentQueryRunner(*args, **kwargs)
+            runners.append(runner)
+            return runner
+
+        computed = MagicMock()
+        computed.model_dump.return_value = {"variant_results": []}
+        with (
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
+                side_effect=change_settings_then_build_runner,
+            ),
+            patch.object(ExperimentQueryRunner, "run", return_value=computed),
+        ):
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, calculation_key_version=key_version)
+
+        [runner] = runners
+        executed_key = runner.calculation_config.settings.build_metric_config(
+            metric_id="m1", role="primary", definition=metric
+        ).key_for_version(key_version)
+        stored = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1").values_list(
+            "fingerprint", flat=True
         )
-
-        _store_result(
-            recalculation_id=str(recalc.id),
-            experiment_id=exp.id,
-            metric_uuid="m1",
-            recalc_fp="new-deterministic-fingerprint",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            result={"fresh": True},
-            error_message=None,
-        )
-
-        rows = ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid="m1", query_to=query_to)
-        assert rows.count() == 1
-        row = rows.get()
-        assert row.fingerprint == "new-deterministic-fingerprint"
-        assert row.result == {"fresh": True}
-
-    @parameterized.expand(
-        [
-            (ExperimentMetricsRecalculation.Status.FAILED,),
-            (ExperimentMetricsRecalculation.Status.COMPLETED,),
-            (None,),
-        ]
-    )
-    def test_store_result_skips_a_terminal_or_missing_recalculation(self, status: str | None) -> None:
-        exp = self._experiment(flag_key="store-superseded", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp, metric_uuids=["m1"])
-        if status is None:
-            ExperimentMetricsRecalculation.objects.filter(id=recalc.id).delete()
-        else:
-            ExperimentMetricsRecalculation.objects.filter(id=recalc.id).update(status=status)
-        query_to = datetime.fromisoformat(_QUERY_TO)
-        ExperimentMetricResult.objects.create(
-            experiment=exp,
-            metric_uuid="m1",
-            fingerprint="fingerprint-from-the-superseding-run",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.COMPLETED,
-            result={"fresh": True},
-        )
-
-        _store_result(
-            recalculation_id=str(recalc.id),
-            experiment_id=exp.id,
-            metric_uuid="m1",
-            recalc_fp="fingerprint-from-the-orphaned-run",
-            query_from=query_to,
-            query_to=query_to,
-            status=ExperimentMetricResult.Status.FAILED,
-            result=None,
-            error_message="the orphan's late failure",
-        )
-
-        row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1", query_to=query_to)
-        assert row.status == ExperimentMetricResult.Status.COMPLETED
-        assert row.result == {"fresh": True}
-        assert row.error_message is None
+        assert list(stored) == [_recalc_fingerprint(executed_key)]
 
     @parameterized.expand(
         [
@@ -1142,17 +1404,15 @@ class TestCalculateActivity(BaseTest):
     def test_retry_does_not_double_count(
         self, name: str, metric_uuid: str, metrics: list, mock_runner_failure: bool, expected_result_rows: int
     ):
-        # Temporal retries the whole activity on transient failure. _store_result is idempotent (update_or_create
-        # keyed on fingerprint + query_to) and metric_errors is keyed by metric_uuid, so a second run must leave
-        # state identical to the first — no inflated counts, no duplicate result rows.
+        # Temporal retries the whole activity on transient failure. The run write is idempotent (update_or_create
+        # keyed on experiment, metric_uuid and query_to) and metric_errors is keyed by metric_uuid, so a second run
+        # must leave state identical to the first — no inflated counts, no duplicate result rows.
         exp = self._experiment(flag_key=f"retry-{name}", metrics=metrics)
         recalc = self._recalc(exp, metric_uuids=[metric_uuid])
 
         def _run() -> None:
             if mock_runner_failure:
-                with patch(
-                    "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-                ) as mock_runner:
+                with _patched_runner() as mock_runner:
                     mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
                     # Calc-step failures now re-raise so Temporal can retry transient errors. The record is
                     # written before the re-raise, so the assertions below still hold across attempts.
@@ -1167,7 +1427,7 @@ class TestCalculateActivity(BaseTest):
         recalc.refresh_from_db()
         assert len(recalc.metric_errors) == 1
         assert metric_uuid in recalc.metric_errors
-        # Exact count per case: 0 for discovery failures (no _store_result call), 1 for calc failures
+        # Exact count per case: 0 for discovery failures (no result write), 1 for calc failures
         # (one FAILED row, overwritten on retry rather than duplicated).
         assert (
             ExperimentMetricResult.objects.filter(experiment=exp, metric_uuid=metric_uuid).count()
@@ -1232,7 +1492,7 @@ class TestCalculateActivity(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with (
-            patch("products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner") as mock_runner,
+            _patched_runner() as mock_runner,
             patch("products.experiments.backend.temporal.recalculation_logic.capture_exception") as mock_capture,
         ):
             mock_runner.return_value.run.side_effect = RuntimeError("x" * 5000)
@@ -1270,6 +1530,25 @@ class TestCalculateActivity(BaseTest):
         )
 
 
+class TestCapacityRetryDelay(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("first_attempt", 1, 10, 20),
+            ("third_attempt", 3, 40, 80),
+            ("beyond_the_cap", 7, 300, 300),
+        ]
+    )
+    def test_band_doubles_per_attempt_up_to_the_cap(self, name: str, attempt: int, low: float, high: float):
+        # The first retry must stay fast and the band must grow, or a brief contention costs minutes again
+        # and a sustained one is polled constantly. The cap keeps the sum of the waits inside the metric's
+        # schedule_to_close budget.
+        with patch(
+            "products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=low
+        ) as uniform:
+            assert _capacity_retry_delay_seconds(attempt) == low
+        uniform.assert_called_once_with(low, high)
+
+
 @pytest.mark.django_db(transaction=True)
 class TestMissingRecalcRow:
     # All three activities go through _get_recalc_state at the top. A missing row is deterministic
@@ -1297,6 +1576,10 @@ class TestMissingRecalcRow:
         assert exc_info.value.non_retryable is True
 
 
+def _start_activity(env: ActivityEnvironment) -> asyncio.Task[MetricRecalculationResult]:
+    return asyncio.create_task(env.run(calculate_experiment_metric_for_recalculation, 1, "m1", "r1", _QUERY_TO))
+
+
 class TestCalculateActivityCancellation:
     @contextmanager
     def _patched_boundaries(self, body, cancel_query):
@@ -1305,6 +1588,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities._calculate_experiment_metric_for_recalculation_sync",
                 body,
             ),
+            patch("products.experiments.backend.temporal.recalculation_activities.on_asyncify_pool", lambda fn: fn),
             patch(
                 "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync", cancel_query
             ),
@@ -1312,7 +1596,6 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities._CANCEL_KILL_RETRY_INTERVAL_SECONDS",
                 0.001,
             ),
-            patch("temporalio.activity.info", return_value=SimpleNamespace(attempt=1)),
         ):
             yield
 
@@ -1333,7 +1616,7 @@ class TestCalculateActivityCancellation:
             return MetricRecalculationResult(metric_uuid="m1", success=True)
 
         with self._patched_boundaries(_slow_body, AsyncMock()):
-            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            task = _start_activity(ActivityEnvironment())
             await started.wait()
             try:
                 for cancellation in range(cancellations):
@@ -1366,7 +1649,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 0
             ),
         ):
-            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            task = _start_activity(ActivityEnvironment())
             await started.wait()
             try:
                 task.cancel("original cancellation")
@@ -1407,7 +1690,7 @@ class TestCalculateActivityCancellation:
                 "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS", 1
             ),
         ):
-            task = asyncio.create_task(calculate_experiment_metric_for_recalculation(1, "m1", "r1", _QUERY_TO))
+            task = _start_activity(ActivityEnvironment())
             await started.wait()
             task.cancel()
 
@@ -1431,6 +1714,96 @@ class TestCalculateActivityCancellation:
 
         assert observed["cancel_calls"] == 2
         assert observed["body_finished"] is True
+
+    async def test_query_kill_runs_while_calculations_fill_the_default_executor(self) -> None:
+        calculations_running = threading.Event()
+        killed: list[str] = []
+        busy_default_executor = ThreadPoolExecutor(max_workers=1)
+        asyncio.get_running_loop().set_default_executor(busy_default_executor)
+        busy_default_executor.submit(calculations_running.wait)
+        try:
+            with (
+                patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_logic._get_recalc_state",
+                    return_value=SimpleNamespace(team_id=1),
+                ),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_logic.cancel_query_on_cluster",
+                    lambda team_id, query_id: killed.append(query_id),
+                ),
+            ):
+                await asyncio.wait_for(_cancel_metric_query_sync("r1", "m1", 1), timeout=5)
+        finally:
+            calculations_running.set()
+
+        assert killed == ["experiment_metric_recalc_r1_m1_attempt01"]
+
+    async def test_calculation_runs_while_the_default_executor_is_full(self) -> None:
+        # The default executor has node CPUs + 4 threads, so calculations there run fewer at once than the worker's slots.
+        default_executor_full = threading.Event()
+        busy_default_executor = ThreadPoolExecutor(max_workers=1)
+        asyncio.get_running_loop().set_default_executor(busy_default_executor)
+        busy_default_executor.submit(default_executor_full.wait)
+        try:
+            with (
+                restored_asyncify_executor() as configure_asyncify_executor,
+                patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_activities._cancel_metric_query_sync",
+                    AsyncMock(),
+                ),
+                patch(
+                    "products.experiments.backend.temporal.recalculation_activities.METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS",
+                    0,
+                ),
+            ):
+                configure_asyncify_executor(1)
+                with pytest.raises(ApplicationError, match="not a valid ISO datetime"):
+                    await asyncio.wait_for(
+                        ActivityEnvironment().run(
+                            calculate_experiment_metric_for_recalculation, 1, "m1", "r1", "not-a-date"
+                        ),
+                        timeout=5,
+                    )
+        finally:
+            default_executor_full.set()
+
+    async def test_heartbeats_while_the_body_runs_and_stops_after(self) -> None:
+        # Temporal delivers a cancellation only in a heartbeat response, so without heartbeats the drain above
+        # never runs for a workflow cancel or a server-side timeout.
+        heartbeats = 0
+        two_heartbeats = asyncio.Event()
+
+        def _on_heartbeat(*details: object) -> None:
+            nonlocal heartbeats
+            heartbeats += 1
+            if heartbeats >= 2:
+                two_heartbeats.set()
+
+        async def _body(*args: object, **kwargs: object) -> MetricRecalculationResult:
+            await two_heartbeats.wait()
+            return MetricRecalculationResult(metric_uuid="m1", success=True)
+
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, heartbeat_timeout=timedelta(seconds=0.2))
+        env.on_heartbeat = _on_heartbeat
+        tasks_before = asyncio.all_tasks()
+        with self._patched_boundaries(_body, AsyncMock()):
+            result = await asyncio.wait_for(_start_activity(env), timeout=5)
+
+        assert result.success is True
+        assert asyncio.all_tasks() - tasks_before == set()
+
+    async def test_body_gets_the_task_queue_the_worker_polls(self) -> None:
+        body = AsyncMock(return_value=MetricRecalculationResult(metric_uuid="m1", success=True))
+        env = ActivityEnvironment()
+        env.info = dataclasses.replace(env.info, task_queue="activity-q")
+
+        with self._patched_boundaries(body, AsyncMock()):
+            await _start_activity(env)
+
+        assert body.call_args.args[-1] == "activity-q"
 
 
 @contextmanager
@@ -1492,9 +1865,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1515,9 +1886,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.side_effect = StatisticError("not enough data")
                 _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
 
@@ -1529,32 +1898,30 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["execution_mode"] == "recalculation"
 
     def test_secondary_metric_is_not_marked_primary(self):
-        # metric_type is now threaded through from the workflow's discovery output rather than re-derived
-        # from a fresh DB lookup. The activity's caller (workflow) reads the value from
-        # ExperimentMetricToRecalculate; tests pass it explicitly to exercise the same path.
+        # The workflow passes the role from discovery (ExperimentMetricToRecalculate.role), and the
+        # calculation does not look it up again, so the test passes it explicitly to exercise the same path.
         exp = self._experiment(flag_key="an-secondary", secondary=[_mean_metric("s1")])
         recalc = self._recalc(exp, metric_uuids=["s1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.return_value.model_dump.return_value = {}
-                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, metric_type="secondary")
+                _calculate(exp.id, "s1", str(recalc.id), _QUERY_TO, role="secondary")
 
         assert captured[0]["properties"]["is_primary"] is False
 
     @parameterized.expand(
         [
-            # (name, exc, expected_error_type, expected_delay_seconds, expected_message) — backpressure uses
-            # the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
+            # (name, exc, expected_error_type, expected_delay_seconds, expected_max_attempts, expected_message) —
+            # backpressure uses the explicit concurrency delay; a generic transient on attempt 2 follows the policy backoff
             # (5 * 2^1). The generic exception carries a fake credential to lock in that raw exception text
             # (which can embed the executed query, warehouse secrets included) never reaches analytics.
             (
                 "backpressure",
                 ConcurrencyLimitExceeded("quota"),
                 "rate_limited",
-                60,
+                47.5,
+                CAPACITY_MAX_METRIC_ATTEMPTS,
                 "The query was deferred because the cluster is at capacity.",
             ),
             (
@@ -1562,6 +1929,7 @@ class TestRecalculationAnalytics(BaseTest):
                 RuntimeError("blip aws_access_key_id=AKIAFAKESECRET"),
                 "server_error",
                 10,
+                MAX_METRIC_ATTEMPTS,
                 "The query failed with a server error.",
             ),
         ]
@@ -1571,7 +1939,8 @@ class TestRecalculationAnalytics(BaseTest):
         name: str,
         exc: Exception,
         expected_error_type: str,
-        expected_delay_seconds: int,
+        expected_delay_seconds: float,
+        expected_max_attempts: int,
         expected_message: str,
     ):
         # A non-final attempt re-raises for Temporal to retry. It emits 'experiment metric retry' (not
@@ -1582,9 +1951,10 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with (
+                _patched_runner() as mock_runner,
+                patch("products.experiments.backend.temporal.recalculation_logic.random.uniform", return_value=47.5),
+            ):
                 mock_runner.return_value.run.side_effect = exc
                 with pytest.raises((type(exc), ApplicationError)):
                     _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False, attempt=2)
@@ -1596,7 +1966,7 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["error_message"] == expected_message
         assert "AKIAFAKESECRET" not in props["error_message"]
         assert props["attempt"] == 2
-        assert props["max_attempts"] == MAX_METRIC_ATTEMPTS
+        assert props["max_attempts"] == expected_max_attempts
         assert props["next_retry_delay_seconds"] == expected_delay_seconds
         assert props["execution_mode"] == "recalculation"
         assert props["mechanism"] == "orchestrated"
@@ -1625,9 +1995,7 @@ class TestRecalculationAnalytics(BaseTest):
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
         with _record_captures() as captured:
-            with patch(
-                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
-            ) as mock_runner:
+            with _patched_runner() as mock_runner:
                 mock_runner.return_value.run.side_effect = exc
                 with pytest.raises(ApplicationError if raises_application_error else type(exc)):
                     _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
@@ -1642,8 +2010,11 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["trigger"] == "manual"
 
     def test_results_refresh_completed_event_on_finish(self):
-        exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])
-        recalc = self._recalc(exp, metric_uuids=["m1"])
+        exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")], secondary=[_mean_metric("s1")])
+        for uuid, role in [("sp1", "primary"), ("ss1", "secondary")]:
+            saved = ExperimentSavedMetric.objects.create(team=self.team, name=f"saved-{uuid}", query=_mean_metric(uuid))
+            ExperimentToSavedMetric.objects.create(experiment=exp, saved_metric=saved, metadata={"type": role})
+        recalc = self._recalc(exp, metric_uuids=["m1", "s1", "sp1", "ss1"])
 
         with _record_captures() as captured:
             _update(
@@ -1666,6 +2037,8 @@ class TestRecalculationAnalytics(BaseTest):
         assert props["status"] == "completed"
         assert props["succeeded_metrics"] == 3
         assert props["failed_metrics"] == 1
+        assert props["primary_metrics_count"] == 2
+        assert props["secondary_metrics_count"] == 2
         assert props["execution_mode"] == "recalculation"
         assert "total_duration_ms" in props
 

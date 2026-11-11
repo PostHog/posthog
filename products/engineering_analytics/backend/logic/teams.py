@@ -1,7 +1,7 @@
 """Team-level orchestration: CI health rollups, per-team activity, and merge trend."""
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from products.engineering_analytics.backend.facade.contracts import (
     TeamCIActivity,
@@ -59,37 +59,50 @@ def build_team_ci_health(
     limit = limit if limit is not None else _DEFAULT_TEAM_LIMIT
     if not 1 <= limit <= _MAX_TEAM_LIMIT:
         raise ValueError(f"limit must be between 1 and {_MAX_TEAM_LIMIT}")
-    roster = query_team_ci_health(
-        curated=curated,
-        date_from=parsed_from,
-        date_to=parsed_to,
-        min_failed_prs=min_failed_prs,
+    window = _prior_window(parsed_from, parsed_to)
+    with curated.concurrent_reads() as reads:
+        roster_read = reads.submit(
+            lambda: query_team_ci_health(
+                curated=curated,
+                date_from=parsed_from,
+                date_to=parsed_to,
+                min_failed_prs=min_failed_prs,
+                limit=limit,
+                owner_team=owner_team,
+            )
+        )
+        census_read = reads.submit(
+            lambda: query_census_counts(
+                curated=curated,
+                date_from=parsed_from,
+                scan_from=parsed_from - _CENSUS_LOOKBACK,
+                date_to=window.resolved_to,
+            )
+        )
+        merged_read = reads.submit(
+            lambda: query_team_merged_pr_counts(
+                curated=curated, date_from=parsed_from, scan_from=window.scan_from, date_to=window.resolved_to
+            )
+        )
+    return _enrich_roster(
+        roster_read.result(),
+        census=census_read.result(),
+        merged=merged_read.result(),
         limit=limit,
         owner_team=owner_team,
-    )
-    return _enrich_roster(
-        roster, curated=curated, date_from=parsed_from, date_to=parsed_to, limit=limit, owner_team=owner_team
     )
 
 
 def _enrich_roster(
     roster: TeamCIHealthList,
     *,
-    curated: CuratedGitHubSource,
-    date_from: datetime,
-    date_to: datetime | None,
+    census: dict[str, WindowedCount],
+    merged: dict[str, WindowedCount] | None,
     limit: int,
     owner_team: str | None,
 ) -> TeamCIHealthList:
     """Attach census and merged-PR context, and add census-only rows so a team whose tests
     all pass still appears in the roster instead of vanishing with the signal."""
-    window = _prior_window(date_from, date_to)
-    census = query_census_counts(
-        curated=curated, date_from=date_from, scan_from=date_from - _CENSUS_LOOKBACK, date_to=window.resolved_to
-    )
-    merged = query_team_merged_pr_counts(
-        curated=curated, date_from=date_from, scan_from=window.scan_from, date_to=window.resolved_to
-    )
     _NO_COUNTS = WindowedCount(current=None, prior=None)
     _ZERO_COUNTS = WindowedCount(current=0, prior=0)
 

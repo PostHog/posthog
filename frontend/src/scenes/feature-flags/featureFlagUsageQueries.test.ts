@@ -1,4 +1,5 @@
 import { dateMapping } from 'lib/utils/dateFilters'
+import { BREAKDOWN_NULL_DISPLAY } from 'scenes/insights/utils'
 
 import { Noun } from '~/models/groupsModel'
 import { DataVisualizationNode, DateRange, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
@@ -10,12 +11,12 @@ import {
     buildFlagEvaluationsTotalVolumeChart,
     buildFlagEvaluationsUniqueCallersChart,
     clampToFlagEvaluationsRetention,
-    FLAG_EVALUATIONS_RETENTION_DAYS,
     FLAG_EVALUATIONS_VOLUME_ROW_LIMIT,
     flagEvaluationsDateOptions,
     FlagUsageChart,
     FlagUsageQueryOptions,
 } from './featureFlagUsageQueries'
+import { FLAG_EVALUATIONS_RETENTION_DAYS } from './flagEvaluationsTable'
 
 type TrendsUsageChart = FlagUsageChart<InsightVizNode<TrendsQuery>>
 
@@ -178,6 +179,15 @@ describe('featureFlagUsageQueries', () => {
 
         expect(query.source.query).toContain("flag_key = 'o\\'brien-flag'")
     })
+
+    it.each(flagEvaluationsBuilders)(
+        '%s labels the NULL response bucket with the events-mode label',
+        (_name, build) => {
+            const { query } = build(personFlagOptions)
+
+            expect(query.source.query).toContain(`ifNull(response, '${BREAKDOWN_NULL_DISPLAY}') AS`)
+        }
+    )
 
     it('buildFlagEvaluationsTotalVolumeChart breaks the line graph down by response over the date range interval', () => {
         const { query } = buildFlagEvaluationsTotalVolumeChart({

@@ -25,7 +25,22 @@ SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
 SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
 SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
 SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT = "wait_for_spend_limit"
+SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB = "reconnect_github"
 SLACK_SPEND_LIMIT_ERROR_FRAGMENT = "this agent run reached its spend limit"
+
+# Checked before the connect-then-replan markers, because a rejected personal credential needs
+# the person to authorize again rather than a re-plan against the connections already there.
+_RECONNECT_GITHUB_MARKERS = (
+    "github user integration for this run requires reauthorization",
+    "github user integration requires reauthorization",
+)
+
+_RECONNECT_GITHUB_CONNECT_LABEL = "Connect your GitHub in PostHog settings"
+_RECONNECT_GITHUB_PROMPT = (
+    "Your personal GitHub connection stopped working, so this run could not use it. "
+    "{connect} to authorize it again, or to connect it for the first time. "
+    "Then reply in this thread and I'll pick up the new credentials."
+)
 
 _CONNECT_THEN_REPLAN_MARKERS = (
     "not connected",
@@ -75,6 +90,7 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT: (
         "Wait for this run's spend limit to reset before replying in the thread."
     ),
+    SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
 SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
@@ -103,13 +119,15 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler.for_run(context, task_run.id)
+        if handler.proactive_notifications_muted():
+            handler.delete_progress()
+            return
         # The buttons lead where the footer's link does.
         task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
             if pr_url:
-                handler.update_reaction("hedgehog")
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 _post_cancelled_once(task_run, handler)
@@ -118,7 +136,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
-            handler.update_reaction("hedgehog")
             if _is_timed_out_completion(task_run):
                 handler.delete_progress()
                 return
@@ -166,7 +183,6 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
     still deserve an error card.
     """
     if _has_timeout_marker(task_run):
-        handler.update_reaction("hedgehog")
         handler.delete_progress()
         return
     error = task_run.error_message or "Unknown error"
@@ -245,7 +261,7 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
         updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
         recovery_strategy = _classify_failure_recovery(error or "")
         updates[SLACK_RECOVERY_STRATEGY_KEY] = recovery_strategy
-        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[recovery_strategy]
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _recovery_prompt(recovery_strategy, task_run.team_id)
     elif status == TaskRun.Status.CANCELLED:
         updates[SLACK_RECOVERY_STRATEGY_KEY] = SLACK_RECOVERY_STRATEGY_CANCELLED
         updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED]
@@ -257,6 +273,8 @@ def _classify_failure_recovery(error: str) -> str:
     normalized = error.lower()
     if SLACK_SPEND_LIMIT_ERROR_FRAGMENT in normalized:
         return SLACK_RECOVERY_STRATEGY_WAIT_FOR_SPEND_LIMIT
+    if any(marker in normalized for marker in _RECONNECT_GITHUB_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB
     if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
         return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
     if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
@@ -264,8 +282,19 @@ def _classify_failure_recovery(error: str) -> str:
     return SLACK_RECOVERY_STRATEGY_RETRY
 
 
-def _failure_recovery_prompt(error: str) -> str:
-    return _RECOVERY_PROMPTS[_classify_failure_recovery(error)]
+def _failure_recovery_prompt(error: str, team_id: int | None = None) -> str:
+    return _recovery_prompt(_classify_failure_recovery(error), team_id)
+
+
+def _recovery_prompt(strategy: str, team_id: int | None) -> str:
+    if strategy == SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB and team_id is not None:
+        # The settings page offers Reconnect for a flagged connection and Connect when there is none,
+        # so a single link serves a person whose credentials expired and a person who never connected.
+        from products.slack_app.backend.services.slack_messages import personal_integrations_url
+
+        link = f"<{personal_integrations_url(team_id)}|{_RECONNECT_GITHUB_CONNECT_LABEL}>"
+        return _RECONNECT_GITHUB_PROMPT.format(connect=link)
+    return _RECOVERY_PROMPTS[strategy]
 
 
 def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
@@ -281,11 +310,10 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
         return
 
     if _is_suppressed_permission_rejection_error(task_run, error):
-        handler.update_reaction("hedgehog")
         handler.post_note(SLACK_DENIAL_STOP_MESSAGE)
     else:
         handler.update_reaction("x")
-        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))
+        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error, task_run.team_id))
     _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
 
 
@@ -296,7 +324,6 @@ def _post_cancelled_once(task_run: Any, handler: Any) -> None:
         handler.delete_progress()
         return
 
-    handler.update_reaction("hedgehog")
     handler.delete_progress()
     _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 

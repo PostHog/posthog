@@ -1,12 +1,19 @@
+import { useMountedLogic, useValues } from 'kea'
+
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
+import { lemonDialogLogic } from 'lib/lemon-ui/LemonDialog/lemonDialogLogic'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 
 import { DataWarehouseSavedQueryIncrementalCheck } from '~/types'
+
+import { saveViewIncrementalLogic } from 'products/data_warehouse/frontend/sql_editor/saveViewIncrementalLogic'
 
 export const LOOKBACK_OPTIONS = [
     { value: 0, label: 'No lookback' },
@@ -38,9 +45,27 @@ const UNIQUE_KEY_HELP =
     'The columns that together identify a row, like a primary key. Rows that match on them are updated in place. Include every column the query groups by. Values here can never be empty.'
 const LOOKBACK_HELP = 'Include this much previously processed data in each run to catch late arrivals and updates.'
 
+/** Save-as-view form fields, keyed by the `blocked_keys` names the API reports for a refused config. */
+const BLOCKED_KEY_FORM_FIELDS: Record<string, string> = {
+    incremental_key: 'incrementalKey',
+    unique_key: 'incrementalUniqueKey',
+}
+
+/**
+ * The save-as-view form field that a refused incremental config names, with the error to show under
+ * it. The error detail is the first blocker, which belongs to the first blocked key.
+ */
+export function incrementalFieldErrorFromSave(error: unknown): { field: string; message: string } | null {
+    if (!(error instanceof ApiError) || error.status !== 400 || error.attr !== 'incremental' || !error.detail) {
+        return null
+    }
+    const blockedKeys: unknown = error.data?.extra?.blocked_keys
+    const field = Array.isArray(blockedKeys) ? BLOCKED_KEY_FORM_FIELDS[String(blockedKeys[0])] : undefined
+    return field ? { field, message: error.detail } : null
+}
+
 interface IncrementalConfigFieldsProps {
-    /** Result of the backend eligibility check for the query being saved. */
-    check: DataWarehouseSavedQueryIncrementalCheck | null
+    queries: string[]
 }
 
 /** What the user has picked so far, before it becomes a saved incremental config. */
@@ -181,10 +206,17 @@ function LookbackInput({ value, onChange }: { value: number; onChange: (value: n
 }
 
 interface IncrementalConfigOptionsProps {
-    /** Result of the backend eligibility check for the view's query. Nothing renders until it arrives. */
+    /** Result of the backend eligibility check for the view's query. */
     check: DataWarehouseSavedQueryIncrementalCheck | null
     draft: IncrementalConfigDraft
     onChange: (draft: Partial<IncrementalConfigDraft>) => void
+}
+
+export const INCREMENTAL_CHECK_LOADING: DataWarehouseSavedQueryIncrementalCheck = {
+    eligible: false,
+    key_candidates: [],
+    blockers: [],
+    warnings: [],
 }
 
 /**
@@ -196,6 +228,14 @@ export function IncrementalConfigOptions({
     draft,
     onChange,
 }: IncrementalConfigOptionsProps): JSX.Element | null {
+    if (check === INCREMENTAL_CHECK_LOADING) {
+        return (
+            <div className="mt-4 deprecated-space-y-2" data-attr="materialization-refresh-mode-loading">
+                <LemonSkeleton className="h-8 w-full" repeat={2} />
+            </div>
+        )
+    }
+
     if (!check) {
         return null
     }
@@ -269,9 +309,35 @@ export function IncrementalConfigOptions({
  * Rendered only when the view is being materialized, since incremental describes how a
  * materialized table is refreshed and means nothing without one.
  */
-export function IncrementalConfigFields({ check }: IncrementalConfigFieldsProps): JSX.Element | null {
-    if (!check) {
+export function IncrementalConfigFields({ queries }: IncrementalConfigFieldsProps): JSX.Element | null {
+    const formLogic = useMountedLogic(lemonDialogLogic)
+    const { form } = useValues(formLogic)
+    const { check, checkLoading } = useValues(
+        saveViewIncrementalLogic({
+            query: queries[Number(form.saveTarget)] ?? '',
+            dialogKey: String(formLogic.key),
+            enabled: Boolean(form.materializeAfterSave),
+        })
+    )
+
+    if (!form.materializeAfterSave) {
         return null
+    }
+
+    if (checkLoading) {
+        return (
+            <div className="mt-4 deprecated-space-y-2" data-attr="sql-editor-save-view-incremental-loading">
+                <LemonSkeleton className="h-8 w-full" repeat={2} />
+            </div>
+        )
+    }
+
+    if (!check) {
+        return (
+            <LemonBanner type="info" className="mt-2">
+                Incremental options are unavailable. You can still save this view with a full refresh.
+            </LemonBanner>
+        )
     }
 
     if (!check.eligible || check.key_candidates.length === 0) {

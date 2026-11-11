@@ -84,14 +84,14 @@ class TestFetchRowBatches:
     def test_batches_on_the_row_count_when_rows_are_evenly_sized(self) -> None:
         cursor = _FakeCursor(_narrow(250))
 
-        batches = list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=100, max_bytes=1_000_000))
+        batches = list(fetch_row_batches(cursor.fetchmany, max_rows=100, max_bytes=1_000_000))
 
         assert [len(batch) for batch in batches] == [100, 100, 50]
 
     def test_flushes_early_once_the_byte_budget_is_reached(self) -> None:
         cursor = _FakeCursor(_wide(40, value_bytes=1024))
 
-        batches = list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=10_000, max_bytes=8 * 1024))
+        batches = list(fetch_row_batches(cursor.fetchmany, max_rows=10_000, max_bytes=8 * 1024))
 
         assert all(sum(estimate_row_bytes(row) for row in batch) <= 8 * 1024 for batch in batches)
         assert sum(len(batch) for batch in batches) == 40
@@ -100,7 +100,7 @@ class TestFetchRowBatches:
         rows = _narrow(50) + _wide(50, value_bytes=4096, start=50)
         cursor = _FakeCursor(list(rows))
 
-        batches = list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000, max_bytes=16 * 1024))
+        batches = list(fetch_row_batches(cursor.fetchmany, max_rows=1_000, max_bytes=16 * 1024))
 
         assert [row for batch in batches for row in batch] == rows
 
@@ -108,14 +108,14 @@ class TestFetchRowBatches:
         rows = [(0, "s"), (1, "x" * 4096), (2, "s")]
         cursor = _FakeCursor(rows)
 
-        batches = list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000, max_bytes=1_024))
+        batches = list(fetch_row_batches(cursor.fetchmany, max_rows=1_000, max_bytes=1_024))
 
         assert batches == [[rows[0]], [rows[1]], [rows[2]]]
 
     def test_shrinks_the_fetch_page_once_wide_rows_appear(self) -> None:
         cursor = _FakeCursor(_narrow(MAX_FETCH_PAGE_ROWS) + _wide(2_000, value_bytes=1024, start=MAX_FETCH_PAGE_ROWS))
 
-        list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000_000, max_bytes=8 * 1024))
+        list(fetch_row_batches(cursor.fetchmany, max_rows=1_000_000, max_bytes=8 * 1024))
 
         assert cursor.page_sizes[0] == MAX_FETCH_PAGE_ROWS
         assert cursor.page_sizes[-1] <= 8
@@ -124,7 +124,7 @@ class TestFetchRowBatches:
         # A single outlier must not pin the read to tiny pages for the millions of rows behind it.
         cursor = _FakeCursor([(0, "x" * 65_536), *_narrow(20_000)])
 
-        list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000_000, max_bytes=64 * 1024))
+        list(fetch_row_batches(cursor.fetchmany, max_rows=1_000_000, max_bytes=64 * 1024))
 
         assert min(cursor.page_sizes) == 1
         assert cursor.page_sizes[-1] == MAX_FETCH_PAGE_ROWS
@@ -141,9 +141,61 @@ class TestFetchRowBatches:
     def test_page_never_exceeds_the_lowest_ceiling(self, _name: str, kwargs: dict, expected: int) -> None:
         cursor = _FakeCursor(_narrow(10))
 
-        list(fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_bytes=1_000_000, **kwargs))
+        list(fetch_row_batches(cursor.fetchmany, max_bytes=1_000_000, **kwargs))
 
         assert set(cursor.page_sizes) == {expected}
+
+    def test_average_sizing_keeps_its_page_through_an_occasional_wide_row(self) -> None:
+        rows = [(index, "x" * 4096 if index % 100 == 0 else "s") for index in range(1_000)]
+        cursor = _FakeCursor(list(rows))
+
+        batches = list(
+            fetch_row_batches(
+                cursor.fetchmany,
+                max_rows=10_000,
+                max_bytes=64 * 1024,
+                max_page_rows=100,
+                size_pages_by_average=True,
+            )
+        )
+
+        assert [row for batch in batches for row in batch] == rows
+        assert set(cursor.page_sizes) == {100}
+
+    def test_average_sizing_shrinks_the_page_in_a_run_of_wide_rows(self) -> None:
+        rows = _narrow(200) + _wide(200, value_bytes=1024, start=200)
+        cursor = _FakeCursor(list(rows))
+
+        batches = list(
+            fetch_row_batches(
+                cursor.fetchmany,
+                max_rows=10_000,
+                max_bytes=8 * 1024,
+                max_page_rows=100,
+                size_pages_by_average=True,
+            )
+        )
+
+        assert [row for batch in batches for row in batch] == rows
+        assert cursor.page_sizes[0] == 100
+        assert cursor.page_sizes[-1] <= 8
+
+    def test_average_sizing_stays_small_past_a_narrow_row_inside_a_run_of_wide_rows(self) -> None:
+        rows = [(index, "s" if index % 3 == 2 else "x" * 1200) for index in range(400)]
+        cursor = _FakeCursor(list(rows))
+
+        batches = list(
+            fetch_row_batches(
+                cursor.fetchmany,
+                max_rows=10_000,
+                max_bytes=1_000,
+                max_page_rows=100,
+                size_pages_by_average=True,
+            )
+        )
+
+        assert [row for batch in batches for row in batch] == rows
+        assert set(cursor.page_sizes[1:]) == {1}
 
 
 class TestPageAlignedFlush:
@@ -153,9 +205,7 @@ class TestPageAlignedFlush:
         # a batch on its own, so carrying the remainder would double residency for one more row.
         cursor = _FakeCursor(_wide(50, value_bytes=1000))
 
-        batches = list(
-            fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000, max_bytes=12_000, max_page_rows=10)
-        )
+        batches = list(fetch_row_batches(cursor.fetchmany, max_rows=1_000, max_bytes=12_000, max_page_rows=10))
 
         assert [len(batch) for batch in batches] == [10, 10, 10, 10, 10]
 
@@ -164,30 +214,31 @@ class TestPageAlignedFlush:
         # fetch just because the page boundary arrived.
         cursor = _FakeCursor(_narrow(100))
 
-        batches = list(
-            fetch_row_batches(cursor.fetchmany, byte_bounded=True, max_rows=1_000, max_bytes=12_000, max_page_rows=10)
-        )
+        batches = list(fetch_row_batches(cursor.fetchmany, max_rows=1_000, max_bytes=12_000, max_page_rows=10))
 
         assert [len(batch) for batch in batches] == [100]
 
+    def test_a_driver_that_caps_its_own_pages_still_fills_batches_under_average_sizing(self) -> None:
+        cursor = _FakeCursor(_wide(2_000, value_bytes=84))
 
-class TestByteBoundedOff:
-    def test_batches_and_fetches_on_the_row_count_alone(self) -> None:
-        # The rollout gate has to leave the old loop exactly as it was: one fetch of the chunk
-        # size, one batch per fetch, whatever the rows weigh.
-        cursor = _FakeCursor(_wide(250, value_bytes=4096))
+        batches = list(
+            fetch_row_batches(
+                lambda requested_rows: cursor.fetchmany(min(requested_rows, 50)),
+                max_rows=10_000,
+                max_bytes=100_000,
+                max_page_rows=5_000,
+                size_pages_by_average=True,
+            )
+        )
 
-        batches = list(fetch_row_batches(cursor.fetchmany, byte_bounded=False, max_rows=100, max_bytes=8 * 1024))
-
-        assert [len(batch) for batch in batches] == [100, 100, 50]
-        assert set(cursor.page_sizes) == {100}
+        assert [len(batch) for batch in batches] == [1_000, 1_000]
 
 
 class TestIterRowBatches:
     def test_batches_an_already_streaming_source(self) -> None:
         rows = _narrow(5)
 
-        assert list(iter_row_batches(iter(rows), byte_bounded=True, max_rows=2, max_bytes=1_000_000)) == [
+        assert list(iter_row_batches(iter(rows), max_rows=2, max_bytes=1_000_000)) == [
             rows[0:2],
             rows[2:4],
             rows[4:5],

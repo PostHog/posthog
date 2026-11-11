@@ -78,12 +78,21 @@ def test_livez_returns_200_and_doesnt_require_any_dependencies(client: Client):
         simulate_clickhouse_cannot_connect(),
         simulate_celery_cannot_connect(),
         simulate_cache_cannot_connect(),
+        patch("posthog.health.get_git_commit_full", return_value="a" * 40),
     ):
         resp = get_livez(client)
 
     assert resp.status_code == 200, resp.content
     data = resp.json()
-    assert data == {"http": True}
+    assert data == {"http": True, "commit": "a" * 40}
+
+
+def test_livez_returns_null_commit_when_unknown(client: Client):
+    with patch("posthog.health.get_git_commit_full", return_value=None):
+        resp = get_livez(client)
+
+    assert resp.status_code == 200, resp.content
+    assert resp.json() == {"http": True, "commit": None}
 
 
 # Role based tests

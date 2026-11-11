@@ -56,10 +56,11 @@ def test_conformance_case(tmp_path: Path, case: ConformanceCase) -> None:
             "source": resolution.source,
             "slack": resolution.slack,
             "additions": resolution.additions,
+            "sensitive": resolution.sensitive,
         }
-    # A case that leaves `additions` out expects none, so the cases written before the field
-    # existed also check that nothing leaks into it.
-    expected = {path: {"additions": [], **resolution} for path, resolution in case.expect.items()}
+    # A case that leaves `additions` or `sensitive` out expects the default, so the cases written
+    # before a field existed also check that nothing leaks into it.
+    expected = {path: {"additions": [], "sensitive": False, **resolution} for path, resolution in case.expect.items()}
 
     assert actual == expected
 

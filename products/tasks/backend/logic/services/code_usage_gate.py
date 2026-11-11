@@ -3,23 +3,19 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 from uuid import UUID
 
-from django.conf import settings
-
-import requests
 from rest_framework import status
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.auth import OAuthAccessTokenAuthentication
-from posthog.models import OAuthAccessToken
 from posthog.permissions import get_authenticator_scopes
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 
-if TYPE_CHECKING:
-    from posthog.models import Organization, User
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, create_oauth_access_token_for_user
-from posthog.utils import get_instance_region
-
-from products.tasks.backend.access import DesktopAccessResolutionError, get_desktop_access_decision
+from products.tasks.backend.access import (
+    DesktopAccessResolutionError,
+    get_desktop_access_decision,
+    get_posthog_ai_access_decision,
+)
 from products.tasks.backend.facade.contracts import DesktopAccessReason
 from products.tasks.backend.logic.services.compute_quota import (
     COMPUTE_QUOTA_DENIAL_CODE,
@@ -27,108 +23,44 @@ from products.tasks.backend.logic.services.compute_quota import (
     organization_deactivated,
 )
 from products.tasks.backend.metrics import observe_code_usage_gate_check
+from products.tasks.backend.models import Task
 from products.tasks.backend.presentation.serializers import TaskRunErrorResponseSerializer
 
+if TYPE_CHECKING:
+    from posthog.models import Organization, User
+
 logger = logging.getLogger(__name__)
-
-GATEWAY_PRODUCT = "posthog_code"
-
-# Short timeout: this runs on the creation hot path; on failure we fail open.
-GATEWAY_USAGE_TIMEOUT_SECONDS = 2.5
 
 
 @dataclass(frozen=True)
 class CodeUsageStatus:
     is_rate_limited: bool
     limit_type: str | None  # "burst" (daily) | "sustained" (monthly) | None
-    reset_at: str | None  # ISO 8601 string from the gateway, when known
+    reset_at: str | None  # ISO 8601, the billing period end when known
     is_pro: bool
 
 
-def _gateway_usage_url() -> str | None:
-    """Resolve the LLM gateway usage endpoint for this deployment.
+def get_posthog_code_usage(team_id: int) -> CodeUsageStatus | None:
+    """None (fail open) on any failure, so a Redis or DB error never blocks task creation."""
+    from posthog.models import Team  # noqa: PLC0415
 
-    Region-based in cloud, the local gateway (localhost:3308, matching the
-    desktop client) under DEBUG. Returns None when no gateway applies, so
-    callers fail open.
-    """
-    region = get_instance_region()
-    if region == "US":
-        base = "https://gateway.us.posthog.com"
-    elif region == "EU":
-        base = "https://gateway.eu.posthog.com"
-    elif settings.DEBUG:
-        base = "http://localhost:3308"
-    else:
-        return None
-    return f"{base}/v1/usage/{GATEWAY_PRODUCT}"
-
-
-def _parse_usage(data: dict[str, Any]) -> CodeUsageStatus:
-    sustained = data.get("sustained") or {}
-    burst = data.get("burst") or {}
-    sustained_exceeded = bool(sustained.get("exceeded"))
-    burst_exceeded = bool(burst.get("exceeded"))
-    is_limited = bool(data.get("is_rate_limited")) or sustained_exceeded or burst_exceeded
-
-    # Surface the bucket that's actually over for the reset hint; burst (daily) takes priority.
-    if burst_exceeded:
-        limit_type, reset_at = "burst", burst.get("reset_at")
-    elif sustained_exceeded:
-        limit_type, reset_at = "sustained", sustained.get("reset_at")
-    else:
-        limit_type, reset_at = None, None
-
-    return CodeUsageStatus(
-        is_rate_limited=is_limited,
-        limit_type=limit_type,
-        reset_at=reset_at,
-        is_pro=bool(data.get("is_pro")),
-    )
-
-
-def get_posthog_code_usage(user, team_id: int) -> CodeUsageStatus | None:
-    """Fetch the team's posthog_code usage from the LLM gateway.
-
-    Returns None (fail open) on any failure — gateway hiccups must never block
-    task creation. Mints a short-lived, least-privilege `llm_gateway:read` token
-    the same way the sandbox agent authenticates to the gateway.
-    """
-    url = _gateway_usage_url()
-    if not url:
-        return None
+    from ee.billing.quota_limiting import QuotaResource, is_team_over_credit_budget  # noqa: PLC0415
 
     try:
-        token = create_oauth_access_token_for_user(
-            user, team_id, scopes=["llm_gateway:read"], include_internal_scopes=False
-        )
+        team = Team.objects.select_related("organization").get(id=team_id)
+        limited = is_team_over_credit_budget(team.api_token, QuotaResource.POSTHOG_CODE_CREDITS)
+        if not limited:
+            return CodeUsageStatus(is_rate_limited=False, limit_type=None, reset_at=None, is_pro=False)
+        period = team.organization.current_billing_period
     except Exception:
-        logger.warning("code_usage_gate: failed to mint gateway token", exc_info=True)
+        logger.warning("code_usage_gate: credit bucket check failed", exc_info=True)
         return None
-
-    try:
-        response = requests.get(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=GATEWAY_USAGE_TIMEOUT_SECONDS,
-        )
-        if response.status_code != 200:
-            logger.warning("code_usage_gate: gateway usage returned %s", response.status_code)
-            return None
-        return _parse_usage(response.json())
-    except requests.RequestException:
-        logger.warning("code_usage_gate: gateway usage request failed", exc_info=True)
-        return None
-    except (ValueError, AttributeError):
-        logger.warning("code_usage_gate: could not parse gateway usage response", exc_info=True)
-        return None
-    finally:
-        # Short-lived token: delete it so repeated gate checks don't pile up OAuthAccessToken rows.
-        # Swallow cleanup errors so a DB hiccup here can't break the fail-open guarantee.
-        try:
-            OAuthAccessToken.objects.filter(token=token).delete()
-        except Exception:
-            logger.warning("code_usage_gate: failed to delete gateway token", exc_info=True)
+    return CodeUsageStatus(
+        is_rate_limited=True,
+        limit_type=None,
+        reset_at=period.end.isoformat() if period else None,
+        is_pro=False,
+    )
 
 
 def rate_limit_error_payload(usage: CodeUsageStatus) -> dict[str, Any]:
@@ -198,11 +130,37 @@ def code_access_required_response(
     organization: "Organization",
     *,
     task_id: str | UUID | None = None,
+    origin_product: str | None = None,
+    posthog_ai_task_id: str | UUID | None = None,
     fail_open_on_resolution_error: bool = False,
 ) -> Response | None:
+    """PostHog AI tasks take the PostHog AI 2.0 decision in place of the Desktop check. Every other task takes
+    the Desktop check. Pass `origin_product` when no task exists yet.
+
+    `posthog_ai_task_id` names the task without the sandbox-token exemption that a `task_id` gives, for a
+    caller whose sandbox token must not skip the check."""
     if _task_bound_internal_run(request, task_id):
         return None
+    if _is_posthog_ai_task(organization, task_id or posthog_ai_task_id, origin_product):
+        # The 2.0 decision already applies the funding rules to beta orgs, and it never refuses a grandfathered
+        # user, so the Desktop rules would only break a 2.0 the UI shows as available.
+        return _posthog_ai_access_required_response(request, organization)
+    return _desktop_access_required_response(request, organization, fail_open_on_resolution_error)
 
+
+def _is_posthog_ai_task(organization: "Organization", task_id: str | UUID | None, origin_product: str | None) -> bool:
+    if origin_product is None and task_id is not None:
+        origin_product = (
+            Task.objects.filter(id=task_id, team__organization_id=organization.id)
+            .values_list("origin_product", flat=True)
+            .first()
+        )
+    return origin_product == Task.OriginProduct.POSTHOG_AI
+
+
+def _desktop_access_required_response(
+    request: Request, organization: "Organization", fail_open_on_resolution_error: bool
+) -> Response | None:
     try:
         decision = get_desktop_access_decision(cast("User", request.user), organization)
     except DesktopAccessResolutionError:
@@ -253,20 +211,34 @@ def code_access_required_response(
     )
 
 
+def _posthog_ai_access_required_response(request: Request, organization: "Organization") -> Response | None:
+    if get_posthog_ai_access_decision(cast("User", request.user), organization).allowed:
+        return None
+    return Response(
+        TaskRunErrorResponseSerializer(
+            {
+                "type": "permission_denied",
+                "code": "task_unavailable",
+                "error": "This task isn't available to you.",
+            }
+        ).data,
+        status=status.HTTP_403_FORBIDDEN,
+    )
+
+
 def usage_limit_response(user, team_id: int) -> Response | None:
     """Return a 429 when the team is over its PostHog Desktop usage limit, else None.
 
     The cost backstop on cloud runs, applied on top of the entitlement gate above. Fails
-    open when the gateway can't be reached, so every check is counted by outcome
-    (`checked_allowed` / `checked_blocked` / `fail_open`) and a degraded gateway silently
-    removing the backstop is visible, not just logged. Deactivated organizations are blocked
-    locally first, so that block holds even when the gateway check fails open.
+    open when the credit bucket can't be read, so every check is counted by outcome
+    (`checked_allowed` / `checked_blocked` / `fail_open`) and a silently removed backstop is
+    visible, not just logged. Deactivated organizations are blocked first.
     """
     if organization_deactivated(team_id):
         observe_code_usage_gate_check(outcome="org_deactivated")
         return organization_deactivated_response()
 
-    usage = get_posthog_code_usage(user, team_id)
+    usage = get_posthog_code_usage(team_id)
     if usage is None:
         observe_code_usage_gate_check(outcome="fail_open")
         return None

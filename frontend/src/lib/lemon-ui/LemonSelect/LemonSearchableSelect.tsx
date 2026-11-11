@@ -23,6 +23,10 @@ export interface LemonSearchableSelectPropsBase<T> extends LemonSelectPropsBase<
     searchInputDataAttr?: string
     /** Message shown when a search term matches no options. */
     noResultsMessage?: string
+    /** Called with the search text whenever it changes, including the reset to '' on close. */
+    onSearchChange?: (searchTerm: string) => void
+    /** Set to false when `onSearchChange` loads matching options from a server, so local matching does not hide them. */
+    filterOptionsLocally?: boolean
 }
 
 export interface LemonSearchableSelectPropsClearable<T>
@@ -125,6 +129,8 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     searchKeys = ['label'],
     searchInputDataAttr = 'lemon-searchable-select-search',
     noResultsMessage = 'No results',
+    onSearchChange,
+    filterOptionsLocally = true,
     onChange,
     onSelect,
     ...selectProps
@@ -134,8 +140,8 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     const [activeIndex, setActiveIndex] = useState(-1)
 
     const filteredOptions = useMemo(() => {
-        return filterOptions(selectProps.options, searchTerm, searchKeys)
-    }, [selectProps.options, searchTerm, searchKeys])
+        return filterOptionsLocally ? filterOptions(selectProps.options, searchTerm, searchKeys) : selectProps.options
+    }, [selectProps.options, searchTerm, searchKeys, filterOptionsLocally])
 
     const navigableOptions = useMemo(() => getSearchableLeaves(filteredOptions), [filteredOptions])
     const activeOption =
@@ -144,6 +150,7 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     const handleSearchChange = (newSearchTerm: string): void => {
         setSearchTerm(newSearchTerm)
         setActiveIndex(-1)
+        onSearchChange?.(newSearchTerm)
     }
 
     const scrollMenuItemIntoView = (fromElement: HTMLElement, index: number): void => {
@@ -214,8 +221,7 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
     const handleChange = (newValue: T | null): void => {
         // Cast to `any` because `onChange` is a union type (T vs T | null) and TS can't infer it here.
         onChange?.(newValue as any)
-        setSearchTerm('')
-        setActiveIndex(-1)
+        handleSearchChange('')
     }
 
     const handleOnSelect = (newValue: T | null): void => {
@@ -236,8 +242,7 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
                     // Clear the filter when the dropdown closes, otherwise a stale search term keeps the
                     // selected option filtered out and the trigger falls back to rendering the raw value.
                     if (!visible) {
-                        setSearchTerm('')
-                        setActiveIndex(-1)
+                        handleSearchChange('')
                     }
                 },
             }}

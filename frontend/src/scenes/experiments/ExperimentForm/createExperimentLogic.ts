@@ -1,5 +1,5 @@
 import { MakeLogicType, actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -28,14 +28,19 @@ import type {
     ExperimentFeatureFlagFiltersApi,
     ExperimentTypeEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
+import {
+    alignMetricsWithExposure,
+    getWarehouseNativeExposure,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 import { visionScannersCreate } from 'products/replay_vision/frontend/generated/api'
+import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 
 import type { ProductCrossSellProperties, ProductIntentProperties } from '../../../lib/utils/product-intents'
 import type { ExperimentMetricUnion } from '../../../queries/schema/schema-general'
 import type { FeatureFlagType } from '../../../types'
 import { FORM_MODES, experimentLogic } from '../experimentLogic'
 import { experimentSceneLogic } from '../experimentSceneLogic'
-import { experimentScannerBody } from '../replayVisionScanner'
+import { experimentScannerBody, flagAggregatesByGroup } from '../replayVisionScanner'
 import {
     type ExperimentWritePayload,
     getExperimentVariants,
@@ -231,13 +236,22 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
             {
                 setExperiment: (_, { experiment }) => experiment,
                 setExperimentValue: (state, { name, value }) => ({ ...state, [name]: value }),
-                setExposureCriteria: (state, { criteria }) => ({
-                    ...state,
-                    exposure_criteria: {
-                        ...state.exposure_criteria,
-                        ...criteria,
-                    },
-                }),
+                setExposureCriteria: (state, { criteria }) => {
+                    const exposureCriteria = { ...state.exposure_criteria, ...criteria }
+                    const warehouseExposure = getWarehouseNativeExposure(exposureCriteria)
+                    return {
+                        ...state,
+                        exposure_criteria: exposureCriteria,
+                        // The API rejects a metric on another connection or unit than the exposure
+                        ...(warehouseExposure && {
+                            metrics: alignMetricsWithExposure(state.metrics ?? [], warehouseExposure),
+                            metrics_secondary: alignMetricsWithExposure(
+                                state.metrics_secondary ?? [],
+                                warehouseExposure
+                            ),
+                        }),
+                    }
+                },
                 setFeatureFlagConfig: (state, { config }) => {
                     const currentConfig = state.feature_flag_config ?? {}
                     const filters: ExperimentFeatureFlagFiltersApi = { ...currentConfig.filters }
@@ -500,7 +514,9 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
 
                     let replayScannerId: string | null = null
                     let replayScannerCreationFailed = false
-                    if (values.createReplayVisionScanner) {
+                    // The wizard shows the option off for a group flag, but the option can still be on
+                    // when the flag was linked after it was ticked.
+                    if (values.createReplayVisionScanner && !flagAggregatesByGroup(response.feature_flag)) {
                         try {
                             const replayScanner = await visionScannersCreate(
                                 String(values.currentProjectId),
@@ -530,15 +546,24 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                     }
 
                     if (replayScannerCreationFailed) {
-                        lemonToast.error("Experiment created, but the Replay Vision scanner wasn't.", {
+                        lemonToast.error("Experiment created, but the experiment scanner wasn't.", {
                             button: {
-                                label: 'Set up scanner',
-                                action: () => router.actions.push(urls.replayVisionTemplates()),
+                                label: 'Set up experiment scanner',
+                                action: () =>
+                                    router.actions.push(
+                                        combineUrl(urls.replayVisionScannerDetails('new'), {
+                                            ...experimentScannerParams({
+                                                experimentId: response.id as number,
+                                                variantKey: null,
+                                            }),
+                                            entry_point: 'experiment_create_wizard_retry',
+                                        }).url
+                                    ),
                             },
                         })
                     } else if (replayScannerId) {
                         lemonToast.success(
-                            'Experiment created. The Replay Vision scanner is off until you turn it on.',
+                            'Experiment created. The experiment scanner turns on when you launch the experiment.',
                             {
                                 button: {
                                     label: 'View scanner',

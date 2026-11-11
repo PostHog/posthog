@@ -12,18 +12,18 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import { ApiError, isUnavailableEndpointError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError } from 'lib/api-error'
+import { FIRST_REPORT_SCOUT_NAME } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { chunk } from 'lib/utils/arrays'
 import { reconcileById } from 'lib/utils/objects'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import {
     signalsScoutChatTasksCreate,
@@ -35,16 +35,14 @@ import {
     signalsScoutMetadataGet,
     signalsScoutRunsFindingsSummary,
     signalsScoutRunsList,
-    signalsScoutRunsCosts,
     signalsScoutRunsRecentPerScout,
-    signalsScoutRunsTokenCosts,
 } from 'products/signals/frontend/generated/api'
 import type {
     FleetFindingsSummaryApi,
     PatchedSignalScoutConfigUpdateApi,
-    ScoutCostsApi,
     ScoutMetadataApi,
     SignalScoutConfigApi,
+    SignalsScoutConfigSyncSurface,
 } from 'products/signals/frontend/generated/api.schemas'
 import { llmSkillsNameArchiveCreate, llmSkillsNamePublishCommunityCreate } from 'products/skills/frontend/generated/api'
 import type { CommunitySkillScoutConfigApi } from 'products/skills/frontend/generated/api.schemas'
@@ -53,14 +51,15 @@ import {
     captureScoutAction,
     captureScoutChatStarted,
     captureScoutConfigChanged,
+    captureScoutToolsSaveResult,
     ScoutChatType,
     ScoutFleetSyncOutcome,
     ScoutSurface,
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import { computeScoutCostRollups, ScoutCostRollup } from '../utils/scoutCosts'
 import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
+import { selfDrivingSpendLogic } from './selfDrivingSpendLogic'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 export type ScoutRosterSort = 'name' | 'status' | 'created' | 'updated' | 'last_run'
@@ -71,13 +70,10 @@ import type { ScoutOwnerOption } from '../utils/scoutOwners'
 import {
     computeFleetSummary,
     computeScoutRollups,
-    expensiveRunCostThreshold,
     FleetSummary,
     isSettledRun,
-    rosterRunCosts,
     runResponseCoversFleet,
     scoutDisplayName,
-    SCOUT_ROSTER_WINDOW_DAYS,
     SCOUT_ROSTER_WINDOW_HOURS,
     SCOUT_RUNS_PER_SCOUT,
     SCOUT_RUNS_WINDOW_HOURS,
@@ -98,6 +94,19 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
     created: (config) => config.created_at,
     updated: (config) => config.updated_at,
     last_run: (config) => config.last_run_at,
+}
+
+/** When a refused scout chat may start again, from the `Retry-After` of the server's daily-cap 429. */
+function scoutChatRetryAtFromError(error: unknown): number | null {
+    if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'throttled') {
+        return null
+    }
+    const seconds = Number(error.headers?.get('Retry-After'))
+    return Number.isSafeInteger(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null
+}
+
+function scoutChatLimitReason(retryAt: number): string {
+    return `You've reached today's limit for scout chats. Try again after ${dayjs(retryAt).format('h:mm A')}.`
 }
 
 function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
@@ -126,15 +135,52 @@ function captureScoutConfigUpdates(
     success: boolean
 ): void {
     for (const [setting, newValue] of Object.entries(updates)) {
+        const oldValue = config ? (config as unknown as Record<string, unknown>)[setting] : null
+        // A pre-check query can name values from the team's own data, so only whether it is set is sent.
+        const masked = setting === 'precheck_query'
         captureScoutConfigChanged({
             skillName: config?.skill_name ?? '',
             scoutOrigin: config?.scout_origin ?? null,
             setting,
-            oldValue: config ? (config as unknown as Record<string, unknown>)[setting] : null,
-            newValue,
+            oldValue: masked ? Boolean(oldValue) : oldValue,
+            newValue: masked ? Boolean(newValue) : newValue,
             success,
         })
     }
+    if ('allowed_mcp_tools' in updates || 'tool_preset' in updates) {
+        captureScoutToolsSaveResult({
+            skillName: config?.skill_name ?? '',
+            allTools: !updates.tool_preset && updates.allowed_mcp_tools === null,
+            toolPreset: updates.tool_preset ?? null,
+            toolCount: updates.allowed_mcp_tools?.length ?? null,
+            success,
+        })
+    }
+}
+
+/**
+ * Folds a later update into a queued one. A tool selection and `write_scopes` must never travel in
+ * one request, because the API rejects that pair, so the later of the two replaces the earlier.
+ */
+export function mergeQueuedScoutConfigUpdates(
+    queued: SignalScoutConfigUpdate | undefined,
+    next: SignalScoutConfigUpdate
+): SignalScoutConfigUpdate {
+    const merged = { ...queued, ...next }
+    if ('write_scopes' in next) {
+        delete merged.allowed_mcp_tools
+        delete merged.tool_preset
+    }
+    if ('allowed_mcp_tools' in next || 'tool_preset' in next) {
+        delete merged.write_scopes
+        if (!('tool_preset' in next)) {
+            delete merged.tool_preset
+        }
+        if (!('allowed_mcp_tools' in next)) {
+            delete merged.allowed_mcp_tools
+        }
+    }
+    return merged
 }
 
 // Fleet runs are refetched on a slow cadence so "running now" / recent emissions
@@ -147,12 +193,15 @@ const RUNS_REFETCH_INTERVAL_MS = 60_000
 // `loadScoutRuns` gets each scout's last N runs from one ranked query.
 const RUNS_PAGE_LIMIT = 100
 const MAX_RUNS_PAGES = 15
-// The cost endpoint takes run ids in batches (`SCOUT_RUNS_BATCH_LIMIT` server-side), and a fleet
-// holds more runs than one batch, so the roster's runs are sent a batch at a time.
-const RUN_COST_BATCH_LIMIT = 200
-// How many batches are in flight together. Enough to hide the round trips of a materialized fleet,
-// few enough that one poll cannot queue every other roster request behind its own burst.
-const RUN_COST_BATCH_CONCURRENCY = 4
+// Orders the fleet runs read and the single-scout runs read, which both write `scoutRuns`.
+function nextRunsRequestSeq(cache: Record<string, any>): number {
+    cache.runsRequestSeq = (cache.runsRequestSeq ?? 0) + 1
+    return cache.runsRequestSeq
+}
+
+function byNewestCreated(a: SignalScoutRunSummary, b: SignalScoutRunSummary): number {
+    return (b.created_at ?? '').localeCompare(a.created_at ?? '')
+}
 
 // Roster filter state also lives in the URL so a filtered view survives a refresh and is shareable.
 // The search param is written on this debounce, so typing does not rewrite the URL per keystroke.
@@ -236,59 +285,6 @@ function sameTags(a: string[], b: string[]): boolean {
     return a.length === b.length && a.every((tag, index) => tag === b[index])
 }
 
-// Keep the cost map reference-stable when a poll re-derives the same numbers, the way
-// `reconcileById` does for the polled lists. A settled run's total is cached for an hour, so an
-// unchanged poll is the normal case, and every roster card subscribes to this map.
-function reuseCostsIfUnchanged(previous: Map<string, number>, next: Map<string, number>): Map<string, number> {
-    if (previous.size !== next.size) {
-        return next
-    }
-    for (const [runId, cost] of next) {
-        if (previous.get(runId) !== cost) {
-            return next
-        }
-    }
-    return previous
-}
-
-// Fold a batch of costs into the map on screen, keeping the reference when the batch says nothing
-// new. Only a poll that moved a number allocates.
-function mergeCosts(previous: Map<string, number>, incoming: Map<string, number>): Map<string, number> {
-    for (const [runId, cost] of incoming) {
-        if (previous.get(runId) !== cost) {
-            return new Map([...previous, ...incoming])
-        }
-    }
-    return previous
-}
-
-// Same idea for the fleet-wide cost response, which the runs poll re-reads every cycle. The window is
-// cached server-side for 15 minutes, so an unchanged poll is the normal case, and `scoutCostRollups`
-// builds the map every roster card subscribes to out of this object.
-function reuseScoutCostsIfUnchanged(previous: ScoutCostsApi | null, next: ScoutCostsApi): ScoutCostsApi {
-    if (
-        !previous ||
-        previous.window_days !== next.window_days ||
-        previous.available !== next.available ||
-        previous.scouts.length !== next.scouts.length
-    ) {
-        return next
-    }
-    // Rows arrive in the backend's skill-name order, so compare them pairwise. `skill_name` catches a
-    // membership change that keeps the row count.
-    const unchanged = next.scouts.every((scout, index) => {
-        const before = previous.scouts[index]
-        return (
-            before.skill_name === scout.skill_name &&
-            before.spend_usd === scout.spend_usd &&
-            before.run_count === scout.run_count &&
-            before.priced_run_count === scout.priced_run_count &&
-            before.reports_touched === scout.reports_touched
-        )
-    })
-    return unchanged ? previous : next
-}
-
 /** What the publisher fills in. The scout's own settings are read from its config, not typed. */
 export interface PublishScoutOptions {
     expected_skill_id: string
@@ -322,6 +318,7 @@ export interface ScoutChatRequest {
     templateId: string | null
 }
 
+// Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface scoutFleetLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
@@ -339,7 +336,6 @@ export interface scoutFleetLogicValues {
         scoutCount: number
     }
     enabledCount: number
-    expensiveRunCostThreshold: number | null
     fleetFindingsSummary: FleetFindingsSummaryApi | null
     fleetFindingsSummaryLoadedOnce: boolean
     fleetFindingsSummaryLoading: boolean
@@ -357,6 +353,8 @@ export interface scoutFleetLogicValues {
     rosterGroupCounts: Record<ScoutGroupKey, number>
     rosterScouts: ScoutRosterRow[]
     rosterScoutsBeforeSearch: ScoutRosterRow[]
+    runNoteDrafts: Record<string, string>
+    runNotePopoverConfigId: string | null
     runningChatType: ScoutChatType | null
     runsWindow: {
         complete: boolean
@@ -365,21 +363,19 @@ export interface scoutFleetLogicValues {
     runsWindowLoadedOnce: boolean
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
+    scoutChatDisabledReason: string | null
+    scoutChatRetryAt: number | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
-    scoutCostRollups: Map<string, ScoutCostRollup>
-    scoutCosts: ScoutCostsApi | null
-    scoutCostsLoading: boolean
     scoutEnabledFilter: ScoutEnabledFilter
     scoutFleetSyncOutcome: ScoutFleetSyncOutcome
     scoutFleetSyncRequested: boolean
+    scoutFleetSyncSurface: SignalsScoutConfigSyncSurface
     scoutFleetSynced: boolean
     scoutMetadata: ScoutMetadataApi | null
     scoutMetadataLoading: boolean
     scoutOwnerOptions: ScoutOwnerOption[]
     scoutRosterSort: ScoutRosterSort
-    scoutRunCosts: Map<string, number>
-    scoutRunCostsLoading: boolean
     scoutRuns: SignalScoutRunSummary[]
     scoutRunsCoverFleet: boolean
     scoutRunsLoadedOnce: boolean
@@ -465,21 +461,6 @@ export interface scoutFleetLogicActions {
         scoutConfigs: SignalScoutConfigApi[] | null
         payload?: void
     }
-    loadScoutCosts: (_: void) => void
-    loadScoutCostsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadScoutCostsSuccess: (
-        scoutCosts: ScoutCostsApi | null,
-        payload?: void
-    ) => {
-        scoutCosts: ScoutCostsApi | null
-        payload?: void
-    }
     loadScoutMetadata: () => any
     loadScoutMetadataFailure: (
         error: string,
@@ -495,21 +476,6 @@ export interface scoutFleetLogicActions {
         scoutMetadata: ScoutMetadataApi | null
         payload?: any
     }
-    loadScoutRunCosts: (_: void) => void
-    loadScoutRunCostsFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadScoutRunCostsSuccess: (
-        scoutRunCosts: Map<string, number>,
-        payload?: void
-    ) => {
-        scoutRunCosts: Map<string, number>
-        payload?: void
-    }
     loadScoutRuns: (_: void) => void
     loadScoutRunsFailure: (
         error: string,
@@ -518,6 +484,21 @@ export interface scoutFleetLogicActions {
         error: string
         errorObject?: any
     }
+    loadScoutRunsForSkill: (skillName: string) => string
+    loadScoutRunsForSkillFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadScoutRunsForSkillSuccess: (
+        scoutRuns: SignalScoutRunSummary[],
+        payload?: string
+    ) => {
+        scoutRuns: SignalScoutRunSummary[]
+        payload?: string
+    }
     loadScoutRunsSuccess: (
         scoutRuns: SignalScoutRunSummary[],
         payload?: void
@@ -525,11 +506,8 @@ export interface scoutFleetLogicActions {
         scoutRuns: SignalScoutRunSummary[]
         payload?: void
     }
-    materializeScoutFleet: () => {
-        value: true
-    }
-    mergeScoutRunCosts: (costs: Map<string, number>) => {
-        costs: Map<string, number>
+    materializeScoutFleet: (surface?: SignalsScoutConfigSyncSurface) => {
+        surface: SignalsScoutConfigSyncSurface
     }
     patchScoutConfigLocally: (
         configId: string,
@@ -551,14 +529,38 @@ export interface scoutFleetLogicActions {
     removeScoutConfigLocally: (configId: string) => {
         configId: string
     }
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        note?: string
+    ) => {
         configId: string
+        note: string | undefined
     }
     runScoutNowFinished: (configId: string) => {
         configId: string
     }
+    runScoutNowSucceeded: (
+        configId: string,
+        hasNote: boolean
+    ) => {
+        configId: string
+        hasNote: boolean
+    }
     setRosterEvaluatedAt: (evaluatedAt: number) => {
         evaluatedAt: number
+    }
+    setRunNoteDraft: (
+        configId: string,
+        note: string
+    ) => {
+        configId: string
+        note: string
+    }
+    setRunNotePopoverConfigId: (configId: string | null) => {
+        configId: string | null
+    }
+    setScoutChatRetryAt: (retryAt: number | null) => {
+        retryAt: number | null
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
@@ -646,13 +648,12 @@ export interface scoutFleetLogicMeta {
             dataProcessingAccepted: boolean,
             dataProcessingApprovalDisabledReason: string | null
         ) => string | null
+        scoutChatDisabledReason: (
+            aiConsentDisabledReason: string | null,
+            scoutChatRetryAt: number | null
+        ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
-        expensiveRunCostThreshold: (
-            scoutRuns: SignalScoutRunSummary[],
-            scoutRunCosts: Map<string, number>
-        ) => number | null
-        scoutCostRollups: (scoutCosts: ScoutCostsApi | null) => Map<string, ScoutCostRollup>
         isStaff: (user: null | import('~/types').UserType) => boolean
         fleetSummary: (
             scoutConfigs: SignalScoutConfigApi[] | null,
@@ -724,7 +725,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     actions({
         // Fired when the roster opens. The listener decides whether a sync is still owed, so the
         // caller never has to know whether one already ran.
-        materializeScoutFleet: true,
+        materializeScoutFleet: (surface: SignalsScoutConfigSyncSurface = 'roster') => ({ surface }),
         updateScoutConfig: (configId: string, updates: SignalScoutConfigUpdate) => ({ configId, updates }),
         updateScoutConfigFinished: (configId: string) => ({ configId }),
         // A full server config doubles as a local patch when reconciling optimistic edits.
@@ -749,8 +750,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             tags,
             owner,
         }),
-        runScoutNow: (configId: string) => ({ configId }),
+        runScoutNow: (configId: string, note?: string) => ({ configId, note }),
         runScoutNowFinished: (configId: string) => ({ configId }),
+        runScoutNowSucceeded: (configId: string, hasNote: boolean) => ({ configId, hasNote }),
+        setRunNoteDraft: (configId: string, note: string) => ({ configId, note }),
+        setRunNotePopoverConfigId: (configId: string | null) => ({ configId }),
         publishScoutToCommunity: (configId: string, options: PublishScoutOptions) => ({ configId, options }),
         publishScoutToCommunityFinished: (configId: string) => ({ configId }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
@@ -770,11 +774,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
+        setScoutChatRetryAt: (retryAt: number | null) => ({ retryAt }),
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
-        mergeScoutRunCosts: (costs: Map<string, number>) => ({ costs }),
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         scoutConfigs: [
             null as SignalScoutConfig[] | null,
             {
@@ -792,7 +796,11 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         // The 60s poll refetches all configs every cycle. Reconcile against the previous
                         // list so an unchanged fleet keeps the same references — otherwise the whole
                         // roster re-renders on every poll even when nothing changed.
-                        return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                        return reconcileById(
+                            values.scoutConfigs ?? [],
+                            configs.filter((config) => values.isStaff || config.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                            (config) => config.id
+                        )
                     } catch (error) {
                         // A stale project id left in the URL by a project switch, or a member without
                         // access, are expected — degrade to the same null the no-team guard returns
@@ -816,11 +824,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         return values.scoutConfigs
                     }
                     try {
-                        const configs = await signalsScoutConfigSync(String(teamId), { surface: 'roster' })
+                        const configs = await signalsScoutConfigSync(String(teamId), {
+                            surface: values.scoutFleetSyncSurface,
+                        })
                         // Same unmount race as `loadScoutConfigs`: break before reading `values`.
                         breakpoint()
                         actions.setScoutFleetSyncOutcome('synced')
-                        return reconcileById(values.scoutConfigs ?? [], configs, (config) => config.id)
+                        return reconcileById(
+                            values.scoutConfigs ?? [],
+                            configs.filter((config) => values.isStaff || config.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                            (config) => config.id
+                        )
                     } catch (error) {
                         // Materializing is a write, so a member without write access gets a 403 —
                         // as does a stale project id (404). Keep whatever the list read returned
@@ -886,123 +900,67 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     if (!teamId) {
                         return values.scoutRuns
                     }
+                    const requestSeq = nextRunsRequestSeq(cache)
                     const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
                         per_scout_limit: SCOUT_RUNS_PER_SCOUT,
                     })
                     breakpoint()
+                    const fleetSkills = new Set(runs.map((run) => run.skill_name))
+                    cache.lastFleetRuns = { seq: requestSeq, skills: fleetSkills }
+                    // A scout page's own read wins over this response when it started later, or when
+                    // this response could not probe that scout at all. Otherwise a slow fleet read
+                    // would put back older runs, or drop a history the fleet read never saw.
+                    const scopedRunsSeq: Record<string, number> = cache.scopedRunsSeq ?? {}
+                    const keptSkills = new Set(
+                        Object.entries(scopedRunsSeq)
+                            .filter(
+                                ([skillName, scopedSeq]) =>
+                                    scopedSeq > requestSeq ||
+                                    (!values.scoutRunsCoverFleet && !fleetSkills.has(skillName))
+                            )
+                            .map(([skillName]) => skillName)
+                    )
+                    const nextRuns =
+                        keptSkills.size === 0
+                            ? runs
+                            : [
+                                  ...runs.filter((run) => !keptSkills.has(run.skill_name)),
+                                  ...values.scoutRuns.filter((run) => keptSkills.has(run.skill_name)),
+                              ].sort(byNewestCreated)
                     // Reuse prior references for unchanged runs so the 60s poll doesn't churn every
                     // run's identity and needlessly re-render the memoized run/emission rows. Live
                     // (running/queued) runs are never reused: their rows show a wall-clock duration
                     // that must keep advancing with each poll.
-                    return reconcileById(values.scoutRuns, runs, (run) => run.run_id, isSettledRun)
-                },
-            },
-        ],
-        // Per-run model spend, staff only. The roster's own runs are the batch: one request per
-        // `RUN_COST_BATCH_LIMIT` ids, and the endpoint caches a settled run's total, so a poll over
-        // an unchanged fleet costs cache reads rather than a query per run. Runs with nothing
-        // attributed are dropped rather than stored as 0 — the tooltip then says nothing about
-        // cost, instead of claiming the run was free.
-        scoutRunCosts: [
-            new Map<string, number>(),
-            {
-                loadScoutRunCosts: async (_: void, breakpoint) => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || !values.isStaff || values.scoutRuns.length === 0) {
-                        return values.scoutRunCosts
-                    }
-                    const batches = chunk(
-                        values.scoutRuns.map((run) => run.run_id),
-                        RUN_COST_BATCH_LIMIT
+                    return reconcileById(
+                        values.scoutRuns,
+                        nextRuns.filter((run) => values.isStaff || run.skill_name !== FIRST_REPORT_SCOUT_NAME),
+                        (run) => run.run_id,
+                        isSettledRun
                     )
-                    const costs = new Map<string, number>()
-                    const priceBatch = async (batch: string[]): Promise<boolean> => {
-                        const response = await signalsScoutRunsTokenCosts(String(teamId), { run_ids: batch })
-                        breakpoint()
-                        // This deployment has no internal project to price runs against, so every
-                        // batch answers the same way and each one costs the backend a run-row read
-                        // and a traceback. Every cost stays unknown.
-                        if (!response.available) {
-                            return false
-                        }
-                        const priced = new Map<string, number>()
-                        for (const cost of response.costs) {
-                            if (cost.token_cost_usd !== null) {
-                                priced.set(cost.run_id, cost.token_cost_usd)
-                            }
-                        }
-                        for (const [runId, cost] of priced) {
-                            costs.set(runId, cost)
-                        }
-                        actions.mergeScoutRunCosts(priced)
-                        return true
-                    }
-                    try {
-                        // The first batch also answers whether this deployment prices runs at all,
-                        // so it goes on its own. The rest go a wave at a time: a materialized fleet
-                        // is several batches, and holding them all back leaves the whole strip
-                        // costless until the slowest one answers.
-                        if (await priceBatch(batches[0])) {
-                            for (let start = 1; start < batches.length; start += RUN_COST_BATCH_CONCURRENCY) {
-                                const wave = batches.slice(start, start + RUN_COST_BATCH_CONCURRENCY)
-                                if ((await Promise.all(wave.map(priceBatch))).includes(false)) {
-                                    break
-                                }
-                            }
-                        }
-                    } catch (error) {
-                        // Cost is a staff-only annotation on a tooltip, so a blip degrades to no
-                        // number rather than reporting a failure the reader can do nothing about.
-                        if (error instanceof ApiError) {
-                            // Recovering here skips the gate `initKea` applies to loader failures, so
-                            // reapply it: a refused or unreachable read is expected, but a backend
-                            // fault must still reach error tracking instead of reading as success.
-                            // A route the backend does not serve is expected too, because the
-                            // roster ships ahead of its endpoints and shows no number until both
-                            // sides are deployed.
-                            if (shouldReportApiFailure(error) && !isUnavailableEndpointError(error)) {
-                                posthog.captureException(error)
-                            }
-                            // A full fleet spans several batches, so keep the ones that answered and
-                            // leave the rest on their last known number. Dropping the whole load
-                            // would blank every tooltip over one failed batch.
-                            return mergeCosts(values.scoutRunCosts, costs)
-                        }
-                        throw error
-                    }
-                    return reuseCostsIfUnchanged(values.scoutRunCosts, costs)
                 },
-            },
-        ],
-        // What each scout spent over the roster's window, staff only. One request for the fleet,
-        // answered from a 15-minute server cache, so it rides the runs load rather than a poll of
-        // its own. The response is facts; `scoutCostRollups` turns them into the three rates.
-        scoutCosts: [
-            null as ScoutCostsApi | null,
-            {
-                loadScoutCosts: async (_: void, breakpoint) => {
+                // One scout's runs, merged over that scout's slice of the window. A scout page loads
+                // this first, so it does not wait on the probes of every other scout in the fleet.
+                loadScoutRunsForSkill: async (skillName: string, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
-                    if (!teamId || !values.isStaff) {
-                        return values.scoutCosts
+                    if (!teamId) {
+                        return values.scoutRuns
                     }
-                    try {
-                        const costs = await signalsScoutRunsCosts(String(teamId), {
-                            window_days: SCOUT_ROSTER_WINDOW_DAYS,
-                        })
-                        breakpoint()
-                        return reuseScoutCostsIfUnchanged(values.scoutCosts, costs)
-                    } catch (error) {
-                        // Same posture as the per-run costs: a staff-only annotation degrades to no
-                        // number rather than reporting a failure the reader can do nothing about,
-                        // and the roster ships ahead of its endpoints.
-                        if (error instanceof ApiError) {
-                            if (shouldReportApiFailure(error) && !isUnavailableEndpointError(error)) {
-                                posthog.captureException(error)
-                            }
-                            return values.scoutCosts
-                        }
-                        throw error
+                    const requestSeq = nextRunsRequestSeq(cache)
+                    cache.scopedRunsSeq = { ...cache.scopedRunsSeq, [skillName]: requestSeq }
+                    const runs = await signalsScoutRunsRecentPerScout(String(teamId), {
+                        per_scout_limit: SCOUT_RUNS_PER_SCOUT,
+                        skill_name: skillName,
+                    })
+                    breakpoint()
+                    // A fleet read that started later already put newer runs for this scout in place.
+                    const lastFleetRuns: { seq: number; skills: Set<string> } | undefined = cache.lastFleetRuns
+                    if (lastFleetRuns && lastFleetRuns.seq > requestSeq && lastFleetRuns.skills.has(skillName)) {
+                        return values.scoutRuns
                     }
+                    const merged = [...values.scoutRuns.filter((run) => run.skill_name !== skillName), ...runs].sort(
+                        byNewestCreated
+                    )
+                    return reconcileById(values.scoutRuns, merged, (run) => run.run_id, isSettledRun)
                 },
             },
         ],
@@ -1035,7 +993,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                         for (const run of pageRuns) {
                             // `date_to` is exclusive, so a boundary row can reappear on the next
                             // page — dedupe by run_id to be safe.
-                            if (!seen.has(run.run_id)) {
+                            if (
+                                !seen.has(run.run_id) &&
+                                (values.isStaff || run.skill_name !== FIRST_REPORT_SCOUT_NAME)
+                            ) {
                                 seen.add(run.run_id)
                                 runs.push(run)
                             }
@@ -1070,15 +1031,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
     })),
 
     reducers({
-        // The loader owns this map's default and its end-of-load write; this half folds in a batch
-        // that landed while the rest of the load is still in flight.
-        scoutRunCosts: [
-            new Map<string, number>(),
-            {
-                mergeScoutRunCosts: (state: Map<string, number>, { costs }: { costs: Map<string, number> }) =>
-                    mergeCosts(state, costs),
-            },
-        ],
         // Tracks which CTA's chat-task kickoff is mid-flight, keyed by its chat type, so only the
         // pressed chip spins (the others merely disable). A shared boolean spun all three at once.
         runningChatType: [
@@ -1089,8 +1041,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
+        scoutChatRetryAt: [
+            null as number | null,
+            {
+                setScoutChatRetryAt: (_, { retryAt }) => retryAt,
+            },
+        ],
+        // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
+        // visit opens the roster as the user left it. Search does not persist, the same as the report list.
         selectedScoutTags: [
             [] as string[],
+            { persist: true },
             {
                 setScoutTagFilter: (_, { tags }) => tags,
                 hydrateRosterFilters: (_, { tags }) => tags,
@@ -1105,6 +1066,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutEnabledFilter: [
             'all' as ScoutEnabledFilter,
+            { persist: true },
             {
                 setScoutEnabledFilter: (_, { filter }) => filter,
                 hydrateRosterFilters: (_, { filter }) => filter,
@@ -1112,6 +1074,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         selectedScoutOwner: [
             null as string | null,
+            { persist: true },
             {
                 setScoutOwnerFilter: (_, { owner }) => owner,
                 hydrateRosterFilters: (_, { owner }) => owner,
@@ -1119,6 +1082,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         scoutRosterSort: [
             'name' as ScoutRosterSort,
+            { persist: true },
             {
                 setScoutRosterSort: (_, { sort }) => sort,
             },
@@ -1148,6 +1112,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 materializeScoutFleet: () => true,
             },
+        ],
+        scoutFleetSyncSurface: [
+            'roster' as SignalsScoutConfigSyncSurface,
+            { materializeScoutFleet: (_, { surface }) => surface },
         ],
         // Flips true once the fleet materialization settles, either way. It does double duty: the
         // listener reads it so one roster session syncs at most once, and the roster reads it to
@@ -1196,6 +1164,27 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 runScoutNowFinished: (state, { configId }) => state.filter((id) => id !== configId),
             },
         ],
+        // A failed run keeps its note, so the person can retry without typing it again.
+        runNoteDrafts: [
+            {} as Record<string, string>,
+            {
+                setRunNoteDraft: (state, { configId, note }) => ({ ...state, [configId]: note }),
+                runScoutNowSucceeded: (state, { configId, hasNote }) => {
+                    if (!hasNote) {
+                        return state
+                    }
+                    const { [configId]: _, ...rest } = state
+                    return rest
+                },
+            },
+        ],
+        runNotePopoverConfigId: [
+            null as string | null,
+            {
+                setRunNotePopoverConfigId: (_, { configId }) => configId,
+                runScoutNowSucceeded: (state, { hasNote }) => (hasNote ? null : state),
+            },
+        ],
         publishingScoutIds: [
             [] as string[],
             {
@@ -1241,6 +1230,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
+        // Every scout chat entry point shares one per-user daily cap, so one refusal disables them all.
+        scoutChatDisabledReason: [
+            (s) => [s.aiConsentDisabledReason, s.scoutChatRetryAt],
+            (aiConsentDisabledReason: string | null, scoutChatRetryAt: number | null): string | null =>
+                aiConsentDisabledReason ?? (scoutChatRetryAt !== null ? scoutChatLimitReason(scoutChatRetryAt) : null),
+        ],
         rollups: [
             (s) => [s.scoutRuns],
             (scoutRuns: SignalScoutRunSummary[]): Map<string, ScoutRollup> => computeScoutRollups(scoutRuns),
@@ -1251,15 +1246,6 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         scoutRunsCoverFleet: [
             (s) => [s.scoutConfigs],
             (scoutConfigs: SignalScoutConfig[] | null): boolean => runResponseCoversFleet(scoutConfigs?.length ?? 0),
-        ],
-        expensiveRunCostThreshold: [
-            (s) => [s.scoutRuns, s.scoutRunCosts],
-            (scoutRuns: SignalScoutRunSummary[], scoutRunCosts: Map<string, number>): number | null =>
-                expensiveRunCostThreshold(rosterRunCosts(scoutRuns, scoutRunCosts)),
-        ],
-        scoutCostRollups: [
-            (s) => [s.scoutCosts],
-            (scoutCosts: ScoutCostsApi | null): Map<string, ScoutCostRollup> => computeScoutCostRollups(scoutCosts),
         ],
         isStaff: [
             () => [userLogic.selectors.user],
@@ -1473,11 +1459,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
     listeners(({ actions, values, cache, sharedListeners }) => ({
         loadScoutRunsSuccess: () => {
-            // Costs follow the runs rather than a poll of their own, so a run and its cost are
-            // never a cycle apart.
-            if (values.isStaff) {
-                actions.loadScoutRunCosts()
-                actions.loadScoutCosts()
+            const spendLogic = selfDrivingSpendLogic({ teamId: teamLogic.values.currentTeamId ?? 0 })
+            if (spendLogic.isMounted()) {
+                spendLogic.actions.loadOverview()
             }
             const evaluatedAt = new Date(values.rosterEvaluatedAt)
             const now = new Date()
@@ -1563,23 +1547,30 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }) => {
+        runScoutNow: async ({ configId, note }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
                 return
             }
             const config = values.scoutConfigs?.find((candidate) => candidate.id === configId)
+            const trimmedNote = note?.trim()
             try {
-                await signalsScoutConfigRun(String(teamId), configId)
+                await signalsScoutConfigRun(String(teamId), configId, trimmedNote ? { note: trimmedNote } : undefined)
                 captureScoutAction({
                     actionType: 'run_now',
                     surface: 'scout_detail',
                     skillName: config?.skill_name ?? null,
+                    extra: { has_note: !!trimmedNote },
                 })
+                actions.runScoutNowSucceeded(configId, !!trimmedNote)
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')
                 // The run row appears on the next poll; pull once now so the page reacts immediately.
-                actions.loadScoutRuns()
+                if (config) {
+                    actions.loadScoutRunsForSkill(config.skill_name)
+                } else {
+                    actions.loadScoutRuns()
+                }
             } catch (error: any) {
                 // The endpoint refuses deliberately in several ordinary cases — already running,
                 // over the daily budget — so the backend's own message is the useful one.
@@ -1623,7 +1614,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
 
             if (inFlight.has(configId)) {
                 actions.patchScoutConfigLocally(configId, updates)
-                pendingUpdates.set(configId, { ...pendingUpdates.get(configId), ...updates })
+                pendingUpdates.set(configId, mergeQueuedScoutConfigUpdates(pendingUpdates.get(configId), updates))
                 return
             }
 
@@ -1769,8 +1760,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // template, then navigate to it. Not a live chat.
             // The CTAs carry this as a `disabledReason`; this backstops the paths that don't go
             // through a button press, since the endpoint enforces no consent of its own.
-            if (values.aiConsentDisabledReason) {
-                lemonToast.error(values.aiConsentDisabledReason)
+            if (values.scoutChatDisabledReason) {
+                lemonToast.error(values.scoutChatDisabledReason)
                 actions.startScoutChatTaskFailure()
                 return
             }
@@ -1805,7 +1796,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
+                const retryAt = scoutChatRetryAtFromError(error)
+                if (retryAt !== null) {
+                    lemonToast.error(scoutChatLimitReason(retryAt))
+                    actions.setScoutChatRetryAt(retryAt)
+                    cache.disposables.add(() => {
+                        const timeout = setTimeout(() => actions.setScoutChatRetryAt(null), retryAt - Date.now())
+                        return () => clearTimeout(timeout)
+                    }, 'scoutChatRetry')
+                } else {
+                    lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
+                }
                 actions.startScoutChatTaskFailure()
             } finally {
                 cache.chatTaskStarting = false
@@ -1875,7 +1876,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             _: unknown,
             searchParams: Record<string, any>,
             __: unknown,
-            { method }: { method: 'PUSH' | 'REPLACE' | 'POP' }
+            { method, initial }: { method: 'PUSH' | 'REPLACE' | 'POP'; initial?: boolean }
         ): void => {
             const hasRosterParams =
                 'scoutSearch' in searchParams ||
@@ -1886,7 +1887,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // Back or Forward onto a bare roster URL asks for the default, unfiltered view: reset
                 // the filters and leave the URL bare so a second Back can still reach the entries
                 // beneath it. Reflecting the persisted filters back here would undo the navigation.
-                if (method === 'POP') {
+                // kea-router also reports the location at mount as a POP, flagged `initial`. That is a
+                // fresh visit, not a Back, so it keeps the persisted filters.
+                if (method === 'POP' && !initial) {
                     if (
                         values.scoutSearch !== '' ||
                         values.scoutEnabledFilter !== 'all' ||
@@ -1902,7 +1905,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 // replaces the bare URL to restore its own params while a Back is still being
                 // handled, and writing the roster filters there would leave the URL filtered after
                 // that Back resets the controls.
-                if (method !== 'PUSH') {
+                if (method !== 'PUSH' && !initial) {
                     return
                 }
                 const desired = rosterFilterSearchParams({}, rosterFilterUrlState(values))

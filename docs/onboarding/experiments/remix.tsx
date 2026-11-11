@@ -4,7 +4,7 @@ import { getRemixInstallSteps } from '../product-analytics/remix'
 import { StepDefinition } from '../steps'
 
 export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { Markdown, dedent, snippets } = ctx
+    const { Markdown, Tab, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
 
     // Add experiments-specific steps
@@ -16,12 +16,34 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                 <>
                     <Markdown>
                         {dedent`
-                            Experiments run on top of our feature flags. You can define which version of your code runs based on the return value of the feature flag.
-
-                            For client-side experiments, use the JavaScript snippet. For server-side experiments, use the Node.js snippet:
+                            Experiments run on top of our feature flags. You can define which version of your code runs based on the return value of the feature flag:
                         `}
                     </Markdown>
-                    {ExperimentImplementation && <ExperimentImplementation language="javascript" />}
+
+                    <Tab.Group tabs={['Client-side', 'Server-side']}>
+                        <Tab.List>
+                            <Tab>Client-side</Tab>
+                            <Tab>Server-side</Tab>
+                        </Tab.List>
+                        <Tab.Panels>
+                            <Tab.Panel>
+                                <Markdown>
+                                    {dedent`
+                                        For client-side experiments, use \`posthog-js\`:
+                                    `}
+                                </Markdown>
+                                {ExperimentImplementation && <ExperimentImplementation language="javascript" />}
+                            </Tab.Panel>
+                            <Tab.Panel>
+                                <Markdown>
+                                    {dedent`
+                                        For server-side experiments, install and use \`posthog-node\`:
+                                    `}
+                                </Markdown>
+                                {ExperimentImplementation && <ExperimentImplementation language="node.js" />}
+                            </Tab.Panel>
+                        </Tab.Panels>
+                    </Tab.Group>
                 </>
             ),
         },

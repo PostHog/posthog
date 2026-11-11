@@ -4,8 +4,7 @@ Sandbox-only: this is the one module that imports `jupyter_client` and drives a 
 kernel, both of which exist only in the notebook sandbox image — so it is exercised there,
 not in backend CI (the KernelSession.run_node compute it drives is unit-tested in-process
 in test_kernel_bootstrap). Everything network/credential-bearing stays in this process; the
-kernel receives only local file paths and node code, never a token (division of labor in
-sql_v2_kernel_architecture.md).
+kernel receives only local file paths and node code, never a token.
 
 Flow for a kernel node (python or duckdb — the kernel branches on node.type):
   1. materialize each HogQL input — the server streams the full CH result to a local Arrow
@@ -15,6 +14,7 @@ Flow for a kernel node (python or duckdb — the kernel branches on node.type):
 """
 
 import os
+import re
 import glob
 import json
 import time
@@ -22,9 +22,11 @@ import queue
 import shutil
 import hashlib
 import threading
+from collections.abc import Callable
 from typing import Any
 
 from jupyter_client import KernelManager
+from jupyter_client.session import Session
 
 from . import data_plane, envelope
 
@@ -32,8 +34,16 @@ from . import data_plane, envelope
 # one record batch) is the arch-doc target; a high cap is the pragmatic first cut.
 _MATERIALIZE_ROW_CAP = 2_000_000
 _KERNEL_READY_TIMEOUT_SECONDS = 30
-_EXECUTE_TIMEOUT_SECONDS = 300
+# A backstop for a cell that never ends. A long cell stays alive through the heartbeat, so this
+# can be generous; the backend's token lifetimes in sql_v2.py must outlast it.
+_EXECUTE_TIMEOUT_SECONDS = 6 * 60 * 60
+_HEARTBEAT_INTERVAL_SECONDS = 60
 _SHELL_POLL_SECONDS = 1.0
+# Completion and introspection answer while the user types: a kernel busy with a cell queues
+# the request behind it, so give up quickly and return nothing rather than block the editor.
+_INTROSPECTION_TIMEOUT_SECONDS = 2.0
+_MAX_COMPLETIONS = 200
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
 
 
 class KernelExecutor:
@@ -53,6 +63,12 @@ class KernelExecutor:
         # _lock; read lock-free from the HTTP handler thread (a stale read is benign; the
         # worst case is a missed/late SIGINT, and the cancel event still stops the run).
         self._active_run_id: str | None = None
+        # A second client for complete/inspect requests. The run client's reply loop drops any
+        # reply it did not ask for, and jupyter_client clients are not thread-safe, so the two
+        # cannot share one. Rebuilt when the kernel is replaced.
+        self._introspection_kc: Any = None
+        self._introspection_km: KernelManager | None = None
+        self._introspection_lock = threading.Lock()
 
     def run_kernel_node(self, payload: dict[str, Any], cancel_event: threading.Event | None = None) -> dict[str, Any]:
         with self._lock:  # a kernel has one namespace — concurrent runs are meaningless
@@ -98,6 +114,65 @@ class KernelExecutor:
                 # when a fallback fires partway through.
                 result["delivery"] = deliveries.pop() if len(deliveries) == 1 else "mixed"
             return result
+
+    def complete(self, code: str, cursor_pos: int) -> dict[str, Any]:
+        """Ask the live kernel for completions at `cursor_pos`; an idle or busy kernel answers with none."""
+        empty = {"matches": [], "cursor_start": cursor_pos, "cursor_end": cursor_pos}
+        reply = self._introspect(lambda client: client.complete(code, cursor_pos))
+        if not reply or reply.get("status") != "ok":
+            return empty
+        matches = [str(match) for match in reply.get("matches") or []][:_MAX_COMPLETIONS]
+        types_by_text = {
+            str(item.get("text")): str(item.get("type") or "")
+            for item in (reply.get("metadata") or {}).get("_jupyter_types_experimental") or []
+            if isinstance(item, dict)
+        }
+        return {
+            "matches": [{"text": match, "type": types_by_text.get(match, "")} for match in matches],
+            "cursor_start": int(reply.get("cursor_start", cursor_pos)),
+            "cursor_end": int(reply.get("cursor_end", cursor_pos)),
+        }
+
+    def inspect(self, code: str, cursor_pos: int, detail_level: int = 0) -> dict[str, Any]:
+        """Ask the live kernel for the signature and docstring of the name at `cursor_pos`."""
+        reply = self._introspect(lambda client: client.inspect(code, cursor_pos, detail_level))
+        if not reply or reply.get("status") != "ok" or not reply.get("found"):
+            return {"found": False, "text": ""}
+        text = str((reply.get("data") or {}).get("text/plain") or "")
+        return {"found": True, "text": _ANSI_ESCAPE.sub("", text)}
+
+    def _introspect(self, send: Any) -> dict[str, Any] | None:
+        km = self._km
+        # Never boot a kernel to answer a keystroke: before the first run there is no namespace.
+        if km is None or not km.is_alive():
+            return None
+        with self._introspection_lock:
+            if self._introspection_kc is None or self._introspection_km is not km:
+                if self._introspection_kc is not None:
+                    try:
+                        self._introspection_kc.stop_channels()
+                    except Exception:  # noqa: BLE001 — best-effort teardown of a replaced kernel's client
+                        pass
+                # Its own session: km.client() reuses the run client's session id as the ZMQ
+                # identity, and the kernel's shell ROUTER hands an identity over to its newest
+                # socket, so a shared id routes every later run reply here.
+                self._introspection_kc = km.client(
+                    session=Session(key=km.session.key, signature_scheme=km.session.signature_scheme)
+                )
+                self._introspection_kc.start_channels()
+                self._introspection_km = km
+            client = self._introspection_kc
+            msg_id = send(client)
+            deadline = time.monotonic() + _INTROSPECTION_TIMEOUT_SECONDS
+            while (remaining := deadline - time.monotonic()) > 0:
+                try:
+                    reply = client.get_shell_msg(timeout=remaining)
+                except queue.Empty:
+                    return None
+                # A reply that missed an earlier deadline arrives late; skip it.
+                if reply.get("parent_header", {}).get("msg_id") == msg_id:
+                    return reply.get("content") or {}
+            return None
 
     def interrupt(self) -> None:
         if self._km is not None:
@@ -237,6 +312,13 @@ class KernelExecutor:
             if os.path.exists(envelope_path):
                 os.remove(envelope_path)
 
+            heartbeat_url = payload.get("heartbeat_url")
+            data_plane_token = payload.get("data_plane_token")
+            heartbeat = (
+                (lambda: data_plane.send_heartbeat(heartbeat_url, data_plane_token))
+                if heartbeat_url and data_plane_token
+                else None
+            )
             # Only while the cell is actually executing may an interrupt SIGINT the kernel.
             self._active_run_id = run_id
             try:
@@ -244,7 +326,8 @@ class KernelExecutor:
                     "import json as __j\n"
                     f"with open({payload_path!r}) as __f:\n    __payload = __j.load(__f)\n"
                     "__envelope = _ph.run_node(__payload)\n"
-                    f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n"
+                    f"with open({envelope_path!r}, 'w') as __f:\n    __j.dump(__envelope, __f)\n",
+                    heartbeat=heartbeat,
                 )
             finally:
                 self._active_run_id = None
@@ -262,7 +345,7 @@ class KernelExecutor:
             # paging live under /data/results, so the per-run dir must not accumulate.
             shutil.rmtree(run_dir, ignore_errors=True)
 
-    def _execute(self, code: str) -> tuple[str, str | None]:
+    def _execute(self, code: str, heartbeat: Callable[[], None] | None = None) -> tuple[str, str | None]:
         """Run code in the kernel; return (execute_reply status, error detail when not ok).
 
         The detail is the reply's exception name and value — without it a run-machinery
@@ -272,7 +355,11 @@ class KernelExecutor:
         """
         msg_id = self._kc.execute(code, store_history=False, silent=True)
         deadline = time.monotonic() + _EXECUTE_TIMEOUT_SECONDS
+        next_heartbeat = time.monotonic() + _HEARTBEAT_INTERVAL_SECONDS
         while time.monotonic() < deadline:
+            if heartbeat is not None and time.monotonic() >= next_heartbeat:
+                heartbeat()
+                next_heartbeat = time.monotonic() + _HEARTBEAT_INTERVAL_SECONDS
             try:
                 reply = self._kc.get_shell_msg(timeout=_SHELL_POLL_SECONDS)
             except queue.Empty:

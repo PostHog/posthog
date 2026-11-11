@@ -158,6 +158,8 @@ class TestCspReport(BaseTest):
         assert event["properties"]["$browser_crash_reason"] == "oom"
         assert event["properties"]["$browser_crash_is_top_level"] is True
         assert event["properties"]["$current_url"] == "https://app.example.com/dashboard/1"
+        assert event["options"] == {"process_person_profile": False}
+        assert "$process_person_profile" not in event["properties"]
         # the report's `age` (42s here) recovers the crash time; delivery happens on a later visit
         assert event["timestamp"] == "2026-08-12T09:59:18+00:00"
 

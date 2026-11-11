@@ -496,23 +496,33 @@ function LegacyRecordingConditions(): JSX.Element {
                     ]}
                 />
             </div>
-
-            <div>
-                <h3 className="text-base font-semibold mb-2">
-                    Recording exclusions <Since web={{ version: '1.171.0' }} />
-                </h3>
-                <LemonCollapse
-                    multiple
-                    panels={[
-                        {
-                            key: 'blocklist',
-                            header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
-                            content: <UrlBlocklistOptions />,
-                        },
-                    ]}
-                />
-            </div>
         </>
+    )
+}
+
+function RecordingExclusions(): JSX.Element {
+    const { currentTeam } = useValues(teamLogic)
+    const statuses = useHeaderStatuses(currentTeam)
+
+    return (
+        <div>
+            <h3 className="text-base font-semibold mb-1">
+                Recording exclusions <Since web={{ version: '1.171.0' }} />
+            </h3>
+            <p className="text-muted text-xs mb-2">
+                The URL blocklist is global. It applies to trigger groups and to the legacy recording conditions.
+            </p>
+            <LemonCollapse
+                multiple
+                panels={[
+                    {
+                        key: 'blocklist',
+                        header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
+                        content: <UrlBlocklistOptions />,
+                    },
+                ]}
+            />
+        </div>
     )
 }
 
@@ -610,6 +620,8 @@ export function ReplayTriggers(): JSX.Element {
                             <TriggerGroupsEditor />
                         </>
                     )}
+
+                    <RecordingExclusions />
 
                     {isV2TriggersEnabled && (
                         <div className="mt-2">

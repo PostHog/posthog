@@ -485,20 +485,22 @@ describe("CloudTaskEngine", () => {
   });
 
   it.each([
-    { name: "active", status: "in_progress" as const },
-    { name: "terminal", status: "completed" as const },
+    { name: "active", status: "in_progress" as const, length: 4500 },
+    { name: "short active", status: "in_progress" as const, length: 100 },
+    { name: "terminal", status: "completed" as const, length: 4500 },
+    { name: "short terminal", status: "completed" as const, length: 100 },
   ])(
-    "bootstraps a long $name run from the tail window with the chain total",
-    async ({ status }) => {
+    "bootstraps a $name run with bounded history requests",
+    async ({ status, length }) => {
       const updates: unknown[] = [];
       service.on(CloudTaskEvent.Update, (payload) => updates.push(payload));
 
-      const chain = Array.from({ length: 4500 }, (_, i) => ({
+      const chain = Array.from({ length }, (_, i) => ({
         type: "notification",
         timestamp: "2026-01-01T00:00:00Z",
         notification: { jsonrpc: "2.0", method: `entry-${i}` },
       }));
-      const tailStart = chain.length - TRANSCRIPT_TAIL_WINDOW;
+      const tailStart = Math.max(0, chain.length - TRANSCRIPT_TAIL_WINDOW);
       const logRequests: Array<{ offset: number; limit: number }> = [];
       mockNetFetch.mockImplementation((input: string | URL | Request) => {
         const url = new URL(
@@ -552,13 +554,17 @@ describe("CloudTaskEngine", () => {
         totalEntryCount: number;
         windowStart?: number;
       };
-      expect(snapshot.windowStart).toBe(tailStart);
+      expect(snapshot.windowStart ?? 0).toBe(tailStart);
       expect(snapshot.totalEntryCount).toBe(chain.length);
-      expect(snapshot.newEntries).toHaveLength(TRANSCRIPT_TAIL_WINDOW);
+      expect(snapshot.newEntries).toHaveLength(
+        Math.min(length, TRANSCRIPT_TAIL_WINDOW),
+      );
       expect(snapshot.newEntries[0]).toEqual(chain[tailStart]);
       expect(logRequests).toEqual([
-        { offset: 0, limit: 1 },
-        { offset: tailStart, limit: TRANSCRIPT_TAIL_WINDOW },
+        { offset: 0, limit: TRANSCRIPT_TAIL_WINDOW },
+        ...(tailStart > 0
+          ? [{ offset: tailStart, limit: TRANSCRIPT_TAIL_WINDOW }]
+          : []),
       ]);
     },
   );
@@ -1833,7 +1839,7 @@ describe("CloudTaskEngine", () => {
       }
       const offset = Number(url.searchParams.get("offset") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
-      if (offset === 0 && limit === 1) {
+      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
         probes += 1;
         persistedCount = probes === 1 ? 0 : chain.length;
       }
@@ -1954,7 +1960,7 @@ describe("CloudTaskEngine", () => {
       }
       const offset = Number(url.searchParams.get("offset") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
-      if (offset === 0 && limit === 1) {
+      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
         probes += 1;
         persistedCount = probes === 1 ? 0 : chain.length;
       }
@@ -2104,7 +2110,7 @@ describe("CloudTaskEngine", () => {
       }
       const offset = Number(url.searchParams.get("offset") ?? "0");
       const limit = Number(url.searchParams.get("limit"));
-      if (offset === 0 && limit === 1) {
+      if (offset === 0 && limit === TRANSCRIPT_TAIL_WINDOW) {
         probes += 1;
         persistedCount = probes === 1 ? 0 : chain.length;
       }

@@ -17,6 +17,7 @@ jest.mock('lib/api', () => {
         __esModule: true,
         ...actual,
         default: {
+            get: jest.fn(),
             externalDataSources: {
                 list: jest.fn(),
                 update: jest.fn(),
@@ -45,7 +46,7 @@ describe('sourcesDataLogic', () => {
         logic.unmount()
     })
 
-    it('loads external data sources from centralized api call', async () => {
+    it('loads every page before publishing external data sources', async () => {
         const mockResponse: PaginatedResponse<ExternalDataSource> = {
             results: [
                 {
@@ -68,11 +69,12 @@ describe('sourcesDataLogic', () => {
                     user_access_level: AccessControlLevel.Manager,
                 },
             ],
-            next: null,
+            next: '/api/environments/997/external_data_sources/?offset=1',
             previous: null,
         }
-
+        const secondSource = { ...mockResponse.results[0], id: 'test-2', source_type: 'BingAds' as const }
         jest.spyOn(api.externalDataSources, 'list').mockResolvedValue(mockResponse)
+        jest.spyOn(api, 'get').mockResolvedValue({ results: [secondSource], next: null, previous: null })
 
         logic.mount()
 
@@ -81,30 +83,63 @@ describe('sourcesDataLogic', () => {
         })
             .toDispatchActions(['loadSources', 'loadSourcesSuccess'])
             .toMatchValues({
-                dataWarehouseSources: mockResponse,
+                dataWarehouseSources: { ...mockResponse, results: [...mockResponse.results, secondSource], next: null },
                 dataWarehouseSourcesLoading: false,
             })
 
         expect(api.externalDataSources.list).toHaveBeenCalledWith({ signal: expect.any(AbortSignal) })
+        expect(api.get).toHaveBeenCalledWith(mockResponse.next, { signal: expect.any(AbortSignal) })
     })
 
+    it.each([['403 access denied', new ApiError('forbidden', 403)]])(
+        'returns an empty paginated result on %s without surfacing loader failure',
+        async (_label, error) => {
+            jest.spyOn(api.externalDataSources, 'list').mockResolvedValue({
+                ...emptyResponse,
+                next: '/api/environments/997/external_data_sources/?offset=1',
+            })
+            jest.spyOn(api, 'get').mockRejectedValue(error)
+
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSources()
+            })
+                .toDispatchActions(['loadSources', 'loadSourcesSuccess'])
+                .toNotHaveDispatchedActions(['loadSourcesFailure'])
+                .toMatchValues({
+                    dataWarehouseSources: emptyResponse,
+                    dataWarehouseSourcesLoading: false,
+                })
+        }
+    )
     it.each([
-        ['403 access denied', new ApiError('forbidden', 403)],
-        ['network failure (no HTTP status)', new ApiError('TypeError: Failed to fetch', undefined)],
-        ['aborted request', Object.assign(new Error('aborted'), { name: 'AbortError' })],
-    ])('returns an empty paginated result on %s without surfacing loader failure', async (_label, error) => {
-        jest.spyOn(api.externalDataSources, 'list').mockRejectedValue(error)
-
+        ['server error', new ApiError('unavailable', 503)],
+        ['network error', new ApiError('offline', undefined)],
+    ])('keeps existing sources and recovers after a %s', async (_label, error) => {
+        const response = {
+            ...emptyResponse,
+            results: [{ id: 'existing', source_type: 'GoogleSearchConsole' } as ExternalDataSource],
+        }
+        jest.spyOn(api.externalDataSources, 'list')
+            .mockResolvedValueOnce(response)
+            .mockRejectedValueOnce(error)
+            .mockResolvedValueOnce(response)
         logic.mount()
-
-        await expectLogic(logic, () => {
-            logic.actions.loadSources()
-        })
-            .toDispatchActions(['loadSources', 'loadSourcesSuccess'])
-            .toNotHaveDispatchedActions(['loadSourcesFailure'])
+        await expectLogic(logic, () => logic.actions.loadSources()).toDispatchActions(['loadSourcesSuccess'])
+        await expectLogic(logic, () => logic.actions.loadSources())
+            .toDispatchActions(['loadSourcesFailure'])
             .toMatchValues({
-                dataWarehouseSources: emptyResponse,
+                dataWarehouseSources: response,
                 dataWarehouseSourcesLoading: false,
+                sourcesLoadError: true,
+            })
+        await expectLogic(logic, () => logic.actions.loadSources())
+            .toDispatchActions(['loadSourcesSuccess'])
+            .toMatchValues({
+                dataWarehouseSources: response,
+                dataWarehouseSourcesLoading: false,
+                sourcesLoadError: false,
             })
     })
 })

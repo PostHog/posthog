@@ -8,7 +8,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.permissions import IsStaffUser
 from posthog.utils import relative_date_parse
 
-# keep in sync with posthog/frontend/src/scenes/instance/DeadLetterQueue/MetricsTab.tsx
+# keep in sync with frontend/src/scenes/instance/DeadLetterQueue/MetricsTab.tsx
 ROWS_LIMIT = 10
 
 DEAD_LETTER_QUEUE_METRICS = {
@@ -123,6 +123,12 @@ class DeadLetterQueueMetricsSerializer(serializers.Serializer):
     subrows = serializers.JSONField(read_only=True)
 
 
+class DeadLetterQueueMetricQuerySerializer(serializers.Serializer):
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="Number of metric rows to skip. Defaults to 0."
+    )
+
+
 class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mixins.RetrieveModelMixin):
     permission_classes = [permissions.IsAuthenticated, IsStaffUser]
     serializer_class = DeadLetterQueueMetricsSerializer
@@ -146,7 +152,9 @@ class DeadLetterQueueViewSet(viewsets.GenericViewSet, mixins.ListModelMixin, mix
         return output
 
     def get_object(self) -> DeadLetterQueueMetric:
-        offset = int(self.request.GET.get("offset", "0"))
+        query = DeadLetterQueueMetricQuerySerializer(data=self.request.GET)
+        query.is_valid(raise_exception=True)
+        offset: int = query.validated_data["offset"]
         after = self.request.GET.get("after", "-7d")
         before = self.request.GET.get("before", None)
         after_datetime = relative_date_parse(after, ZoneInfo("UTC"))

@@ -44,6 +44,16 @@ export function getUserAgent(opts: GetUserAgentOptions = {}): string {
     return parts.join(' ')
 }
 
+// The PostHog app on OpenAI's platform (ChatGPT connector and Codex plugin), same id in US
+// and EU. It's the URL of the app's metadata document, so it only changes if we re-register
+// the app. Django reads it off the token at introspection, so a client can't spoof it.
+// Codex CLI installs register their own ids under `chatgpt.com/oauth/codex/`.
+export const CHATGPT_APP_OAUTH_CLIENT_ID = 'https://chatgpt.com/oauth/kxnWncnkxM6t/client.json'
+
+export function isChatGptAppConnection(oauthClientId: string | undefined): boolean {
+    return oauthClientId === CHATGPT_APP_OAUTH_CLIENT_ID
+}
+
 export const POSTHOG_US_BASE_URL = 'https://us.posthog.com'
 export const POSTHOG_EU_BASE_URL = 'https://eu.posthog.com'
 

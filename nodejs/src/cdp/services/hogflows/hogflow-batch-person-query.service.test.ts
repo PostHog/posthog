@@ -341,4 +341,50 @@ describe('HogFlowBatchPersonQueryService', () => {
             )
         })
     })
+
+    describe('audience fetch duration', () => {
+        const fetchCount = async (endpoint: string, outcome: string): Promise<number> => {
+            const metric = await register.getSingleMetric('cdp_batch_hog_flow_audience_fetch_duration_seconds')?.get()
+            const values = (metric?.values ?? []) as Array<{
+                metricName?: string
+                value: number
+                labels: { endpoint?: string; outcome?: string }
+            }>
+            return (
+                values.find(
+                    (value) =>
+                        value.metricName === 'cdp_batch_hog_flow_audience_fetch_duration_seconds_count' &&
+                        value.labels.endpoint === endpoint &&
+                        value.labels.outcome === outcome
+                )?.value ?? 0
+            )
+        }
+
+        // The alert reads the outcome label; a fetch filed under the wrong one keeps it silent.
+        it.each([
+            [
+                'a 200 response',
+                'success',
+                {
+                    fetchResponse: createFetchResponse(200, { users_affected: [], cursor: null, has_more: false }),
+                    fetchError: null,
+                },
+            ],
+            ['a 500 response', 'error', { fetchResponse: createFetchResponse(500, 'boom'), fetchError: null }],
+            ['a transport error', 'error', { fetchResponse: null, fetchError: new Error('network down') }],
+            [
+                'a client timeout',
+                'timeout',
+                { fetchResponse: null, fetchError: Object.assign(new Error('aborted'), { name: 'TimeoutError' }) },
+            ],
+        ])('records %s under outcome %s', async (_name, outcome, result) => {
+            const service = createService()
+            const before = await fetchCount('user_blast_radius_persons', outcome)
+
+            fetchMock.mockResolvedValue(result as MockedInternalFetchResult)
+            await service.getBlastRadiusPersons(team, filters).catch(() => undefined)
+
+            expect(await fetchCount('user_blast_radius_persons', outcome)).toBe(before + 1)
+        })
+    })
 })

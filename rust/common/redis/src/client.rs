@@ -54,9 +54,18 @@ impl RedisClient {
     /// attempt just waits for the next caller -- the client keeps failing
     /// open in the meantime, exactly as it would without healing.
     pub async fn heal_connection(&self) {
+        self.reconnect_inner(false).await;
+    }
+
+    /// Replace the connection after a shadow timeout, even during the normal heal cooldown.
+    pub async fn reconnect(&self) -> bool {
+        self.reconnect_inner(true).await
+    }
+
+    async fn reconnect_inner(&self, force: bool) -> bool {
         let mut last_attempt = self.heal_state.lock().await;
-        if last_attempt.elapsed() < HEAL_COOLDOWN {
-            return;
+        if !force && last_attempt.elapsed() < HEAL_COOLDOWN {
+            return false;
         }
         *last_attempt = Instant::now();
 
@@ -75,10 +84,12 @@ impl RedisClient {
         {
             Ok(connection) => {
                 self.connection.store(Arc::new(connection));
-                info!("Redis connection healed after unrecoverable error");
+                info!("Redis connection replaced");
+                true
             }
             Err(e) => {
-                warn!(error = %e, "Redis heal attempt failed; will retry after cooldown");
+                warn!(error = %e, "Redis reconnect attempt failed");
+                false
             }
         }
     }
@@ -336,10 +347,19 @@ pub trait ScriptRunner: Send + Sync {
     /// Rebuild the underlying connection after a connection-class failure; see
     /// [`Client::heal`]. The default no-op keeps test fakes trivial.
     async fn heal(&self) {}
+
+    /// Return whether a fresh connection replaced the old one. Test runners do not reconnect.
+    async fn reconnect(&self) -> bool {
+        false
+    }
 }
 
 #[async_trait]
 impl ScriptRunner for RedisClient {
+    async fn reconnect(&self) -> bool {
+        RedisClient::reconnect(self).await
+    }
+
     async fn eval_int_vec(
         &self,
         script: &str,
@@ -358,6 +378,10 @@ impl ScriptRunner for RedisClient {
 impl Client for RedisClient {
     async fn heal(&self) {
         self.heal_connection().await;
+    }
+
+    async fn reconnect(&self) -> bool {
+        RedisClient::reconnect(self).await
     }
 
     async fn zrangebyscore(
@@ -387,6 +411,20 @@ impl Client for RedisClient {
     async fn zadd(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
         let mut conn = self.conn();
         conn.zadd::<_, _, _, ()>(k, member, score).await?;
+        Ok(())
+    }
+
+    async fn zadd_nx(&self, k: String, member: String, score: i64) -> Result<(), CustomRedisError> {
+        let mut conn = self.conn();
+        zadd_nx_command(&k, &member, score)
+            .query_async::<()>(&mut conn)
+            .await?;
+        Ok(())
+    }
+
+    async fn zrem(&self, k: String, member: String) -> Result<(), CustomRedisError> {
+        let mut conn = self.conn();
+        conn.zrem::<_, _, ()>(k, member).await?;
         Ok(())
     }
 
@@ -616,6 +654,22 @@ impl Client for RedisClient {
         Ok(results)
     }
 
+    async fn get_multiple(
+        &self,
+        keys: Vec<String>,
+    ) -> Result<Vec<Option<Vec<u8>>>, CustomRedisError> {
+        if keys.is_empty() {
+            return Ok(vec![]);
+        }
+        let mut pipe = redis::pipe();
+        for k in &keys {
+            pipe.get(k);
+        }
+        let mut conn = self.conn();
+        let results: Vec<Option<Vec<u8>>> = pipe.query_async(&mut conn).await?;
+        Ok(results)
+    }
+
     async fn scard_multiple(&self, keys: Vec<String>) -> Result<Vec<u64>, CustomRedisError> {
         if keys.is_empty() {
             return Ok(vec![]);
@@ -671,11 +725,12 @@ impl Client for RedisClient {
         if keys.is_empty() {
             return Ok(());
         }
+        let mut pipe = redis::pipe();
+        for k in &keys {
+            pipe.del(k).ignore();
+        }
         let mut conn = self.conn();
-        redis::cmd("DEL")
-            .arg(&keys)
-            .query_async::<()>(&mut conn)
-            .await?;
+        pipe.query_async::<()>(&mut conn).await?;
         Ok(())
     }
 
@@ -850,9 +905,24 @@ impl RedisClient {
     }
 }
 
+fn zadd_nx_command(key: &str, member: &str, score: i64) -> redis::Cmd {
+    let mut command = redis::cmd("ZADD");
+    command.arg(key).arg("NX").arg(score).arg(member);
+    command
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_zadd_nx_command_encodes_score_before_member() {
+        let command = zadd_nx_command("rebuilds", "team-1", 100);
+        assert_eq!(
+            command.get_packed_command(),
+            b"*5\r\n$4\r\nZADD\r\n$8\r\nrebuilds\r\n$2\r\nNX\r\n$3\r\n100\r\n$6\r\nteam-1\r\n"
+        );
+    }
 
     // Test helper functions to reduce duplication
     mod helpers {
@@ -1612,6 +1682,50 @@ mod integration_tests {
                 "Mismatch at index {i}: expected {expected:?}, got {result:?}"
             );
         }
+    }
+
+    // `zadd_nx` is hand-built from `redis::cmd` because the driver exposes no NX helper, so
+    // the argument order is ours to get wrong. `ZADD key NX member score` parses the member
+    // as a score and returns an error the caller only sees as a failed write, which would
+    // leave the rebuild queue silently empty. This pins the order against a real server.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_zadd_nx_keeps_the_first_score() {
+        let (client, _container) = create_test_client().await;
+        let key = "zadd_nx_score".to_string();
+        let member = "team-1".to_string();
+
+        client
+            .zadd_nx(key.clone(), member.clone(), 100)
+            .await
+            .unwrap();
+        client
+            .zadd_nx(key.clone(), member.clone(), 200)
+            .await
+            .unwrap();
+
+        // The trait has no ZSCORE, so read the score back through a range that admits one
+        // value.
+        let at_first_score = client
+            .zrangebyscore(key.clone(), "100".to_string(), "100".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            at_first_score,
+            vec![member.clone()],
+            "the second NX write must leave the first score alone"
+        );
+
+        client.zadd(key.clone(), member.clone(), 200).await.unwrap();
+        let at_new_score = client
+            .zrangebyscore(key.clone(), "200".to_string(), "200".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            at_new_score,
+            vec![member],
+            "a plain zadd moves the member, which is the behavior NX exists to avoid"
+        );
     }
 
     /// Helper to create a test client with compression enabled.

@@ -1,6 +1,6 @@
 import type { ChartTheme, Series } from '../../core/types'
 import { ReferenceLine } from '../../overlays/ReferenceLine'
-import { renderHogChart } from '../../testing'
+import { renderChart } from '../../testing'
 import { ComboChart } from './ComboChart'
 
 const THEME: ChartTheme = {
@@ -19,7 +19,7 @@ const BAR_AND_LINE: Series[] = [
 
 describe('ComboChart', () => {
     it('renders a bar + line combo without crashing', () => {
-        const { chart } = renderHogChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(2)
         expect(chart.yTicks().length).toBeGreaterThan(0)
     })
@@ -29,24 +29,24 @@ describe('ComboChart', () => {
             { key: 'area', label: 'Area', data: [10, 30, 20], type: 'area' },
             { key: 'avg', label: 'Avg', data: [15, 25, 20], type: 'line' },
         ]
-        const { chart } = renderHogChart(<ComboChart series={series} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<ComboChart series={series} labels={LABELS} theme={THEME} />)
         expect(chart.seriesCount).toBe(2)
     })
 
     it('renders empty state without crashing', () => {
-        const { chart } = renderHogChart(<ComboChart series={[]} labels={[]} theme={THEME} />)
+        const { chart } = renderChart(<ComboChart series={[]} labels={[]} theme={THEME} />)
         expect(chart.seriesCount).toBe(0)
     })
 
     it('forwards `dataAttr` to the chart wrapper', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} dataAttr="combo-instance" />
         )
         expect(chart.element.getAttribute('data-attr')).toBe('combo-instance')
     })
 
     it('applies xTickFormatter to x-axis ticks', () => {
-        const { chart } = renderHogChart(
+        const { chart } = renderChart(
             <ComboChart
                 series={BAR_AND_LINE}
                 labels={LABELS}
@@ -62,14 +62,14 @@ describe('ComboChart', () => {
             { key: 'b', label: 'B', data: [40, 60, 50], type: 'bar' },
             { key: 'l', label: 'L', data: [1000, 2000, 3000], type: 'line', yAxisId: 'right' },
         ]
-        const { chart } = renderHogChart(<ComboChart series={series} labels={LABELS} theme={THEME} />)
+        const { chart } = renderChart(<ComboChart series={series} labels={LABELS} theme={THEME} />)
         expect(chart.hasRightAxis).toBe(true)
         expect(chart.yRightTicks().length).toBeGreaterThan(0)
     })
 
     describe('percent barLayout', () => {
         it('applies a default percent formatter when the consumer omits one', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
             )
             expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
@@ -77,7 +77,7 @@ describe('ComboChart', () => {
 
         it('renders a custom percent formatter when the consumer supplies one', () => {
             const formatter = jest.fn((v: number) => `${Math.round(v * 1000) / 10}‰`)
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ComboChart
                     series={BAR_AND_LINE}
                     labels={LABELS}
@@ -92,7 +92,7 @@ describe('ComboChart', () => {
 
     describe('hover & tooltip', () => {
         it('lists every visible series at the hovered x', async () => {
-            const { chart } = renderHogChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             const keys = tooltip.seriesData.map((s) => s.series.key).sort()
@@ -104,7 +104,7 @@ describe('ComboChart', () => {
                 { key: 'b', label: 'B', data: [10, 20, 30], type: 'bar' },
                 { key: 'l', label: 'L', data: [5, 15, 25], type: 'line' },
             ]
-            const { chart } = renderHogChart(<ComboChart series={onlyLine} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<ComboChart series={onlyLine} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             const keys = tooltip.seriesData.map((s) => s.series.key)
@@ -116,7 +116,7 @@ describe('ComboChart', () => {
                 { key: 'b', label: 'Revenue', data: [1000, 2000, 1500], type: 'bar' },
                 { key: 'l', label: 'Conv', data: [0.02, 0.03, 0.025], type: 'line', yAxisId: 'right' },
             ]
-            const { chart } = renderHogChart(<ComboChart series={series} labels={LABELS} theme={THEME} />)
+            const { chart } = renderChart(<ComboChart series={series} labels={LABELS} theme={THEME} />)
             chart.hoverAtIndex(1)
             const tooltip = await chart.waitForTooltip()
             expect(tooltip.seriesData.map((s) => s.series.key).sort()).toEqual(['b', 'l'])
@@ -124,7 +124,7 @@ describe('ComboChart', () => {
         })
 
         it('pins the tooltip on click when tooltip.pinnable is true', async () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ComboChart
                     series={BAR_AND_LINE}
                     labels={LABELS}
@@ -145,7 +145,7 @@ describe('ComboChart', () => {
                 { key: 'b', label: 'B', data: [5, 15, 25], type: 'bar' },
                 { key: 'l', label: 'L', data: [50, 60, 70], type: 'line' },
             ]
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ComboChart series={series} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
             )
             chart.hoverAtIndex(1)
@@ -164,7 +164,7 @@ describe('ComboChart', () => {
                 { key: 'neg', label: 'Neg', data: [-20, -30, -10], type: 'bar' },
                 { key: 'l', label: 'L', data: [5, 10, 15], type: 'line' },
             ]
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ComboChart
                     series={series}
                     labels={LABELS}
@@ -182,7 +182,7 @@ describe('ComboChart', () => {
 
     describe('children & error boundary', () => {
         it('renders a ReferenceLine child via the accessor', () => {
-            const { chart } = renderHogChart(
+            const { chart } = renderChart(
                 <ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME}>
                     <ReferenceLine value={45} label="Target" />
                 </ComboChart>
@@ -202,7 +202,7 @@ describe('ComboChart', () => {
             // getBoundingClientRect spy that restoreAllMocks would also tear down.
             const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
             try {
-                const { chart } = renderHogChart(
+                const { chart } = renderChart(
                     <ComboChart
                         series={BAR_AND_LINE}
                         labels={LABELS}

@@ -6,12 +6,22 @@ from uuid import UUID, uuid4
 from django.db import transaction
 from django.utils import timezone
 
-from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.canvas.backend import build_service
 from products.canvas.backend.artifacts import create_canvas_artifact_url
+from products.canvas.backend.facade.contracts import (
+    CanvasGenerationState,
+    NotebookCanvasBuildCapacityError,
+    NotebookCanvasError,
+    NotebookCanvasNotFoundError,
+    NotebookCanvasSourceInvalidError,
+    NotebookCanvasVersion,
+    NotebookCanvasVersionConflictError,
+    PreparedNotebookCanvasSource,
+    StagedCanvasSourceUpload,
+)
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasSourceVersion
 from products.canvas.backend.source import has_errors, synthetic_source_project, validate_source_project
 from products.tasks.backend.facade import api as tasks_facade
@@ -19,52 +29,6 @@ from products.tasks.backend.facade import api as tasks_facade
 _NETWORK_DIAGNOSTICS = {"network_fetch", "network_xhr"}
 _LEGACY_FRAME_BRIDGE_START = "/* __POSTHOG_NOTEBOOK_BRIDGE_START__ */"
 _LEGACY_FRAME_BRIDGE_END = "/* __POSTHOG_NOTEBOOK_BRIDGE_END__ */"
-
-
-@frozen
-class CanvasGenerationState:
-    current_source_version_id: UUID | None
-    artifact_url: str | None
-    build_status: str | None
-    build_error: str | None
-    build_hash: str | None = None
-
-
-@frozen
-class NotebookCanvasVersion:
-    id: UUID
-    build_status: str | None
-    artifact_url: str | None
-    build_hash: str | None = None
-
-
-@frozen
-class PreparedNotebookCanvasSource:
-    canvas_id: UUID
-    expected_current_version_id: UUID | None
-    prompt: str
-    name: str
-    prepared: build_service.PreparedSourceProjectPublish
-
-
-class NotebookCanvasError(Exception):
-    pass
-
-
-class NotebookCanvasNotFoundError(NotebookCanvasError):
-    pass
-
-
-class NotebookCanvasVersionConflictError(NotebookCanvasError):
-    pass
-
-
-class NotebookCanvasBuildCapacityError(NotebookCanvasError):
-    pass
-
-
-class NotebookCanvasSourceInvalidError(NotebookCanvasError):
-    pass
 
 
 def create_notebook_canvas(*, team_id: int, user_id: int, channel_id: UUID, name: str) -> UUID:
@@ -162,7 +126,25 @@ def prepare_notebook_canvas_source(
         expected_current_version_id=expected_current_version_id,
         prompt=prompt,
         name=name,
-        prepared=prepared,
+        project=prepared.project,
+        source_upload=_staged_upload(prepared.source_upload),
+        legacy_upload=_staged_upload(prepared.legacy_upload) if prepared.legacy_upload is not None else None,
+    )
+
+
+def _staged_upload(upload: build_service.SourceProjectUpload) -> StagedCanvasSourceUpload:
+    return StagedCanvasSourceUpload(key=upload.key, digest=upload.digest, size=upload.size)
+
+
+def _source_upload(upload: StagedCanvasSourceUpload) -> build_service.SourceProjectUpload:
+    return build_service.SourceProjectUpload(key=upload.key, digest=upload.digest, size=upload.size)
+
+
+def _prepared_publish(prepared: PreparedNotebookCanvasSource) -> build_service.PreparedSourceProjectPublish:
+    return build_service.PreparedSourceProjectPublish(
+        project=prepared.project,
+        source_upload=_source_upload(prepared.source_upload),
+        legacy_upload=_source_upload(prepared.legacy_upload) if prepared.legacy_upload is not None else None,
     )
 
 
@@ -173,9 +155,9 @@ def notebook_canvas_source_transaction(*, team_id: int, prepared: PreparedNotebo
             yield
     finally:
         # Check references after the caller's writes commit or roll back, including notebook metadata.
-        object_keys = [prepared.prepared.source_upload.key]
-        if prepared.prepared.legacy_upload is not None:
-            object_keys.append(prepared.prepared.legacy_upload.key)
+        object_keys = [prepared.source_upload.key]
+        if prepared.legacy_upload is not None:
+            object_keys.append(prepared.legacy_upload.key)
         build_service.cleanup_source_uploads_or_retry(team_id, prepared.canvas_id, object_keys)
 
 
@@ -193,7 +175,7 @@ def publish_prepared_notebook_canvas_source(
     try:
         result = build_service.commit_source_project_publish(
             canvas,
-            prepared=prepared.prepared,
+            prepared=_prepared_publish(prepared),
             prompt=prepared.prompt,
             name=prepared.name,
             has_expected_version=True,
@@ -226,7 +208,7 @@ def publish_prepared_notebook_canvas_draft(
     try:
         version, _build = build_service.commit_source_project_draft(
             canvas,
-            prepared=prepared.prepared,
+            prepared=_prepared_publish(prepared),
             prompt=prepared.prompt,
             has_expected_version=True,
             expected_version_id=(

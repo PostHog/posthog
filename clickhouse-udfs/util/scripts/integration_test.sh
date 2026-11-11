@@ -15,6 +15,7 @@ UDFS=(
     json_clean_posthog_event_properties
     json_clean_posthog_person_properties
     json_clean_posthog_temporary_properties
+    json_clean_posthog_event
     json_strip_empty_strings_and_nulls
 )
 
@@ -52,6 +53,9 @@ query_for() {
             ;;
         json_clean_posthog_temporary_properties)
             echo "SELECT JSONCleanPostHogTemporaryProperties(x) FROM $input FORMAT TabSeparated"
+            ;;
+        json_clean_posthog_event)
+            echo "SELECT JSONCleanPostHogEvent(properties, person_properties) FROM file('$1/stateless/$2', 'TabSeparated', 'properties String, person_properties String') SETTINGS max_block_size = 2, max_threads = 1 FORMAT TabSeparated"
             ;;
         json_strip_empty_strings_and_nulls)
             echo "SELECT JSONStripEmptyStringsAndNulls(x) FROM $input FORMAT TabSeparated"

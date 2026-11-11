@@ -1,4 +1,4 @@
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import type { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
@@ -57,14 +57,18 @@ export const normalizeBatchExportService = (service: string): BatchExportService
 /** Whether the export's schedule can still fire, which `paused` alone does not tell you. */
 export type BatchExportScheduleStatus = 'active' | 'ended' | 'paused'
 
+// An end date in the past bounds the Temporal schedule, so unpausing alone cannot make the export run again.
+export function hasBatchExportEnded(batchExport: Pick<BatchExportApi, 'end_at'>): boolean {
+    return !!batchExport.end_at && dayjs(batchExport.end_at).isBefore(dayjs())
+}
+
 export function getBatchExportScheduleStatus(
     batchExport: Pick<BatchExportApi, 'paused' | 'end_at'>
 ): BatchExportScheduleStatus {
     if (batchExport.paused) {
         return 'paused'
     }
-    // An end date in the past bounds the Temporal schedule, so the export can never run again.
-    if (batchExport.end_at && dayjs(batchExport.end_at).isBefore(dayjs())) {
+    if (hasBatchExportEnded(batchExport)) {
         return 'ended'
     }
     return 'active'
@@ -183,4 +187,67 @@ export function statusToProgressStrokeColor(status: BatchExportStatus): string {
         default:
             return 'var(--color-border-primary)'
     }
+}
+
+export interface BatchExportDataInterval {
+    start: Dayjs
+    end: Dayjs
+}
+
+export function lastCompleteDataInterval({
+    interval,
+    now,
+    timezone,
+    offsetDay,
+    offsetHour,
+}: {
+    interval: BatchExportInterval
+    now: Dayjs
+    timezone: string
+    offsetDay: number | null
+    offsetHour: number | null
+}): BatchExportDataInterval {
+    const zonedNow = now.tz(timezone)
+    // Day.js arithmetic keeps the UTC offset, which is wrong after a DST change. Daily and weekly
+    // boundaries are local times, so each one is read again in the timezone.
+    const atLocalTime = (date: Dayjs): Dayjs => dayjs.tz(date.format('YYYY-MM-DDTHH:mm:ss'), timezone)
+    let end: Dayjs
+    let size: 'minute' | 'hour' | 'day' | 'week'
+    let step = 1
+
+    switch (interval) {
+        case 'every 5 minutes':
+        case 'every 15 minutes':
+            step = interval === 'every 5 minutes' ? 5 : 15
+            size = 'minute'
+            end = zonedNow.startOf('minute').minute(Math.floor(zonedNow.minute() / step) * step)
+            break
+        case 'hour':
+            size = 'hour'
+            end = zonedNow.startOf('hour')
+            break
+        case 'day':
+            size = 'day'
+            end = atLocalTime(zonedNow.startOf('day').hour(offsetHour ?? 0))
+            break
+        case 'week':
+            size = 'week'
+            end = atLocalTime(
+                zonedNow
+                    .startOf('day')
+                    .subtract(zonedNow.day(), 'day')
+                    .add(offsetDay ?? 0, 'day')
+                    .hour(offsetHour ?? 0)
+            )
+            break
+    }
+
+    const previous = (boundary: Dayjs): Dayjs => {
+        const moved = boundary.subtract(step, size)
+        return size === 'day' || size === 'week' ? atLocalTime(moved) : moved
+    }
+    if (end.isAfter(zonedNow)) {
+        end = previous(end)
+    }
+    return { start: previous(end), end }
 }

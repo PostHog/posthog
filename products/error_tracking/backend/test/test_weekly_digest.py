@@ -217,7 +217,7 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
         assert result[0]["occurrence_count"] == 5
         assert result[1]["name"] == "RareError"
         assert result[1]["occurrence_count"] == 2
-        assert "/error_tracking/" in result[0]["url"]
+        assert "/error-tracking/" in result[0]["url"]
 
     def test_get_top_issues_sparkline_is_chronological(self):
         issue = self._create_issue(name="SparklineTest")

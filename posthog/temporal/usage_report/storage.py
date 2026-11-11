@@ -11,17 +11,20 @@ configuration.
 import io
 import gzip
 import json
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 from django.conf import settings
 
 import structlog
+from pydantic import TypeAdapter
 
 from posthog.storage import object_storage
 from posthog.temporal.usage_report.types import WorkflowContext
+from posthog.usage_counters import LegacyCounterQuery, UsageCounterCounts
 
 logger = structlog.get_logger(__name__)
+_COUNTER_COUNTS_ADAPTER = TypeAdapter(UsageCounterCounts)
 
 
 def bucket() -> str:
@@ -77,6 +80,41 @@ def read_json(key: str) -> Any:
     if raw is None:
         raise FileNotFoundError(f"S3 key not found: {key}")
     return json.loads(raw)
+
+
+def run_legacy_counter_query(
+    ctx: WorkflowContext,
+    query_name: str,
+    query: LegacyCounterQuery,
+    *,
+    check_cancelled: Callable[[], None] | None = None,
+) -> UsageCounterCounts:
+    check_cancelled = check_cancelled or (lambda: None)
+    check_cancelled()
+    key = queries_key(ctx, f"legacy_{query_name}")
+    raw = object_storage.read_bytes(key, bucket=bucket(), missing_ok=True)
+    check_cancelled()
+    if raw is not None:
+        return _COUNTER_COUNTS_ADAPTER.validate_json(raw)
+    result = query()
+    check_cancelled()
+    write_json(key, result)
+    return result
+
+
+def load_legacy_counter_counts(
+    ctx: WorkflowContext, query_names: Iterable[str], *, check_cancelled: Callable[[], None]
+) -> UsageCounterCounts:
+    counts: UsageCounterCounts = {}
+    for name in query_names:
+        check_cancelled()
+        key = queries_key(ctx, f"legacy_{name}")
+        raw = object_storage.read_bytes(key, bucket=bucket())
+        check_cancelled()
+        if raw is None:
+            raise FileNotFoundError(f"Legacy counter checkpoint not found: {key}")
+        counts.update(_COUNTER_COUNTS_ADAPTER.validate_json(raw))
+    return counts
 
 
 def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:

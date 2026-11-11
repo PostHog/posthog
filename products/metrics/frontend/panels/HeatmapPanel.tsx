@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { MetricsHistogramQueryResponse } from '~/queries/schema/schema-general'
 
-import { formatMetricValue } from './metricsUnits'
+import { metricValuesFormatter } from './metricsUnits'
 
 /** A latency-over-time heatmap: x = time bucket, y = histogram bucket upper bound, cell =
  * observation count. `yLabels[0]` is the bottom row (smallest bucket), so the response's
@@ -28,10 +28,10 @@ export function HeatmapPanel({
         () => (response.times ?? []).map((t) => dayjs(t).tz(timezone).format('D MMM HH:mm')),
         [response.times, timezone]
     )
-    const yLabels = useMemo(
-        () => (response.bounds ?? []).map((b) => formatMetricValue(b, unit)),
-        [response.bounds, unit]
-    )
+    const yLabels = useMemo(() => {
+        const bounds = response.bounds ?? []
+        return bounds.map(metricValuesFormatter(unit, bounds))
+    }, [response.bounds, unit])
     const cells = useMemo(() => response.counts ?? [], [response.counts])
 
     const hasData = cells.some((row) => row.some((c) => c > 0))

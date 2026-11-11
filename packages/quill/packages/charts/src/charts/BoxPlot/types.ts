@@ -7,6 +7,9 @@ type BoxPlotSummary = { min: number; p25: number; median: number; mean: number; 
 export type BoxPlotDatum = BoxPlotSummary & {
     /** Optional identifier for this x position (e.g. ISO date). The chart treats it as opaque. */
     day?: string
+    /** Clipped whisker ends, for example at 1.5 × IQR. They default to `min` and `max`. */
+    whiskerMin?: number
+    whiskerMax?: number
 }
 
 /** Series shape for the BoxPlot chart. Unlike the generic `Series` (whose `data` is

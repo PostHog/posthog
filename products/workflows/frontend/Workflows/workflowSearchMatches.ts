@@ -11,7 +11,7 @@ export interface WorkflowStepMatch {
 
 const EXCERPT_PADDING = 40
 
-// Mirrors _EMAIL_BODY_TEXT_SQL in the list API (products/workflows/backend/api/hog_flow.py), so the hint
+// Mirrors _EMAIL_BODY_TEXT_SQL in the list API (products/workflows/backend/presentation/views/hog_flow.py), so the hint
 // shows the text the API matched. The tag pattern skips over quoted attribute values, so a '>' inside
 // one does not end the tag early and leak the rest of the attribute into the searchable text.
 const HTML_STYLE_BLOCK = /<style[^>]*>[\s\S]*?<\/style>/gi

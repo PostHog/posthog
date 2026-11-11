@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { OperatorValueSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -14,6 +14,7 @@ import { QuickFilterContext } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator, QuickFilterOption } from '~/types'
 
 import { allowedOperators, operatorsWithoutValues, quickFilterFormLogic } from './quickFilterFormLogic'
+import { QuickFilterSelector } from './QuickFilterSelector'
 import { quickFiltersLogic } from './quickFiltersLogic'
 import { quickFiltersModalLogic } from './quickFiltersModalLogic'
 
@@ -27,7 +28,7 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
     const formLogic = quickFilterFormLogic({ context, filter: editedFilter })
     const { handleFormBack } = useActions(modalLogic)
     const { quickFiltersLoading } = useValues(quickFiltersLogic({ context }))
-    const { name, propertyName, options, isQuickFilterSubmitting } = useValues(formLogic)
+    const { name, propertyName, type, options, isQuickFilterSubmitting } = useValues(formLogic)
     const { addOption } = useActions(formLogic)
 
     return (
@@ -68,7 +69,33 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                     </div>
                 </div>
 
-                {propertyName && (
+                <LemonField
+                    name="type"
+                    label="Dropdown values"
+                    help={
+                        type === 'auto-discovery'
+                            ? 'The dropdown lists values of this property from events in the last 7 days.'
+                            : undefined
+                    }
+                >
+                    <LemonSegmentedButton
+                        size="small"
+                        options={[
+                            {
+                                value: 'auto-discovery',
+                                label: 'Discover automatically',
+                                'data-attr': 'quick-filter-type-auto-discovery',
+                            },
+                            {
+                                value: 'manual-options',
+                                label: 'Set manually',
+                                'data-attr': 'quick-filter-type-manual-options',
+                            },
+                        ]}
+                    />
+                </LemonField>
+
+                {propertyName && type === 'manual-options' && (
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <label className="block font-medium">Filter options</label>
@@ -90,23 +117,17 @@ export function QuickFilterForm({ context }: QuickFilterFormProps): JSX.Element 
                     </div>
                 )}
 
-                <div className="border rounded p-4 bg-bg-3000">
-                    <div className="text-xs font-semibold uppercase text-muted mb-2">Preview</div>
-                    <LemonSelect
-                        value={null}
-                        options={[
-                            { value: null, label: `Any ${name?.toLowerCase() || 'items'}` },
-                            ...options.map((opt: QuickFilterOption) => ({
-                                value: opt.id,
-                                label: opt.label,
-                            })),
-                        ]}
-                        size="small"
-                        placeholder={name || 'Filter name'}
-                        dropdownMatchSelectWidth={false}
-                        allowClear
-                    />
-                </div>
+                {propertyName && (
+                    <div className="border rounded p-4 bg-bg-3000">
+                        <div className="text-xs font-semibold uppercase text-muted mb-2">Preview</div>
+                        <QuickFilterSelector
+                            filter={{ name, property_name: propertyName, type, options }}
+                            context={context}
+                            selectedOptionId={null}
+                            onChange={() => undefined}
+                        />
+                    </div>
+                )}
 
                 <div className="flex justify-between gap-2 pt-4 border-t">
                     <LemonButton

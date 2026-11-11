@@ -1,14 +1,15 @@
-import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
 import {
     AGENT_CLI_API_KEY_SCOPES,
     API_KEY_SCOPE_PRESETS,
     API_SCOPES,
-    API_SCOPES_OMITTED_FROM_MODAL,
+    type ScopePickerRow,
+    clampScopeLevel,
     getScopeDescription,
+    scopeGroupLevel,
+    scopeGroupTooltip,
     scopeMatchesSearch,
+    summarizeScopesByGroup,
 } from 'lib/scopes'
-
-import { API_SCOPE_OBJECTS } from '~/types'
 
 const getRenderableKeyCreationScopes = (): Set<string> =>
     new Set(
@@ -24,13 +25,6 @@ describe('getScopeDescription', () => {
         expect(getScopeDescription('user:read')).toBe('Read access to users')
     })
 
-    it('uses customer task labels in the scope picker', () => {
-        expect(API_SCOPES.find(({ key }) => key === 'customer_task')).toMatchObject({
-            objectName: 'Customer task',
-            objectPlural: 'customer tasks',
-        })
-    })
-
     it('derives a readable label for OAuth-hidden scopes absent from API_SCOPES', () => {
         expect(getScopeDescription('wizard_session:write')).toBe('Write access to wizard session')
     })
@@ -44,20 +38,42 @@ describe('getScopeDescription', () => {
     })
 })
 
-describe('API_SCOPES modal coverage', () => {
-    const offered = new Set(API_SCOPES.map(({ key }) => key))
-    const omitted = new Set(Object.keys(API_SCOPES_OMITTED_FROM_MODAL))
-
-    it('offers or explicitly omits every scope object', () => {
-        // Guards the drift where a scope object is added to API_SCOPE_OBJECTS (mirroring a new
-        // backend scope) but its key-creation modal row is forgotten, silently hiding a grantable scope.
-        const uncovered = API_SCOPE_OBJECTS.filter((obj) => !offered.has(obj) && !omitted.has(obj))
-        expect(uncovered).toEqual([])
+describe('scope access groups', () => {
+    const row = (key: string, value: ScopePickerRow['value'], disabledReasons = {}): ScopePickerRow => ({
+        key,
+        label: key,
+        value,
+        disabledReasons,
     })
 
-    it('never both offers and omits the same scope', () => {
-        const overlap = [...omitted].filter((obj) => offered.has(obj as (typeof API_SCOPE_OBJECTS)[number]))
-        expect(overlap).toEqual([])
+    // The clamp has to go down for a level the row refuses and up for a level the app requires,
+    // because the key modal only has the first case and the consent screen has both.
+    it.each([
+        ['stays on an allowed level', row('a', 'none'), 'write', 'write'],
+        ['drops to read when write is refused', row('a', 'none', { write: 'Not requested' }), 'write', 'read'],
+        [
+            'drops to none when read and write are refused',
+            row('a', 'none', { read: 'No', write: 'No' }),
+            'write',
+            'none',
+        ],
+        ['rises to read when none is refused', row('a', 'write', { none: 'Required' }), 'none', 'read'],
+    ])('%s', (_name, model, level, expected) => {
+        expect(clampScopeLevel(model, level as ScopePickerRow['value'])).toBe(expected)
+    })
+
+    it('never selects a level no row can take, and names each row reason in the tooltip', () => {
+        const rows = [
+            row('a', 'read', { write: 'Not requested by App' }),
+            row('b', 'read', { write: 'Not available for project scoped keys' }),
+            row('c', 'write'),
+        ]
+        expect(scopeGroupLevel(rows)).toBe('write')
+        expect(scopeGroupTooltip(rows, 'write')).toBe(
+            '1 of these permissions stays at read: Not requested by App. 1 of these permissions stays at read: Not available for project scoped keys.'
+        )
+        expect(scopeGroupLevel(rows.slice(0, 2))).toBe('read')
+        expect(scopeGroupLevel([row('a', 'read'), row('b', 'none')])).toBeUndefined()
     })
 })
 
@@ -109,9 +125,12 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.label).toBe('Read-only access')
         })
 
-        it('contains :read for every entry in API_SCOPES except unprivileged-excluded scopes', () => {
+        it('contains :read for every readable entry in API_SCOPES except unprivileged-excluded scopes', () => {
             const preset = findPreset('read_only_access')
-            const expected = API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded)
+            const expected = API_SCOPES.filter(
+                ({ unprivilegedExcluded, disabledActions }) =>
+                    !unprivilegedExcluded && !disabledActions?.includes('read')
+            )
                 .map(({ key }) => `${key}:read`)
                 .sort()
             expect([...preset.scopes].sort()).toEqual(expected)
@@ -135,7 +154,7 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.access_type).toBe('all')
         })
 
-        it('uses the generated Agent CLI scopes with key-disabled writes removed', () => {
+        it('uses the generated Agent CLI scopes with key-disabled and opt-in-only writes removed', () => {
             const preset = findPreset('agent_cli')
             expect(preset.scopes).toEqual(AGENT_CLI_API_KEY_SCOPES)
             expect(preset.scopes).toEqual(
@@ -145,14 +164,41 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(preset.scopes).not.toContain('integration:write')
             expect(preset.scopes).not.toContain('user:write')
         })
+    })
 
-        it('only includes scopes the key creation UI can render', () => {
+    it('leaves integration write for a person to choose instead of adding it in the MCP Server preset', () => {
+        const preset = findPreset('mcp_server')
+        expect(preset.scopes).toContain('integration:read')
+        expect(preset.scopes).not.toContain('integration:write')
+    })
+
+    it.each(API_KEY_SCOPE_PRESETS.filter(({ value }) => value !== 'all_access').map(({ value }) => value))(
+        'preset %s only sets levels the key creation UI can render',
+        (value) => {
             const renderableScopes = getRenderableKeyCreationScopes()
+            const unrenderable = findPreset(value).scopes.filter((scope) => !renderableScopes.has(scope))
+            expect(unrenderable).toEqual([])
+        }
+    )
+})
 
-            expect(AGENT_CLI_API_KEY_SCOPES).toEqual(
-                (AGENT_USE_CASE_SCOPES as readonly string[]).filter((scope) => renderableScopes.has(scope))
-            )
-            expect(AGENT_CLI_API_KEY_SCOPES.every((scope) => renderableScopes.has(scope))).toBe(true)
-        })
+describe('summarizeScopesByGroup', () => {
+    it('counts each object once at its highest level, grouped in picker order', () => {
+        expect(
+            summarizeScopesByGroup([
+                'feature_flag:read',
+                'feature_flag:write',
+                'session_recording:read',
+                'insight:write',
+                'insight:read',
+                'dashboard:read',
+                'not_a_real_object:read',
+            ])
+        ).toEqual([
+            { label: 'Product analytics', write: 1, read: 1 },
+            { label: 'Session replay', write: 0, read: 1 },
+            { label: 'Feature flags, experiments & surveys', write: 1, read: 0 },
+            { label: 'Other', write: 0, read: 1 },
+        ])
     })
 })

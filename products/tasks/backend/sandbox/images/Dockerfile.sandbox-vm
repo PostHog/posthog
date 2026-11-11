@@ -23,6 +23,8 @@ RUN mkdir -p /etc/docker && \
 
 COPY products/tasks/backend/sandbox/images/cpu_billing_sampler.py /usr/local/bin/posthog-cpu-billing-sampler
 RUN chmod +x /usr/local/bin/posthog-cpu-billing-sampler
+COPY products/tasks/backend/sandbox/images/memory_watchdog.py /usr/local/bin/posthog-memory-watchdog
+RUN chmod +x /usr/local/bin/posthog-memory-watchdog
 
 # There is no init system in the sandbox, so dockerd is launched on demand by
 # this idempotent helper rather than by systemd. dockerd is detached with setsid

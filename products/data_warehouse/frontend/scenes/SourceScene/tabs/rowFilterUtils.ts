@@ -309,7 +309,7 @@ export function validateInListValue(
 }
 
 export interface RowFilterValidationContext {
-    availableColumns: { name: string; data_type?: string }[]
+    availableColumns: readonly { name: string; data_type?: string }[]
 }
 
 /** Validate every filter. Returns a per-index error map (empty when all valid). */

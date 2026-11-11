@@ -9,6 +9,9 @@ from requests import Response
 from requests.exceptions import ConnectionError as RequestsConnectionError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import APIKeyAuth
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
+    create_response_hooks,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import (
     RESTClient,
     RESTClientRetryableError,
@@ -83,6 +86,25 @@ class TestExceptionRedaction:
         )
         with pytest.raises(Exception) as excinfo:
             list(client.paginate(path="/items"))
+        message = str(excinfo.value)
+        assert SECRET not in message
+        assert "***" in message
+        assert "400" in message
+
+    @patch(f"{MODULE}.make_tracked_session")
+    def test_client_error_raised_by_response_hook_masks_secret(self, MockSession) -> None:
+        # A response hook (response_actions) falls back to raise_for_status for unmatched 4xx; that
+        # error must be redacted just like the no-hook path.
+        mock_session = _make_client(SECRET, MockSession)
+        mock_session.send.return_value = _make_response(400, SECRET, reason="Bad Request")
+        client = RESTClient(
+            base_url="https://api.example.com",
+            auth=APIKeyAuth(api_key=SECRET, name="api_key", location="query"),
+            max_retry_attempts=1,
+        )
+        hooks = create_response_hooks([{"status_code": 404, "action": "ignore"}])
+        with pytest.raises(Exception) as excinfo:
+            list(client.paginate(path="/items", hooks=hooks))
         message = str(excinfo.value)
         assert SECRET not in message
         assert "***" in message

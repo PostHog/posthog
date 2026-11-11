@@ -5,8 +5,12 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
 from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.organization_notification_lock import OrganizationMemberNotificationLock
 
 from products.approvals.backend.models import (
     Approval,
@@ -159,6 +163,40 @@ class TestSendApprovalRequestedNotification(TestApprovalNotifications):
         self.assertIn(self.approver, recipients)
         self.assertIn(self.approver2, recipients)
 
+    @parameterized.expand(
+        [
+            ("own_preference_off", False, None, False),
+            ("org_rule_overrides_own_preference", False, ("same_org", True), True),
+            ("org_rule_turns_it_off", None, ("same_org", False), False),
+            ("other_org_rule_is_ignored", None, ("other_org", False), True),
+        ]
+    )
+    @patch("products.approvals.backend.notifications._send_approval_email")
+    def test_respects_approval_requested_setting(
+        self, _name, stored_preference, lock, approver_gets_email, mock_send_email
+    ):
+        if stored_preference is not None:
+            self.approver.partial_notification_settings = {"approval_requested": stored_preference}
+            self.approver.save()
+        if lock is not None:
+            lock_org, locked_value = lock
+            organization = (
+                self.organization if lock_org == "same_org" else Organization.objects.create(name="Other org")
+            )
+            membership, _ = OrganizationMembership.objects.get_or_create(organization=organization, user=self.approver)
+            OrganizationMemberNotificationLock.objects.create(
+                organization=organization,
+                organization_membership=membership,
+                setting="approval_requested",
+                locked_value=locked_value,
+            )
+
+        send_approval_requested_notification(self.change_request)
+
+        recipients = {call.kwargs["recipient"] for call in mock_send_email.call_args_list}
+        expected = {self.approver, self.approver2} if approver_gets_email else {self.approver2}
+        self.assertEqual(recipients, expected)
+
     @patch("products.approvals.backend.notifications._send_approval_email")
     def test_skips_when_no_policy(self, mock_send_email):
         self.policy.delete()
@@ -253,12 +291,13 @@ class TestRealtimeDispatchOnRequested(TestApprovalNotifications):
 
         mock_create_notification.assert_not_called()
 
+    @parameterized.expand(
+        [("email_send", "_send_approval_email"), ("preference_lookup", "notification_locks_for_users")]
+    )
     @patch("products.approvals.backend.notifications.create_notification")
-    @patch("products.approvals.backend.notifications._send_approval_email")
-    def test_email_failure_does_not_block_realtime(self, mock_email, mock_create_notification):
-        mock_email.side_effect = RuntimeError("smtp down")
-
-        send_approval_requested_notification(self.change_request)
+    def test_email_failure_does_not_block_realtime(self, _name, failing_call, mock_create_notification):
+        with patch(f"products.approvals.backend.notifications.{failing_call}", side_effect=RuntimeError("boom")):
+            send_approval_requested_notification(self.change_request)
 
         self.assertEqual(mock_create_notification.call_count, 2)
 
@@ -353,6 +392,27 @@ class TestSendApprovalAppliedNotification(TestApprovalNotifications):
         send_approval_applied_notification(self.change_request)
 
         mock_send_email.assert_not_called()
+
+
+class TestApprovalResolvedEmailSetting(TestApprovalNotifications):
+    @parameterized.expand([("decision",), ("expired",), ("applied",)])
+    @patch("products.approvals.backend.notifications.create_notification")
+    @patch("products.approvals.backend.notifications._send_approval_email")
+    def test_requester_who_turned_it_off_gets_in_app_notification_only(
+        self, sender, mock_send_email, mock_create_notification
+    ):
+        self.user.partial_notification_settings = {"approval_resolved": False}
+        self.user.save()
+
+        if sender == "decision":
+            send_approval_decision_notification(self.change_request, self._create_approval(self.change_request))
+        elif sender == "expired":
+            send_approval_expired_notification(self.change_request)
+        else:
+            send_approval_applied_notification(self.change_request)
+
+        mock_send_email.assert_not_called()
+        mock_create_notification.assert_called_once()
 
 
 class TestEmailTemplateRendering(TestApprovalNotifications):
@@ -542,12 +602,13 @@ class TestRealtimeDispatchOnResolve(TestApprovalNotifications):
 
         mock_create_notification.assert_not_called()
 
+    @parameterized.expand(
+        [("email_send", "_send_approval_email"), ("preference_lookup", "notification_locks_for_users")]
+    )
     @patch("products.approvals.backend.notifications.create_notification")
-    @patch("products.approvals.backend.notifications._send_approval_email")
-    def test_email_failure_does_not_block_realtime(self, mock_email, mock_create_notification):
-        mock_email.side_effect = RuntimeError("smtp down")
-
-        send_approval_applied_notification(self.change_request)
+    def test_email_failure_does_not_block_realtime(self, _name, failing_call, mock_create_notification):
+        with patch(f"products.approvals.backend.notifications.{failing_call}", side_effect=RuntimeError("boom")):
+            send_approval_applied_notification(self.change_request)
 
         mock_create_notification.assert_called_once()
 

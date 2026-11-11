@@ -1,11 +1,11 @@
-//! Tails the reconcile-marker topic for `reconcile_complete` markers — the completion *authority*.
+//! Tails the reconcile-marker topic — the completion *authority*.
 //!
 //! An assign-only consumer with a unique throwaway group id: it never subscribes and never commits, so
 //! it participates in no rebalance and leaves no durable offset. It watches every marker partition
 //! from explicit start offsets (the high watermarks captured at dispatch), with `auto.offset.reset=
 //! error` so a start below the log's low watermark surfaces as [`WatchError::Truncated`] instead of
 //! silently jumping. Records are classified by payload alone: a marker refuses to deserialize unless
-//! its `type` is `reconcile_complete`, so a mis-pointed topic is caught without this crate depending
+//! its `type` is a reconcile outcome, so a mis-pointed topic is caught without this crate depending
 //! on the key format the processor writes. Anything the parse rejects is counted by `reason`, and
 //! skipped messages still advance the partition's next-read offset. rdkafka types stay confined
 //! here — the watcher yields typed [`WatchItem`]s.
@@ -23,7 +23,7 @@ use rdkafka::message::Message;
 use rdkafka::{ClientConfig, Offset, TopicPartitionList};
 
 use crate::domain::{
-    MarkerPartition, NextOffset, ObservedMarker, ReconcileCompleteMarker, WatchPartition,
+    MarkerPartition, MarkerVerdict, NextOffset, ObservedMarker, ReconcileMarker, WatchPartition,
     WatchPositions,
 };
 use crate::observability::metrics::RECONCILE_MARKER_PARSE_FAILURES;
@@ -172,7 +172,7 @@ fn build_assignment(
 
 /// On a dedicated topic every record should be a marker, so each rejection is counted under the
 /// `reason` that explains it rather than silently skipped. A record that came from a mis-pointed
-/// topic fails the payload's `reconcile_complete` discriminant and lands under `decode`.
+/// topic fails the payload's `type` discriminant and lands under `decode`.
 fn classify_marker(payload: Option<&[u8]>) -> Option<ObservedMarker> {
     let skip = |reason: &'static str| {
         counter!(RECONCILE_MARKER_PARSE_FAILURES, "reason" => reason).increment(1);
@@ -181,8 +181,12 @@ fn classify_marker(payload: Option<&[u8]>) -> Option<ObservedMarker> {
     let Some(payload) = payload else {
         return skip("no_payload");
     };
-    let Ok(marker) = serde_json::from_slice::<ReconcileCompleteMarker>(payload) else {
+    let Ok(marker) = serde_json::from_slice::<ReconcileMarker>(payload) else {
         return skip("decode");
+    };
+    let verdict = match &marker {
+        ReconcileMarker::Complete(_) => MarkerVerdict::Complete,
+        ReconcileMarker::Withheld(withheld) => MarkerVerdict::Withheld(withheld.reason()),
     };
     match MarkerPartition::new(u32::from(marker.partition())) {
         Ok(partition) => Some(ObservedMarker {
@@ -190,6 +194,7 @@ fn classify_marker(payload: Option<&[u8]>) -> Option<ObservedMarker> {
             cohort_id: marker.cohort_id(),
             partition,
             run_id: marker.run_id(),
+            verdict,
         }),
         Err(_) => skip("partition_out_of_range"),
     }
@@ -247,17 +252,19 @@ pub enum WatchError {
 mod tests {
     use super::*;
     use cohort_core::filters::{CohortId, TeamId};
-    use cohort_core::seed::RunId;
+    use cohort_core::seed::{CoverageStartMs, RunId};
     use uuid::Uuid;
 
+    use crate::domain::{ReconcileCompleteMarker, ReconcileWithheldMarker, WithheldReason};
+
     fn marker_payload(partition: u16) -> Vec<u8> {
-        serde_json::to_vec(&ReconcileCompleteMarker::new(
+        serde_json::to_vec(&ReconcileMarker::Complete(ReconcileCompleteMarker::new(
             TeamId(2),
             CohortId(42),
             partition,
             RunId(Uuid::nil()),
             "2026-05-26 12:34:56.789123".to_string(),
-        ))
+        )))
         .unwrap()
     }
 
@@ -267,6 +274,20 @@ mod tests {
         assert_eq!(observed.team_id, TeamId(2));
         assert_eq!(observed.cohort_id, CohortId(42));
         assert_eq!(observed.partition.get(), 7);
+        assert_eq!(observed.verdict, MarkerVerdict::Complete);
+
+        // An outcome, not a parse failure.
+        let reason = WithheldReason::PartialCoverage {
+            covered_since: CoverageStartMs(1_791_547_200_000),
+        };
+        let withheld = serde_json::to_vec(&ReconcileMarker::Withheld(
+            ReconcileWithheldMarker::new(TeamId(2), CohortId(42), 7, RunId(Uuid::nil()), reason),
+        ))
+        .unwrap();
+        assert_eq!(
+            classify_marker(Some(&withheld)).unwrap().verdict,
+            MarkerVerdict::Withheld(reason),
+        );
 
         // A membership row, i.e. what a mis-pointed topic delivers: no `reconcile_complete` type.
         assert!(classify_marker(Some(b"{\"not\":\"a marker\"}")).is_none());

@@ -6,13 +6,10 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 
 import { errorTrackingQuery } from '@posthog/products-error-tracking/frontend/queries'
 
-import { productSetupStatusLogic } from 'lib/components/ProductEmptyState/productSetupStatusLogic'
-import { ProductSetupStatus } from 'lib/components/ProductEmptyState/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { ErrorTrackingTile, TileId } from 'scenes/web-analytics/common'
 
 import { useMocks } from '~/mocks/jest'
-import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FilterLogicalOperator } from '~/types'
 
@@ -35,59 +32,62 @@ describe('WebAnalyticsErrorTrackingTile', () => {
 
     beforeEach(() => {
         initKeaTests()
-        useMocks({
-            post: {
-                '/api/environments/:team_id/query/': { results: [] },
-            },
-        })
     })
 
     afterEach(() => {
         cleanup()
     })
 
-    const mountWithSetupStatus = (autocaptureOptIn: boolean, setupStatus: ProductSetupStatus | null): void => {
+    it.each([
+        {
+            name: 'good news when exceptions already reach the project',
+            autocaptureOptIn: false,
+            issuesExistResponse: [200, { exists: true }] as [number, object],
+            expected: 'No errors found!',
+            queryRuns: true,
+        },
+        {
+            name: 'good news when autocapture is on but nothing has errored yet',
+            autocaptureOptIn: true,
+            issuesExistResponse: [200, { exists: false }] as [number, object],
+            expected: 'No errors found!',
+            queryRuns: true,
+        },
+        {
+            name: 'an upsell without running the query when nothing reports errors',
+            autocaptureOptIn: false,
+            issuesExistResponse: [200, { exists: false }] as [number, object],
+            expected: 'Error tracking is not set up',
+            queryRuns: false,
+        },
+        {
+            name: 'the generic copy when setup detection fails',
+            autocaptureOptIn: false,
+            issuesExistResponse: [500, {}] as [number, object],
+            expected: 'There are no matching events for this query',
+            queryRuns: true,
+        },
+    ])('shows $name', async ({ autocaptureOptIn, issuesExistResponse, expected, queryRuns }) => {
+        let queryRequests = 0
+        useMocks({
+            get: {
+                '/api/environments/:team_id/error_tracking/issues/exists/': issuesExistResponse,
+            },
+            post: {
+                '/api/environments/:team_id/query/:kind/': () => {
+                    queryRequests += 1
+                    return [200, { results: [] }]
+                },
+            },
+        })
         teamLogic.mount()
         teamLogic.actions.loadCurrentTeamSuccess({
             ...MOCK_DEFAULT_TEAM,
             autocapture_exceptions_opt_in: autocaptureOptIn,
         })
-        const setup = productSetupStatusLogic({ productKey: ProductKey.ERROR_TRACKING })
-        setup.mount()
-        if (setupStatus) {
-            setup.actions.setDetectedStatus(setupStatus)
-        }
-    }
-
-    it.each([
-        {
-            name: 'good news when exceptions already reach the project',
-            autocaptureOptIn: false,
-            setupStatus: 'has-data' as const,
-            expected: 'No errors found!',
-        },
-        {
-            name: 'good news when autocapture is on but nothing has errored yet',
-            autocaptureOptIn: true,
-            setupStatus: 'needs-setup' as const,
-            expected: 'No errors found!',
-        },
-        {
-            name: 'a nudge when nothing reports errors, so a missing SDK does not read as no errors',
-            autocaptureOptIn: false,
-            setupStatus: 'needs-setup' as const,
-            expected: 'Error tracking is not set up',
-        },
-        {
-            name: 'the generic copy while setup detection has not answered',
-            autocaptureOptIn: false,
-            setupStatus: null,
-            expected: 'There are no matching events for this query',
-        },
-    ])('reads an empty table as $name', async ({ autocaptureOptIn, setupStatus, expected }) => {
-        mountWithSetupStatus(autocaptureOptIn, setupStatus)
         render(<WebAnalyticsErrorTrackingTile tile={tile} />)
 
         await waitFor(() => expect(screen.getByText(expected)).toBeInTheDocument())
+        expect(queryRequests > 0).toBe(queryRuns)
     })
 })

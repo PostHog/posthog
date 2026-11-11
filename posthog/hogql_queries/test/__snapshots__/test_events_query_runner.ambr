@@ -289,6 +289,71 @@
                     use_hive_partitioning=0
   '''
 # ---
+# name: TestEventsQueryRunner.test_flag_evaluations_person_display_names_resolve_each_rows_person_id
+  '''
+  SELECT tuple(flag_evaluations.distinct_id, toString(if(not(empty(flag_evaluations__override.distinct_id)), flag_evaluations__override.person_id, flag_evaluations.person_id)), flag_evaluations.distinct_id)
+  FROM flag_evaluations
+  LEFT OUTER JOIN
+    (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
+            person_distinct_id_overrides.distinct_id AS distinct_id
+     FROM person_distinct_id_overrides
+     WHERE equals(person_distinct_id_overrides.team_id, 99999)
+     GROUP BY person_distinct_id_overrides.distinct_id
+     HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) SETTINGS optimize_aggregation_in_order=1) AS flag_evaluations__override ON equals(flag_evaluations.distinct_id, flag_evaluations__override.distinct_id)
+  WHERE and(equals(flag_evaluations.team_id, 99999), in(flag_evaluations.uuid,
+                                                          (SELECT flag_evaluations.uuid AS uuid
+                                                           FROM flag_evaluations
+                                                           WHERE and(equals(flag_evaluations.team_id, 99999), equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                           ORDER BY toTimeZone(flag_evaluations.timestamp, 'UTC') ASC, flag_evaluations.uuid ASC
+                                                           LIMIT 101)), and(equals(flag_evaluations.event, '$feature_flag_called'), less(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greater(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(flag_evaluations.timestamp, toDateTime64('explicit_redacted_timestamp', 6, 'UTC'))))
+  ORDER BY toTimeZone(flag_evaluations.timestamp, 'UTC') ASC, flag_evaluations.uuid ASC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
+  '''
+# ---
+# name: TestEventsQueryRunner.test_flag_evaluations_person_display_names_resolve_each_rows_person_id.1
+  '''
+  SELECT persons.id AS id,
+         coalesce(nullIf(toString(persons.properties___email), ''), nullIf(toString(persons.properties___name), ''), nullIf(toString(persons.properties___username), '')) AS `coalesce(nullIf(toString(properties.email), ''), nullIf(toString(properties.name), ''), nullIf(toString(properties.username), ''))`
+  FROM
+    (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'email'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___email,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'name'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___name,
+            tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'username'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___username,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id, tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('00000000-0000-4000-8000-000000000002'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE in(persons.id,
+           tuple(toUUIDOrNull('00000000-0000-4000-8000-000000000000'), toUUIDOrNull('00000000-0000-4000-8000-000000000001'), toUUIDOrNull('00000000-0000-4000-8000-000000000002'), toUUIDOrNull('0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b')))
+  LIMIT 4 SETTINGS readonly=2,
+                   max_execution_time=60,
+                   allow_experimental_object_type=1,
+                   max_ast_elements=4000000,
+                   max_expanded_ast_elements=4000000,
+                   max_bytes_before_external_group_by=0,
+                   transform_null_in=1,
+                   optimize_min_equality_disjunction_chain_length=4294967295,
+                   optimize_rewrite_aggregate_function_with_if=0,
+                   optimize_min_inequality_conjunction_chain_length=4294967295,
+                   allow_experimental_join_condition=1,
+                   use_hive_partitioning=0
+  '''
+# ---
 # name: TestEventsQueryRunner.test_presorted_events_table
   '''
   SELECT tuple(events.uuid, events.event, events.properties, toTimeZone(events.timestamp, 'UTC'), events.team_id, events.distinct_id, events.elements_chain, toTimeZone(events.created_at, 'UTC'), events.person_mode) AS `tuple(uuid, event, properties, toTimeZone(timestamp, 'UTC'), team_id, distinct_id, elements_chain, toTimeZone(created_at, 'UTC'), person_mode)`

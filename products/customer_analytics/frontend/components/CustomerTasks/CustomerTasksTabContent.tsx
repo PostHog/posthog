@@ -1,8 +1,9 @@
 import { useMountedLogic } from 'kea'
 
+import type { AccountViewTileLogicProps } from '../Accounts/accountViewTileConfig'
 import { customerTasksLogic } from './customerTasksLogic'
 import { CustomerTasksTable } from './CustomerTasksTable'
-export interface CustomerTasksTabContentProps {
+export interface CustomerTasksTabContentProps extends AccountViewTileLogicProps {
     accountId: string
     canCreate?: boolean
     canViewAll?: boolean
@@ -13,8 +14,9 @@ export function CustomerTasksTabContent({
     canCreate = false,
     canViewAll = false,
     embedded = true,
+    ...tileProps
 }: CustomerTasksTabContentProps): JSX.Element {
-    const logic = customerTasksLogic({ context: 'account', accountId })
+    const logic = customerTasksLogic({ context: 'account', accountId, ...tileProps })
     useMountedLogic(logic)
     return (
         <CustomerTasksTable

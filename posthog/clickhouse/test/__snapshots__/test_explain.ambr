@@ -74,7 +74,10 @@
 # ---
 # name: test_full_queries[a proper query with all filters on events].2
   list([
-    ReadIndexUsage(table='posthog.sharded_events', use=<QueryIndexUsage.YES: 'yes'>),
+    ReadIndexUsage(
+      table='posthog.sharded_events',
+      use=<QueryIndexUsage.YES: 'yes'>,
+    ),
   ])
 # ---
 # name: test_full_queries[a proper query with all filters on events].3
@@ -144,7 +147,10 @@
 # ---
 # name: test_full_queries[local query little granules, using index].2
   list([
-    ReadIndexUsage(table='default.sharded_events', use=<QueryIndexUsage.YES: 'yes'>),
+    ReadIndexUsage(
+      table='default.sharded_events',
+      use=<QueryIndexUsage.YES: 'yes'>,
+    ),
   ])
 # ---
 # name: test_full_queries[local query little granules, using index].3
@@ -213,7 +219,10 @@
 # ---
 # name: test_full_queries[local query little granules].2
   list([
-    ReadIndexUsage(table='default.sharded_events', use=<QueryIndexUsage.NO: 'no'>),
+    ReadIndexUsage(
+      table='default.sharded_events',
+      use=<QueryIndexUsage.NO: 'no'>,
+    ),
   ])
 # ---
 # name: test_full_queries[local query little granules].3
@@ -288,7 +297,10 @@
 # ---
 # name: test_full_queries[missing timestamp condition].2
   list([
-    ReadIndexUsage(table='posthog.sharded_events', use=<QueryIndexUsage.NO: 'no'>),
+    ReadIndexUsage(
+      table='posthog.sharded_events',
+      use=<QueryIndexUsage.NO: 'no'>,
+    ),
   ])
 # ---
 # name: test_full_queries[missing timestamp condition].3
@@ -458,8 +470,14 @@
 # ---
 # name: test_full_queries[production query often failing cause ClickHouse not using index].2
   list([
-    ReadIndexUsage(table='posthog.sharded_events', use=<QueryIndexUsage.NO: 'no'>),
-    ReadIndexUsage(table='posthog.person_distinct_id_overrides', use=<QueryIndexUsage.YES: 'yes'>),
+    ReadIndexUsage(
+      table='posthog.sharded_events',
+      use=<QueryIndexUsage.NO: 'no'>,
+    ),
+    ReadIndexUsage(
+      table='posthog.person_distinct_id_overrides',
+      use=<QueryIndexUsage.YES: 'yes'>,
+    ),
   ])
 # ---
 # name: test_full_queries[production query often failing cause ClickHouse not using index].3
@@ -567,7 +585,10 @@
 # ---
 # name: test_full_queries[session query not using indices].2
   list([
-    ReadIndexUsage(table='posthog.sharded_raw_sessions', use=<QueryIndexUsage.PARTIAL: 'partial'>),
+    ReadIndexUsage(
+      table='posthog.sharded_raw_sessions',
+      use=<QueryIndexUsage.PARTIAL: 'partial'>,
+    ),
   ])
 # ---
 # name: test_full_queries[session query not using indices].3

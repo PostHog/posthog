@@ -59,6 +59,7 @@ from products.feature_flags.backend.facade.config import ConfigFormatError
 from products.feature_flags.backend.facade.references import flag_dependency_properties, referenced_cohort_ids
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
+    defer_flags_cache_rebuild,
     get_team_ids_with_recently_updated_flags,
     get_teams_with_flags_queryset,
 )
@@ -987,6 +988,16 @@ def feature_flag_changed(sender, instance: "FeatureFlag", **kwargs):
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
 
 
+@receiver(post_delete, sender=Team)
+def team_deleted(sender, instance: Team, **kwargs) -> None:
+    # The S3 copy has no TTL, and /flags/definitions falls back to it when Redis misses,
+    # so without this a deleted team's definitions stay served indefinitely.
+    from products.feature_flags.backend.tasks import clear_team_definitions_cache
+
+    team_id = instance.id
+    transaction.on_commit(lambda: clear_team_definitions_cache.delay(team_id))
+
+
 @receiver(post_save, sender=Experiment)
 @receiver(post_delete, sender=Experiment)
 def experiment_changed(sender, instance: "Experiment", **kwargs):
@@ -1004,6 +1015,9 @@ def experiment_changed(sender, instance: "Experiment", **kwargs):
 @receiver(post_delete, sender=Cohort)
 def cohort_changed(sender, instance: "Cohort", **kwargs):
     if is_cohort_recalculation_only_save(kwargs):
+        return
+
+    if defer_flags_cache_rebuild(instance.team_id, "definitions"):
         return
 
     from products.feature_flags.backend.tasks import update_team_flags_cache

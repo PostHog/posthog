@@ -2,14 +2,16 @@ import functools
 
 import structlog
 from drf_spectacular.utils import extend_schema
+from opentelemetry import trace
 from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
-from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry, cdc_engine
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 
 @functools.cache
@@ -25,27 +27,34 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
     The catalog is deploy-static (it only changes when source code ships), so the result is
     memoized per process — callers must treat it as read-only.
     """
-    sources = SourceRegistry.get_all_sources()
+    with tracer.start_as_current_span("warehouse_sources.catalog.registry"):
+        sources = SourceRegistry.get_all_sources()
 
     results: dict[str, dict] = {}
-    for source_type, source in sources.items():
-        config = source.get_source_config.model_dump()
-        config["supportsColumnSelection"] = bool(source.supports_column_selection)
-        config["versions"] = list(source.supported_versions)
-        config["defaultVersion"] = source.default_version
-        config["apiDocsUrl"] = source.api_docs_url
-        config["deprecatedVersions"] = [
-            {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
-            for d in source.deprecated_versions
-        ]
-        if include_tables:
-            # Per-source guard: a single misbehaving source must never break the whole catalog.
-            try:
-                config["tables"] = source.get_documented_tables()
-            except Exception:
-                logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
-                config["tables"] = []
-        results[str(source_type)] = config
+    with tracer.start_as_current_span("warehouse_sources.catalog.build") as span:
+        span.set_attribute("include_tables", include_tables)
+        span.set_attribute("source_count", len(sources))
+        for source_type, source in sources.items():
+            if not source.listed_in_catalog:
+                continue
+            config = source.get_source_config.model_dump()
+            config["supportsColumnSelection"] = bool(source.supports_column_selection)
+            config["versions"] = list(source.supported_versions)
+            config["defaultVersion"] = source.default_version
+            config["apiDocsUrl"] = source.api_docs_url
+            config["cdcEngine"] = cdc_engine(source_type)
+            config["deprecatedVersions"] = [
+                {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
+                for d in source.deprecated_versions
+            ]
+            if include_tables:
+                # Per-source guard: a single misbehaving source must never break the whole catalog.
+                try:
+                    config["tables"] = source.get_documented_tables()
+                except Exception:
+                    logger.exception("build_source_configs: get_documented_tables failed", source_type=str(source_type))
+                    config["tables"] = []
+            results[str(source_type)] = config
 
     return results
 
@@ -70,7 +79,8 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
             "documented table catalog; empty for SQL/file sources with user-defined schemas), and "
             "vendor API version metadata: `versions` (supported version labels), `defaultVersion`, "
             "`apiDocsUrl` (vendor API docs/changelog URL or null), and `deprecatedVersions` "
-            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null)."
+            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null), and `cdcEngine` "
+            "(the change data capture engine, or null when the source has no CDC)."
         ),
     )
     def list(self, request: Request) -> Response:

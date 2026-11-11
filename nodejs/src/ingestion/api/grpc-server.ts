@@ -9,6 +9,7 @@ import {
     IngestStreamResponse,
     IngestStreamResponseSchema,
     KafkaMessage,
+    MessageRefSchema,
     StreamHello,
     StreamReadySchema,
     SubBatchAckSchema,
@@ -16,6 +17,7 @@ import {
     WorkerIngest,
 } from '~/common/generated/ingestion-worker/ingestion/worker/v1/worker_pb'
 import { logger } from '~/common/utils/logger'
+import { budgetDeadline } from '~/ingestion/framework/batch-budget'
 import { FeedResult } from '~/ingestion/framework/batching-pipeline'
 
 import { AcceptedBatch, batchAccepted, batchFailed, batchProcessed, batchReleased } from './batch-metrics'
@@ -54,17 +56,25 @@ const grpcCapacityRetries = new Counter({
     help: 'Feeds rejected at_capacity despite holding an admission slot (capacity accounting drift)',
 })
 
+const grpcAdmissionExpired = new Counter({
+    name: 'ingestion_api_grpc_admission_expired_total',
+    help: 'Sub-batches whose soft deadline passed while they waited for an admission slot',
+})
+
 const grpcConnectionsRejected = new Counter({
     name: 'ingestion_api_grpc_connections_rejected_total',
     help: 'Sessions or streams refused because a concurrency cap was hit',
     labelNames: ['reason'],
 })
 
+export type MessageCoordinates = Pick<SerializedKafkaMessage, 'partition' | 'offset'>
+
 /** A batch the pipeline finished processing. */
 export interface CompletedSubBatch {
     streamId: number
     seq: number
     accepted: number
+    unfinished: MessageCoordinates[]
     /**
      * Resolves when the batch's side effects are durably done — the ack
      * barrier. Kept as a promise (not awaited inside `next()`) so the pump
@@ -74,6 +84,13 @@ export interface CompletedSubBatch {
     settled: Promise<void>
 }
 
+export interface SubBatchBudget {
+    /** Epoch milliseconds at frame read, so the wait for an admission slot counts. */
+    armedAt: number
+    /** `0` means no deadline. */
+    softBudgetMs: number
+}
+
 /**
  * Pipeline mechanics behind the stream protocol. The server owns ordering,
  * acks, capacity admission, and stream lifecycle; the driver owns how a
@@ -81,7 +98,7 @@ export interface CompletedSubBatch {
  * done (`settled`).
  */
 export interface StreamIngestDriver {
-    feed(streamId: number, seq: number, messages: SerializedKafkaMessage[]): Promise<FeedResult>
+    feed(streamId: number, seq: number, messages: SerializedKafkaMessage[], budget: SubBatchBudget): Promise<FeedResult>
     next(): Promise<CompletedSubBatch | null>
 }
 
@@ -296,6 +313,22 @@ function okAck(seq: number, accepted: number): IngestStreamResponse {
         msg: {
             case: 'ack',
             value: create(SubBatchAckSchema, { seq: BigInt(seq), status: SubBatchStatus.OK, accepted }),
+        },
+    })
+}
+
+function partialAck(seq: number, accepted: number, unfinished: MessageCoordinates[]): IngestStreamResponse {
+    return create(IngestStreamResponseSchema, {
+        msg: {
+            case: 'ack',
+            value: create(SubBatchAckSchema, {
+                seq: BigInt(seq),
+                status: SubBatchStatus.PARTIAL,
+                accepted,
+                unfinished: unfinished.map(({ partition, offset }) =>
+                    create(MessageRefSchema, { partition, offset: BigInt(offset) })
+                ),
+            }),
         },
     })
 }
@@ -572,7 +605,7 @@ export class WorkerIngestServer {
         }
         this.acceptedBatches.delete(key)
         if (outcome === 'ok') {
-            batchProcessed(accepted)
+            batchProcessed(accepted.acceptedAt, completed.accepted)
         } else {
             batchFailed()
         }
@@ -587,9 +620,22 @@ export class WorkerIngestServer {
             return
         }
         stream.inFlight.delete(completed.seq)
-        stream.acks.push(okAck(completed.seq, completed.accepted))
-        grpcSubBatches.inc({ status: 'ok' })
+        if (completed.unfinished.length > 0) {
+            stream.acks.push(partialAck(completed.seq, completed.accepted, completed.unfinished))
+            grpcSubBatches.inc({ status: 'partial' })
+        } else {
+            stream.acks.push(okAck(completed.seq, completed.accepted))
+            grpcSubBatches.inc({ status: 'ok' })
+        }
         grpcMessagesProcessed.inc(completed.accepted)
+        this.maybeFinish(stream)
+    }
+
+    private expireParked(stream: StreamState, seq: number, messages: SerializedKafkaMessage[]): void {
+        grpcAdmissionExpired.inc()
+        stream.inFlight.delete(seq)
+        stream.acks.push(partialAck(seq, 0, messages))
+        grpcSubBatches.inc({ status: 'partial' })
         this.maybeFinish(stream)
     }
 
@@ -703,6 +749,10 @@ export class WorkerIngestServer {
                 }
 
                 const subBatch = request.msg.value
+                const budget: SubBatchBudget = {
+                    armedAt: Date.now(),
+                    softBudgetMs: Number(subBatch.softBudgetMs),
+                }
                 const seq = Number(subBatch.seq)
                 if (seq !== stream.nextSeq) {
                     throw this.protocolError(
@@ -735,14 +785,28 @@ export class WorkerIngestServer {
                 // order because a retry race here let busy streams starve
                 // quiet ones, wedging whole consumers.
                 stream.inFlight.add(seq)
+                // A sub-batch that spends its whole allowance waiting here is given up, not started.
+                const softAt = budgetDeadline(budget.armedAt, budget.softBudgetMs)
+                const parkedTooLong = new AbortController()
+                const expiryTimer =
+                    softAt === null ? null : setTimeout(() => parkedTooLong.abort(), Math.max(0, softAt - Date.now()))
+                expiryTimer?.unref?.()
                 try {
-                    await this.slots.acquire(admissionSignal)
+                    await this.slots.acquire(AbortSignal.any([admissionSignal, parkedTooLong.signal]))
                 } catch (error) {
                     if (error instanceof SlotAcquisitionAborted) {
+                        if (parkedTooLong.signal.aborted && !admissionSignal.aborted) {
+                            this.expireParked(stream, seq, serialized)
+                            continue
+                        }
                         this.finishReader(stream, seq)
                         return
                     }
                     throw error
+                } finally {
+                    if (expiryTimer) {
+                        clearTimeout(expiryTimer)
+                    }
                 }
                 if (signal?.aborted) {
                     // Cancelled between the slot grant and here: hand the slot
@@ -757,7 +821,7 @@ export class WorkerIngestServer {
                             this.finishReader(stream, seq)
                             return
                         }
-                        const result = await this.feedGuarded(stream, seq, serialized)
+                        const result = await this.feedGuarded(stream, seq, serialized, budget)
                         if (result.ok) {
                             feedAccepted = true
                             this.acceptedBatches.set(this.acceptedKey(stream.id, seq), batchAccepted(serialized.length))
@@ -798,10 +862,11 @@ export class WorkerIngestServer {
     private async feedGuarded(
         stream: StreamState,
         seq: number,
-        messages: SerializedKafkaMessage[]
+        messages: SerializedKafkaMessage[],
+        budget: SubBatchBudget
     ): Promise<FeedResult> {
         try {
-            return await this.deps.driver.feed(stream.id, seq, messages)
+            return await this.deps.driver.feed(stream.id, seq, messages, budget)
         } catch (error) {
             this.fatal(error instanceof Error ? error : new Error(String(error)))
             throw new ConnectError('ingest pipeline failed', Code.Internal)

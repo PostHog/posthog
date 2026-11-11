@@ -14,18 +14,23 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.hogql.direct_sql.capability import is_direct_capable
+
 from posthog.api.utils import action
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
+from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.models import (
     MAX_FULL_REFRESH_INTERVAL_DAYS,
     ExternalDataSchema,
     ExternalDataSource,
     auto_enable_new_schemas,
+    discovered_schema_finder,
     sync_old_schemas_with_new_schemas,
 )
+from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.facade.source_management import (
     AnySource,
     ClickHouseSource,
@@ -35,10 +40,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     PostgresSource,
     SQLSource,
     build_default_sync_settings,
+    known_source_key,
     new_source_requires_ssl,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    FULL_REFRESH_TIME_OF_DAY_HELP_TEXT,
     ExternalDataSchemaSerializer,
     RowFiltersField,
 )
@@ -98,6 +104,9 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
             "and never shorter than the sync frequency."
         ),
     )
+    full_refresh_time_of_day = serializers.TimeField(
+        required=False, allow_null=True, help_text=FULL_REFRESH_TIME_OF_DAY_HELP_TEXT
+    )
     primary_key_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -116,6 +125,16 @@ class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
         allow_null=True,
         allow_empty=True,
         help_text="Columns to sync. Null means sync all columns.",
+    )
+    masked_columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        allow_empty=True,
+        help_text=(
+            "Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. "
+            "Any change starts a full resync of the table."
+        ),
     )
     row_filters = RowFiltersField(
         required=False,
@@ -207,16 +226,17 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             team_id=self.team_id,
             source_type=instance.source_type,
         )
-        if not instance.job_inputs:
+        source_inputs = SourceInputsStore.load(instance)
+        if not source_inputs:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Source has no configuration."},
             )
         source: AnySource | None = None
         try:
-            source_type = ExternalDataSourceType(instance.source_type)
+            source_type = known_source_key(instance.source_type)
             source = base.SourceRegistry.get_source(source_type)
-            config = source.parse_config(instance.job_inputs)
+            config = source.parse_config(source_inputs)
             # Explicit user action — bypass any cached schema discovery so newly added
             # upstream resources (e.g. Slack channels) appear immediately.
             schemas = source.get_schemas(
@@ -230,7 +250,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     source_model=instance,
                     fallback=instance.connection_metadata,
                 )
-                if instance.is_direct_query
+                if is_direct_capable(instance)
                 else instance.connection_metadata
             )
             schema_names = {s.name: s.label for s in schemas}
@@ -269,7 +289,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
-            if instance.is_direct_query and connection_metadata != instance.connection_metadata:
+            if connection_metadata != instance.connection_metadata:
                 instance.connection_metadata = connection_metadata
                 instance.save(update_fields=["connection_metadata", "updated_at"])
             # Migrate/dedupe legacy rows before sync_old_schemas; non-Postgres only once namespace cleared.
@@ -295,7 +315,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 strict_name_match=namespaced_adapter is not None and namespaced_adapter.uses_strict_schema_name_match,
                 schema_metadata_by_name=namespaced_adapter.schema_metadata_by_name(schemas)
                 if namespaced_adapter is not None
-                else None,
+                else {name_substitutions.get(s.name, s.name): s.schema_metadata for s in schemas if s.schema_metadata},
             )
             # Mutable local: engine reconciliation below may extend the deleted set.
             schemas_deleted = sync_result.deleted
@@ -356,7 +376,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             return secret_ref_response
 
         try:
-            source_type_model = ExternalDataSourceType(source_type)
+            source_type_model = known_source_key(source_type)
         except ValueError:
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -448,10 +468,17 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 "rows": schema.row_count,
                 "supports_webhooks": schema.supports_webhooks,
                 "webhook_only": schema.webhook_only,
+                "prefers_full_refresh": schema.prefers_full_refresh,
                 "description": schema.description,
                 "should_sync_default": schema.should_sync_default,
                 "available_columns": [
-                    {"field": col_name, "label": col_name, "type": col_type, "nullable": nullable}
+                    {
+                        "field": col_name,
+                        "label": col_name,
+                        "type": col_type,
+                        "nullable": nullable,
+                        "sensitivity": classify_column_sensitivity(col_name, col_type),
+                    }
                     for col_name, col_type, nullable in schema.columns
                 ],
                 "detected_primary_keys": schema.detected_primary_keys,
@@ -493,10 +520,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         names = [source_schemas_by_id[schema_update["id"]].name for schema_update in needing_defaults]
         source_impl: AnySource | None = None
         try:
-            source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source.source_type))
-            config = source_impl.parse_config(source.job_inputs)
+            source_impl = base.SourceRegistry.get_source(source.source_type)
+            config = source_impl.parse_config(SourceInputsStore.load(source))
             discovered = source_impl.get_schemas(
-                config, self.team_id, names=names, api_version=source_impl.resolve_api_version(source.api_version)
+                config,
+                self.team_id,
+                names=None if source_impl.uses_stable_schema_resource_ids else names,
+                api_version=source_impl.resolve_api_version(source.api_version),
             )
         except Exception as e:
             # Discovery connects to the customer's source, so an expected user/upstream failure
@@ -511,12 +541,13 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 failures[str(schema.id)] = (schema.name, reason)
             return failures, set()
 
-        # Not every source honors the `names` filter, so match by name instead of order.
-        discovered_by_name = {discovered_schema.name: discovered_schema for discovered_schema in discovered}
+        # Not every source honors the `names` filter, so match by name instead of order. Sheets are
+        # discovered without that filter because a renamed worksheet is matched by its stable id.
+        find_discovered_schema = discovered_schema_finder(discovered)
         defaulted_schema_ids: set[str] = set()
         for schema_update in needing_defaults:
             schema = source_schemas_by_id[schema_update["id"]]
-            discovered_schema = discovered_by_name.get(schema.name)
+            discovered_schema = find_discovered_schema(schema.name, schema.schema_metadata)
             if discovered_schema is None:
                 failures[str(schema.id)] = (
                     schema.name,
@@ -548,6 +579,18 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         serializer.is_valid(raise_exception=True)
 
         schema_updates: list[dict[str, Any]] = serializer.validated_data["schemas"]
+        # Built once: the context builds the team's HogQL database.
+        serializer_context = self.get_serializer_context()
+        updated_schemas = self._apply_schema_updates(source, schema_updates, serializer_context)
+        return Response(
+            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _apply_schema_updates(
+        self, source: ExternalDataSource, schema_updates: list[dict[str, Any]], serializer_context: dict[str, Any]
+    ) -> list[ExternalDataSchema]:
+        """Save each schema update in its own transaction, then run its Temporal schedule changes."""
         schema_ids = [schema_update["id"] for schema_update in schema_updates]
 
         if len(set(schema_ids)) != len(schema_ids):
@@ -574,7 +617,6 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         )
         only_validation_errors = True
 
-        serializer_context = self.get_serializer_context()
         updated_schemas: list[ExternalDataSchema] = []
         # Each deferred action is paired with its schema so a post-commit failure can be attributed.
         post_commit_actions: list[tuple[ExternalDataSchema, Callable[[], None]]] = []
@@ -604,7 +646,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                 # Defaults discovery already confirmed these tables aren't webhook-only; seed the
                 # cache so the warm step below doesn't re-probe the source once per schema.
                 schema_serializer.seed_webhook_only_check(False)
-            # Do the webhook-only source-discovery call (e.g. Google Ads token refresh + field query)
+            # Do the webhook source-discovery calls (e.g. Google Ads token refresh + field query)
             # here, before the per-schema transaction below. Running it inside update()'s transaction
             # held the DB connection idle-in-transaction long enough for the server to close it.
             # update() reads the cached result, so it still validates and fails per-schema.
@@ -670,7 +712,4 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         if post_commit_error is not None:
             raise post_commit_error
 
-        return Response(
-            ExternalDataSchemaSerializer(updated_schemas, many=True, context=serializer_context).data,
-            status=status.HTTP_200_OK,
-        )
+        return updated_schemas

@@ -28,6 +28,8 @@ export interface Config {
     // look merely slow forever and hold the head of its partition. Measured from dispatch rather
     // than enqueue so queue wait is not charged to whichever worker happens to hold the job.
     jobTimeoutMs: number
+    svgTimeoutMs: number
+    svgRasterizers: number
 }
 
 export function loadConfig(): Config {
@@ -37,5 +39,7 @@ export function loadConfig(): Config {
         maxConcurrency: ADMITTED_PER_WORKER * SCRUB_WORKERS,
         maxBodyBytes: numFromEnv('IMAGE_SCRUB_MAX_BODY_BYTES', 20 * 1024 * 1024, 1024, 512 * 1024 * 1024),
         jobTimeoutMs: numFromEnv('IMAGE_SCRUB_JOB_TIMEOUT_MS', 15_000, 1000, 600_000),
+        svgTimeoutMs: numFromEnv('IMAGE_SCRUB_SVG_TIMEOUT_MS', 2_000, 50, 60_000),
+        svgRasterizers: numFromEnv('IMAGE_SCRUB_SVG_RASTERIZERS', 1, 1, 16),
     }
 }

@@ -8,6 +8,7 @@ import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 
 import type { Lifecycle } from './app'
 import { AUTH_REDIRECT_PATHS, getAuthorizationServerUrl, MCP_DOCS_URL } from './constants'
+import { InterviewRecruitment } from './interview-recruitment'
 import { register } from './metrics'
 import type { HonoCtx, RedisWithPing } from './types'
 
@@ -103,6 +104,21 @@ export function registerPublicRoutes(app: Hono, redis: RedisWithPing, lifecycle:
     // here we serve them from disk so the same `${MCP_APPS_BASE_URL}/ui-apps/...`
     // URL pattern works on both runtimes.
     app.use('/ui-apps/*', serveStatic({ root: './public' }))
+
+    const interviews = new InterviewRecruitment(redis)
+    app.get('/interview/:id', async (c) => {
+        if (c.req.raw.method === 'HEAD') {
+            return c.body(null, 405)
+        }
+        c.header('Cache-Control', 'no-store')
+        c.header('Referrer-Policy', 'no-referrer')
+        try {
+            const url = await interviews.openBookingLink(c.req.param('id'))
+            return url ? c.redirect(url, 302) : c.notFound()
+        } catch {
+            return c.body(null, 503)
+        }
+    })
 
     app.get('/', (c) => c.redirect(MCP_DOCS_URL, 302) as unknown as Response)
     app.get('/.well-known/openai-apps-challenge', (c) => c.text(OPENAI_CHALLENGE_TOKEN))

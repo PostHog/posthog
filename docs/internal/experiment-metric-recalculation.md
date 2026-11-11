@@ -19,9 +19,16 @@ The deadline bounds cleanup, not the underlying thread's lifetime.
 Precomputation, executor queuing, statistics, and database waits can extend beyond the final ClickHouse query's execution limit.
 A calculation can therefore continue after the cleanup deadline expires.
 
-The workflow does not configure activity heartbeats.
-Temporal requires heartbeats and a heartbeat timeout to deliver workflow cancellation to a running activity, so supersession does not promptly interrupt the calculation.
-Prompt cancellation would require heartbeat delivery plus cooperative cancellation through precomputation and the query runner, with cleanup for any active ClickHouse query.
+Temporal delivers a workflow cancellation to a running activity only in a heartbeat response.
+The calc activity heartbeats every `METRIC_CALC_HEARTBEAT_TIMEOUT_SECONDS / 4` while the calculation thread runs, and the workflow sets that heartbeat timeout on the call.
+A workflow cancellation, or a timeout the server enforces, therefore reaches the activity and starts the cleanup above, which kills the active ClickHouse query.
+Precomputation and the query runner do not cancel cooperatively, so the thread can still run past the kill.
 Result-write protection must remain independent of cancellation delivery.
 
 See the [workflow architecture](../../products/experiments/backend/temporal/ARCHITECTURE.md) and [Temporal's cancellation contract](https://github.com/temporalio/sdk-python#heartbeating-and-cancellation).
+
+## Superseded timeseries backfills
+
+A request with the same metric and calculation key reuses the active backfill. A different key cancels the old request and starts a replacement. Each daily write locks the experiment and checks the request status in the same transaction, preventing a superseded worker from overwriting the replacement's days. Queries run outside the transaction.
+
+The request stores the metric's current definition and key, and ignores a definition or key in the request body. Until backfills consume a frozen calculation config, each day's runner must give the request's key, in the key version of that key, before executing. Settings drift cancels the request instead of storing a result under settings it did not use.

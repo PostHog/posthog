@@ -22,6 +22,7 @@ logger = structlog.get_logger(__name__)
 
 BILLING_EVENT_PREFIX = "marketplace.invoice."
 DEAUTHORIZATION_EVENT = "integration-configuration.removed"
+TRANSFER_EVENT = "integration-configuration.transferred"
 
 # The lookup below is a sequential scan: the only index on the table is the unique
 # (organization, kind, integration_id), and this reads by kind and integration_id alone. The table
@@ -56,6 +57,10 @@ def is_billing_event(event_type: str | None) -> bool:
 
 def is_deauthorization_event(event_type: str | None) -> bool:
     return event_type == DEAUTHORIZATION_EVENT
+
+
+def is_transfer_event(event_type: str | None) -> bool:
+    return event_type == TRANSFER_EVENT
 
 
 def _get_integration(config_id: str) -> OrganizationIntegration | None:
@@ -140,6 +145,29 @@ def _handle_deauthorization(config_id: str, in_receiving_region: bool) -> Vercel
     return VercelEventOutcome.ACCEPTED
 
 
+def _handle_transfer(config_id: str, in_receiving_region: bool) -> VercelEventOutcome:
+    integration = _get_integration(config_id)
+    if not integration:
+        _log_unknown_config("vercel_webhook_transfer_unknown_config", config_id, TRANSFER_EVENT, in_receiving_region)
+        return VercelEventOutcome.UNKNOWN_CONFIG
+
+    # A linked account is billed through PostHog. Vercel account details stored on it would point
+    # its billing page at Vercel invoices and change who gets Owner on login.
+    if integration.config.get("type") == "connectable":
+        logger.info("vercel_webhook_transfer_connectable_ignored", config_id=config_id)
+        return VercelEventOutcome.ACCEPTED
+
+    try:
+        VercelIntegration.refresh_installation_account(integration)
+    except Exception as e:
+        logger.exception("vercel_webhook_transfer_refresh_failed", config_id=config_id)
+        capture_exception(e, {"config_id": config_id})
+        raise VercelEventProcessingError(str(e)) from e
+
+    logger.info("vercel_webhook_transferred", config_id=config_id, org_id=str(integration.organization_id))
+    return VercelEventOutcome.ACCEPTED
+
+
 def _handle_billing(
     event_type: str,
     payload: dict[str, Any],
@@ -181,6 +209,12 @@ def handle_vercel_event(
             logger.error("vercel_webhook_deauthorize_missing_config_id")
             return VercelEventOutcome.MISSING_CONFIG_ID
         return _handle_deauthorization(config_id, in_receiving_region)
+
+    if is_transfer_event(event_type):
+        if not config_id:
+            logger.error("vercel_webhook_transfer_missing_config_id")
+            return VercelEventOutcome.MISSING_CONFIG_ID
+        return _handle_transfer(config_id, in_receiving_region)
 
     if not is_billing_event(event_type):
         logger.info("vercel_webhook_non_billing_event", event_type=event_type)

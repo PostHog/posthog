@@ -37,6 +37,7 @@ import {
     confirmUnfreezeExposure,
 } from 'products/experiments/frontend/experimentActions'
 import { isExperimentExposureFrozen, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
+import { getTotalExposures } from 'products/experiments/frontend/health/exposureHealth'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -59,6 +60,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
         isExperimentLaunched,
         isExperimentRunning,
         isCreatingExperimentDashboard,
+        exposures,
         freezeExposureLoading,
         unfreezeExposureLoading,
     } = useValues(experimentLogic)
@@ -166,7 +168,7 @@ export function useExperimentActions(dataAttrPrefix: string = ''): ExperimentAct
             canFreezeExposure(experiment) && {
                 label: 'Freeze exposure',
                 icon: <IconLock />,
-                onClick: () => confirmFreezeExposure(() => freezeExposure()),
+                onClick: () => confirmFreezeExposure(() => freezeExposure(), getTotalExposures(exposures)),
                 disabledReason: freezeExposureLoading ? 'Freezing exposure...' : undefined,
                 'data-attr': `${dataAttrPrefix}freeze-exposure`,
             },

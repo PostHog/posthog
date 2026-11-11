@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.contrib import admin, messages
+from django.contrib.admin import ActionLocation
 from django.db import transaction
 from django.db.models import QuerySet
 from django.http import HttpRequest
@@ -18,6 +19,12 @@ class DashboardTileInline(admin.TabularInline):
     model = DashboardTile
     autocomplete_fields = ("insight", "text", "team")
     readonly_fields = ("filters_hash",)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if formfield and db_field.name == "badge":
+            formfield.required = False
+        return formfield
 
 
 @admin.register(Dashboard)
@@ -49,9 +56,11 @@ class DashboardAdmin(admin.ModelAdmin):
     def get_queryset(self, request):
         return Dashboard.objects_including_soft_deleted.all()
 
-    def get_actions(self, request: HttpRequest) -> dict[str, Any]:
+    def get_actions(
+        self, request: HttpRequest, action_location: ActionLocation = ActionLocation.CHANGE_LIST
+    ) -> dict[str, Any]:
         # Drop the built-in hard-delete: dashboards are soft-deleted product-side.
-        actions = super().get_actions(request)
+        actions = super().get_actions(request, action_location=action_location)
         actions.pop("delete_selected", None)
         return actions
 

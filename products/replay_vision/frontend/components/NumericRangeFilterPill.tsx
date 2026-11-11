@@ -77,6 +77,7 @@ export function NumericRangeFilterPill({
                             />
                         </div>
                         <LemonButton
+                            data-attr="vision-range-filter-clear"
                             size="small"
                             fullWidth
                             center

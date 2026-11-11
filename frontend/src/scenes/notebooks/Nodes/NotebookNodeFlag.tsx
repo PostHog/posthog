@@ -6,6 +6,7 @@ import { IconFlag, IconRocket } from '@posthog/icons'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { IconRecording, IconSurveys } from 'lib/lemon-ui/icons'
+import { FeatureFlagLoadError } from 'scenes/feature-flags/FeatureFlagLoadError'
 import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FEATURE_FLAG_NOTEBOOK_WIDGET_VIEWS,
@@ -16,6 +17,9 @@ import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagRe
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { urls } from 'scenes/urls'
+
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { FeatureFlagConfigReadonlyNotice } from 'products/feature_flags/frontend/FeatureFlagConfigReadonlyNotice'
 
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { buildEarlyAccessFeatureContent } from './NotebookNodeEarlyAccessFeature'
@@ -80,7 +84,9 @@ function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFla
                     }
                 },
             },
-            canCreateEarlyAccessFeature
+            // canCreateEarlyAccessFeature is false for a non-v1 flag, so the notebook never offers Create.
+            // A non-v1 flag that already has an early access feature still gets the View action.
+            canCreateEarlyAccessFeature || (hasEarlyAccessFeatures && !isV1FeatureFlagConfig(featureFlag.filters))
                 ? {
                       text: `${hasEarlyAccessFeatures ? 'View' : 'Create'} early access feature`,
                       icon: <IconRocket />,
@@ -111,11 +117,14 @@ function FeatureFlagNotebookActions({ attributes }: NotebookNodeProps<FeatureFla
 
 const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAttributes>): JSX.Element => {
     const { id } = attributes
-    const { featureFlag, featureFlagMissing } = useValues(featureFlagLogic({ id }))
+    const { featureFlag, featureFlagMissing, featureFlagLoadFailed } = useValues(featureFlagLogic({ id }))
     const { expanded } = useValues(notebookNodeLogic)
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
+    }
+    if (featureFlagLoadFailed) {
+        return <FeatureFlagLoadError id={id} />
     }
 
     return (
@@ -123,7 +132,11 @@ const Component = ({ attributes }: NotebookNodeProps<FeatureFlagNotebookWidgetAt
             <BindLogic logic={featureFlagLogic} props={{ id }}>
                 {expanded ? (
                     <div className="p-2">
-                        <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        {isV1FeatureFlagConfig(featureFlag.filters) ? (
+                            <FeatureFlagReleaseConditions readOnly filters={featureFlag.filters} />
+                        ) : (
+                            <FeatureFlagConfigReadonlyNotice filters={featureFlag.filters} />
+                        )}
                     </div>
                 ) : null}
             </BindLogic>

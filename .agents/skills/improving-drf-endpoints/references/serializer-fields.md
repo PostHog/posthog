@@ -131,15 +131,32 @@ status = serializers.ChoiceField(
 
 **Collision-prone field names.** Generic names like `format`, `type`, `status`,
 `kind`, `level`, `mode`, `state`, `platform`, `provider` already exist on multiple
-components with different choices. A ChoiceField built from a
-`models.TextChoices` class is safe: the component is named after the class
-(`ChoicesEnumNameOverrides` in `posthog/openapi/enum_names.py`), independent of
-the field name. An inline `choices=[...]` list on a colliding field name makes
-drf-spectacular auto-name your enum (`Format5eaEnum` and similar), which fails CI
-under `--fail-on-warn` — so define the choices as a TextChoices class, or as a
-fallback add an explicit `ENUM_NAME_OVERRIDES` entry in
-`posthog/settings/web.py`. Run `python manage.py find_enum_collisions` after the
-change — it prints the colliding fields and a suggested override entry.
+components with different choices. A ChoiceField built from a class is safe:
+the component is named after the class (`ChoicesEnumNameOverrides` in
+`posthog/openapi/enum_names.py`), independent of the field name. Use
+`models.TextChoices` in a product's internal modules. In a facade contract file
+(`backend/facade/contracts.py`, `backend/facade/enums.py`), which must not import
+Django, use `LabeledStrEnum` or `LabeledIntEnum` from `posthog/enums.py`: same
+class body, same `.choices`, same derived name.
+
+```python
+class DecisionQuestionType(LabeledStrEnum):
+    NOUL = "noul", "Yes or no"
+    SCORE = "score", "Rating scale"
+
+question_type = serializers.ChoiceField(choices=DecisionQuestionType.choices, help_text="...")
+```
+
+Pass `X.choices`, not the class. A return type hint does not carry the labels of
+a labeled enum, so name one on a `SerializerMethodField` with
+`@extend_schema_field(serializers.ChoiceField(choices=X.choices))`.
+
+An inline `choices=[...]` list on a colliding field name makes drf-spectacular
+auto-name your enum (`Format5eaEnum` and similar), which fails CI under
+`--fail-on-warn`, so define the choices as a class, or as a fallback add an
+explicit `ENUM_NAME_OVERRIDES` entry in `posthog/settings/web.py`. Run
+`python manage.py find_enum_collisions` after the change. It prints the colliding
+fields and a suggested override entry.
 
 ## DictField — typed values
 

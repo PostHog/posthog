@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -14,6 +15,7 @@ from products.web_analytics.backend.achievements.tasks import (
     persist_progress,
     team_local_today,
 )
+from products.web_analytics.backend.models import WebAnalyticsAchievementProgress
 
 logger = structlog.get_logger(__name__)
 
@@ -61,18 +63,34 @@ def _backfill_track(ctx: EvalContext, track: TrackDefinition) -> bool:
     except Exception:
         logger.warning("wa_achievements_backfill_failed", track=str(track.key), team_id=ctx.team.id, exc_info=True)
         return False
-    value = max(evaluation.value, progress.progress_value)
-    stage = track.stage_for_value(value, None)
-    seeded_at = timezone.now().isoformat()
-    state = dict(progress.state or {})
-    unlocked_stages = dict(state.get("unlocked_stages", {}))
-    for unlocked_stage in range(1, stage + 1):
-        unlocked_stages.setdefault(str(unlocked_stage), seeded_at)
-    state["unlocked_stages"] = unlocked_stages
-    state.setdefault("pending_celebrations", [])
-    if evaluation.checkpoint is not None:
-        state["checkpoint"] = evaluation.checkpoint
-    # Leave last_computed_at untouched so the next live recompute still runs the same day a team is
-    # backfilled — backfilling must not suppress real-time unlocks.
-    persist_progress(progress, value, max(progress.current_stage, stage), state, bump_last_computed_at=False)
+    if not evaluation.complete and evaluation.checkpoint is None:
+        return False
+    with transaction.atomic():
+        current = WebAnalyticsAchievementProgress.objects.for_team(ctx.team.id).select_for_update().get(pk=progress.pk)
+        if evaluation.checkpoint is not None and (
+            current.last_computed_at != progress.last_computed_at
+            or (current.state or {}).get("checkpoint") != (progress.state or {}).get("checkpoint")
+        ):
+            return False
+        if not evaluation.complete:
+            state = dict(current.state or {})
+            state["checkpoint"] = evaluation.checkpoint
+            state["backfill_pending"] = True
+            persist_progress(current, current.progress_value, current.current_stage, state, bump_last_computed_at=False)
+            return True
+        value = max(evaluation.value, current.progress_value)
+        stage = track.stage_for_value(value, None)
+        seeded_at = timezone.now().isoformat()
+        state = dict(current.state or {})
+        state.pop("backfill_pending", None)
+        unlocked_stages = dict(state.get("unlocked_stages", {}))
+        for unlocked_stage in range(1, stage + 1):
+            unlocked_stages.setdefault(str(unlocked_stage), seeded_at)
+        state["unlocked_stages"] = unlocked_stages
+        state.setdefault("pending_celebrations", [])
+        if evaluation.checkpoint is not None:
+            state["checkpoint"] = evaluation.checkpoint
+        # Leave last_computed_at untouched so the next live recompute still runs the same day a team is
+        # backfilled — backfilling must not suppress real-time unlocks.
+        persist_progress(current, value, max(current.current_stage, stage), state, bump_last_computed_at=False)
     return True

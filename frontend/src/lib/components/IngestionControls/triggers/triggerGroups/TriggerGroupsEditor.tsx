@@ -436,10 +436,10 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                         {isAddingUrl && (
                             <div className="border rounded p-3 bg-bg-3000 mb-2">
                                 <LemonBanner type="info" className="text-sm mb-2">
-                                    We always wrap the URL regex with anchors to avoid unexpected behavior (if you do
-                                    not). This is because <code className="inline">https://example.com/</code> does not
-                                    only match the homepage. You'd need{' '}
-                                    <code className="inline">^https://example.com/$</code>
+                                    Patterns are wrapped in <code className="inline">^</code> and{' '}
+                                    <code className="inline">$</code> and matched against the full URL, so a path on its
+                                    own never matches. Write the full URL, e.g.{' '}
+                                    <code className="inline">https://example.com/checkout.*</code>
                                 </LemonBanner>
                                 <LemonLabel>Matching regex:</LemonLabel>
                                 <div className="flex gap-2 mt-1">
@@ -447,7 +447,7 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         value={newUrl}
                                         onChange={setNewUrl}
                                         onPressEnter={() => addUrl(newUrl)}
-                                        placeholder="e.g., /checkout/.*, ^https://example.com/page$"
+                                        placeholder="e.g., https://example.com/checkout.*, ^https://example.com/page$"
                                         fullWidth
                                         autoFocus
                                     />
@@ -455,18 +455,18 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                         Cancel
                                     </LemonButton>
                                     <LemonButton type="primary" onClick={() => addUrl(newUrl)}>
-                                        Save
+                                        Add
                                     </LemonButton>
                                 </div>
                                 {triggerGroup.urls.length > 0 && (
                                     <div className="mt-3 pt-3 border-t">
                                         <LemonLabel className="text-xs mb-1 block">
-                                            Test a URL against existing patterns:
+                                            Test a full URL against existing patterns:
                                         </LemonLabel>
                                         <LemonInput
                                             value={testUrl}
                                             onChange={setTestUrl}
-                                            placeholder="Enter a URL to test (e.g., https://example.com/page)"
+                                            placeholder="e.g., https://example.com/checkout?step=2"
                                             fullWidth
                                             size="small"
                                         />
@@ -482,7 +482,10 @@ function GroupForm({ group, onSave, onCancel }: GroupFormProps): JSX.Element {
                                                 }) ? (
                                                     <span className="text-success">Matches at least one pattern</span>
                                                 ) : (
-                                                    <span className="text-danger">Doesn't match any patterns</span>
+                                                    <span className="text-danger">
+                                                        Doesn't match any patterns. Patterns match the full URL, so a
+                                                        path on its own never matches.
+                                                    </span>
                                                 )}
                                             </div>
                                         )}

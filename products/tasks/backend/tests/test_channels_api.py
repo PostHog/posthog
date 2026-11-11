@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -12,10 +12,13 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
+from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV, resolve_scopes
 
+from products.canvas.backend.facade import testing as canvas_testing
 from products.tasks.backend.exceptions import ComputeBillingLimitError
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.onboarding_canvas import TeachingCanvas
@@ -25,6 +28,8 @@ from products.tasks.backend.models import (
     ChannelMembership,
     Task,
     TaskActivity,
+    TaskClient,
+    TaskClientProvenance,
     TaskRun,
     TaskThreadMessage,
 )
@@ -566,6 +571,48 @@ class ChannelsAPITestCase(TestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         self.assertEqual({m["id"] for m in response.json()}, {creator.id, self.other_user.id})
 
+    def test_contributors_list_task_and_canvas_owners_in_visible_channels(self):
+        public_id = self.client.post(self._channels_url(), {"name": "growth"}).json()["id"]
+        private_id = self._create_private_channel()["id"]
+        third = User.objects.create_user(email="third@example.com", first_name="Cy", password="password")
+        now = django_timezone.now()
+
+        def task(channel_id: str, owner: User, minutes_ago: int, **extra) -> None:
+            Task.objects.create(
+                team=self.team,
+                created_by=owner,
+                channel_id=channel_id,
+                title="t",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                last_activity_at=now - timedelta(minutes=minutes_ago),
+                **extra,
+            )
+
+        task(public_id, self.user, 30)
+        task(public_id, self.user, 90, archived=True)
+        task(public_id, third, 5, deleted=True)
+        task(private_id, self.user, 1)
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Board", created_by_id=self.other_user.id
+        )
+        canvas_testing.create_canvas(
+            team_id=self.team.id, channel_id=UUID(public_id), name="Gone", created_by_id=third.id, deleted=True
+        )
+
+        response = self.client.get(f"{self._channels_url()}contributors/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            {row["channel"]: [person["id"] for person in row["people"]] for row in response.json()},
+            {public_id: [self.other_user.id, self.user.id], private_id: [self.user.id]},
+        )
+
+        other_client = APIClient()
+        other_client.force_authenticate(self.other_user)
+        self.assertEqual(
+            [row["channel"] for row in other_client.get(f"{self._channels_url()}contributors/").json()], [public_id]
+        )
+
     def test_deleting_github_integration_clears_channel_repositories(self):
         integration = Integration.objects.create(team=self.team, kind="github", integration_id="1", config={})
         channel = Channel.objects.for_team(self.team.id).create(
@@ -837,6 +884,19 @@ class ChannelsAPITestCase(TestCase):
         listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
         self.assertEqual([task["id"] for task in listed], [task_id])
 
+    def test_task_without_a_channel_creates_and_lands_in_the_personal_channel(self):
+        self.assertFalse(Channel.objects.unscoped().filter(team=self.team).exists())
+
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "First chat", "description": "d", "origin_product": "posthog_ai"},
+        ).json()["id"]
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        assert channel is not None
+        self.assertEqual(channel.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertEqual(channel.created_by_id, self.user.id)
+
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
@@ -933,6 +993,44 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
         again = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_send_to_agent_records_last_client(self):
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        earlier = django_timezone.now() - timedelta(days=1)
+        Task.objects.filter(id=self.task.id).update(last_client=TaskClient.SLACK, last_client_at=earlier)
+        message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
+        application = OAuthApplication.objects.create(
+            name="Desktop",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.author,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.author,
+            application=application,
+            token=f"pha_thread_{uuid4().hex}",
+            scope="task:read task:write",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.author, application=application, token=f"phr_thread_{uuid4().hex}", access_token=token
+        )
+        desktop_client = APIClient()
+        desktop_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        with patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True):
+            response = desktop_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.last_client, TaskClientProvenance.POSTHOG_DESKTOP)
+        assert self.task.last_client_at is not None
+        self.assertGreater(self.task.last_client_at, earlier)
+
     def test_send_to_agent_returns_structured_compute_quota_denial(self):
         TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
@@ -958,6 +1056,64 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
         url = f"/api/projects/{self.team.id}/tasks/{private_task.id}/thread_messages/"
         response = self.peer_client.get(url)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    @parameterized.expand(
+        [
+            ("own_trial", "scout-trial:", "own", False, status.HTTP_200_OK),
+            ("sibling_trial", "scout-trial:", "other", False, status.HTTP_404_NOT_FOUND),
+            ("unbound_trial", "scout-trial:", "unbound", False, status.HTTP_404_NOT_FOUND),
+            ("sibling_judge", "scout-trial-judge:", "other", False, status.HTTP_404_NOT_FOUND),
+            ("ordinary_task", "", "other", False, status.HTTP_200_OK),
+            ("internal_scope_only", "scout-trial:", "own", True, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_sandbox_thread_reads_respect_trial_task_binding(
+        self, _name: str, origin_prefix: str, binding: str, internal_scope_only: bool, expected_status: int
+    ) -> None:
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.author,
+            title="Thread target",
+            origin_product=Task.OriginProduct.SIGNALS_SCOUT if origin_prefix else Task.OriginProduct.USER_CREATED,
+            origin_key=f"{origin_prefix}{uuid4()}" if origin_prefix else None,
+        )
+        message = TaskThreadMessage.objects.for_team(self.team.id).create(
+            team=self.team, task=task, author=self.author, content="Saved thread message"
+        )
+        url = f"/api/projects/{self.team.id}/tasks/{task.id}/thread_messages/"
+        self.assertEqual(self.author_client.get(url).status_code, status.HTTP_200_OK)
+        self.task.origin_product = Task.OriginProduct.SIGNALS_SCOUT
+        self.task.origin_key = f"scout-trial:{uuid4()}"
+        self.task.save(update_fields=["origin_product", "origin_key"])
+        application = OAuthApplication.objects.create(
+            name="Thread sandbox",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.author,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.author,
+            application=application,
+            token=f"pha_thread_{uuid4().hex}",
+            scope="scout_experiment_internal:read"
+            if internal_scope_only
+            else " ".join(resolve_scopes("signals_scout_experiment")),
+            expires=django_timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+            sandbox_task_id=task.id if binding == "own" else self.task.id if binding == "other" else None,
+        )
+        client = APIClient()
+        client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        response = client.get(url)
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_200_OK:
+            self.assertEqual([row["id"] for row in response.json()], [str(message.id)])
 
 
 class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
@@ -987,9 +1143,15 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         # The author wasn't mentioned, so their own feed stays empty.
         self.assertEqual(self.author_client.get(self._mentions_url()).json(), [])
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @parameterized.expand([("mobile", True), ("web", False), ("slack", False), ("picked_up_web", True)])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_thread_message_notifies_creator_and_mentions_only(self, mock_delay, _flag):
+    def test_thread_message_notifies_creator_and_mentions_only(self, source, eligible, mock_delay):
+        self.task.state = {"created_on_mobile": source == "mobile"}
+        if source == "picked_up_web":
+            self.task.state["mobile_push_user_ids"] = [self.author.id, self.peer.id]
+        if source == "slack":
+            self.task.origin_product = Task.OriginProduct.SLACK
+        self.task.save(update_fields=["state", "origin_product"])
         mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
         unmentioned = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
         self.organization.members.add(mentioned, unmentioned)
@@ -997,11 +1159,18 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         with self.captureOnCommitCallbacks(execute=True):
             message = self._post_message(self.peer_client, "ping @[Mina](mentioned@example.com)")
 
+        if not eligible:
+            mock_delay.assert_not_called()
+            return
+
         calls_by_user_id = {call.args[0]: call.args for call in mock_delay.call_args_list}
-        self.assertEqual(set(calls_by_user_id), {self.author.id, mentioned.id})
+        self.assertEqual(
+            set(calls_by_user_id), {self.author.id} if source == "picked_up_web" else {self.author.id, mentioned.id}
+        )
         self.assertEqual(calls_by_user_id[self.author.id][3]["messageId"], message["id"])
         self.assertIn("replied", calls_by_user_id[self.author.id][2])
-        self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
+        if source != "picked_up_web":
+            self.assertIn("mentioned you", calls_by_user_id[mentioned.id][2])
 
     @patch("products.tasks.backend.push_dispatcher._enqueue_user")
     def test_thread_message_recipient_failures_are_isolated(self, mock_enqueue):
@@ -1014,9 +1183,10 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual(mock_enqueue.call_count, 2)
 
     @patch("products.tasks.backend.facade.api.TaskActivity.record", side_effect=RuntimeError("db is down"))
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mention_activity_failure_does_not_discard_push_recipients(self, mock_delay, _flag, _record):
+    def test_mention_activity_failure_does_not_discard_push_recipients(self, mock_delay, _record):
+        self.task.state = {"created_on_mobile": True}
+        self.task.save(update_fields=["state"])
         mentioned = User.objects.create_user(email="mentioned@example.com", first_name="Mina", password="password")
         self.organization.members.add(mentioned)
 
@@ -1057,15 +1227,18 @@ class TaskMentionsAPITestCase(ChannelTaskAPITestCase):
         response = self.peer_client.get(self._mentions_url(), {"since": "not-a-date"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.tasks.backend.push_dispatcher.posthoganalytics.feature_enabled", return_value=True)
+    @parameterized.expand([("private",), ("scout_trial",)])
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
-    def test_mention_on_invisible_task_is_hidden(self, mock_delay, _flag):
+    def test_mention_on_invisible_task_is_hidden(self, kind, mock_delay):
         private_task = Task.objects.create(
             team=self.team,
             created_by=self.author,
             title="Private",
             description="d",
-            origin_product=Task.OriginProduct.USER_CREATED,
+            origin_product=(
+                Task.OriginProduct.SIGNALS_SCOUT if kind == "scout_trial" else Task.OriginProduct.USER_CREATED
+            ),
+            origin_key="scout-trial:11111111-1111-1111-1111-111111111111" if kind == "scout_trial" else None,
         )
         with self.captureOnCommitCallbacks(execute=True):
             self._post_message(self.author_client, "fyi @[Bob](peer@example.com)", task=private_task)
@@ -1351,17 +1524,11 @@ class TaskActivityAPITestCase(ChannelTaskAPITestCase):
         self.assertEqual([row["task_id"] for row in rows], [str(second.id), str(self.task.id)])
         first_page = self.author_client.get(self._activity_url(), {"limit": 1}).json()
         self.assertEqual([row["task_id"] for row in first_page["results"]], [str(second.id)])
-        second_page = self.author_client.get(
-            self._activity_url(),
-            {
-                "limit": 1,
-                "before": first_page["next_before"],
-                "before_id": first_page["next_before_id"],
-            },
-        ).json()
+        second_page = self.author_client.get(first_page["next"]).json()
         self.assertEqual([row["task_id"] for row in second_page["results"]], [str(self.task.id)])
         self.assertIsNone(second_page["next_before"])
         self.assertIsNone(second_page["next_before_id"])
+        self.assertIsNone(second_page["next"])
 
     def test_mark_read_rejects_an_empty_task_list(self):
         response = self.author_client.post(self._activity_url() + "mark_read/", {"activities": []}, format="json")

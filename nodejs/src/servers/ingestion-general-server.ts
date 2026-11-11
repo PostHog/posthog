@@ -1,4 +1,5 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
+import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import {
@@ -222,8 +223,7 @@ export class IngestionGeneralServer implements NodeServer {
 
         const postgresPersonRepository = new PostgresPersonRepository(this.postgres, {
             calculatePropertiesSize: this.config.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            personMergeTombstoneTeamAllowlist: this.config.PERSON_MERGE_TOMBSTONE_TEAM_ALLOWLIST,
-            personCreateClaimTeamAllowlist: this.config.PERSON_CREATE_CLAIM_TEAM_ALLOWLIST,
+            personBatchWritePerKeyTeamAllowlist: this.config.PERSON_BATCH_WRITING_PER_KEY_TEAM_ALLOWLIST,
         })
         const personRepository = buildPersonRepository(
             personhogClient,
@@ -243,7 +243,10 @@ export class IngestionGeneralServer implements NodeServer {
         )
 
         const encryptedFields = new EncryptedFields(this.config.ENCRYPTION_SALT_KEYS)
-        const integrationManager = new IntegrationManagerService(this.pubsub, this.postgres, encryptedFields)
+        const integrationManager = new IntegrationManagerService(
+            this.pubsub,
+            new PostgresIntegrationSource(this.postgres, encryptedFields)
+        )
 
         // 3. Ingestion-specific services
         // Same rationale as the team manager's loaderRetry above: group-type loads run
@@ -272,6 +275,7 @@ export class IngestionGeneralServer implements NodeServer {
             encryptedFields,
             integrationManager,
             monitoringOutputs: ingestionOutputs,
+            teamManager,
         }
 
         const ingestionDeps: IngestionConsumerDeps = {

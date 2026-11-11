@@ -35,3 +35,15 @@ export function getPropertySelectErrorMessages(
     })
     return hasError ? messages : null
 }
+
+// Condition sets that hold a blocking error, with the first message for each. A blocked save uses
+// this to open the sets it has to open, and to name one when it can't scroll to the field.
+export function getConditionSetErrors(
+    propertySelectErrors: PropertySelectError[] | null | undefined
+): { index: number; message: string }[] {
+    return (propertySelectErrors ?? []).flatMap((error, index) => {
+        const propertyMessage = error?.properties?.find((property) => typeof property?.value === 'string')?.value
+        const message = propertyMessage ?? error?.rollout_percentage
+        return message ? [{ index, message }] : []
+    })
+}

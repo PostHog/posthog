@@ -9,7 +9,12 @@ import structlog
 
 from posthog.tasks.email import send_external_data_failure_digest
 
-from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataDestination,
+    ExternalDataJob,
+    ExternalDataSchema,
+)
+from products.warehouse_sources.backend.facade.pipelines import destination_named_in_failure
 from products.warehouse_sources.backend.facade.types import ExternalDataJobStatus, ExternalDataSchemaStatus
 
 logger = structlog.get_logger(__name__)
@@ -18,13 +23,6 @@ logger = structlog.get_logger(__name__)
 # point at the sources page for the rest. Omitted schemas are still stamped as
 # notified — the email communicates them in aggregate via the "+N more" line.
 MAX_SCHEMAS_PER_DIGEST_EMAIL = 30
-
-# Re-notify a schema that stays failed this long after its last email. A paused
-# schema never runs again, so it produces no newer failed job to re-trigger the
-# digest — without this it gets exactly one email, then silence for weeks while
-# its data goes stale. The catch-up sweep runs daily, so it picks the schema up
-# the first day past this age and stamps a fresh time, spacing reminders evenly.
-RENOTIFY_STILL_FAILING_AFTER = dt.timedelta(days=7)
 
 # A schema the user switched off is not a failure to chase: it will not run again, and nobody
 # asked it to. Its last status stays Failed for the syncs UI, so the digest cannot read status
@@ -35,31 +33,22 @@ RENOTIFY_STILL_FAILING_AFTER = dt.timedelta(days=7)
 SCHEMA_STOPPED_BY_USER = Q(should_sync=False, auto_disabled_at__isnull=True)
 
 
-def get_team_ids_with_recent_sync_failures(
-    lookback: dt.timedelta = dt.timedelta(hours=26),
-    renotify_after: dt.timedelta = RENOTIFY_STILL_FAILING_AFTER,
-) -> list[int]:
+def get_team_ids_with_recent_sync_failures(lookback: dt.timedelta = dt.timedelta(hours=26)) -> list[int]:
     """Teams with still-failing schemas that need a digest.
 
-    Powers the daily catch-up digest. It flushes two groups:
-
-    - Failures that the one-email-per-day block swallowed. A failure counts only
-      if it is newer than the schema's `last_error_notified_at` stamp, so failures
-      already covered by an earlier digest do not trigger a duplicate.
-    - Schemas that stay failed but produce no newer failed run — a paused schema
-      never syncs again. Their last email is older than `renotify_after`, so they
-      get a reminder instead of silence.
-
-    Schemas the user switched off are left out entirely, per `SCHEMA_STOPPED_BY_USER`.
+    Powers the daily catch-up digest. It flushes failures that the one-email-per-day
+    block swallowed. A failure counts only if it is newer than the schema's
+    `last_error_notified_at` stamp, so failures already covered by an earlier digest
+    do not trigger a duplicate. A paused schema never runs again, so after its first
+    digest it stays out until a new run fails. Schemas the user switched off are left
+    out entirely, per `SCHEMA_STOPPED_BY_USER`.
 
     The lookback exceeds the 24h digest day on purpose: a failure just after the
     10:00 UTC rollover, blocked because that digest day's email already went out,
     is 24h15m+ old by the next catch-up run — a 24h lookback would drop it forever
     for paused schemas. The stamp check above keeps the wider window duplicate-free.
     """
-    now = dt.datetime.now(dt.UTC)
-    cutoff = now - lookback
-    renotify_cutoff = now - renotify_after
+    cutoff = dt.datetime.now(dt.UTC) - lookback
     # Drive from the schema side: the jobs table grows with every sync run and has
     # no index on (status, finished_at), so starting there would seq-scan it daily.
     # Schemas are one row each, and their jobs are reachable via the schema_id FK index.
@@ -73,21 +62,18 @@ def get_team_ids_with_recent_sync_failures(
         .exclude(source__deleted=True)
         .exclude(SCHEMA_STOPPED_BY_USER)
         .filter(status=ExternalDataSchemaStatus.FAILED)
-        .filter(Exists(unnotified_failed_job) | Q(last_error_notified_at__lt=renotify_cutoff))
+        .filter(Exists(unnotified_failed_job))
         .values_list("team_id", flat=True)
         .distinct()
     )
 
 
-def notify_external_data_sync_failures(
-    team_id: int, renotify_after: dt.timedelta = RENOTIFY_STILL_FAILING_AFTER
-) -> None:
+def notify_external_data_sync_failures(team_id: int) -> None:
     """Email the team a digest of failing external data schemas that need a notification.
 
-    A schema is listed when it was never notified, has a failed run newer than its last
-    notification, or has stayed failed for longer than `renotify_after` since its last
-    email. The last case reminds the team about a paused schema, which never runs again
-    and so produces no newer failed run to re-trigger the digest on its own. Schemas of a
+    A schema is listed when it was never notified, or has a failed run newer than its last
+    notification. A paused schema never runs again, so it is listed once and then stays out
+    of later digests until someone turns syncing back on and a new run fails. Schemas of a
     deleted source, and schemas the user switched off (see `SCHEMA_STOPPED_BY_USER`), are
     excluded entirely. Runs inside the digest Celery task; exceptions are swallowed so a
     notification problem never crash-loops the task. Throttling to one email per team per
@@ -95,7 +81,6 @@ def notify_external_data_sync_failures(
     scheduling this for every failed job is safe.
     """
     try:
-        renotify_cutoff = dt.datetime.now(dt.UTC) - renotify_after
         newer_failed_job = ExternalDataJob.objects.filter(
             schema_id=OuterRef("id"),
             status=ExternalDataJobStatus.FAILED,
@@ -106,11 +91,7 @@ def notify_external_data_sync_failures(
             .exclude(source__deleted=True)
             .exclude(SCHEMA_STOPPED_BY_USER)
             .filter(team_id=team_id, status=ExternalDataSchemaStatus.FAILED)
-            .filter(
-                Q(last_error_notified_at__isnull=True)
-                | Q(last_error_notified_at__lt=renotify_cutoff)
-                | Exists(newer_failed_job)
-            )
+            .filter(Q(last_error_notified_at__isnull=True) | Exists(newer_failed_job))
             .select_related("source")
             .order_by("name")
         )
@@ -135,11 +116,26 @@ def notify_external_data_sync_failures(
             for schema in group
         ]
 
+        listed_schemas = ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]
+        destinations_by_name: dict[str, str] = {}
+        if any(schema.latest_error for schema in listed_schemas):
+            destinations = (
+                ExternalDataDestination.objects.for_team(team_id)
+                .exclude(deleted=True)
+                .order_by("created_at")
+                .values_list("name", "id")
+            )
+            for name, destination_pk in destinations:
+                destinations_by_name.setdefault(name, str(destination_pk))
+
         items = []
-        for schema in ordered_schemas[:MAX_SCHEMAS_PER_DIGEST_EMAIL]:
+        for schema in listed_schemas:
             source_url = (
                 f"{settings.SITE_URL}/project/{team_id}/data-management/sources/managed-{schema.source_id}/syncs"
             )
+            error = schema.latest_error or "Unknown error"
+            destination_name = destination_named_in_failure(error, destinations_by_name)
+            destination_id = destinations_by_name.get(destination_name) if destination_name is not None else None
             items.append(
                 {
                     # Prefer the human-readable label (e.g. a Slack channel name) over the
@@ -151,7 +147,13 @@ def notify_external_data_sync_failures(
                     "source_url": source_url,
                     # The template truncates for display (truncatechars), and the rendered
                     # HTML is what crosses the Celery boundary — no need to cap here.
-                    "error": schema.latest_error or "Unknown error",
+                    "error": error,
+                    "destination_name": destination_name,
+                    "destination_url": (
+                        f"{settings.SITE_URL}/project/{team_id}/data-management/warehouse-destinations?destination={destination_id}"
+                        if destination_id is not None
+                        else None
+                    ),
                     "paused": schema.sync_halted,
                     "url": f"{source_url}?schema={quote(schema.name)}",
                 }

@@ -45,6 +45,8 @@ export function createDeletionBlockMetadata(sessionId: string, teamId: number): 
 }
 
 export interface SessionBlockMetadata {
+    /** Trusted capture timestamp used to attribute billing without persisting it as replay metadata. */
+    captureTimestampMs?: number
     replayIndexEntries?: ReplayIndexEntry[]
     replayIndexTruncated?: boolean
     /** Unique identifier for the session */
@@ -97,4 +99,6 @@ export interface SessionBlockMetadata {
     retentionPeriodDays: number | null
     /** Whether this recording has been deleted */
     isDeleted: boolean
+    /** Kafka timestamp of the earliest message in the block, which is the capture clock that the ML lanes compare */
+    earliestCapturedAtMs?: number
 }

@@ -133,7 +133,8 @@ class PropertyAccessControlViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 team_id=self.team_id,
                 created_by_id=created_by_id,
                 input=UpsertPropertyAccessControlInput(
-                    property_definition_id=data["property_definition_id"],
+                    property_definition_id=data.get("property_definition_id"),
+                    ai_property=data.get("ai_property"),
                     access_level=PropertyAccessLevel(data["access_level"]),
                     organization_member_id=data.get("organization_member"),
                     role_id=data.get("role"),

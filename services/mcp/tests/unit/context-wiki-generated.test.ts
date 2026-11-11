@@ -35,7 +35,7 @@ function createMockContext(): Context {
 }
 
 describe('generated context read tools', () => {
-    it.each(['context-wiki-page-retrieve', 'loop-context-wiki-page-retrieve', 'task-context-wiki-page-retrieve'])(
+    it.each(['context-wiki-page-retrieve', 'task-context-wiki-page-retrieve'])(
         '%s forwards bounded reads and the revision',
         async (name) => {
             const context = createMockContext()

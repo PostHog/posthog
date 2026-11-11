@@ -8,6 +8,8 @@ from asgiref.sync import sync_to_async
 
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.models import Team
 
@@ -54,6 +56,8 @@ async def execute_hogql_query_with_retry(
                 query=query,
                 team=team,
                 placeholders=placeholders or {},
+                ch_user=ClickHouseUser.SIGNALS,
+                workload=Workload.OFFLINE,
             )
         # Avoid retrying on unexpected errors, fail loudly
         except RETRIABLE_ERRORS as e:

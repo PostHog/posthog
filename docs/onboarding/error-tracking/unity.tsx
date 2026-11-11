@@ -86,7 +86,7 @@ export const getUnitySteps = (ctx: OnboardingComponentsContext): StepDefinition[
                 <>
                     <Markdown>
                         {dedent`
-                            Report a test exception through Unity's logger and confirm it appears in [Error tracking](https://app.posthog.com/error_tracking).
+                            Report a test exception through Unity's logger and confirm it appears in [Error tracking](https://app.posthog.com/error-tracking).
                         `}
                     </Markdown>
                     <CodeBlock

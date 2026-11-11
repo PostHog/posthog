@@ -6,7 +6,7 @@ import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
+import { InsightIcon } from 'scenes/saved-insights/InsightIcon'
 import { urls } from 'scenes/urls'
 
 import { InsightModel } from '~/types'

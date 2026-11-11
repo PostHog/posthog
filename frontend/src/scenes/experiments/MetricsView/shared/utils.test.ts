@@ -16,6 +16,13 @@ import {
     isWinning,
 } from './utils'
 
+const quantileMetric: ExperimentMetric = {
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.QUANTILE,
+    quantile: 0.9,
+    source: { kind: NodeKind.EventsNode, event: 'page_loaded', math_property: 'load_ms' },
+}
+
 describe('getMetricTag', () => {
     it('handles different metric types correctly', () => {
         const experimentMetric: ExperimentMetric = {
@@ -45,6 +52,7 @@ describe('getMetricTag', () => {
         }
 
         expect(getMetricTag(experimentMetric)).toBe('Mean')
+        expect(getMetricTag(quantileMetric)).toBe('Percentile')
         expect(getMetricTag(funnelMetric)).toBe('Funnel')
         expect(getMetricTag(trendMetric)).toBe('Trend')
     })
@@ -90,6 +98,13 @@ describe('getDefaultMetricTitle', () => {
             },
         }
         expect(getDefaultMetricTitle(metric)).toBe('purchase_events')
+    })
+
+    it.each([
+        [0.9, 'p90 of load_ms'],
+        [0.975, 'p97.5 of load_ms'],
+    ])('keeps the percentile level %s as entered', (quantile, expected) => {
+        expect(getDefaultMetricTitle({ ...quantileMetric, quantile } as ExperimentMetric)).toBe(expected)
     })
 })
 
@@ -352,6 +367,18 @@ describe('formatMetricValue', () => {
 
     it('returns "—" for a ratio metric with a zero denominator', () => {
         expect(formatMetricValue({ sum: 3, denominator_sum: 0 }, ratioMetric)).toBe('—')
+    })
+
+    it.each([
+        ['the quantile, not a mean of the below-quantile count', [842.5, 790, 901], '843'],
+        ['"—" without a quantile grid', undefined, '—'],
+    ])('formats a quantile metric as %s', (_, quantileGrid, expected) => {
+        expect(
+            formatMetricValue(
+                { sum: 450, number_of_samples: 120, denominator_sum: 500, quantile_grid: quantileGrid },
+                quantileMetric
+            )
+        ).toBe(expected)
     })
 
     it('returns "—" when the value is not a number', () => {

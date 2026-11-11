@@ -1,0 +1,25 @@
+{
+  "name": "posthog-agent-workspace",
+  "version": "0.0.0",
+  "description": "The PostHog agent runtime and the packages it bundles",
+  "private": true,
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "packageManager": "pnpm@11.28.5",
+  "scripts": {
+    "build": "node scripts/turbo.mjs build",
+    "dev": "node scripts/turbo.mjs dev",
+    "typecheck": "node scripts/turbo.mjs typecheck",
+    "test": "node scripts/turbo.mjs test --concurrency=2",
+    "lint": "biome check --write --unsafe",
+    "format": "biome format --write",
+    "clean": "pnpm -r clean",
+    "benjamin:sync": "node scripts/sync-benjamin.mts"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@biomejs/biome": "2.2.4",
+    "turbo": "^2.9.16"
+  }
+}

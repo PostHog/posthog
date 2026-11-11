@@ -9,7 +9,6 @@ import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/com
 
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -20,6 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
+import { useThemedHtml } from '~/layout/useThemedHtml'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'
@@ -29,7 +29,6 @@ const LazyHeatmapScene = lazyWithRetry(() => import('./scenes/ExporterHeatmapSce
 const LazyInsightScene = lazyWithRetry(() => import('./scenes/ExporterInsightScene'))
 const LazyNotebookScene = lazyWithRetry(() => import('./scenes/ExporterNotebookScene'))
 const LazyRecordingScene = lazyWithRetry(() => import('./scenes/ExporterRecordingScene'))
-const LazyInterviewScene = lazyWithRetry(() => import('./scenes/ExporterInterviewScene'))
 const LazyQueryScene = lazyWithRetry(() => import('./scenes/ExporterQueryScene'))
 
 function ExportedSceneSkeleton(): JSX.Element {
@@ -88,7 +87,6 @@ export function Exporter(props: ExportedData): JSX.Element {
         themes,
         accessToken,
         exportToken,
-        interview,
         ...exportOptions
     } = props
     const { whitelabel, showInspector = false } = exportOptions
@@ -129,14 +127,6 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     if (type === ExportType.Unlock) {
         return <ExporterLogin whitelabel={whitelabel} />
-    }
-
-    if (type === ExportType.Interview && interview) {
-        return (
-            <Suspense fallback={<ExportedSceneSkeleton />}>
-                <LazyInterviewScene interview={interview} accessToken={accessToken} />
-            </Suspense>
-        )
     }
 
     return (

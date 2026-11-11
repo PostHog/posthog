@@ -96,7 +96,7 @@ describe('Persons', { concurrent: false }, () => {
             expect(retrieved.uuid).toBe(person.uuid)
             expect(retrieved.distinct_ids).toBeTruthy()
             expect(retrieved.properties).toBeTruthy()
-            expect(retrieved._posthogUrl).toContain('/persons/')
+            expect(retrieved._posthogUrl).toMatch(new RegExp(`/persons/${person.uuid}$`))
         })
     })
 

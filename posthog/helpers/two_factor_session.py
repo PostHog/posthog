@@ -20,8 +20,9 @@ from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_dev_mode
-from posthog.email import is_email_available, is_http_email_service_available
+from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
 from posthog.helpers.email_utils import ESPSuppressionReason, check_esp_suppression
+from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.redis import get_client
@@ -54,7 +55,7 @@ mfa_logger = structlog.get_logger("posthog.auth.mfa")
 LOGIN_CODE_VERIFICATION_COUNTER = Counter(
     "login_code_verification_total",
     "Transitions in the code-based login-verification flow.",
-    labelnames=["result"],  # sent | resent | send_failed | success | invalid | locked_out
+    labelnames=["result"],  # sent | resent | send_failed | undeliverable | success | invalid | locked_out
 )
 
 
@@ -141,13 +142,17 @@ def enforce_two_factor(request, user):
         raise PermissionDenied(detail="2FA verification required", code="two_factor_verification_required")
 
 
-def missing_two_factor_step(request: HttpRequest, user: User) -> Literal["setup", "verification"] | None:
+def missing_two_factor_step(
+    request: HttpRequest, user: User, organization: Organization | None = None
+) -> Literal["setup", "verification"] | None:
+    """`organization` defaults to the user's current organization. Pass another one to check its policy,
+    such as the organization of a project the user grants access to."""
     # We currently don't enforce 2FA for any SSO-authenticated users, as we depend on the SSO provider to handle 2FA
     # TODO: This will soon be made configurable
     if is_sso_authentication_backend(request):
         return None
 
-    organization = getattr(user, "organization", None)
+    organization = organization or getattr(user, "organization", None)
     if not organization or not organization.enforce_2fa:
         return None
 
@@ -247,6 +252,17 @@ def normalize_verification_code(value: str) -> str:
     return CODE_NOISE_RE.sub("", unicodedata.normalize("NFKC", value or ""))
 
 
+# Authenticator apps show 6 digits, while StaticToken.random_token() backup codes are 8 base32
+# characters, so the shape of a 2FA login token is enough to tell which device it is for.
+TOTP_TOKEN_RE = re.compile(r"[0-9]{6}")
+
+
+def is_backup_code_attempt(token: object) -> bool:
+    """Whether a 2FA login token is checked against the backup codes rather than the authenticator.
+    Each device then keeps its own throttle, so a locked authenticator does not lock the backup codes."""
+    return isinstance(token, str) and bool(token) and not TOTP_TOKEN_RE.fullmatch(token)
+
+
 # Failed-attempt budget for a pending login is tracked in Redis so the cap is enforced atomically
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
@@ -302,6 +318,9 @@ class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
 code_based_verification_token_generator = CodeBasedVerificationTokenGenerator()
 
 
+EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG = "email-code-ignore-esp-suppression"
+
+
 @dataclass
 class CodeBasedVerificationCheckResult:
     should_send: bool
@@ -311,6 +330,25 @@ class CodeBasedVerificationCheckResult:
 
 
 class CodeBasedVerifier:
+    def _ignores_esp_suppression(self, user: User) -> bool:
+        # The SDK fetches definitions over HTTP when none are loaded, even with only_evaluate_locally,
+        # so login must not evaluate the flag until they load. Missing definitions or an error keep
+        # the suppression check.
+        try:
+            if posthoganalytics.feature_flag_definitions() is None:
+                return False
+            return bool(
+                posthoganalytics.feature_enabled(
+                    EMAIL_CODE_IGNORES_ESP_SUPPRESSION_FLAG,
+                    str(user.distinct_id),
+                    only_evaluate_locally=True,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            mfa_logger.warning("email_code_esp_suppression_flag_unreadable", user_id=user.pk, exc_info=True)
+            return False
+
     def _capture_suppression_bypass_event(self, user: User, reason: str, cached: bool) -> None:
         try:
             posthoganalytics.capture(
@@ -353,6 +391,10 @@ class CodeBasedVerifier:
             mfa_logger.info("Code-based verification bypassed via access rule", user_id=user.pk)
             return CodeBasedVerificationCheckResult(should_send=False)
 
+        # Skips the lookup and does not only ignore its result, because a failed lookup also counts as suppressed.
+        if self._ignores_esp_suppression(user):
+            return CodeBasedVerificationCheckResult(should_send=True)
+
         suppression_result = check_esp_suppression(user.email)
         if suppression_result.is_suppressed:
             reason = suppression_result.reason or ""
@@ -376,6 +418,7 @@ class CodeBasedVerifier:
     def create_and_send_code_based_verification(
         self, request: HttpRequest, user: User, *, is_resend: bool = False
     ) -> bool:
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
         from posthog.tasks import email
 
         if not self.should_send_code_based_verification(user).should_send:
@@ -400,6 +443,10 @@ class CodeBasedVerifier:
                 user_last_login=str(user.last_login) if user.last_login else None,
             )
             return True
+        except EmailRecipientUndeliverableError:
+            LOGIN_CODE_VERIFICATION_COUNTER.labels(result="undeliverable").inc()
+            mfa_logger.info("Code-based verification email refused as undeliverable", user_id=user.pk)
+            raise
         except Exception as e:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_failed").inc()
             mfa_logger.exception(

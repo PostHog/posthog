@@ -122,7 +122,7 @@ class VercelAPIClient:
             raise APIError("Request timed out", detail=str(e))
         except HTTPError as e:
             status_code = e.response.status_code if e.response is not None else None
-            detail = e.response.text if e.response is not None else str(e)
+            detail = e.response.text[:500] if e.response is not None else str(e)
             logger.exception("HTTP error", method=method, url=url, status_code=status_code, integration="vercel")
             raise APIError("HTTP error", status_code=status_code, detail=detail)
         except RequestException as e:
@@ -318,6 +318,10 @@ class VercelAPIClient:
                 error="exchange_failed",
                 error_description=str(e),
             )
+
+    def get_installation_account(self, installation_id: str) -> dict[str, Any]:
+        response = self._request("GET", f"{self.base_url}/installations/{installation_id}/account")
+        return self._parse_json_response(response)
 
     def check_installation_active(self, installation_id: str) -> bool:
         """Check if a Vercel installation is still active.

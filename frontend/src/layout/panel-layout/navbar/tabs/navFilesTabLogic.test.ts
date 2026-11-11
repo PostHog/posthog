@@ -123,7 +123,7 @@ describe('navFilesTabLogic', () => {
         const files = projectTreeLogic({ key: FILES_TREE_KEY, root: 'project://' })
         panelLayoutLogic.actions.setNavExperimentTab('home')
         panelLayoutLogic.actions.toggleLayoutNavCollapsed(true)
-        panelLayoutLogic.actions.setActivePanelIdentifier('DataAndPeople')
+        panelLayoutLogic.actions.setActivePanelIdentifier('Notifications')
         panelLayoutLogic.actions.showLayoutPanel(true)
         files.actions.setSearchTerm('unrelated')
         files.actions.setSortMethod('recent')

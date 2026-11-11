@@ -34,12 +34,13 @@ from posthog.hogql_queries.ai.session_query_runner import SessionQueryRunner
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
-from posthog.models import PropertyDefinition, Team, User
+from posthog.models import Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 
@@ -377,11 +378,8 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
             bulk_create_events(events)
         stored = events[0]["properties"]
         if table == "events" and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            # The JSON ingest cleaner drops the heavy AI properties, and the table stores declared String paths as text.
-            # The runner converts the numeric ones back, but not $ai_is_error.
-            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES} | {
-                "$ai_is_error": "true"
-            }
+            # The JSON ingest cleaner drops the heavy AI properties.
+            stored = {name: value for name, value in stored.items() if name not in HEAVY_PROPERTY_NAMES}
 
         def make_runner(user: User) -> TraceQueryRunner | SessionQueryRunner | TracesQueryRunner:
             date_range = DateRange(date_from="2025-01-15T00:00:00Z", date_to="2025-01-15T01:00:00Z")

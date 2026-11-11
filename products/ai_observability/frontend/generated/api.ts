@@ -13,8 +13,18 @@ import type {
     AiObservabilityOfflineExperimentsItemsListParams,
     AiObservabilityOfflineExperimentsItemsResultsListParams,
     AiObservabilityOfflineExperimentsListParams,
+    AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
+    AiObservabilityTracesClustersRetrieveParams,
+    AiObservabilityTracesExportsContentRetrieveParams,
+    AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesRawRetrieveParams,
+    AiObservabilityTracesNodesRetrieveParams,
+    AiObservabilityTracesPullRequestRetrieveParams,
+    AiObservabilityTracesRetrieveParams,
+    AiObservabilityTracesSearchRetrieveParams,
+    AiObservabilityTracesSummaryCreateParams,
     BatchCheckRequestApi,
     BatchCheckResponseApi,
     ClusteringConfigApi,
@@ -24,6 +34,7 @@ import type {
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
+    DatasetExtendRetentionApi,
     DatasetItemArchiveApi,
     DatasetItemCreateApi,
     DatasetItemReadApi,
@@ -33,7 +44,10 @@ import type {
     DatasetItemsRetrieveParams,
     DatasetItemsVersionsListParams,
     DatasetReadApi,
+    DatasetRetentionEntryApi,
+    DatasetRetentionReadApi,
     DatasetsListParams,
+    DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
     EvaluationApi,
     EvaluationBackfillApi,
@@ -46,8 +60,13 @@ import type {
     EvaluationReportUpdateApi,
     EvaluationRunRequestApi,
     EvaluationRunResponseApi,
+    EvaluationRunsApi,
     EvaluationsBackfillsListParams,
     EvaluationsListParams,
+    EvaluationsOverviewApi,
+    EvaluationsOverviewRetrieveParams,
+    EvaluationsRunsRetrieveParams,
+    EvaluationsScoreDistributionRetrieveParams,
     ExperimentReceiptApi,
     ExperimentSubmissionApi,
     InstrumentationCheckActionApi,
@@ -60,6 +79,7 @@ import type {
     LLMPromptResolveResponseApi,
     LLMPromptSetLabelApi,
     LLMProviderKeyApi,
+    LLMProxyModelInfoApi,
     LlmAnalyticsClusteringJobsListParams,
     LlmAnalyticsEvaluationReportsListParams,
     LlmAnalyticsEvaluationReportsRunsListParams,
@@ -77,14 +97,13 @@ import type {
     LlmPromptsListParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsResolveNameRetrieveParams,
-    OfflineExperimentItemsRequestApi,
-    OfflineExperimentItemsResponseApi,
     OfflineExperimentPageApi,
     OfflineExperimentReadApi,
     OfflineHistoryPageApi,
     OfflineItemPageApi,
     OfflineItemPayloadReadApi,
     OfflineItemReadApi,
+    OfflineResultCellsApi,
     OfflineResultPageApi,
     OfflineResultPayloadReadApi,
     OfflineSummaryPageApi,
@@ -112,6 +131,7 @@ import type {
     PatchedEvaluationReportUpdateApi,
     PatchedLLMPromptPublishApi,
     PatchedLLMProviderKeyApi,
+    PatchedOfflineExperimentMetadataApi,
     PatchedParserRecipeApi,
     PatchedReviewQueueItemUpdateApi,
     PatchedReviewQueueUpdateApi,
@@ -119,6 +139,7 @@ import type {
     PatchedTaggerUpdateApi,
     PatchedTraceReviewUpdateApi,
     PersonalSpendAnalysisResponseApi,
+    ProviderKeyDependentConfigsApi,
     ReviewQueueApi,
     ReviewQueueCreateApi,
     ReviewQueueItemApi,
@@ -128,10 +149,10 @@ import type {
     ScoreDefinitionNewVersionApi,
     ScoreDefinitionVersionApi,
     ScoreDefinitionVersionPageApi,
+    ScoreHistogramApi,
     SummarizeRequestApi,
     SummarizeResponseApi,
     TaggerApi,
-    TaggerCreateApi,
     TaggerUpdateApi,
     TaggersListParams,
     TestHogRequestApi,
@@ -140,8 +161,24 @@ import type {
     TestHogTaggerResponseApi,
     TextReprRequestApi,
     TextReprResponseApi,
+    TraceApi,
+    TraceAvailabilityApi,
+    TraceAvailabilityRequestApi,
+    TraceClustersApi,
+    TraceEvaluationResultsApi,
+    TraceExportApi,
+    TraceExportCreateApi,
+    TraceExportFileApi,
+    TraceFeedbackApi,
+    TraceNodeDetailApi,
+    TraceNodeRawApi,
+    TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
+    TraceReviewStatusApi,
+    TraceSearchResultsApi,
+    TraceSummaryApi,
+    TraceSummaryRequestApi,
     TranslateRequestApi,
     UploadReceiptApi,
     UploadSubmissionApi,
@@ -337,6 +374,24 @@ export const aiObservabilityOfflineExperimentsRetrieve = async (
     })
 }
 
+export const getAiObservabilityOfflineExperimentsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/`
+}
+
+export const aiObservabilityOfflineExperimentsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedOfflineExperimentMetadataApi?: PatchedOfflineExperimentMetadataApi,
+    options?: RequestInit
+): Promise<OfflineExperimentReadApi> => {
+    return apiMutator<OfflineExperimentReadApi>(getAiObservabilityOfflineExperimentsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedOfflineExperimentMetadataApi),
+    })
+}
+
 export const getAiObservabilityOfflineExperimentsCompleteCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/complete/`
 }
@@ -475,6 +530,41 @@ export const aiObservabilityOfflineExperimentsItemsResultsList = async (
     )
 }
 
+export const getAiObservabilityOfflineExperimentsResultCellsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityOfflineExperimentsResultCellsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/result_cells/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/offline_experiments/${id}/result_cells/`
+}
+
+export const aiObservabilityOfflineExperimentsResultCellsRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityOfflineExperimentsResultCellsRetrieveParams,
+    options?: RequestInit
+): Promise<OfflineResultCellsApi> => {
+    return apiMutator<OfflineResultCellsApi>(
+        getAiObservabilityOfflineExperimentsResultCellsRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getAiObservabilityOfflineExperimentsResultsPayloadRetrieveUrl = (
     projectId: string,
     id: string,
@@ -580,6 +670,448 @@ export const aiObservabilityOfflineScorersHistoryList = async (
     return apiMutator<OfflineHistoryPageApi>(getAiObservabilityOfflineScorersHistoryListUrl(projectId, id, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/`
+}
+
+/**
+ * A trace ready to render: its tree with roll-ups, timeline, totals and person, without inputs or outputs.
+ */
+export const aiObservabilityTracesRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceApi> => {
+    return apiMutator<TraceApi>(getAiObservabilityTracesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesClustersRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesClustersRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/clusters/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/clusters/`
+}
+
+/**
+ * The clusters that list this trace, from the newest scheduled run of each clustering job that lists it.
+ */
+export const aiObservabilityTracesClustersRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesClustersRetrieveParams,
+    options?: RequestInit
+): Promise<TraceClustersApi> => {
+    return apiMutator<TraceClustersApi>(getAiObservabilityTracesClustersRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesEvaluationsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/evaluations/`
+}
+
+/**
+ * A trace's evaluation results, newest first and at most 250, each with its outcome and label ready to render,
+ * plus a roll-up of the latest run of each evaluation on each node.
+ */
+export const aiObservabilityTracesEvaluationsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceEvaluationResultsApi> => {
+    return apiMutator<TraceEvaluationResultsApi>(getAiObservabilityTracesEvaluationsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesExportsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/exports/`
+}
+
+/**
+ * Starts writing the trace and every node, inputs and outputs included, to a JSON file. Poll the export until it completes, then download it.
+ */
+export const aiObservabilityTracesExportsCreate = async (
+    projectId: string,
+    id: string,
+    traceExportCreateApi?: TraceExportCreateApi,
+    options?: RequestInit
+): Promise<TraceExportApi> => {
+    return apiMutator<TraceExportApi>(getAiObservabilityTracesExportsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceExportCreateApi),
+    })
+}
+
+export const getAiObservabilityTracesExportsRetrieveUrl = (projectId: string, id: string, exportId: number) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/`
+}
+
+/**
+ * The state of one of your exports of this trace.
+ */
+export const aiObservabilityTracesExportsRetrieve = async (
+    projectId: string,
+    id: string,
+    exportId: number,
+    options?: RequestInit
+): Promise<TraceExportApi> => {
+    return apiMutator<TraceExportApi>(getAiObservabilityTracesExportsRetrieveUrl(projectId, id, exportId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesExportsContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    exportId: number,
+    params?: AiObservabilityTracesExportsContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/`
+}
+
+/**
+ * Downloads a completed export as a JSON file.
+ */
+export const aiObservabilityTracesExportsContentRetrieve = async (
+    projectId: string,
+    id: string,
+    exportId: number,
+    params?: AiObservabilityTracesExportsContentRetrieveParams,
+    options?: RequestInit
+): Promise<TraceExportFileApi> => {
+    return apiMutator<TraceExportFileApi>(
+        getAiObservabilityTracesExportsContentRetrieveUrl(projectId, id, exportId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityTracesFeedbackRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesFeedbackRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/feedback/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/feedback/`
+}
+
+/**
+ * End-user feedback on a trace: scores and comments from its feedback events, survey responses linked to it, and surveys shown but not answered.
+ */
+export const aiObservabilityTracesFeedbackRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesFeedbackRetrieveParams,
+    options?: RequestInit
+): Promise<TraceFeedbackApi> => {
+    return apiMutator<TraceFeedbackApi>(getAiObservabilityTracesFeedbackRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/`
+}
+
+/**
+ * One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read.
+ */
+export const aiObservabilityTracesNodesRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeDetailApi> => {
+    return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRawRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRawRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/raw/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/raw/`
+}
+
+/**
+ * One node of a trace as ingested: its event properties and the keys that hold its input, output and tools, with nothing normalized.
+ */
+export const aiObservabilityTracesNodesRawRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRawRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeRawApi> => {
+    return apiMutator<TraceNodeRawApi>(getAiObservabilityTracesNodesRawRetrieveUrl(projectId, id, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesPullRequestRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesPullRequestRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/pull_request/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/pull_request/`
+}
+
+/**
+ * The pull request the trace's git branch belongs to, from engineering analytics.
+ */
+export const aiObservabilityTracesPullRequestRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesPullRequestRetrieveParams,
+    options?: RequestInit
+): Promise<TracePullRequestLookupApi> => {
+    return apiMutator<TracePullRequestLookupApi>(
+        getAiObservabilityTracesPullRequestRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityTracesReviewRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/review/`
+}
+
+/**
+ * The trace's human review with its scores ready to render, and the review queue the trace waits in.
+ */
+export const aiObservabilityTracesReviewRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceReviewStatusApi> => {
+    return apiMutator<TraceReviewStatusApi>(getAiObservabilityTracesReviewRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSearchRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesSearchRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/search/`
+}
+
+/**
+ * Find text in a trace's steps: each matching step in tree order with its number of occurrences.
+ */
+export const aiObservabilityTracesSearchRetrieve = async (
+    projectId: string,
+    id: string,
+    params: AiObservabilityTracesSearchRetrieveParams,
+    options?: RequestInit
+): Promise<TraceSearchResultsApi> => {
+    return apiMutator<TraceSearchResultsApi>(getAiObservabilityTracesSearchRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSummaryRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/${id}/summary/`
+}
+
+/**
+ * The trace's AI summary: pending while it is written, then ready with links to its steps, or failed with the reason. A summary is kept for an hour and shown only to users whose property access matches the requester's.
+ */
+export const aiObservabilityTracesSummaryRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TraceSummaryApi> => {
+    return apiMutator<TraceSummaryApi>(getAiObservabilityTracesSummaryRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesSummaryCreateUrl = (
+    projectId: string,
+    id: string,
+    params?: AiObservabilityTracesSummaryCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/summary/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/summary/`
+}
+
+/**
+ * Request an AI summary of the trace. A ready summary is returned as is unless `regenerate` is set; otherwise a job starts writing one, or the request joins the job already writing it.
+ */
+export const aiObservabilityTracesSummaryCreate = async (
+    projectId: string,
+    id: string,
+    traceSummaryRequestApi?: TraceSummaryRequestApi,
+    params?: AiObservabilityTracesSummaryCreateParams,
+    options?: RequestInit
+): Promise<TraceSummaryApi> => {
+    return apiMutator<TraceSummaryApi>(getAiObservabilityTracesSummaryCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceSummaryRequestApi),
+    })
+}
+
+export const getAiObservabilityTracesAvailabilityCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/ai_observability/traces/availability/`
+}
+
+export const aiObservabilityTracesAvailabilityCreate = async (
+    projectId: string,
+    traceAvailabilityRequestApi: TraceAvailabilityRequestApi,
+    options?: RequestInit
+): Promise<TraceAvailabilityApi> => {
+    return apiMutator<TraceAvailabilityApi>(getAiObservabilityTracesAvailabilityCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(traceAvailabilityRequestApi),
     })
 }
 
@@ -935,6 +1467,27 @@ export const datasetsExportsContentRetrieve = async (
     })
 }
 
+export const getDatasetsExtendRetentionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/datasets/${id}/extend_retention/`
+}
+
+/**
+ * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ */
+export const datasetsExtendRetentionCreate = async (
+    projectId: string,
+    id: string,
+    datasetExtendRetentionApi?: DatasetExtendRetentionApi,
+    options?: RequestInit
+): Promise<DatasetRetentionEntryApi> => {
+    return apiMutator<DatasetRetentionEntryApi>(getDatasetsExtendRetentionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(datasetExtendRetentionApi),
+    })
+}
+
 export const getDatasetsRestoreUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/restore/`
 }
@@ -979,6 +1532,36 @@ export const datasetsRevisionsList = async (
     options?: RequestInit
 ): Promise<PaginatedDatasetRevisionReadListApi> => {
     return apiMutator<PaginatedDatasetRevisionReadListApi>(getDatasetsRevisionsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDatasetsRetentionRetrieveUrl = (projectId: string, params?: DatasetsRetentionRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/datasets/retention/?${stringifiedParams}`
+        : `/api/projects/${projectId}/datasets/retention/`
+}
+
+/**
+ * Find accessible datasets and older revisions within seven days of expiry without refreshing their retention.
+ */
+export const datasetsRetentionRetrieve = async (
+    projectId: string,
+    params?: DatasetsRetentionRetrieveParams,
+    options?: RequestInit
+): Promise<DatasetRetentionReadApi> => {
+    return apiMutator<DatasetRetentionReadApi>(getDatasetsRetentionRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1313,6 +1896,106 @@ export const evaluationsDestroy = async (projectId: string, id: string, options?
     return apiMutator<unknown>(getEvaluationsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getEvaluationsRunsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: EvaluationsRunsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${id}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/runs/`
+}
+
+/**
+ * One evaluation's latest graded runs in a period, newest first, optionally only the passed or failed ones.
+ */
+export const evaluationsRunsRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: EvaluationsRunsRetrieveParams,
+    options?: RequestInit
+): Promise<EvaluationRunsApi> => {
+    return apiMutator<EvaluationRunsApi>(getEvaluationsRunsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsScoreDistributionRetrieveUrl = (
+    projectId: string,
+    id: string,
+    params?: EvaluationsScoreDistributionRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/${id}/score_distribution/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/${id}/score_distribution/`
+}
+
+/**
+ * How one numeric evaluation's scores in a period spread across its configured scale.
+ */
+export const evaluationsScoreDistributionRetrieve = async (
+    projectId: string,
+    id: string,
+    params?: EvaluationsScoreDistributionRetrieveParams,
+    options?: RequestInit
+): Promise<ScoreHistogramApi> => {
+    return apiMutator<ScoreHistogramApi>(getEvaluationsScoreDistributionRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEvaluationsOverviewRetrieveUrl = (projectId: string, params?: EvaluationsOverviewRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/evaluations/overview/?${stringifiedParams}`
+        : `/api/projects/${projectId}/evaluations/overview/`
+}
+
+/**
+ * Each evaluation's results over a period, compared with the period of equal length before it.
+ */
+export const evaluationsOverviewRetrieve = async (
+    projectId: string,
+    params?: EvaluationsOverviewRetrieveParams,
+    options?: RequestInit
+): Promise<EvaluationsOverviewApi> => {
+    return apiMutator<EvaluationsOverviewApi>(getEvaluationsOverviewRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -1781,26 +2464,6 @@ export const llmAnalyticsModelsRetrieve = async (
     })
 }
 
-export const getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/llm_analytics/offline_evaluations/experiment_items/`
-}
-
-export const llmAnalyticsOfflineEvaluationsExperimentItemsCreate = async (
-    projectId: string,
-    offlineExperimentItemsRequestApi: OfflineExperimentItemsRequestApi,
-    options?: RequestInit
-): Promise<OfflineExperimentItemsResponseApi> => {
-    return apiMutator<OfflineExperimentItemsResponseApi>(
-        getLlmAnalyticsOfflineEvaluationsExperimentItemsCreateUrl(projectId),
-        {
-            ...options,
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...options?.headers },
-            body: JSON.stringify(offlineExperimentItemsRequestApi),
-        }
-    )
-}
-
 export const getLlmAnalyticsParserRecipesListUrl = (
     projectId: string,
     params?: LlmAnalyticsParserRecipesListParams
@@ -2037,8 +2700,30 @@ export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LLMProviderKeyApi> => {
-    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
+): Promise<ProviderKeyDependentConfigsApi> => {
+    return apiMutator<ProviderKeyDependentConfigsApi>(
+        getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getLlmAnalyticsProviderKeysModelsListUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/llm_analytics/provider_keys/${id}/models/`
+}
+
+/**
+ * Models this provider key can run, as the model pickers list them. Scoped to the project in the URL, so a
+ * page on a project other than the user's current one still lists its own keys' models.
+ */
+export const llmAnalyticsProviderKeysModelsList = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<LLMProxyModelInfoApi[]> => {
+    return apiMutator<LLMProxyModelInfoApi[]>(getLlmAnalyticsProviderKeysModelsListUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -2804,6 +3489,21 @@ export const llmPromptsNameLabelsDestroy = async (
     })
 }
 
+export const getLlmPromptsNameUnarchiveCreateUrl = (projectId: string, promptName: string) => {
+    return `/api/projects/${projectId}/llm_prompts/name/${promptName}/unarchive/`
+}
+
+export const llmPromptsNameUnarchiveCreate = async (
+    projectId: string,
+    promptName: string,
+    options?: RequestInit
+): Promise<LLMPromptApi> => {
+    return apiMutator<LLMPromptApi>(getLlmPromptsNameUnarchiveCreateUrl(projectId, promptName), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getLlmPromptsResolveNameRetrieveUrl = (
     projectId: string,
     promptName: string,
@@ -2860,23 +3560,6 @@ export const taggersList = async (
     return apiMutator<PaginatedTaggerListApi>(getTaggersListUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getTaggersCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/taggers/`
-}
-
-export const taggersCreate = async (
-    projectId: string,
-    taggerCreateApi: TaggerCreateApi,
-    options?: RequestInit
-): Promise<TaggerApi> => {
-    return apiMutator<TaggerApi>(getTaggersCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(taggerCreateApi),
     })
 }
 

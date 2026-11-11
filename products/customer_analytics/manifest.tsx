@@ -103,9 +103,9 @@ export const manifest: ProductManifest = {
         customerAnalyticsAccounts: (): string => '/customer_analytics/accounts',
         // Account detail path. The flag-off scene falls back to the filtered, expanded Accounts list.
         customerAnalyticsAccount: (accountId: string, tab?: string): string =>
-            `/customer_analytics/accounts/${accountId}${tab ? `/${tab}` : ''}`,
+            `/customer_analytics/accounts/${accountId}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
         customerAnalyticsAccountByExternalId: (externalId: string, tab?: string): string =>
-            `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${tab}` : ''}`,
+            `/customer_analytics/accounts/by-external-id/${encodeURIComponent(externalId)}${tab ? `/${encodeURIComponent(tab)}` : ''}`,
         customerAnalyticsNotes: (): string => '/customer_analytics/notes',
         customerAnalyticsAnnouncements: (): string => '/customer_analytics/announcements',
         customerAnalyticsFeed: (): string => '/customer_analytics/feed',
@@ -135,6 +135,31 @@ export const manifest: ProductManifest = {
                 'var(--color-product-customer-analytics-dark)',
             ] as FileSystemIconColor,
             href: urls.customerAnalytics(),
+            searchKeywords: ['crm', 'customer success', 'account health'],
+            searchTabs: [
+                { name: 'Feed', href: urls.customerAnalyticsFeed(), flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP },
+                { name: 'Notes', href: urls.customerAnalyticsNotes(), flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP },
+                {
+                    name: 'Announcements',
+                    href: urls.customerAnalyticsAnnouncements(),
+                    flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+                },
+                {
+                    name: 'Feature requests',
+                    href: urls.customerAnalyticsFeatureRequests(),
+                    flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_FEATURE_REQUESTS,
+                },
+                {
+                    name: 'Tasks',
+                    href: urls.customerAnalyticsTasks(),
+                    flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_CUSTOMER_TASKS,
+                },
+                {
+                    name: 'Customer journeys',
+                    href: urls.customerAnalyticsJourneys(),
+                    flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS,
+                },
+            ],
             tags: ['beta'],
             flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
             sceneKey: 'CustomerAnalytics',
@@ -158,6 +183,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-warehouse-properties-dark)',
             ],
             href: urls.warehouseProperties(),
+            searchKeywords: ['crm properties', 'joined properties'],
             flag: FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES,
             sceneKey: 'WarehouseProperties',
             sceneKeys: ['WarehouseProperties'],

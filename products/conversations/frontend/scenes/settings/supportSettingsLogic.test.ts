@@ -1,8 +1,8 @@
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -129,6 +129,85 @@ describe('supportSettingsLogic', () => {
             expect(logic.values.emailConfigs.map((c) => ({ id: c.id, is_default: c.is_default }))).toEqual([
                 { id: 'b', is_default: true },
             ])
+        })
+    })
+
+    describe('trusted relay sender', () => {
+        it('normalizes and saves the relay sender for one channel', async () => {
+            const config = {
+                id: 'email-config',
+                from_email: 'support@example.com',
+                trusted_relay_sender: '',
+                domain_verified: true,
+                is_default: true,
+            } as any
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [config] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/set-trusted-relay': async ({ request }) => {
+                        expect(await request.json()).toEqual({
+                            config_id: 'email-config',
+                            trusted_relay_sender: 'relay@example.com',
+                        })
+                        return [200, { ok: true }]
+                    },
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setTrustedRelaySenderDraft('email-config', ' Relay@Example.COM ')
+            logic.actions.saveTrustedRelaySender('email-config')
+
+            expect(logic.values.trustedRelaySavingConfigId).toBe('email-config')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.emailConfigs[0].trusted_relay_sender).toBe('relay@example.com')
+            expect(logic.values.trustedRelaySenderDrafts['email-config']).toBe('relay@example.com')
+            expect(logic.values.trustedRelaySavingConfigId).toBeNull()
+        })
+
+        it('shows the backend validation reason and resets saving state', async () => {
+            const errorToastSpy = jest.spyOn(lemonToast, 'error').mockImplementation((() => '') as any)
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': {
+                        configs: [
+                            {
+                                id: 'email-config',
+                                from_email: 'support@example.com',
+                                trusted_relay_sender: '',
+                            },
+                        ],
+                    },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/email/set-trusted-relay': () => [
+                        400,
+                        {
+                            type: 'validation_error',
+                            code: 'invalid_input',
+                            detail: 'Enter a valid email address.',
+                            attr: 'trusted_relay_sender',
+                        },
+                    ],
+                },
+            })
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.setTrustedRelaySenderDraft('email-config', 'not-an-email')
+            logic.actions.saveTrustedRelaySender('email-config')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(errorToastSpy).toHaveBeenCalledWith('Enter a valid email address.')
+            expect(logic.values.trustedRelaySavingConfigId).toBeNull()
+            errorToastSpy.mockRestore()
         })
     })
 
@@ -698,6 +777,47 @@ describe('supportSettingsLogic', () => {
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true })
             }).toDispatchActions(['loadAccountPropertyOptions', 'loadAccountPropertyOptionsSuccess'])
             expect(logic.values.accountPropertyOptions).toEqual(OPTIONS)
+        })
+    })
+
+    describe('admin-only picker lists on mount', () => {
+        it.each([
+            {
+                level: OrganizationMembershipLevel.Admin,
+                expectedRequests: ['github/repos', 'teams/channels', 'teams/teams'],
+            },
+            { level: OrganizationMembershipLevel.Member, expectedRequests: [] },
+        ])('membership level $level requests $expectedRequests', async ({ level, expectedRequests }) => {
+            const requests: string[] = []
+            const record = (name: string, body: Record<string, unknown>) => () => {
+                requests.push(name)
+                return [200, body]
+            }
+            useMocks({
+                get: {
+                    '/api/conversations/v1/email/status': { configs: [] },
+                    '/api/projects/:team_id/conversations/ai_reply_playbook/': PLAYBOOK_GET,
+                },
+                post: {
+                    '/api/conversations/v1/github/repos': record('github/repos', { repos: [] }),
+                    '/api/conversations/v1/teams/teams': record('teams/teams', { teams: [] }),
+                    '/api/conversations/v1/teams/channels': record('teams/channels', { channels: [] }),
+                },
+            })
+            initKeaTests(
+                true,
+                {
+                    ...MOCK_DEFAULT_TEAM,
+                    conversations_settings: { github_enabled: true, teams_enabled: true, teams_team_id: 't1' },
+                } as unknown as TeamType,
+                MOCK_DEFAULT_PROJECT,
+                { ...MOCK_DEFAULT_ORGANIZATION, membership_level: level }
+            )
+            logic = supportSettingsLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(requests.sort()).toEqual(expectedRequests)
         })
     })
 })

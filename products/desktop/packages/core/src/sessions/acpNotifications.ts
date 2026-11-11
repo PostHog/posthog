@@ -22,6 +22,7 @@ export const POSTHOG_NOTIFICATIONS = {
   PERMISSION_RESPONSE: "_posthog/permission_response",
   PERMISSION_REQUEST: "_posthog/permission_request",
   PERMISSION_RESOLVED: "_posthog/permission_resolved",
+  PROCESS_KILLED: "_posthog/process_killed",
 } as const;
 
 // Qualified id of the agent's `speak` narration tool, as it appears on the

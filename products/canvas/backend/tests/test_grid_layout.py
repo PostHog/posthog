@@ -18,8 +18,8 @@ from products.canvas.backend.layout import (
     default_layout,
     validate_layout,
 )
+from products.canvas.backend.logic import canvases as canvas_logic
 from products.canvas.backend.models import Canvas, CanvasBuild, CanvasHomePreference, CanvasState
-from products.canvas.backend.presentation.views import CanvasViewSet
 from products.canvas.backend.source import has_errors, validate_source_project
 from products.canvas.backend.tests.test_canvas_api import CanvasAPIBaseTest
 from products.canvas.backend.tests.test_component_store import COMPONENT_META
@@ -537,14 +537,14 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
         # second Home that nothing points at.
         first = self._home()
         assert first.status_code == status.HTTP_201_CREATED, first.json()
-        unlocked_read = CanvasViewSet._home_canvas_for
+        unlocked_read = canvas_logic._home_canvas_for
         reads = {"count": 0}
 
-        def missed_once(view: CanvasViewSet, user: User) -> Canvas | None:
+        def missed_once(team_id: int, user_id: int) -> Canvas | None:
             reads["count"] += 1
-            return None if reads["count"] == 1 else unlocked_read(view, user)
+            return None if reads["count"] == 1 else unlocked_read(team_id, user_id)
 
-        with patch.object(CanvasViewSet, "_home_canvas_for", missed_once):
+        with patch.object(canvas_logic, "_home_canvas_for", missed_once):
             raced = self._home()
         assert raced.status_code == status.HTTP_200_OK, raced.json()
         assert raced.json()["id"] == first.json()["id"]
@@ -552,9 +552,7 @@ class TestHomeProvisioning(GridLayoutAPIBaseTest):
             assert Canvas.objects.for_team(self.team.id).filter(kind=Canvas.KIND_GRID, deleted=False).count() == 1
 
     def test_home_provisions_even_when_seeding_fails(self):
-        with patch(
-            "products.canvas.backend.presentation.views.seed_home_canvas", side_effect=RuntimeError("storage down")
-        ):
+        with patch("products.canvas.backend.logic.canvases.seed_home_canvas", side_effect=RuntimeError("storage down")):
             response = self._home()
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         read = self._get_layout(response.json()["id"])

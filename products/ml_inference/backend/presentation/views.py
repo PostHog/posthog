@@ -67,7 +67,11 @@ class DecisionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             for question_id, question in data["questions"].items()
         }
         decision = contracts.DecisionRequest(
-            team_id=self.team_id, state=data["state"], questions=questions, model=data["model"]
+            team_id=self.team_id,
+            state=data["state"],
+            questions=questions,
+            model=data["model"],
+            distinct_id=getattr(request.user, "distinct_id", None) or None,
         )
         try:
             result = api.decide(decision)

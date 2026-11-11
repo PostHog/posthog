@@ -11,7 +11,6 @@ import {
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
 import { GENERATED_TOOLS } from '@/tools/generated/replay'
-import getSessionRecording from '@/tools/replay/getSessionRecording'
 import type { Context } from '@/tools/types'
 
 describe('Session Replays', { concurrent: false }, () => {
@@ -26,7 +25,7 @@ describe('Session Replays', { concurrent: false }, () => {
 
     describe('Session Recordings', () => {
         const queryListTool = GENERATED_TOOLS['query-session-recordings-list']!()
-        const getTool = getSessionRecording()
+        const getTool = GENERATED_TOOLS['session-recording-get']!()
 
         describe('query-session-recordings-list tool', () => {
             it('should return results with pagination info', async () => {

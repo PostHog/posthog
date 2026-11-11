@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { getMissingScopes } from 'lib/integrations/IntegrationScopesWarning'
+import { getMissingScopes } from 'lib/integrations/integrationScopes'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { CyclotronJobInputSchemaType, IntegrationType } from '~/types'

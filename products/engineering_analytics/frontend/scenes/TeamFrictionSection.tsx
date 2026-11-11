@@ -9,7 +9,8 @@ import { authorFrictionLogic } from './authorFrictionLogic'
 
 /** A team's median friction and its members by friction. Members keep their repository-wide ranks. */
 export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX.Element {
-    const { friction, frictionLoading, frictionFailed, frictionNotConnected, sourceId } = useValues(authorFrictionLogic)
+    const { friction, frictionLoading, frictionFailed, frictionNotConnected, sourceId, scopeRepo } =
+        useValues(authorFrictionLogic)
     const { loadFriction } = useActions(authorFrictionLogic)
 
     const members = (friction?.items ?? []).filter((item) => (item.teams ?? []).includes(githubTeam))
@@ -50,6 +51,7 @@ export function TeamFrictionSection({ githubTeam }: { githubTeam: string }): JSX
                     maxScore={maxScore}
                     loading={frictionLoading}
                     sourceId={sourceId}
+                    repo={scopeRepo}
                     emptyState={
                         friction?.has_membership_data === false
                             ? 'Team membership is not synced for this source, so the team has no members to show.'

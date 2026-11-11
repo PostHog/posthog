@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
-    "@posthog/agent": "workspace:*",
+    "@posthog/agent": "link:../../../../packages/agent/packages/agent",
     "@posthog/core": "workspace:*",
     "@posthog/host-trpc": "workspace:*",
     "@posthog/platform": "workspace:*",

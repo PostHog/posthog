@@ -29,12 +29,6 @@ rules:
 
           For a thread that genuinely must not inherit the caller's context, add
           `# nosemgrep: query-runners-propagate-thread-context` with a one-line why.
-
-          Backlog: `products/experiments/backend/hogql_queries/experiment_trends_query_runner.py`
-          still spawns bare threads. Converting it changes which ClickHouse cluster and user its
-          subqueries use, and starts metering their scanned bytes, because that runner propagates no
-          tags today. That needs its own change, so the rule stays at WARNING until then. The
-          new-warnings CI pass still blocks any bare thread a PR adds.
       severity: WARNING
       languages: [python]
       # Anchored at the repo root, which is where CI scans from. The leading slash also opts out of

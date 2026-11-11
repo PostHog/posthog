@@ -415,7 +415,19 @@
                             {
                                 "type": "null"
                             }
-                        ]
+                        ],
+                        "description": "Compiled regex the selector matches against the event elements chain. Null when no selector is set."
+                    },
+                    "selector_warning": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Set when the selector compiles to a matcher that cannot match any event. Null when the selector is valid or absent."
                     },
                     "tag_name": {
                         "anyOf": [

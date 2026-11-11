@@ -74,3 +74,20 @@ def _merged_by_attribution(payload: dict, team_id: int) -> tuple[dict, str | Non
     if distinct_id is not None:
         properties["pr_merged_by_distinct_id"] = distinct_id
     return properties, distinct_id
+
+
+def _closed_by_attribution(payload: dict, team_id: int) -> dict:
+    """Identity of the GitHub user who closed the PR without a merge, from the delivery's `sender`.
+
+    The event keeps the caller's default actor, because the closer is often the GitHub App itself
+    (a dismissed report closes its PR), which never resolves to an org member.
+    """
+    sender = payload.get("sender") or {}
+    login = sender.get("login")
+    if not login:
+        return {}
+    properties: dict = {"pr_closed_by_login": login, "pr_closed_by_id": sender.get("id")}
+    distinct_id = _resolve_github_login_distinct_id(login, team_id)
+    if distinct_id is not None:
+        properties["pr_closed_by_distinct_id"] = distinct_id
+    return properties

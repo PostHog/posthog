@@ -83,7 +83,9 @@ import {
 import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
+import { GitProviderService } from "@posthog/core/integrations/gitProviderService";
 import {
+  GIT_PROVIDER_SERVICE,
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -92,11 +94,16 @@ import {
 } from "@posthog/core/integrations/identifiers";
 import { RepositoriesService } from "@posthog/core/integrations/repositoriesService";
 import {
+  GATEWAY_TOKEN_HOST,
+  type GatewayTokenHost,
   LLM_GATEWAY_HOST,
   LLM_GATEWAY_SERVICE,
   type LlmGatewayHost,
 } from "@posthog/core/llm-gateway/identifiers";
-import type { LlmGatewayService } from "@posthog/core/llm-gateway/llm-gateway";
+import {
+  desktopUsageUrl,
+  type LlmGatewayService,
+} from "@posthog/core/llm-gateway/llm-gateway";
 import { llmGatewayModule } from "@posthog/core/llm-gateway/llm-gateway.module";
 import {
   GITHUB_CONNECT_CLIENT as ONBOARDING_GITHUB_CONNECT_CLIENT,
@@ -381,6 +388,7 @@ interface WebBindings {
   [ONBOARDING_GITHUB_CONNECT_CLIENT]: OnboardingGithubConnectContract;
   [REPOSITORIES_CLIENT]: RepositoriesClient;
   [REPOSITORIES_SERVICE]: RepositoriesService;
+  [GIT_PROVIDER_SERVICE]: GitProviderService;
   [HOST_CAPABILITIES]: HostCapabilities;
   [TASK_SERVICE]: TaskServiceType;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
@@ -410,6 +418,7 @@ interface WebBindings {
   [TITLE_GENERATOR_LOGGER]: TitleGeneratorLogger;
   [LLM_GATEWAY_SERVICE]: LlmGatewayService;
   [LLM_GATEWAY_HOST]: LlmGatewayHost;
+  [GATEWAY_TOKEN_HOST]: GatewayTokenHost;
   [FILE_WATCHER_CLIENT]: FileWatcherClient;
   [GIT_INTERACTION_SERVICE]: GitInteractionService;
   [GIT_WRITE_CLIENT]: IGitWriteClient;
@@ -616,6 +625,7 @@ container
   .toConstantValue(new OnboardingGithubConnectClient());
 container.bind(REPOSITORIES_CLIENT).toConstantValue(new UiRepositoriesClient());
 container.bind(REPOSITORIES_SERVICE).to(RepositoriesService).inSingletonScope();
+container.bind(GIT_PROVIDER_SERVICE).to(GitProviderService).inSingletonScope();
 
 // ── Task list + creation (TASK_SERVICE at the task views) ──
 // TaskService/WorkspaceSetupSaga are portable core (taskDetailModule). The
@@ -790,10 +800,16 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
       ),
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
-    usageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
+    usageUrl: desktopUsageUrl,
+    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });
+// The Go gateway sends no CORS headers and the web host has no loopback
+// proxy, so helper prompts stay on the legacy gateway here.
+container
+  .bind(GATEWAY_TOKEN_HOST)
+  .toConstantValue({ goEnabled: false, override: null });
 
 // ── File watcher (TaskDetail's useRepoFileWatcher) ──
 // Watches a local repo for changes; there is none on web. The consumer gates

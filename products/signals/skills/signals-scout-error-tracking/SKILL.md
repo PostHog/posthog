@@ -15,6 +15,12 @@ allowed_tools:
 metadata:
   owner_team: signals
   scope: error_tracking
+scout-precheck-query: |
+  SELECT 1 AS has_exceptions
+  FROM events
+  WHERE event = '$exception'
+    AND timestamp > {now} - INTERVAL 7 DAY
+  LIMIT 1
 ---
 
 # Signals scout: error tracking
@@ -33,12 +39,38 @@ If a history reader is unavailable or access is denied, stop using that reader f
 
 ## Quick close-out: is error tracking even loud?
 
-If `$exception` is absent from `top_events` or its `count` is at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), error tracking probably isn't where the signal is today. Cheap scratchpad entry + close out:
+A scheduled run can start with a `<precheck_result>` block. The block means that at least one `$exception` event arrived in the last 7 days, so error tracking is in use. When the block is present, skip the `not-in-use` check. The block holds no count, so the baseline close-out still applies.
 
-- key: `not-in-use:error_tracking:team{team_id}` (if `$exception` is absent entirely) **or** `pattern:error_tracking:baseline-team{team_id}` (if it fires at a steady baseline with no fresh burst)
+`top_events` holds only the project's top-ranked events.
+A quiet but active `$exception` stream can fall outside that list, so absence from `top_events` does not prove that error tracking is inactive.
+
+If `$exception` is in `top_events` at baseline (no fresh 24h activity, `recent_24h_count` ≪ `count / 7`), error tracking probably isn't where the signal is today. Cheap scratchpad entry + close out empty:
+
+- key: `pattern:error_tracking:baseline-team{team_id}`
 - content: `"$exception baseline ~{count}/day, no fresh 24h burst at {timestamp}"`
 
-Close out empty. Re-running with the same key idempotently refreshes the timestamp; the next run reads the entry cold and short-circuits.
+If `$exception` is absent from `top_events`, run one bounded activity check before you decide anything:
+
+```sql
+SELECT count() AS exceptions_7d,
+       countIf(timestamp >= now() - INTERVAL 1 DAY) AS exceptions_24h
+FROM events
+WHERE event = '$exception'
+  AND timestamp >= now() - INTERVAL 7 DAY
+  AND timestamp <= now() + INTERVAL 1 DAY
+```
+
+If `execute-sql` is unavailable or the query fails, use `query-error-tracking-issues-list` (`status=active`, sorted by `last_seen_at`) as the check. An active issue seen in the last 7 days is activity.
+
+| Check result                        | Action                                                                                                                                                         |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Exceptions or active issues found   | The stream is active. Use these counts in place of the missing profile row and continue the investigation. Do not write `not-in-use`.                          |
+| Zero exceptions and no active issue | Write key `not-in-use:error_tracking:team{team_id}`, content `"$exception absent, activity check found 0 in 7d at {timestamp}"`. Close out empty.              |
+| No check could run                  | Activity is unknown. Do not write or refresh `not-in-use`. State the unavailable check in the close-out summary, and continue with any other available reader. |
+
+A `not-in-use:error_tracking:*` entry from an earlier run does not stop this run.
+Run the activity check again before you close out on it.
+If the check finds activity, remove the entry with `scout-scratchpad-forget` and continue.
 
 ## How a run works
 
@@ -106,7 +138,7 @@ By run #5 you'll have a local map of what's normal versus what warrants investig
 
 ### Decide
 
-The generic report mechanics — search the inbox first (via the `report:error_tracking:<issue_id>` pointer, else an `inbox-reports-list` search on the issue's _specific_ terms — the issue id, the fingerprint, the failing activity name, not a broad word like `error`), edit-vs-author, the status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the error-tracking judgment layered on top:
+The generic report mechanics — search the inbox first (via the `report:error_tracking:<issue_id>` pointer, else an `inbox-reports-list` search on the issue's _specific_ terms — the issue id, the fingerprint, the failing activity name, not a broad word like `error`), edit-vs-author, the status rules, reviewer routing, the retry and cross-run deduplication rules, and the `priority` / `repository` / actionability fields — live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not re-derive them here. This section is only the error-tracking judgment layered on top:
 
 - **Edit** when a still-live report already tracks the same issue and it's still moving — a burst still elevated, a stuck loop still looping, a cluster still growing. A persistent issue is one report across runs: a fresh window confirming it's ongoing is a re-escalation (`append_evidence` with the fresh hourly counts and distinct-user numbers), not a new report per tick. A **status regression** is the exception — an issue the team explicitly `resolved` that's firing again is a genuinely new event; if its prior report is already closed, author a fresh report (per the status rules) and repoint `report:error_tracking:<issue_id>` rather than appending to a resolved item.
 - **Author** when nothing live covers the issue. A report-worthy finding names the issue (issue id + fingerprint), shows the count-vs-distinct_users shape that makes it signal, quantifies the burst against baseline with an hourly breakdown, dates the onset, and — when the stack trace names a server activity / view — cites it with an `advanced-activity-logs-list` deploy correlation, all in the `evidence`. Attach the burst as a report chart — the issue's hourly or daily series with the baseline window on screen — so the spike and its onset are visible next to the numbers. Most findings are investigations → `actionability=requires_human_input` + `repository=NO_REPO`. The exception this surface earns: a well-localized bug whose stack trace points at a specific named file / module in a known repo can be `actionability=immediately_actionable` + `repository=owner/repo` to open a draft fix PR. Priority: a fresh broad-reach regression (count and distinct_users both spiking, per-request server path) or a resolved-issue status regression is **P1**, **P2** when reach is moderate; a stuck loop or narrow-reach cluster is **P3**, **P2** when count is in the thousands and fresh.
@@ -150,6 +182,7 @@ Harness-level:
 ## When to stop
 
 - `$exception` row in profile is at baseline → close out empty.
+- `$exception` absent from profile and this run's activity check finds zero → `not-in-use` entry, close out empty.
 - A candidate matches a scratchpad entry with `noise:` / `addressed:` / `dedupe:` key prefix, or an existing inbox report → edit-or-skip with a one-line note.
 - You've validated some hypotheses and filed reports for what's solid → close out, even if there's more you could look at. Fewer, better reports.
 

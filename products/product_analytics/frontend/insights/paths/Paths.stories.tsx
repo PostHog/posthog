@@ -1,14 +1,16 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import {
     createInsightStory,
     insightSceneMswDecorator,
     insightSceneStoryParameters,
 } from 'scenes/insights/__mocks__/createInsightScene'
-import { InsightVizStory } from 'scenes/insights/__mocks__/createInsightVizStory'
 
 import __userPaths from '~/mocks/fixtures/api/projects/team_id/insights/userPaths.json'
+
+import { InsightVizStory } from 'products/product_analytics/frontend/insights/shared/__mocks__/createInsightVizStory'
 
 import { Paths } from './Paths'
 
@@ -40,6 +42,13 @@ export const UserPaths: Story = {
             </div>
         </InsightVizStory>
     ),
+}
+
+export const UserPathsSankeyChart: Story = {
+    ...UserPaths,
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_PATHS_SANKEY_CHART],
+    },
 }
 
 // The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys

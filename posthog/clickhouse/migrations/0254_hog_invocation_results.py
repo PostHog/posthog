@@ -1,6 +1,7 @@
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
-from posthog.models.hog_invocation_results.sql import (
+
+from products.cdp.backend.facade.clickhouse import (
     DISTRIBUTED_HOG_INVOCATION_RESULTS_TABLE_SQL,
     HOG_INVOCATION_RESULTS_DATA_TABLE_SQL,
     HOG_INVOCATION_RESULTS_MV_SQL,

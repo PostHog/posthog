@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
+import { IconBrowser, IconPencil, IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { heatmapLogic } from '../scenes/heatmap/heatmapLogic'
 import { HeatmapPageFields } from './HeatmapPageFields'
-import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { HeatmapScreenshotAccessNotice } from './HeatmapScreenshotAccessNotice'
-import { HeatmapsForbiddenURL } from './HeatmapsForbiddenURL'
 
 export function HeatmapHeader(): JSX.Element {
     const {
@@ -29,7 +27,6 @@ export function HeatmapHeader(): JSX.Element {
         screenshotError,
         displayUrl,
     } = useValues(heatmapLogic)
-    const { dataUrl, isBrowserUrlAuthorized } = useValues(heatmapsBrowserLogic)
     const {
         setPageUrlDraft,
         regenerateScreenshot,
@@ -51,26 +48,13 @@ export function HeatmapHeader(): JSX.Element {
 
     return (
         <div>
-            <div className="flex flex-wrap gap-2 items-center">
-                <LemonLabel htmlFor="heatmap-page-url">Page URL</LemonLabel>
-                <LemonInput
-                    id="heatmap-page-url"
-                    className="flex-1 min-w-48"
-                    size="small"
-                    placeholder="https://www.example.com/pricing"
-                    value={pageUrlDraft}
-                    onChange={setPageUrlDraft}
-                    onPressEnter={updateHeatmap}
-                    disabledReason={urlEditDisabledReason}
-                    status={pageUrlDraft && !isPageUrlDraftValid ? 'danger' : undefined}
-                    data-attr="heatmap-page-url"
-                />
-                <LemonButton type="secondary" size="small" onClick={openPageSettings} data-attr="heatmap-page-settings">
-                    Page settings
-                </LemonButton>
-                {source === 'toolbar' && <LemonTag>Captured from toolbar</LemonTag>}
+            <div className="flex gap-1 items-center min-w-0">
+                <IconBrowser className="text-muted shrink-0" />
+                <span className="min-w-0 truncate ph-no-capture text-sm text-muted" title={displayUrl ?? undefined}>
+                    {displayUrl}
+                </span>
                 <LemonButton
-                    type="secondary"
+                    type="tertiary"
                     size="small"
                     icon={<IconRefresh />}
                     aria-label={refreshPreview.label}
@@ -80,14 +64,16 @@ export function HeatmapHeader(): JSX.Element {
                     disabledReason={refreshPreview.disabledReason}
                     data-attr="heatmap-refresh-preview"
                 />
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconPencil />}
+                    aria-label="Page settings"
+                    tooltip="Page settings"
+                    onClick={openPageSettings}
+                    data-attr="heatmap-page-settings"
+                />
             </div>
-            {pageUrlDraft && !isPageUrlDraftValid && (
-                <p className="text-xs text-danger mt-1 mb-0">
-                    {pageUrlDraftIsPattern
-                        ? 'Enter a page URL without wildcards. Use the heatmap data URL in Page settings to match multiple pages.'
-                        : 'Enter a valid URL, including https:// or http://.'}
-                </p>
-            )}
             <LemonModal
                 isOpen={pageSettingsOpen}
                 onClose={closePageSettings}
@@ -117,6 +103,28 @@ export function HeatmapHeader(): JSX.Element {
             >
                 <div className="flex flex-col gap-6" data-attr="heatmap-page-settings-content">
                     <div>
+                        <LemonLabel htmlFor="heatmap-page-url">Page URL</LemonLabel>
+                        <LemonInput
+                            id="heatmap-page-url"
+                            className="w-full"
+                            size="small"
+                            placeholder="https://www.example.com/pricing"
+                            value={pageUrlDraft}
+                            onChange={setPageUrlDraft}
+                            onPressEnter={updateHeatmap}
+                            disabledReason={urlEditDisabledReason}
+                            status={pageUrlDraft && !isPageUrlDraftValid ? 'danger' : undefined}
+                            data-attr="heatmap-page-url"
+                        />
+                        {pageUrlDraft && !isPageUrlDraftValid && (
+                            <p className="text-xs text-danger mt-1 mb-0">
+                                {pageUrlDraftIsPattern
+                                    ? 'Enter a page URL without wildcards. Use the heatmap data URL in Page settings to match multiple pages.'
+                                    : 'Enter a valid URL, including https:// or http://.'}
+                            </p>
+                        )}
+                    </div>
+                    <div>
                         <LemonLabel>Page background</LemonLabel>
                         <LemonSegmentedButton
                             value={type}
@@ -143,7 +151,6 @@ export function HeatmapHeader(): JSX.Element {
                     />
                 </div>
             </LemonModal>
-            {dataUrl && !isBrowserUrlAuthorized ? <HeatmapsForbiddenURL /> : null}
         </div>
     )
 }

@@ -495,6 +495,11 @@ runcmd:
         if not output_line:
             return False, f"Could not parse API keys from output: {result['stdout'][:200]}"
         project_api_token, personal_api_key = output_line[-1].split("|||")
+        headers = {"Authorization": f"Bearer {personal_api_key}"}
+
+        flag_error = self._smoke_test_feature_flag(base_url, project_api_token, headers, timeout_seconds, poll_interval)
+        if flag_error:
+            return False, flag_error
 
         capture_id = str(uuid.uuid4())
         exception_value = f"hobby_ci_error_smoke_test_{time.time_ns()}"
@@ -537,7 +542,6 @@ runcmd:
                 )
 
         print(f"⏳ Polling for events (timeout {timeout_seconds}s)...", flush=True)
-        headers = {"Authorization": f"Bearer {personal_api_key}"}
         deadline = time.time() + timeout_seconds
         attempt = 0
         pending_event_names = {event["event"] for event in events}
@@ -805,7 +809,7 @@ runcmd:
                     print(f"✅ Trace found after {attempt} poll(s)", flush=True)
                     return (
                         True,
-                        "Preflight healthy; events, log, exception issue, session recording, and trace ingested successfully",
+                        "Preflight healthy; feature flag evaluated; events, log, exception issue, session recording, and trace ingested successfully",
                     )
                 if query_resp.status_code != 200:
                     print(f"   Poll {attempt}: trace HTTP {query_resp.status_code}", flush=True)
@@ -816,6 +820,69 @@ runcmd:
             time.sleep(poll_interval)
 
         return False, f"Trace did not appear within {timeout_seconds}s ({attempt} polls)"
+
+    @staticmethod
+    def _smoke_test_feature_flag(
+        base_url: str, project_api_token: str, headers: dict[str, str], timeout_seconds: int, poll_interval: int
+    ) -> str | None:
+        flag_key = f"hobby-ci-smoke-test-{time.time_ns()}"
+        distinct_id = f"hobby-ci-flags-{uuid.uuid4()}"
+
+        print(f"🚩 Creating feature flag '{flag_key}'...", flush=True)
+        try:
+            create_resp = requests.post(
+                f"{base_url}/api/projects/@current/feature_flags/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json={"key": flag_key, "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]}},
+                headers=headers,
+                timeout=30,
+            )
+            flag_id = create_resp.json()["id"] if create_resp.status_code == 201 else None
+        except Exception as e:
+            return f"Feature flag create request failed: {type(e).__name__}: {e}"
+        if flag_id is None:
+            return f"Feature flag create failed: HTTP {create_resp.status_code} - {create_resp.text[:200]}"
+
+        print(f"⏳ Polling /flags for the new flag (timeout {timeout_seconds}s)...", flush=True)
+        deadline = time.time() + timeout_seconds
+        attempt = 0
+        flag_enabled = False
+        while time.time() < deadline:
+            attempt += 1
+            try:
+                flags_resp = requests.post(
+                    f"{base_url}/flags/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                    params={"v": 2},
+                    json={"token": project_api_token, "distinct_id": distinct_id},
+                    timeout=10,
+                )
+                if flags_resp.status_code == 200 and flags_resp.json().get("flags", {}).get(flag_key, {}).get(
+                    "enabled"
+                ):
+                    print(f"✅ /flags returned the flag as enabled after {attempt} poll(s)", flush=True)
+                    flag_enabled = True
+                    break
+                print(f"   Poll {attempt}: /flags HTTP {flags_resp.status_code}, flag not enabled yet", flush=True)
+            except Exception as e:
+                print(f"   Poll {attempt}: /flags returned {type(e).__name__}", flush=True)
+            time.sleep(poll_interval)
+        if not flag_enabled:
+            return f"/flags did not return the flag as enabled within {timeout_seconds}s ({attempt} polls)"
+
+        print("🚩 Running the flag's test evaluation...", flush=True)
+        try:
+            test_resp = requests.post(
+                f"{base_url}/api/projects/@current/feature_flags/{flag_id}/test_evaluation/",  # nosemgrep: python.lang.security.audit.insecure-transport.requests.request-with-http.request-with-http
+                json={"distinct_id": distinct_id},
+                headers=headers,
+                timeout=30,
+            )
+            evaluated_true = test_resp.status_code == 200 and test_resp.json().get("result") is True
+        except Exception as e:
+            return f"Feature flag test evaluation request failed: {type(e).__name__}: {e}"
+        if not evaluated_true:
+            return f"Feature flag test evaluation failed: HTTP {test_resp.status_code} - {test_resp.text[:200]}"
+        print("✅ Test evaluation returned true", flush=True)
+        return None
 
     @staticmethod
     def find_existing_droplet_for_pr(token, pr_number):

@@ -3,9 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonInputSelect } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { fullName } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { fullNameOrEmail } from 'lib/utils/strings'
 
+import { membersLogic } from '~/models/membersLogic'
 import { UserBasicType } from '~/types'
 
 type UserIdType = string | number
@@ -24,7 +24,7 @@ export function MemberSelectMultiple({ idKey, value, onChange }: MemberSelectMul
 
     const options = meFirstMembers.map((member) => ({
         key: member.user[idKey].toString(),
-        label: fullName(member.user),
+        label: fullNameOrEmail(member.user),
         value: member.user[idKey].toString(),
     }))
 

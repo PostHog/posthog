@@ -36,11 +36,12 @@ rules:
           include:
               - /ee/api/agentic_provisioning/**/*.py
               - /ee/api/authentication.py
-              - /ee/api/scim/**/*.py
+              - /posthog/api/scim/**/*.py
               - /ee/partners/stripe/api/provisioning/**/*.py
               - /posthog/api/authentication.py
               - /posthog/api/id_jag.py
               - /posthog/api/signup.py
+              - /posthog/api/sso.py
               - /posthog/api/user.py
               - /posthog/api/webauthn.py
               - /posthog/models/user.py

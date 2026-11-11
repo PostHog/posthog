@@ -31,6 +31,7 @@ function makeHogFlowInvocation(hogFlowId = 'flow-1', overrides: { billable_actio
             name: 'test flow',
             version: 5,
             billable_action_types: overrides.billable_action_types ?? [],
+            actions: (overrides.billable_action_types ?? []).map((type) => ({ type, config: {} })),
         },
         state: { event: { uuid: 'evt-1' } },
         person: undefined,
@@ -48,6 +49,7 @@ describe('HogFlowInvocationPipeline', () => {
     let hogMasker: jest.Mocked<HogMaskerService>
     let hogFunctionMonitoringService: jest.Mocked<HogFunctionMonitoringService>
     let quotaLimiting: jest.Mocked<QuotaLimiting>
+    let workflowsActivationReporter: { report: jest.Mock }
     let pipeline: HogFlowInvocationPipeline
     let rateLimitGroupedMock: jest.Mock
 
@@ -57,7 +59,9 @@ describe('HogFlowInvocationPipeline', () => {
         } as unknown as jest.Mocked<HogFlowManagerService>
 
         hogFlowExecutor = {
-            buildHogFlowInvocations: jest.fn().mockResolvedValue({ invocations: [], metrics: [], logs: [] }),
+            buildHogFlowInvocations: jest
+                .fn()
+                .mockResolvedValue({ invocations: [], metrics: [], logs: [], buildFailures: [] }),
         } as unknown as jest.Mocked<HogFlowExecutorService>
 
         hogWatcher = {
@@ -80,6 +84,8 @@ describe('HogFlowInvocationPipeline', () => {
             isTeamQuotaLimited: jest.fn().mockResolvedValue(false),
         } as unknown as jest.Mocked<QuotaLimiting>
 
+        workflowsActivationReporter = { report: jest.fn() }
+
         pipeline = new HogFlowInvocationPipeline(config, {
             hogFlowManager,
             hogFlowExecutor,
@@ -87,6 +93,7 @@ describe('HogFlowInvocationPipeline', () => {
             hogWatcherMirror: hogWatcher,
             hogMasker,
             hogFunctionMonitoringService,
+            workflowsActivationReporter,
             quotaLimiting,
             redis: {} as any,
             valkeyShadow: { writer: {} as any, reader: {} as any },
@@ -107,7 +114,12 @@ describe('HogFlowInvocationPipeline', () => {
 
     it('returns invocations for matching hogflows and queues triggered metric', async () => {
         const inv = makeHogFlowInvocation()
-        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({
+            invocations: [inv],
+            metrics: [],
+            logs: [],
+            buildFailures: [],
+        })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
 
@@ -125,9 +137,20 @@ describe('HogFlowInvocationPipeline', () => {
         )
     })
 
+    it('rejects rather than dropping an event when no dead-letter service can keep it', async () => {
+        hogFlowExecutor.buildHogFlowInvocations.mockRejectedValue(new Error('builder walked off a cliff'))
+
+        await expect(pipeline.buildInvocations([makeGlobals()])).rejects.toThrow('builder walked off a cliff')
+    })
+
     it('drops rate-limited invocations with metric + log', async () => {
         const inv = makeHogFlowInvocation()
-        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({
+            invocations: [inv],
+            metrics: [],
+            logs: [],
+            buildFailures: [],
+        })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: true }]])
 
@@ -144,18 +167,33 @@ describe('HogFlowInvocationPipeline', () => {
     it('drops quota-limited invocations', async () => {
         // hogflow quota helper short-circuits when billable_action_types is empty
         const inv = makeHogFlowInvocation('flow-1', { billable_action_types: ['function_email'] })
-        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({
+            invocations: [inv],
+            metrics: [],
+            logs: [],
+            buildFailures: [],
+        })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
         quotaLimiting.isTeamQuotaLimited.mockResolvedValue(true)
 
         const result = await pipeline.buildInvocations([makeGlobals()])
         expect(result).toEqual([])
+        expect(workflowsActivationReporter.report).toHaveBeenCalledWith(inv.teamId, 'workflows send blocked', {
+            reason: 'quota_limited',
+            channel: 'email',
+            workflow_id: inv.functionId,
+        })
     })
 
     it('drops invocations for disabled hogflows', async () => {
         const inv = makeHogFlowInvocation()
-        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({
+            invocations: [inv],
+            metrics: [],
+            logs: [],
+            buildFailures: [],
+        })
         hogWatcher.getEffectiveStates.mockResolvedValue({
             [inv.hogFlow.id]: { state: HogWatcherState.disabled },
         } as any)
@@ -172,7 +210,12 @@ describe('HogFlowInvocationPipeline', () => {
 
     it('sets queuePriority=2 for degraded hogflows but does not change queue', async () => {
         const inv = makeHogFlowInvocation()
-        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({
+            invocations: [inv],
+            metrics: [],
+            logs: [],
+            buildFailures: [],
+        })
         hogWatcher.getEffectiveStates.mockResolvedValue({
             [inv.hogFlow.id]: { state: HogWatcherState.degraded },
         } as any)
@@ -187,7 +230,12 @@ describe('HogFlowInvocationPipeline', () => {
 
     it('drops masked invocations', async () => {
         const inv = makeHogFlowInvocation()
-        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({ invocations: [inv], metrics: [], logs: [] })
+        hogFlowExecutor.buildHogFlowInvocations.mockResolvedValue({
+            invocations: [inv],
+            metrics: [],
+            logs: [],
+            buildFailures: [],
+        })
         hogWatcher.getEffectiveStates.mockResolvedValue({ [inv.hogFlow.id]: { state: HogWatcherState.healthy } } as any)
         rateLimitGroupedMock.mockResolvedValue([[null, { isRateLimited: false }]])
         hogMasker.filterByMasking.mockResolvedValue({ masked: [inv], notMasked: [], release: async () => {} })

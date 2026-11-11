@@ -11,5 +11,9 @@ fi
 cd products/desktop
 
 pnpm install --frozen-lockfile
+node scripts/build-agent-workspace.mjs
 
-exec node scripts/dev-with-skills.mjs pnpm exec turbo dev --filter=@posthog/code --filter=@posthog/agent --filter=@posthog/git --filter=@posthog/platform --filter=@posthog/enricher
+pnpm --dir ../../packages/agent exec turbo dev --filter=@posthog/agent --filter=@posthog/git --filter=@posthog/enricher &
+trap 'kill %1 2>/dev/null || true' EXIT
+
+node scripts/dev-with-skills.mjs pnpm exec turbo dev --filter=@posthog/code --filter=@posthog/platform

@@ -2,9 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconPencil, IconTrash } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { LazyRichContentPreview, LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { RichContentPreview } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
@@ -46,11 +45,11 @@ function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element 
     const hasMarkdownImage = (item.data.content ?? '').includes('![')
 
     let rowContent = item.data.rich_content ? (
-        <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+        <LazyRichContentPreview content={item.data.rich_content} className="rounded-none" />
     ) : hasMarkdownImage ? (
         <>{item.data.content ?? ''}</>
     ) : (
-        <TextContent text={item.data.content ?? ''} data-attr="item-annotation-comment-title-rendered-content" />
+        <LazyTextContent text={item.data.content ?? ''} data-attr="item-annotation-comment-title-rendered-content" />
     )
 
     return (
@@ -59,9 +58,9 @@ function ItemComment({ item }: { item: InspectorListItemComment }): JSX.Element 
                 <Tooltip
                     title={
                         item.data.rich_content ? (
-                            <RichContentPreview content={item.data.rich_content} className="rounded-none" />
+                            <LazyRichContentPreview content={item.data.rich_content} className="rounded-none" />
                         ) : (
-                            <TextContent
+                            <LazyTextContent
                                 text={item.data.content ?? ''}
                                 data-attr="item-annotation-comment-title-rendered-content"
                             />
@@ -88,6 +87,7 @@ function ItemCommentNotebookDetail({ item }: { item: InspectorListItemNotebookCo
         <div data-attr="item-notebook-comment" className="font-light w-full">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-end">
                 <LemonButton
+                    data-attr="inspector-comment-continue-in-notebook"
                     type="secondary"
                     onClick={(e) => {
                         selectNotebook(item.data.notebookShortId)
@@ -115,6 +115,7 @@ function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.El
         <div data-attr="item-annotation-comment" className="font-light w-full flex flex-col gap-y-1">
             <div className="px-2 py-1 text-xs border-t w-full flex justify-end items-center gap-x-1">
                 <LemonButton
+                    data-attr="inspector-comment-delete"
                     type="secondary"
                     onClick={() => {
                         deleteComment(item.data.id)
@@ -149,7 +150,7 @@ function ItemCommentDetail({ item }: { item: InspectorListItemComment }): JSX.El
             </div>
 
             <div className="p-2 text-xs border-t cursor-pointer text-wrap">
-                <TextContent
+                <LazyTextContent
                     text={item.data.content ?? ''}
                     data-attr="item-annotation-comment-detail-rendered-content"
                 />

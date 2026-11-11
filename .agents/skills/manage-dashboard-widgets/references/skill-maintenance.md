@@ -52,12 +52,12 @@ Load `/manage-dashboard-widgets` and complete the maintenance checklist below wh
 | `products/dashboards/frontend/components/WidgetCard/**`                    | Shared tile chrome, placeholders, overview fixtures                                            |
 | `products/dashboards/frontend/components/DashboardWidgetItem/**`           | Tile glue, public placement, `TileFilters` mount                                               |
 | `products/dashboards/frontend/widgets/constants.ts`                        | List footer, fetch errors, tile refresh debounce ms                                            |
-| `frontend/src/scenes/dashboard/widgetTileRefreshScheduler.ts`              | Debounced `run_widgets` after tile filter PATCH                                                |
+| `products/dashboards/frontend/widgetTileRefreshScheduler.ts`               | Debounced `run_widgets` after tile filter PATCH                                                |
 | `frontend/src/scenes/dashboard/dashboardLogic.tsx`                         | `scheduleRefreshDashboardWidgets` vs immediate refresh                                         |
 | `products/dashboards/frontend/widgets/*WidgetTileFilters.tsx`              | On-tile filters (date, status, property pickers)                                               |
-| `frontend/src/scenes/dashboard/DashboardItems.tsx`                         | `showEditingControls`, `isDashboardEditMode`, tile filter mount                                |
+| `products/dashboards/frontend/DashboardItems.tsx`                          | `showEditingControls`, `isDashboardEditMode`, tile filter mount                                |
 | `products/dashboards/mcp/tools.yaml`                                       | Widget MCP tools                                                                               |
-| `frontend/src/scenes/dashboard/tileLayouts.ts`                             | Layout algorithm (only if behavior/docs change)                                                |
+| `products/dashboards/frontend/tileLayouts.ts`                              | Layout algorithm (only if behavior/docs change)                                                |
 | `posthog/api/test/test_sharing.py`                                         | Shared dashboard widget payload expectations                                                   |
 | `tach.toml` (`products.dashboards` `depends_on`)                           | New product import boundary                                                                    |
 

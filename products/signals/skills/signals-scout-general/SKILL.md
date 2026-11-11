@@ -46,6 +46,14 @@ Pick what looks interesting and follow it. The coverage map says what's live; th
 
 When sibling specialists are running, leave a surface they cover in depth to them on a future tick — the `skill_name`s on recent runs in `scout-runs-list` show the live roster (specialists exist for most product surfaces: error tracking, logs, AI observability, experiments, feature flags, session replay, web analytics, surveys, and more) — and spend your time on **cross-product correlations** or **surfaces no specialist covers**. When no specialists are running, the whole coverage map is your beat: work across it instead of narrowing to one corner.
 
+## Watch for new traffic
+
+Every few runs, check whether the project's event volume stepped up, and where the new events come from.
+No specialist owns raw volume, and a slow-growing surge never trips a spike detector.
+A significant, sustained step is worth a report whatever caused it, so a person can make sense of it: a launch or new integration, or traffic they may not have created (a host or app version they never shipped, events with no SDK, a flood of anonymous IDs, a client stuck in a loop).
+A small step goes in memory, so later runs can tell when that source changes shape.
+[`references/new-traffic.md`](references/new-traffic.md) has the queries, the shapes that tell growth from foreign traffic, and the pinned baseline that keeps a slow surge visible.
+
 ## Decide
 
 Search the inbox before you author — a report covering this finding may already exist (`inbox-reports-list`, then `inbox-reports-retrieve` the closest matches). Then, for each candidate finding:

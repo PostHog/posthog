@@ -1,6 +1,7 @@
 import {
     IngestionSessionReplayMlImageScrubServer,
     buildImageScrubConsumerConfig,
+    scrubbedImageData,
 } from './ingestion-session-replay-ml-image-scrub-server'
 import { buildMlMirrorServerConfig } from './ml-mirror-server-config'
 
@@ -42,6 +43,15 @@ describe('image scrub server startup', () => {
             expect(buildImageScrubConsumerConfig(config).fetchBatchSize).toBe(expected)
         }
     )
+
+    it.each([
+        ['image:v3:42:2026-09:aaaaaaaaaaaaaaaaaaaaaa', 'inline_images'],
+        ['imageurl:v3:42:2026-09:aaaaaaaaaaaaaaaaaaaaaa', 'url_images'],
+        ['imageurl:aaaaaaaaaaaaaaaaaaaaaa', 'url_images'],
+        ['not-a-ref', undefined],
+    ])('reports the watermark of %s as %s', (ref, data) => {
+        expect(scrubbedImageData({ key: Buffer.from(ref) })).toBe(data)
+    })
 
     it('allows a disabled DLQ without a key manager and continues to the S3 configuration check', async () => {
         const server = new TestImageScrubServer({

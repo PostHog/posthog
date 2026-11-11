@@ -4,7 +4,7 @@ Facade re-exports for the whole-notebook run.
 The HTTP surface starts, reads, and stops a run, and may only reach in-product code through
 this package. Every entry point is addressed by id and answers with a contract or plain data,
 so no caller holds a Django object. The workflow starter sits here too, because starting the
-run is the last step of the endpoint that creates its record — see `notebook_run.md`.
+run is the last step of the endpoint that creates its record.
 """
 
 from ..notebook_run import (

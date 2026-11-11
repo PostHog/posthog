@@ -51,6 +51,7 @@ def skill_distribution_expectations(
     *,
     source: str = "posthog",
     alternate_skills: list[str] | None = None,
+    excluded_skill: str | None = None,
 ) -> dict[str, dict[str, object]]:
     """``alternate_skills`` are other skills that legitimately cover the case, such as a
     support front door that wraps the expected skill; loading any of them counts."""
@@ -61,6 +62,12 @@ def skill_distribution_expectations(
         "expected_skill_loaded": {**skill_spec, "delivery": skill_delivery},
         "skill_loaded_before_tool": {**skill_spec, "delivery": skill_delivery, "tools": downstream_tools},
     }
+    if excluded_skill:
+        expectations["excluded_skill_not_loaded"] = {
+            "skill": excluded_skill,
+            "source": source,
+            "delivery": skill_delivery,
+        }
     if skill_delivery == "exec":
         expectations.update(
             {
@@ -365,6 +372,36 @@ class ExpectedSkillLoaded(Scorer):
                 "delivery": skill_spec.delivery,
             },
         )
+
+
+class ExcludedSkillNotLoaded(Scorer):
+    def _name(self) -> str:
+        return "excluded_skill_not_loaded"
+
+    def _run_eval_sync(
+        self,
+        output: dict[str, object] | None,
+        expected: dict[str, object] | None = None,
+        **kwargs: object,
+    ) -> Score:
+        spec = _expected_spec(expected, self._name())
+        if spec is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "Scorer does not apply"})
+        skill_spec = _skill_and_delivery(spec)
+        if skill_spec is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "Invalid scorer expectation"})
+        parser = _parser(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        loads = _any_skill_loads(parser, skill_spec.skills, skill_spec.delivery, skill_spec.source)
+        if loads:
+            return Score(
+                name=self._name(),
+                score=0.0,
+                metadata={"reason": "Excluded skill was loaded", "skill": loads[0].skill, "call_id": loads[0].call_id},
+            )
+        return Score(name=self._name(), score=1.0)
 
 
 class SkillLoadedBeforeTool(Scorer):

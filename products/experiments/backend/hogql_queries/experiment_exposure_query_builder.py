@@ -1,18 +1,41 @@
-from collections.abc import Callable
+from dataclasses import replace
+from datetime import date
+from enum import StrEnum
 
-from posthog.schema import ExperimentEventExposureConfig, MultipleVariantHandling
+from posthog.schema import Breakdown, ExperimentEventExposureConfig, MultipleBreakdownType, MultipleVariantHandling
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import apply_path_cleaning, property_to_expr
+
+from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.hogql_queries.base_query_utils import event_or_action_to_filter
 from products.experiments.backend.hogql_queries.breakdown_injector import BreakdownInjector
-from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext
+from products.experiments.backend.hogql_queries.experiment_query_context import ExperimentQueryContext, MaturityGate
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    exposure_event_name_filter,
+)
+from products.growth.backend.facade.sdks import sdk_library_names
+
+
+class ExposureSegmentDimension(StrEnum):
+    # pinned: the `srm` finding names its evidence keys and its reasons after these values.
+    LIBRARY = "library"
+    LIBRARY_VERSION = "library_version"
+    PAGE = "page"
+    SCREEN = "screen"
+
+
+# `segments_query` reads them as the columns breakdown_value_1 to breakdown_value_4, in this order.
+_SEGMENT_BREAKDOWNS = (
+    Breakdown(property="$lib", type=MultipleBreakdownType.EVENT),
+    Breakdown(property="$lib_version", type=MultipleBreakdownType.EVENT),
+    Breakdown(property="$pathname", type=MultipleBreakdownType.EVENT),
+    Breakdown(property="$screen_name", type=MultipleBreakdownType.EVENT),
 )
 
 
@@ -54,31 +77,40 @@ class ExposureQueryBuilder:
 
     The builder takes the experiment-level invariants via ``ExperimentQueryContext``
     plus the narrow inputs that depend on the current metric/precomputation state:
-    the optional ``breakdown_injector``, a ``maturity_having_builder`` callable
-    (which produces the maturity HAVING clause for a given timestamp expression),
-    and the optional ``preaggregation_job_ids`` used to read from the precomputed
-    exposures table instead of scanning events.
+    the optional ``breakdown_injector``, the ``maturity`` gate of the current build
+    with the metric's ``maturity_window_seconds`` (the window starts at the entity's
+    first exposure), and the optional ``preaggregation_job_ids`` used to read from
+    the precomputed exposures table instead of scanning events.
     """
 
     def __init__(
         self,
         context: ExperimentQueryContext,
         breakdown_injector: BreakdownInjector | None = None,
-        maturity_having_builder: Callable[[str], ast.Expr | None] | None = None,
+        maturity: MaturityGate | None = None,
+        maturity_window_seconds: int = 0,
         preaggregation_job_ids: list[str] | None = None,
     ):
         self.context = context
         self.breakdown_injector = breakdown_injector
-        self.maturity_having_builder = maturity_having_builder
+        self.maturity = maturity
+        self.maturity_window_seconds = maturity_window_seconds
         self.preaggregation_job_ids = preaggregation_job_ids
 
-    def _maturity_having(self, timestamp_expr: str = "timestamp") -> ast.Expr | None:
-        if self.maturity_having_builder is None:
+    def _maturity_having(self, first_exposure_time: ast.Expr) -> ast.Expr | None:
+        if self.maturity is None:
             return None
-        return self.maturity_having_builder(timestamp_expr)
+        return self.maturity.condition(first_exposure_time, self.maturity_window_seconds)
 
-    def timeseries_query(self) -> ast.SelectQuery:
-        """Daily exposure counts per variant. Each entity counts once, on its first exposure day."""
+    def timeseries_query(self, with_library: bool = False) -> ast.SelectQuery:
+        """Daily exposure counts per variant. Each entity counts once, on its first exposure day.
+
+        With `with_library` and without an activation, the `exposed_by_library` column counts the entities of each row
+        by the SDK library (`$lib`) of their first exposure, as a (libraries, counts) pair of arrays. A library outside
+        PostHog's own SDKs counts under BREAKDOWN_OTHER_STRING_LABEL, and a missing one under
+        BREAKDOWN_NULL_STRING_LABEL.
+        """
+        with_library = with_library and self.context.activation_config is None
         query = parse_select(
             """
             WITH first_exposures AS ({first_exposures_select})
@@ -93,15 +125,138 @@ class ExposureQueryBuilder:
             ORDER BY first_exposures.day ASC
             """,
             placeholders={
-                "first_exposures_select": self._build_first_exposures_day_select(),
+                "first_exposures_select": self._build_first_exposures_day_select(with_library=with_library),
             },
         )
 
         assert isinstance(query, ast.SelectQuery)
+        if with_library:
+            # The library is a column of the same scan, so it costs no second read of the events.
+            query.select.append(
+                ast.Alias(
+                    alias="exposed_by_library",
+                    expr=parse_expr("sumMap([first_exposures.library], [1])"),
+                )
+            )
         return query
 
-    def _build_first_exposures_day_select(self) -> ast.SelectQuery:
-        """Per-entity (entity_id, variant, day-of-first-exposure) select feeding the timeseries."""
+    def segments_query(self, top_values: int, first_exposed_after: date | None = None) -> ast.SelectQuery:
+        """
+        Persons or groups by variant and by the SDK library of their first exposure, by the version of that library,
+        and by the page of the exposure, or by its screen when it has no path. The team's path cleaning rules group
+        the pages. Columns: dimension, library, segment, variant, exposed_count. `library` holds the library of a
+        version segment, and is empty in the other dimensions. In each dimension, the `top_values` segments with the
+        most persons or groups keep their own rows, and the others share the BREAKDOWN_OTHER_STRING_LABEL segment, so
+        that one path per URL can't grow the result. With `first_exposed_after`, only the persons or groups first
+        exposed after that day in the team's timezone count, as in the daily counts of timeseries_query.
+        """
+        entities = ExposureQueryBuilder(
+            context=replace(self.context, breakdowns=_SEGMENT_BREAKDOWNS),
+            breakdown_injector=BreakdownInjector(list(_SEGMENT_BREAKDOWNS)),
+        ).select_query()
+        # The window functions rank the segments on the grouped rows, so the events are scanned once.
+        query = parse_select(
+            """
+            SELECT dimension, library, segment, variant, sum(exposed_count) AS exposed_count
+            FROM (
+                SELECT
+                    dimension,
+                    if(segment_rank <= {top_values}, segment_library, '') AS library,
+                    if(segment_rank <= {top_values}, segment_value, {other_segments}) AS segment,
+                    variant,
+                    exposed_count
+                FROM (
+                    SELECT
+                        dimension,
+                        segment_library,
+                        segment_value,
+                        variant,
+                        exposed_count,
+                        dense_rank() OVER (
+                            PARTITION BY dimension ORDER BY segment_total DESC, segment_library ASC, segment_value ASC
+                        ) AS segment_rank
+                    FROM (
+                        SELECT
+                            dimension,
+                            segment_library,
+                            segment_value,
+                            variant,
+                            exposed_count,
+                            sum(exposed_count) OVER (
+                                PARTITION BY dimension, segment_library, segment_value
+                            ) AS segment_total
+                        FROM (
+                            SELECT
+                                segment_tuple.1 AS dimension,
+                                segment_tuple.2 AS segment_library,
+                                segment_tuple.3 AS segment_value,
+                                variant,
+                                count() AS exposed_count
+                            FROM ({entities}) AS entities
+                            ARRAY JOIN arrayConcat(
+                                [
+                                    ({library}, '', breakdown_value_1),
+                                    ({library_version}, breakdown_value_1, breakdown_value_2)
+                                ],
+                                multiIf(
+                                    notEmpty(breakdown_value_3) AND breakdown_value_3 != {no_value},
+                                    [({page}, '', {page_value})],
+                                    notEmpty(breakdown_value_4) AND breakdown_value_4 != {no_value},
+                                    [({screen}, '', breakdown_value_4)],
+                                    []
+                                )
+                            ) AS segment_tuple
+                            WHERE notEmpty(variant) AND {first_exposed}
+                            GROUP BY dimension, segment_library, segment_value, variant
+                        )
+                    )
+                )
+            )
+            GROUP BY dimension, library, segment, variant
+            """,
+            placeholders={
+                "entities": entities,
+                "top_values": ast.Constant(value=top_values),
+                "other_segments": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                "no_value": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                "library": ast.Constant(value=ExposureSegmentDimension.LIBRARY.value),
+                "library_version": ast.Constant(value=ExposureSegmentDimension.LIBRARY_VERSION.value),
+                "page": ast.Constant(value=ExposureSegmentDimension.PAGE.value),
+                "page_value": apply_path_cleaning(ast.Field(chain=["breakdown_value_3"]), self.context.team),
+                "screen": ast.Constant(value=ExposureSegmentDimension.SCREEN.value),
+                "first_exposed": (
+                    parse_expr(
+                        "toDate(toString(first_exposure_time)) > {day}",
+                        placeholders={"day": ast.Constant(value=first_exposed_after)},
+                    )
+                    if first_exposed_after is not None
+                    else ast.Constant(value=True)
+                ),
+            },
+        )
+        assert isinstance(query, ast.SelectQuery)
+        # HogQL adds LIMIT 100 otherwise. The variants and the `$multiple` variant times the segments of each dimension.
+        query.limit = ast.Constant(
+            value=(len(self.context.variants) + 1) * (top_values + 1) * len(ExposureSegmentDimension)
+        )
+        return query
+
+    def exposed_count_query(self) -> ast.SelectQuery:
+        """The persons or groups exposed, in one row. Each counts once, as in timeseries_query."""
+        query = parse_select(
+            """
+            SELECT count() AS exposed_count
+            FROM ({first_exposures_select}) AS first_exposures
+            WHERE notEmpty(first_exposures.variant)
+            """,
+            placeholders={"first_exposures_select": self._build_first_exposures_day_select()},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        return query
+
+    def _build_first_exposures_day_select(self, with_library: bool = False) -> ast.SelectQuery:
+        """Per-entity (entity_id, variant, day-of-first-exposure) select feeding the timeseries. `with_library` adds the
+        library of the first exposure, as segments_query reads it, and applies only without an activation."""
         if self.context.activation_config is not None:
             query = parse_select(
                 """
@@ -140,12 +295,32 @@ class ExposureQueryBuilder:
                 },
             )
         assert isinstance(query, ast.SelectQuery)
+        if with_library and self.context.activation_config is None:
+            [(_, library_expr)] = BreakdownInjector(
+                [Breakdown(property="$lib", type=MultipleBreakdownType.EVENT)]
+            ).build_breakdown_exprs()
+            # Any sender can set `$lib`, so the column keeps only the names of PostHog's own SDKs. That bounds the
+            # distinct values before any grouping, however many values the events carry.
+            query.select.append(
+                ast.Alias(
+                    alias="library",
+                    expr=parse_expr(
+                        "argMin(multiIf({library} IN {sdk_libraries}, {library}, {library} = {no_library}, {library}, {other_library}), timestamp)",
+                        placeholders={
+                            "library": library_expr,
+                            "sdk_libraries": ast.Tuple(
+                                exprs=[ast.Constant(value=name) for name in sdk_library_names()]
+                            ),
+                            "no_library": ast.Constant(value=BREAKDOWN_NULL_STRING_LABEL),
+                            "other_library": ast.Constant(value=BREAKDOWN_OTHER_STRING_LABEL),
+                        },
+                    ),
+                )
+            )
         return query
 
     def _build_precomputed_entity_id_expr(self) -> ast.Expr:
-        return (
-            parse_expr("toUUID(t.entity_id)") if self.context.entity_key == "person_id" else parse_expr("t.entity_id")
-        )
+        return parse_expr(self.context.precomputed_entity_id_sql())
 
     def _build_precomputed_variant_expr(self) -> ast.Expr:
         if self.context.multiple_variant_handling == MultipleVariantHandling.FIRST_SEEN:
@@ -221,28 +396,38 @@ class ExposureQueryBuilder:
 
     def build_exposure_event_predicate(self) -> ast.Expr:
         """Event-level exposure predicate, without date, variant, or test-account conditions."""
-        event_predicate = event_or_action_to_filter(self.context.team, self.context.exposure_config)
+        exposure_config = self.context.exposure_config
+        if not (
+            isinstance(exposure_config, ExperimentEventExposureConfig)
+            and exposure_config.event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT)
+        ):
+            return event_or_action_to_filter(self.context.team, exposure_config)
 
-        # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
-        # flag key filter, exposures of other experiments would count too.
-        if isinstance(
-            self.context.exposure_config, ExperimentEventExposureConfig
-        ) and self.context.exposure_config.event in (DEFAULT_EXPOSURE_EVENT, EXPERIMENT_EXPOSURE_EVENT):
-            flag_property = f"$feature_flag"
+        event_predicate = exposure_event_name_filter(
+            exposure_config.event, read_copies=self.context.read_exposure_copies
+        )
+        if exposure_config.properties:
             event_predicate = ast.And(
                 exprs=[
                     event_predicate,
-                    parse_expr(
-                        "{flag_property} = {feature_flag_key}",
-                        placeholders={
-                            "flag_property": ast.Field(chain=["properties", flag_property]),
-                            "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
-                        },
-                    ),
+                    ast.And(exprs=[property_to_expr(prop, self.context.team) for prop in exposure_config.properties]),
                 ]
             )
 
-        return event_predicate
+        # $feature_flag_called and $experiment_exposure are not specific to one flag, so without the
+        # flag key filter, exposures of other experiments would count too.
+        return ast.And(
+            exprs=[
+                event_predicate,
+                parse_expr(
+                    "{flag_property} = {feature_flag_key}",
+                    placeholders={
+                        "flag_property": ast.Field(chain=["properties", "$feature_flag"]),
+                        "feature_flag_key": ast.Constant(value=self.context.feature_flag_key),
+                    },
+                ),
+            ]
+        )
 
     def build_entity_key_filter(self) -> ast.Expr:
         """
@@ -299,13 +484,23 @@ class ExposureQueryBuilder:
             return event_or_action_to_filter(self.context.team, self.context.activation_config)
         return self.build_exposure_event_predicate()
 
-    def select_query(self) -> ast.SelectQuery:
+    def reads_precomputed(self) -> bool:
+        """
+        Whether select_query() reads the precomputed exposures table. Job ids alone do not
+        decide it: activation mode and breakdowns scan events even when job ids are set.
+        """
         # Activation mode never reads precomputed exposures: the per-day cache is built from
         # the flag predicate alone and cannot express the cross-day flag→activation ordering.
         if self.context.activation_config is not None:
+            return False
+        return bool(self.preaggregation_job_ids) and not self.context.breakdowns
+
+    def select_query(self) -> ast.SelectQuery:
+        if self.context.activation_config is not None:
             return self._build_activation_exposure_select_query()
 
-        if self.preaggregation_job_ids and not self.context.breakdowns:
+        if self.reads_precomputed():
+            assert self.preaggregation_job_ids is not None
             return self.precomputed_select_query(self.preaggregation_job_ids)
 
         return self._build_exposure_select_query()
@@ -426,7 +621,7 @@ class ExposureQueryBuilder:
                 exposure_query.select.append(ast.Alias(alias=alias, expr=breakdown_attributed))
 
         # Filter out users whose conversion window hasn't elapsed yet
-        maturity_having = self._maturity_having()
+        maturity_having = self._maturity_having(parse_expr("min(timestamp)"))
         if maturity_having is not None:
             if exposure_query.having is None:
                 exposure_query.having = maturity_having
@@ -478,7 +673,7 @@ class ExposureQueryBuilder:
 
         # Filter out users whose conversion window hasn't elapsed yet, anchored on
         # first exposure
-        maturity_having = self._maturity_having(timestamp_expr="t.first_exposure_time")
+        maturity_having = self._maturity_having(parse_expr("min(t.first_exposure_time)"))
         if maturity_having is not None:
             if query.having is None:
                 query.having = maturity_having
@@ -507,7 +702,8 @@ class ExposureQueryBuilder:
         # (UTC-day-aligned). The experiment_date_from/to placeholders tighten
         # the scan to the actual experiment dates so that variant aggregation
         # only considers events within the experiment.
-        query_string = """
+        query_string = (
+            """
             SELECT
                 {entity_key} AS entity_id,
                 {variant_expr} AS variant,
@@ -515,7 +711,9 @@ class ExposureQueryBuilder:
                 max(timestamp) AS last_exposure_time,
                 argMin(uuid, timestamp) AS exposure_event_uuid,
                 argMin(`$session_id`, timestamp) AS exposure_session_id,
-                [] AS breakdown_value
+                [] AS breakdown_value"""
+            + self.context.precompute_distinct_id_column_sql("argMin(distinct_id, timestamp)")
+            + """
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
@@ -526,6 +724,7 @@ class ExposureQueryBuilder:
                 AND {variant_property} IN {variants}
             GROUP BY entity_id
         """
+        )
 
         placeholders = {
             "entity_key": parse_expr(self.context.entity_key),

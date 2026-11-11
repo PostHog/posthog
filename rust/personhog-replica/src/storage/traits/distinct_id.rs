@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::storage::error::StorageResult;
 use crate::storage::postgres::ConsistencyLevel;
-use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
+use crate::storage::types::{DistinctIdMapping, DistinctIdRow, DistinctIdWithVersion};
 
 /// Distinct ID operations - fetching distinct IDs for persons
 #[async_trait]
@@ -23,4 +23,12 @@ pub trait DistinctIdLookup: Send + Sync {
         consistency: ConsistencyLevel,
         limit_per_person: Option<i64>,
     ) -> StorageResult<Vec<DistinctIdMapping>>;
+
+    /// The mapping rows for `distinct_ids`, live or tombstoned, in distinct id order. Missing ids are left out.
+    async fn get_distinct_id_rows(
+        &self,
+        team_id: i64,
+        distinct_ids: &[String],
+        consistency: ConsistencyLevel,
+    ) -> StorageResult<Vec<DistinctIdRow>>;
 }

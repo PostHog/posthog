@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import time_machine
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import DateRange, IntervalType
@@ -388,6 +390,25 @@ class TestReportMetric(SimpleTestCase):
         with self.assertRaisesRegex(ValidationError, f"at most {MAX_LIVE_METRIC_QUERY_SERIES} series"):
             ReportMetric.model_validate(content)
 
+    def test_live_query_validates_custom_hogql_aggregation_syntax(self) -> None:
+        for series in ({"kind": "EventsNode", "event": "$pageview"}, {"kind": "ActionsNode", "id": 1}):
+            for math_kind, expression, valid in (
+                ("hogql", "sum(", False),
+                ("hogql", "", False),
+                ("hogql", "count()", True),
+                ("hogql", "sum(properties.amount)", True),
+                ("total", "sum(", True),
+            ):
+                with self.subTest(series=series, math=math_kind, expression=expression):
+                    content = _affected_users_metric().model_dump(mode="json")
+                    content["kind"] = "custom"
+                    content["query"]["source"]["series"] = [{**series, "math": math_kind, "math_hogql": expression}]
+                    if valid:
+                        assert ReportMetric.model_validate(content).query == content["query"]
+                    else:
+                        with self.assertRaisesRegex(ValidationError, "math_hogql.*valid HogQL expression"):
+                            ReportMetric.model_validate(content)
+
     def test_live_query_rejects_formulas_the_trends_runner_cannot_execute(self) -> None:
         for description, trends_formula in (
             ("empty formulas entry", {"formulas": [""]}),
@@ -477,7 +498,6 @@ class TestReportMetric(SimpleTestCase):
         assert ReportMetric.model_validate_json(metric.model_dump_json()) == metric
 
         for series_patch, error in (
-            ({"series": [1, 2], "value": None, "value_at": None}, "needs value and value_at"),
             ({"series": [1, True]}, "not booleans"),
             ({"series": [float("nan")]}, "finite"),
             ({"series": [1] * (MAX_METRIC_SERIES_POINTS + 1)}, f"exceed {MAX_METRIC_SERIES_POINTS} points"),
@@ -489,6 +509,23 @@ class TestReportMetric(SimpleTestCase):
                 content.update(series_patch)
                 with self.assertRaisesRegex(ValidationError, error):
                     ReportMetric.model_validate(content)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_drops_series_without_a_snapshot_and_keeps_the_live_query(self, explicit_nulls: bool) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content["series"] = [1, 2]
+        for key in ("value", "value_at"):
+            if explicit_nulls:
+                content[key] = None
+            else:
+                content.pop(key)
+
+        metric = ReportMetric.model_validate(content)
+
+        assert metric.series is None
+        assert metric.value is None
+        assert metric.value_at is None
+        assert metric.query == content["query"]
 
     def test_snapshot_timestamp_requires_a_timezone(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
@@ -544,13 +581,14 @@ class TestReportMetric(SimpleTestCase):
 
     def test_count_comparison_uses_the_same_whole_number_semantics(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
-        content["comparison"] = {"label": " Previous period ", "value": 16}
+        comparison: dict[str, Any] = {"label": " Previous period ", "value": 16}
+        content["comparison"] = comparison
 
         metric = ReportMetric.model_validate(content)
         assert metric.comparison is not None
         assert metric.comparison.label == "Previous period"
 
-        content["comparison"]["value"] = 16.5
+        comparison["value"] = 16.5
         with self.assertRaisesRegex(ValidationError, "count comparison"):
             ReportMetric.model_validate(content)
 

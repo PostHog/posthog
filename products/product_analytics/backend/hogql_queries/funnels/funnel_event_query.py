@@ -25,7 +25,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
 )
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.property import action_to_expr, element_property_key_to_breakdown_expr, property_to_expr
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
@@ -37,7 +37,8 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.property.property import PropertyName
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.product_analytics.backend.hogql_queries.funnels.funnel_aggregation_operations import (
     FirstTimeForUserAggregationQuery,
 )
@@ -47,6 +48,7 @@ from products.product_analytics.backend.hogql_queries.funnels.utils import (
     data_warehouse_config_key,
     entity_config_mismatch,
     get_breakdown_expr,
+    to_breakdown_string,
 )
 
 
@@ -276,6 +278,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 right=ast.Constant(value=date_range.date_to()),
             ),
             self._day_of_week_filter_expr(ast.Field(chain=["timestamp"])),
+            self._aggregation_target_filter() if self.context.query.aggregation_group_type_index is not None else None,
+            *self._properties_expr(),
         ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
@@ -357,8 +361,8 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         if isinstance(step_entity, ActionsNode) or isinstance(step_entity, FunnelExclusionActionsNode):
             # action
             try:
-                action = Action.objects.get(pk=int(step_entity.id), team__project_id=self.context.team.project_id)
-            except Action.DoesNotExist:
+                action = get_action(action_id=int(step_entity.id), project_id=self.context.team.project_id)
+            except ActionNotFound:
                 raise ValidationError(f"Action ID {step_entity.id} does not exist!")
             event_expr = action_to_expr(action)
         elif isinstance(step_entity, FunnelsDataWarehouseNode):
@@ -437,6 +441,11 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
         return ast.Or(exprs=step_conditions)
 
     def _get_breakdown_expr(self) -> ast.Expr:
+        """Build the per-event breakdown value.
+
+        Every branch except cohort must return string-typed values, because the step query
+        replaces values past the breakdown limit with the string `Other`.
+        """
         breakdown, breakdownType, breakdownFilter = (
             self.context.breakdown,
             self.context.breakdownType,
@@ -476,13 +485,18 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column)
         elif breakdownType == "session":
             return get_breakdown_expr(breakdown, "session")
+        elif breakdownType == "element":
+            values = breakdown if isinstance(breakdown, list) else [breakdown]
+            return ast.Array(
+                exprs=[to_breakdown_string(element_property_key_to_breakdown_expr(str(value))) for value in values]
+            )
         elif breakdownType == "hogql" or breakdownType == "event_metadata":
             assert isinstance(breakdown, list)
-            exprs = [strip_user_aliases(parse_expr(str(value))) for value in breakdown]
+            exprs = [to_breakdown_string(strip_user_aliases(parse_expr(str(value)))) for value in breakdown]
             return ast.Alias(alias="value", expr=ast.Array(exprs=exprs))
         elif breakdownType == "data_warehouse_person_property":
             assert isinstance(breakdown, str)
-            return ast.Field(chain=["person", *breakdown.split(".")])
+            return to_breakdown_string(ast.Field(chain=["person", *breakdown.split(".")]))
         elif breakdownType == "data_warehouse":
             return get_breakdown_expr(breakdown, None)
         else:
@@ -672,9 +686,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 events.add(node.event)
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
                 try:
-                    action = Action.objects.get(pk=int(node.id), team__project_id=self.context.team.project_id)
+                    action = get_action(action_id=int(node.id), project_id=self.context.team.project_id)
                     events.update(action.get_step_events())
-                except Action.DoesNotExist:
+                except ActionNotFound:
                     raise ValidationError(f"Action ID {node.id} does not exist!")
             elif isinstance(node, FunnelsDataWarehouseNode):
                 continue  # Data warehouse nodes aren't based on events
@@ -684,9 +698,9 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                         events.add(child.event)
                     elif isinstance(child, ActionsNode):
                         try:
-                            action = Action.objects.get(pk=int(child.id), team__project_id=self.context.team.project_id)
+                            action = get_action(action_id=int(child.id), project_id=self.context.team.project_id)
                             events.update(action.get_step_events())
-                        except Action.DoesNotExist:
+                        except ActionNotFound:
                             raise ValidationError(f"Action ID {child.id} does not exist!")
                     else:
                         continue

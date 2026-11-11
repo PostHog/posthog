@@ -1,11 +1,11 @@
 import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor } from '@testing-library/dom'
 import { HttpResponse } from 'msw'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
-import dashboardFixture from 'scenes/dashboard/__mocks__/dashboard.json'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
 import { recordingPlaylists } from 'scenes/session-recordings/__mocks__/recording_playlists'
 import { snapshotsAsJSONLines } from 'scenes/session-recordings/__mocks__/recording_snapshots'
@@ -28,6 +28,7 @@ import {
 } from '~/types'
 
 import traceWithoutContent from 'products/ai_observability/frontend/__mocks__/traceWithoutContent.json'
+import dashboardFixture from 'products/dashboards/frontend/__mocks__/dashboard.json'
 import {
     errorTrackingEventsQueryResponse,
     errorTrackingQueryResponse,
@@ -35,7 +36,7 @@ import {
 } from 'products/error_tracking/frontend/__mocks__/error_tracking_query'
 import { NEW_WORKFLOW } from 'products/workflows/frontend/Workflows/workflowLogic'
 
-import { expect, waitFor } from 'storybook/test'
+import { expect } from 'storybook/test'
 
 import featureFlags from '../../feature-flags/__mocks__/feature_flags.json'
 import { notebookWidgetCatalog, NotebookWidgetTagName } from '../notebookWidgetCatalog'

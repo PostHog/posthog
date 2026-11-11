@@ -1,6 +1,10 @@
 import pytest
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.request_pacer import RequestPacer
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.safe_point import activate_safe_point
 
 
 class TestRequestPacer:
@@ -108,3 +112,28 @@ class TestRequestPacer:
 
         # The 20s deadline stands: neither the shorter header nor the bare repeat moved it.
         assert sleeps == []
+
+    @override_settings(DATA_WAREHOUSE_SOURCE_MAX_RETRY_AFTER_SECONDS=300.0)
+    def test_a_retry_after_above_the_limit_holds_for_the_limit(self) -> None:
+        pacer, clock, sleeps = self._pacer()
+
+        pacer.throttled(100_000.0)
+        pacer.throttled(200_000.0)
+        pacer.wait_turn()
+
+        assert sleeps == pytest.approx([300.0])
+
+    @pytest.mark.parametrize("shutting_down,expected_sleep", [(False, 60.0), (True, 0.0)])
+    def test_a_hold_ends_when_the_worker_shuts_down(self, shutting_down: bool, expected_sleep: float) -> None:
+        pacer = RequestPacer(10.0, clock=lambda: 0.0)
+        pacer.throttled(60.0)
+
+        with (
+            patch("time.sleep") as sleep,
+            activate_safe_point(
+                lambda: None, covers_framework_checkpoints=False, is_shutting_down=lambda: shutting_down
+            ),
+        ):
+            pacer.wait_turn()
+
+        assert sum(call.args[0] for call in sleep.call_args_list) == pytest.approx(expected_sleep)

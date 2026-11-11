@@ -201,7 +201,15 @@ export function useRepositories(
             // Most-recently-pushed first so the repo the user is working in floats to the top.
             [...repositories]
                 .sort((a, b) => pushedAtMs(b.pushed_at) - pushedAtMs(a.pushed_at))
-                .map((r) => ({ key: r[valueKey], label: r.full_name, labelComponent: <RepoOptionLabel repo={r} /> })),
+                // A qualified-name key is lowercased because the stored value is. The API lowercases
+                // a repository filter on save, while GitHub reports `full_name` in the owner's
+                // casing. Compared as-is, the stored value matches no option, so LemonInputSelect
+                // shows it as a custom value beside the real repository and drops the rich label.
+                .map((r) => ({
+                    key: valueKey === 'full_name' ? r[valueKey].toLowerCase() : r[valueKey],
+                    label: r.full_name,
+                    labelComponent: <RepoOptionLabel repo={r} />,
+                })),
         [repositories, valueKey]
     )
 

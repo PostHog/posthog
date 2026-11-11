@@ -1,8 +1,8 @@
 // Wire-protocol constants for the agent-proxy Redis stream plane.
 //
 // Every value here must stay byte-identical to the Python implementation in
-// products/tasks/backend/stream/redis_stream.py and
-// products/tasks/backend/services/sandbox_config.py — Django and this Node
+// products/tasks/backend/logic/stream/redis_stream.py and
+// products/tasks/backend/logic/services/sandbox_config.py — Django and this Node
 // service share the SAME Redis stream during the cutover window.
 
 // SANDBOX_TTL_SECONDS from sandbox_config.py (production value only; the TEST
@@ -51,6 +51,7 @@ export const HEARTBEAT_THROTTLE_SECONDS = 30
 
 // Redis key prefix (byte-identical to TASK_RUN_STREAM_PREFIX in Python)
 export const STREAM_PREFIX = 'task-run-stream:'
+export const STREAM_INITIAL_GENERATION = 'initial'
 
 // Redis key builder functions (byte-identical to Python get_task_run_stream_*_key)
 

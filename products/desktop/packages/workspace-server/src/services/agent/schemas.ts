@@ -154,6 +154,7 @@ export const sessionResponseSchema = z.object({
   // (`_meta.posthog.sideQuestion`): true means the adapter can answer a
   // one-shot "/btw" question forked off the live transcript.
   sideQuestion: z.boolean().optional(),
+  gatewayMode: z.enum(["legacy", "go"]).optional(),
 });
 
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;

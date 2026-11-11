@@ -5,12 +5,15 @@ from unittest.mock import MagicMock, patch
 
 from django.core.management.base import CommandError
 
+from parameterized import parameterized
+
 from posthog.management.commands.background_delete_model import Command
 from posthog.models import Tag
+from posthog.tasks.tasks import background_delete_model_task
 
 # Uses a plain main-DB, team-scoped model (Tag) as the deletion target — the command is
-# model-agnostic, so the specific model is incidental. (It deliberately does NOT target persons
-# models: the deletion task runs against the default connection and can't reach the persons DB.)
+# model-agnostic, so the specific model is incidental. (Persons-database models are refused, so
+# these tests cannot use them.)
 
 
 class TestBackgroundDeleteModel(BaseTest):
@@ -50,6 +53,22 @@ class TestBackgroundDeleteModel(BaseTest):
                 self.command.handle("test.TestModel", team_id=1)
 
             self.assertIn("does not have a team_id or team field", str(context.exception))
+
+    @parameterized.expand(
+        [("posthog.Person",), ("posthog.PersonDistinctId",), ("feature_flags.FeatureFlagHashKeyOverride",)]
+    )
+    @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
+    def test_refuses_persons_db_models(self, model_name, mock_task):
+        with self.assertRaises(CommandError) as context:
+            self.command.handle(model_name, team_id=self.team.id)
+
+        self.assertIn("lives in the persons database", str(context.exception))
+        mock_task.assert_not_called()
+        mock_task.delay.assert_not_called()
+
+    def test_task_refuses_persons_db_model(self):
+        with self.assertRaisesRegex(ValueError, "lives in the persons database"):
+            background_delete_model_task("posthog.Person", team_id=self.team.id)
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
     @patch("builtins.input", return_value="DELETE 2 RECORDS")

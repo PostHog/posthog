@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 
 import { getSeriesColor } from 'lib/colors'
+import { formatAggregationAxisValue } from 'lib/insights/aggregationAxisFormat'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { BoxPlotDatum } from '~/queries/schema/schema-general'
@@ -47,6 +47,12 @@ export function BoxPlotResultsTable(): JSX.Element | null {
                     title: 'Date',
                     key: 'label',
                     render: (_, datum: BoxPlotDatum) => datum.label,
+                },
+                {
+                    title: 'Count',
+                    key: 'count',
+                    align: 'right',
+                    render: (_, datum: BoxPlotDatum) => datum.count?.toLocaleString() ?? '-',
                 },
                 {
                     title: 'Min',

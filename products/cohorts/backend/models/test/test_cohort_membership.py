@@ -3,6 +3,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.exceptions import ClickHouseAtCapacity
@@ -381,7 +383,7 @@ class TestDeleteCohortMembersBulk(BaseTest):
         get_active_fake().assert_not_called("delete_cohort_members_bulk")
 
 
-class TestDeleteCohortMembersBulkMaxIterations(BaseTest):
+class TestDeleteCohortMembersBulkMaxIterations(SimpleTestCase):
     def test_stops_after_max_iterations(self):
         from unittest.mock import MagicMock
 

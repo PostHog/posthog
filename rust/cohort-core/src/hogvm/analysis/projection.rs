@@ -46,7 +46,7 @@ use super::{FullColumnsReason, GlobalRoot, Projection, ReadPath, UnanalyzableRea
 
 /// `elements_chain` falls back to this property when the event's own column is empty, so a caller
 /// that projects an `elements_chain` read must carry it too.
-const ELEMENTS_CHAIN_PROPERTY: &str = "$elements_chain";
+pub(super) const ELEMENTS_CHAIN_PROPERTY: &str = "$elements_chain";
 
 /// Natives whose result depends on how a JSON number was spelled, rather than on its value.
 ///

@@ -1,15 +1,18 @@
 from posthog.api.routing import RouterRegistry
 
 from products.replay_vision.backend.api import (
+    ObservationRequestViewSet,
     ReplayObservationViewSet,
     ReplayScannerBackfillViewSet,
-    ReplayScannerPromptSuggestionViewSet,
+    ReplayScannerVariantsViewSet,
     ReplayScannerViewSet,
     ScannerScoutReportViewSet,
     ScannerScoutViewSet,
     SessionReplayObservationViewSet,
     VisionAlertViewSet,
+    VisionGroupViewSet,
     VisionQuotaViewSet,
+    VisionThemeViewSet,
 )
 
 
@@ -36,13 +39,15 @@ def register_routes(routers: RouterRegistry) -> None:
         r"backfills", ReplayScannerBackfillViewSet, "project_vision_scanner_backfills", ["team_id", "scanner_id"]
     )
     project_vision_scanners_router.register(
-        r"prompt_suggestions",
-        ReplayScannerPromptSuggestionViewSet,
-        "project_vision_scanner_prompt_suggestions",
-        ["team_id", "scanner_id"],
+        r"variants", ReplayScannerVariantsViewSet, "project_vision_scanner_variants", ["team_id", "scanner_id"]
     )
     routers.projects.register(
         r"vision/observations", SessionReplayObservationViewSet, "project_vision_observations", ["team_id"]
     )
+    routers.projects.register(
+        r"vision/requests", ObservationRequestViewSet, "project_vision_observation_requests", ["team_id"]
+    )
     routers.projects.register(r"vision/quota", VisionQuotaViewSet, "project_vision_quota", ["team_id"])
     routers.projects.register(r"vision/alerts", VisionAlertViewSet, "project_vision_alerts", ["team_id"])
+    routers.projects.register(r"vision/themes", VisionThemeViewSet, "project_vision_themes", ["team_id"])
+    routers.projects.register(r"vision/groups", VisionGroupViewSet, "project_vision_groups", ["team_id"])

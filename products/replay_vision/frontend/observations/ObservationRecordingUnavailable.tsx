@@ -31,6 +31,7 @@ export function ObservationRecordingUnavailable({ observation }: { observation: 
                 </span>
             </div>
             <Link
+                data-attr="vision-observation-open-retention-settings"
                 to={urls.settings('project-replay', 'replay-retention')}
                 target="_blank"
                 targetBlankIcon

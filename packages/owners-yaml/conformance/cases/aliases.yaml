@@ -19,7 +19,7 @@ cases:
               source: products/foo/product.yaml
               slack: '#team-foo'
 
-    - name: only the owners field of product.yaml has an effect
+    - name: fields of product.yaml other than owners and sensitive have no effect
       files:
           owners.yaml: |
               version: 1
@@ -216,3 +216,71 @@ cases:
               status: active
               source: products/foo/product.yaml
               slack: '#team-product'
+
+    - name: an alias file can set sensitive
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml]
+          products/billing/product.yaml: |
+              name: billing
+              owners:
+                - team-billing
+              sensitive: true
+          products/billing/api/owners.yaml: |
+              version: 1
+              owners: []
+              sensitive: false
+      expect:
+          products/billing/models.py:
+              owners: [team-billing]
+              unowned_by_design: false
+              status: active
+              source: products/billing/product.yaml
+              slack: '#team-billing'
+              sensitive: true
+          products/billing/api/views.py:
+              owners: [team-billing]
+              unowned_by_design: false
+              status: active
+              source: products/billing/product.yaml
+              slack: '#team-billing'
+
+    - name: an alias file without a usable owners list does not set sensitive
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml]
+          products/web/product.yaml: |
+              name: web
+              sensitive: true
+      expect:
+          products/web/x.ts:
+              owners: [team-root]
+              unowned_by_design: false
+              status: active
+              source: owners.yaml
+              slack: '#team-root'
+
+    - name: an alias file ignores a sensitive value that is not a boolean
+      files:
+          owners.yaml: |
+              version: 1
+              owners: team-root
+              alias_files: [product.yaml]
+              sensitive: true
+          products/web/product.yaml: |
+              name: web
+              owners:
+                - team-web
+              sensitive: 'yes please'
+      expect:
+          products/web/x.ts:
+              owners: [team-web]
+              unowned_by_design: false
+              status: active
+              source: products/web/product.yaml
+              slack: '#team-web'
+              sensitive: true

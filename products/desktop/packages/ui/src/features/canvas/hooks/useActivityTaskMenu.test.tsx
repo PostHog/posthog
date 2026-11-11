@@ -58,7 +58,7 @@ describe("useActivityTaskMenu", () => {
       item({
         taskTitle: "Launch canvas",
         commentId: "comment-1",
-        commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
+        commentTarget: { scope: "canvas", itemId: "canvas-1" },
       }),
     );
 

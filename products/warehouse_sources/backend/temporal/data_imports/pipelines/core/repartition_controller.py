@@ -9,7 +9,7 @@ schema. The next run's pre-extraction activity performs the rewrite (see `repart
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Literal
 
 from django.conf import settings
@@ -43,12 +43,14 @@ from products.warehouse_sources.backend.temporal.data_imports.schema_flags impor
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
-WAREHOUSE_AUTO_REPARTITION_FLAG = "data-warehouse-auto-repartition"
-WAREHOUSE_AUTO_COARSEN_FLAG = "data-warehouse-auto-coarsen"
-# Gates pausing a schema's imports while a multi-budget rewrite converges. Separate from the
-# repartition flag, and off by default: repartitioning a table costs us worker time, pausing its
-# imports costs the customer freshness, so the second is not a decision the first should make.
+# Gates pausing a schema's imports while a multi-budget rewrite converges. Off by default:
+# repartitioning a table costs us worker time, pausing its imports costs the customer freshness, so
+# the second is not a decision the first should make.
 WAREHOUSE_REPARTITION_HOLD_FLAG = "data-warehouse-repartition-hold"
+
+# Lets the automatic coarsening path size keyed md5 tables by merge parallelism. Release it to one
+# table with a `schema_id` condition before rolling out wider.
+WAREHOUSE_MERGE_AUTO_COARSEN_FLAG = "data-warehouse-merge-auto-coarsen"
 
 # Coarsening gates. The two directions deliberately don't meet: a table is split finer above the budget
 # and merged coarser only below an eighth of it, and a coarsen aims at half the budget. So a freshly
@@ -87,6 +89,92 @@ def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 500_000_000))
 
 
+# The loader writes these sync types as incremental upserts on the primary key (CDC also upserts, but
+# detection excludes it).
+KEYED_MERGE_SYNC_TYPES = frozenset(
+    {ExternalDataSchema.SyncType.INCREMENTAL, ExternalDataSchema.SyncType.WEBHOOK, ExternalDataSchema.SyncType.XMIN}
+)
+
+
+def merge_target_partition_bytes() -> int:
+    return max(
+        target_partition_bytes(), int(getattr(settings, "DATA_WAREHOUSE_MERGE_TARGET_PARTITION_BYTES", 2_000_000_000))
+    )
+
+
+def split_budget_bytes(schema: ExternalDataSchema) -> int:
+    """The largest partition the size-driven split leaves alone on this table.
+
+    `target_partition_bytes` was sized for the delta-rs MERGE, whose working set grows with the
+    partition it merges into. Every keyed upsert now goes through deltalite first, and deltalite's
+    peak memory follows the shape of the files it rewrites, not the partition size. On an md5 table
+    each upsert touches every partition and rewrites at least one file in each, so a split there
+    makes every later merge slower and saves no memory.
+
+    Which engine writes is decided per batch: the delta-rs MERGE runs on a batch that deltalite
+    fails, and nothing records that per table. So a keyed-merge table still gets a budget, sized for
+    that fallback (`merge_target_partition_bytes`), rather than none. The writer refuses the
+    fallback on a partition above the base budget (`target_partition_bytes`) and retries the batch,
+    so the larger cap cannot lead to an oversized delta-rs MERGE.
+    """
+    if schema.sync_type in KEYED_MERGE_SYNC_TYPES:
+        return merge_target_partition_bytes()
+    return target_partition_bytes()
+
+
+# A coarsened keyed md5 table aims at this share of the merge budget, not at half of it as other
+# tables do. Its partition size costs no merge memory, so the margin only has to keep normal growth from
+# sending the table straight back to the size split. A table must grow by a third before that split
+# claims it, and the split then waits out the cooldown that the coarsening rewrite starts.
+MERGE_COARSEN_TARGET_FRACTION = 0.75
+
+
+def merge_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
+    return is_schema_flag_enabled(schema, WAREHOUSE_MERGE_AUTO_COARSEN_FLAG)
+
+
+def merge_md5_partition_min() -> int:
+    return max(1, int(getattr(settings, "DATA_WAREHOUSE_MERGE_MD5_PARTITION_MIN", 4)))
+
+
+def merge_md5_partition_target() -> int:
+    return max(merge_md5_partition_min(), int(getattr(settings, "DATA_WAREHOUSE_MERGE_MD5_PARTITION_TARGET", 8)))
+
+
+def coarsens_for_merge_parallelism(
+    schema: ExternalDataSchema, *, operator_requested: bool, auto_coarsen: bool | None = None
+) -> bool:
+    """Whether coarsening sizes this table by the merge budget and the md5 partition target.
+
+    Only a keyed md5 table qualifies. Its upserts hash every batch over all partitions, so each
+    partition adds at least one rewritten file to every merge, and its partition size costs no merge
+    memory (see `split_budget_bytes`). A batch of a datetime or numerical table usually falls in a few
+    partitions, so the partition count does not set its merge cost, and the base budget stays.
+
+    The automatic path uses this policy only when the auto coarsen flag is on for the schema. An
+    operator nomination always uses it. A caller that already has the flag result passes it as
+    `auto_coarsen`, so the flag is evaluated at most once per run. The evaluation is synchronous
+    and reads the database, so async callers run this in a thread.
+    """
+    if schema.sync_type not in KEYED_MERGE_SYNC_TYPES or schema.partition_mode != "md5":
+        return False
+    if operator_requested:
+        return True
+    # The automatic path never coarsens a table this fine, so the flag result could not change anything.
+    if (schema.partition_count or 0) < COARSEN_MIN_PARTITIONS:
+        return False
+    return merge_auto_coarsen_enabled(schema) if auto_coarsen is None else auto_coarsen
+
+
+def coarsen_trigger_budget(
+    schema: ExternalDataSchema, *, operator_requested: bool, auto_coarsen: bool | None = None
+) -> int:
+    """The budget that the coarsening trigger compares the largest partition with."""
+    if coarsens_for_merge_parallelism(schema, operator_requested=operator_requested, auto_coarsen=auto_coarsen):
+        return merge_target_partition_bytes()
+    return target_partition_bytes()
+
+
 def min_splittable_partition_bytes() -> int:
     """The smallest partition an OOM-triggered split is allowed to produce.
 
@@ -111,57 +199,112 @@ def repartition_oom_window_days() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS", 7))
 
 
-def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_REPARTITION_FLAG)
-
-
-def is_auto_coarsen_enabled(schema: ExternalDataSchema) -> bool:
-    return is_schema_flag_enabled(schema, WAREHOUSE_AUTO_COARSEN_FLAG)
-
-
-def needs_pre_extraction_detection(schema: ExternalDataSchema, enabled: bool) -> bool:
+def needs_pre_extraction_detection(schema: ExternalDataSchema) -> bool:
     """Whether to read the live on-disk partition sizes to decide if a repartition is needed.
 
     We deliberately do NOT gate on the recorded `max_partition_bytes`. That value is only refreshed by
     post-load detection, so for a table whose merge OOMs before post-load it goes stale and can sit far
     below the true partition size — precisely the tables this path exists to rescue (e.g. a partition
     that has since grown to many GB while the recorded value still reads a few hundred MB). Instead,
-    whenever the rollout flag is on (a targeted set of schemas) and the table isn't CDC-excluded, we
-    read the live partition sizes from the Delta log each run and let `maybe_flag_for_repartition` judge
-    against the real, current size. The cost is one metadata-only Delta-log read per sync, bounded to
-    flagged schemas; a disabled flag still short-circuits to a zero-I/O no-op.
-
-    A table nominated for coarsening is measured whether or not the rollout flag covers it, since the
-    nomination is the operator asking for exactly this measurement. CDC stays excluded either way.
+    whenever the table isn't CDC-excluded, we read the live partition sizes from the Delta log each run
+    and let `maybe_flag_for_repartition` judge against the real, current size. The cost is one
+    metadata-only Delta-log read per sync.
     """
-    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
-        return False
-    if schema.coarsen_requested is not None:
-        return True
-    return enabled
+    return schema.sync_type != ExternalDataSchema.SyncType.CDC
 
 
-def is_pending_repartition_released_by_flag(
-    schema: ExternalDataSchema, pending: Mapping[str, object], *, enabled: bool | None = None
+MeasurementPhase = Literal["pre_extraction", "post_load"]
+
+# How many earlier jobs the gate below reads to connect a run to the measurement it relies on. A
+# longer run of jobs with no rows costs one measurement and then starts a new chain.
+MEASUREMENT_CHAIN_LIMIT = 20
+
+
+def partition_measurement_holds(
+    measurement: dict[str, Any] | None, earlier_jobs: Sequence[tuple[str, str, int | None]]
 ) -> bool:
-    """Whether a queued rewrite's own rollout flag has since been disabled, releasing it as a no-op.
+    """Whether the recorded measurement still describes the table that is on disk now.
 
-    Mirrors `_maybe_repartition_table`'s 'release' branch in `repartition_table.py` exactly: each
-    auto-staged trigger family answers to the flag that staged it (the flag is the only lever support
-    has to release such a table), and any other reason fails open because operator-staged work (admin,
-    a staged swap) must never dead-end on a rollout flag. Shared so `repartition_activity_has_work`
-    agrees with the activity's own answer instead of scheduling a round trip the activity would just
-    skip.
+    `earlier_jobs` are the schema's jobs before the current one, newest first, as (id, status, rows
+    synced). The measurement holds when the job that took it completed, every job after it completed
+    with no rows, and the job itself wrote nothing after the measurement: a post-load measurement is
+    after its job's last write, and a pre-extraction one needs that job to have synced no rows.
 
-    `enabled` lets a caller that already evaluated `WAREHOUSE_AUTO_REPARTITION_FLAG` this run thread
-    the result through instead of paying for a second evaluation.
+    Only a healthy measurement counts: one where detection had nothing to act on and nothing that
+    time alone can change (see `maybe_flag_for_repartition`). A failed or running job anywhere in the
+    chain breaks it. That keeps the on-disk read for a table whose merge runs out of memory, because
+    such a job never completes.
     """
-    reason = pending.get("trigger_reason")
-    if reason in ("proactive_threshold", "oom_history"):
-        return not (enabled if enabled is not None else is_auto_repartition_enabled(schema))
-    if reason == "coarsening":
-        return not is_auto_coarsen_enabled(schema)
+    if not measurement or measurement.get("healthy") is not True:
+        return False
+    measured_job_id = measurement.get("job_id")
+    for job_id, status, rows_synced in earlier_jobs:
+        if status != ExternalDataJob.Status.COMPLETED:
+            return False
+        if job_id == measured_job_id:
+            return measurement.get("phase") == "post_load" or rows_synced == 0
+        if rows_synced != 0:
+            return False
     return False
+
+
+def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: ExternalDataJob) -> bool:
+    """Whether the pre-extraction activity can skip its read of the Delta log for this run.
+
+    True only when a new read would give the verdict that the last one gave, which was to do
+    nothing. No data reached the table since that measurement (see `partition_measurement_holds`),
+    so the partition sizes are the same. The inputs that can change with no write are checked here:
+    the budget, an operator nomination, and the count of recent OOM kills. The measurement itself is
+    healthy only for a table that the coarsening path cannot pick up as time passes.
+    """
+    if schema.coarsen_requested is not None:
+        return False
+    measurement = schema.partition_measurement
+    if not measurement or measurement.get("healthy") is not True:
+        return False
+    if measurement.get("budget") != target_partition_bytes():
+        return False
+    if measurement.get("split_budget") != split_budget_bytes(schema):
+        return False
+    # A measurement without this key is older than the key, and was taken against the base budget.
+    if measurement.get("coarsen_budget", measurement.get("budget")) != coarsen_trigger_budget(
+        schema, operator_requested=False
+    ):
+        return False
+    if (
+        not schema.is_append
+        and ExternalDataSchemaOOMEvent.recent_count(schema, days=repartition_oom_window_days())
+        >= repartition_oom_threshold()
+    ):
+        return False
+    earlier_jobs = [
+        (str(job_id), status, rows_synced)
+        for job_id, status, rows_synced in ExternalDataJob.objects.filter(
+            pipeline_id=schema.source_id, schema_id=schema.id, created_at__lt=job.created_at
+        )
+        .order_by("-created_at")
+        .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]
+    ]
+    return partition_measurement_holds(measurement, earlier_jobs)
+
+
+AUTOMATIC_SPLIT_TRIGGERS = frozenset({"proactive_threshold", "oom_history"})
+
+
+def is_automatic_split_of_append_table(schema: ExternalDataSchema, trigger_reason: str) -> bool:
+    """Whether a queued target is an automatic split of an append table. An operator target is not."""
+    return schema.is_append and trigger_reason in AUTOMATIC_SPLIT_TRIGGERS
+
+
+def is_stale_size_split(schema: ExternalDataSchema, trigger_reason: str) -> bool:
+    """Whether a queued target is a size split that the current merge budget no longer needs."""
+    # A marker queued before the merge budget rose uses the old, smaller target.
+    return (
+        trigger_reason == "proactive_threshold"
+        and schema.sync_type in KEYED_MERGE_SYNC_TYPES
+        and schema.max_partition_bytes is not None
+        and schema.max_partition_bytes <= split_budget_bytes(schema)
+    )
 
 
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
@@ -169,26 +312,14 @@ def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:
 
     The workflow uses this to skip scheduling the activity, so it must say True whenever the activity
     itself would go past its own fast no-op path: a queued rewrite or staged swap to drive, or a table
-    the rollout flag (or a coarsening nomination) wants measured on disk. A pending corruption revive
-    makes the activity stand down before any of that, so it is a no-op here too. The flag is only
-    evaluated when nothing is queued, which is the one case the activity's answer depends on it.
-
-    A queued rewrite whose own trigger flag has since been disabled is also a no-op: the activity's
-    fast path stands it down without doing any work (see `is_pending_repartition_released_by_flag`), so
-    scheduling the activity for it would just pay a full round trip to log and return.
+    that needs measuring on disk. A pending corruption revive makes the activity stand down before any
+    of that, so it is a no-op here too.
     """
     if schema.delta_revive_required is not None:
         return False
-    pending = schema.repartition_pending
-    swap = schema.repartition_swap
-    if swap is not None:
+    if schema.repartition_swap is not None or schema.repartition_pending is not None:
         return True
-    if pending is not None:
-        enabled = is_auto_repartition_enabled(schema)
-        if is_pending_repartition_released_by_flag(schema, pending, enabled=enabled):
-            return needs_pre_extraction_detection(schema, enabled)
-        return True
-    return needs_pre_extraction_detection(schema, is_auto_repartition_enabled(schema))
+    return needs_pre_extraction_detection(schema)
 
 
 def is_repartition_hold_enabled(schema: ExternalDataSchema) -> bool:
@@ -285,8 +416,8 @@ async def maybe_flag_for_coarsening(
     recent_oom_count: int,
     logger: FilteringBoundLogger,
     *,
-    budget: int,
     max_bytes: int,
+    auto_coarsen: bool | None = None,
 ) -> None:
     """Flag an over-fragmented table to be rebuilt into fewer, larger partitions.
 
@@ -301,8 +432,11 @@ async def maybe_flag_for_coarsening(
     check is `select_coarsen_target`, which measures the live layout and refuses any target that would
     not fit the budget. Nothing overrides that, so a nomination can only ever be a no-op.
 
-    Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database, and
-    the feature flag (a Team fetch plus a PostHog API call) dead last. Post-load detection runs this
+    A keyed md5 table can use the merge budget and the md5 partition target instead of the base
+    budget (see `coarsens_for_merge_parallelism`). The safety check then uses that budget too.
+
+    Ordered cheapest first — in-memory shape gates, then the in-memory selector, then the database.
+    Post-load detection runs this
     for every within-budget table on every sync, so anything before the selector is fleet-wide cost,
     and most tables that pass the shape gates sit at the coarsest tier where the selector refuses.
 
@@ -323,6 +457,10 @@ async def maybe_flag_for_coarsening(
         return
 
     requested = schema.coarsen_requested
+    merge_policy = await asyncio.to_thread(
+        coarsens_for_merge_parallelism, schema, operator_requested=requested is not None, auto_coarsen=auto_coarsen
+    )
+    budget = coarsen_trigger_budget(schema, operator_requested=requested is not None, auto_coarsen=merge_policy)
     if requested is None:
         # Below these two the table is not over-fragmented at all, so returning before `_decline`
         # keeps the metric scoped to the population the rollout is about.
@@ -339,9 +477,19 @@ async def maybe_flag_for_coarsening(
         if layout_age is not None and layout_age < COARSEN_MIN_LAYOUT_AGE_SECONDS:
             return _decline("layout_too_young")
 
-    target, reason = await asyncio.to_thread(
-        select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
-    )
+    if merge_policy:
+        target, reason = await asyncio.to_thread(
+            select_coarsen_target,
+            schema,
+            partition_bytes,
+            int(budget * MERGE_COARSEN_TARGET_FRACTION),
+            min_md5_count=merge_md5_partition_min(),
+            preferred_md5_count=merge_md5_partition_target(),
+        )
+    else:
+        target, reason = await asyncio.to_thread(
+            select_coarsen_target, schema, partition_bytes, budget // COARSEN_TARGET_DIVISOR
+        )
     if requested is not None and target is None:
         # Consume a refused nomination now: leaving it set would re-evaluate the same table every sync,
         # and a table the selector refuses today will refuse again until its data changes. A *selected*
@@ -370,16 +518,6 @@ async def maybe_flag_for_coarsening(
         # about any of their merges, and blocking on it would withhold coarsening from all of them.
         if await asyncio.to_thread(ExternalDataSchemaOOMEvent.blocks_coarsening, schema, days=COARSEN_OOM_FREE_DAYS):
             return _decline("oom_within_free_window")
-
-        if not await asyncio.to_thread(is_auto_coarsen_enabled, schema):
-            await logger.adebug(
-                f"repartition: table is over-fragmented but coarsening is disabled by feature flag "
-                f"schema_id={schema.id} max_partition_bytes={max_bytes} partition_count={measured_partitions}",
-                schema_id=str(schema.id),
-                max_partition_bytes=max_bytes,
-                partition_count=measured_partitions,
-            )
-            return _decline("flag_disabled")
 
     # Distinct reason for a nominated rewrite, the same way an admin-staged one is distinguishable, so
     # the backlog pass can be tracked separately from what the controller does on its own.
@@ -426,17 +564,15 @@ async def maybe_flag_for_repartition(
     delta_table: deltalake.DeltaTable,
     logger: FilteringBoundLogger,
     *,
-    enabled: bool | None = None,
+    phase: MeasurementPhase = "pre_extraction",
 ) -> None:
     """Measure partition sizes and, if over budget, record a `repartition_pending` target.
 
-    Always records `max_partition_bytes` for observability (even when the controller is disabled or in
-    cooldown). Setting the pending target is gated by the feature flag; the rewrite itself happens on
-    the next run. Never raises — detection must not break post-load.
+    Always records `max_partition_bytes` for observability (even when the table is in cooldown). The
+    rewrite itself happens on the next run. Never raises — detection must not break post-load.
 
-    Pass `enabled` when the caller has already evaluated the rollout flag for this schema (each
-    evaluation is a `Team.objects.get()` plus a PostHog API call) to avoid re-evaluating it here; when
-    omitted it is evaluated lazily, only once the table is confirmed over budget.
+    The measurement is recorded with the job, the `phase` and the verdict, so the next run can tell
+    whether it still describes the table (see `partition_measurement_holds`).
     """
     try:
         # A table pending a corruption revive must heal before it's rewritten — flagging it here would
@@ -458,10 +594,16 @@ async def maybe_flag_for_repartition(
             return
 
         max_bytes = max(partition_bytes.values())
-        await asyncio.to_thread(schema.record_partition_measurement, max_bytes)
 
         budget = target_partition_bytes()
-        over_budget = max_bytes > budget
+        # The budget bounds the working set of a merge, and an append sync never merges: it adds new
+        # files and reads no partition. So neither split trigger applies to an append table, and a
+        # split only rewrites every row for no gain. Coarsening still applies, because fewer files
+        # make reads of the table cheaper.
+        split_applies = not schema.is_append
+        # The size trigger only. The OOM trigger, its floor and coarsening stay on `budget`.
+        size_split_budget = split_budget_bytes(schema)
+        over_budget = split_applies and max_bytes > size_split_budget
 
         # Hybrid trigger: a table that has actually OOM'd repeatedly is repartitioned even when its
         # largest partition looks within budget — the compressed at-rest size under-counts the merge's
@@ -469,7 +611,7 @@ async def maybe_flag_for_repartition(
         # Only query the OOM log when the size check didn't already trip: an over-budget table
         # repartitions regardless, so the count would only feed observability props there — skip the
         # per-sync indexed COUNT for it and report 0.
-        if over_budget:
+        if over_budget or not split_applies:
             oom_count = 0
             oom_triggered = False
         else:
@@ -478,19 +620,42 @@ async def maybe_flag_for_repartition(
             )
             oom_triggered = oom_count >= repartition_oom_threshold()
 
+        # A table with this shape is one that the coarsening path evaluates on each run, and its
+        # gates open with time (layout age, days without an OOM). Such a table is never healthy, so
+        # the next run measures it again.
+        nominated = schema.coarsen_requested is not None
+        auto_coarsen = await asyncio.to_thread(coarsens_for_merge_parallelism, schema, operator_requested=nominated)
+        coarsen_budget = coarsen_trigger_budget(schema, operator_requested=nominated, auto_coarsen=auto_coarsen)
+        coarsen_candidate = (
+            len(partition_bytes) >= COARSEN_MIN_PARTITIONS and max_bytes * COARSEN_TRIGGER_DIVISOR <= coarsen_budget
+        )
+        await asyncio.to_thread(
+            schema.record_partition_measurement,
+            max_bytes,
+            {
+                "job_id": str(job.id),
+                "phase": phase,
+                "budget": budget,
+                "split_budget": size_split_budget,
+                "coarsen_budget": coarsen_budget,
+                "healthy": not over_budget and not oom_triggered and not coarsen_candidate,
+            },
+        )
+
         if not over_budget and not oom_triggered:
+            verdict = "within budget and no repeated OOMs" if split_applies else "append table, a split does not apply"
             await logger.adebug(
-                f"repartition: not needed, within budget and no repeated OOMs schema_id={schema.id} "
-                f"max_partition_bytes={max_bytes} budget_bytes={budget} recent_oom_count={oom_count} "
+                f"repartition: not needed, {verdict} schema_id={schema.id} "
+                f"max_partition_bytes={max_bytes} budget_bytes={size_split_budget} recent_oom_count={oom_count} "
                 f"partition_count={len(partition_bytes)}",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
-                budget_bytes=budget,
+                budget_bytes=size_split_budget,
                 recent_oom_count=oom_count,
                 partition_count=len(partition_bytes),
             )
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, budget=budget, max_bytes=max_bytes
+                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes, auto_coarsen=auto_coarsen
             )
             return
 
@@ -499,7 +664,7 @@ async def maybe_flag_for_repartition(
         # killing a table whose partitions are already that small, and without this guard oom_history
         # drives the scheme finer tier by tier until it bottoms out (e.g. datetime at hour) and then
         # re-measures and re-emits the skip on every cooldown expiry forever.
-        split_budget = budget if over_budget else max(1, max_bytes // 2)
+        split_budget = size_split_budget if over_budget else max(1, max_bytes // 2)
         floor = min_splittable_partition_bytes()
         if not over_budget and split_budget < floor:
             await logger.adebug(
@@ -520,7 +685,7 @@ async def maybe_flag_for_repartition(
             # its chance, and this is the only route by which a nominated table reaches coarsening at
             # all once its OOM count crosses the split threshold.
             await maybe_flag_for_coarsening(
-                schema, source, job, partition_bytes, oom_count, logger, budget=budget, max_bytes=max_bytes
+                schema, source, job, partition_bytes, oom_count, logger, max_bytes=max_bytes
             )
             return
 
@@ -537,21 +702,6 @@ async def maybe_flag_for_repartition(
                 trigger_reason=trigger_reason,
                 max_partition_bytes=max_bytes,
             )
-
-        if enabled is None:
-            enabled = await asyncio.to_thread(is_auto_repartition_enabled, schema)
-        if not enabled:
-            await logger.adebug(
-                f"repartition: needs repartition but skipped, controller disabled by feature flag "
-                f"schema_id={schema.id} trigger_reason={trigger_reason} max_partition_bytes={max_bytes} "
-                f"budget_bytes={budget} recent_oom_count={oom_count}",
-                schema_id=str(schema.id),
-                trigger_reason=trigger_reason,
-                max_partition_bytes=max_bytes,
-                budget_bytes=budget,
-                recent_oom_count=oom_count,
-            )
-            return
 
         if schema.repartition_pending is not None:
             await logger.adebug(
@@ -581,7 +731,7 @@ async def maybe_flag_for_repartition(
             )
             return
 
-        # `split_budget` was computed with the floor check above: an over-budget table targets the
+        # `split_budget` was computed with the floor check above: an over-budget table targets its size
         # budget, while an OOM-triggered one targets roughly half its current largest partition to force
         # a meaningfully finer scheme (md5 grows buckets, numerical halves the row-size, datetime steps
         # one tier finer).
@@ -589,7 +739,7 @@ async def maybe_flag_for_repartition(
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
             # `reason` is reported on the metric + event so a skipped table is diagnosable.
-            DELTA_REPARTITION_SKIP_TOTAL.labels(team_id=str(schema.team_id), reason=reason).inc()
+            DELTA_REPARTITION_SKIP_TOTAL.labels(reason=reason).inc()
             props = base_event_props(schema, source, str(job.id))
             props.update(
                 {

@@ -4,6 +4,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { BREAKDOWN_BASELINE_STRING_LABEL } from 'scenes/insights/utils'
 
+import { isTrendsQuery } from '~/queries/schema/node-guards'
 import {
     BreakdownItem,
     FunnelsActorsQuery,
@@ -11,7 +12,6 @@ import {
     InsightActorsQueryOptionsResponse,
     insightActorsQueryOptionsResponseKeys,
 } from '~/queries/schema/schema-general'
-import { isTrendsQuery } from '~/queries/utils'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import { StepOrderValue } from '~/types'
 

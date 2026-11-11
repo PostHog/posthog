@@ -439,7 +439,8 @@ class FileSystemAccessLevelSerializerMixin(serializers.Serializer):
             return None
 
         if self._access_levels_by_type_ref is None:
-            instances = self.instance if isinstance(self.instance, list) else [self.instance]
+            # With many=True, DRF gives each child the full collection: a list or a QuerySet
+            instances = self.instance if isinstance(self.instance, Iterable) else [self.instance]
             entries = [
                 FileSystemAccessEntry(
                     entry_type=instance.type,

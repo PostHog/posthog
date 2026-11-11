@@ -11,6 +11,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FeatureFlagWithV1Config,
 } from '~/types'
 
 import { VariantsPanelLinkFeatureFlag } from './VariantsPanelLinkFeatureFlag'
@@ -18,7 +19,7 @@ import { VariantsPanelLinkFeatureFlag } from './VariantsPanelLinkFeatureFlag'
 describe('VariantsPanelLinkFeatureFlag', () => {
     const mockSetShowFeatureFlagSelector = jest.fn()
 
-    const baseFeatureFlag: FeatureFlagType = {
+    const baseFeatureFlag: FeatureFlagWithV1Config = {
         id: 1,
         key: 'test-experiment-flag',
         name: 'Test Experiment Feature Flag',
@@ -134,7 +135,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             )
 
             const link = screen.getByTitle('View feature flag')
-            expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature_flags/1`)
+            expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature-flags/1`)
             expect(link).toHaveAttribute('target', '_blank')
         })
 

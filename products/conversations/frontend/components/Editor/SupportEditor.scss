@@ -155,6 +155,12 @@
                 content: attr(data-placeholder);
             }
         }
+
+        // Cap the text area, not the editor frame, so the formatting toolbar stays put.
+        &--scroll {
+            max-height: var(--support-editor-max-height);
+            overflow-y: auto;
+        }
     }
 
     &__image {

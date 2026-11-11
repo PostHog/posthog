@@ -24,18 +24,16 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.sync_teardown import teardown_run
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-    RECOVERY_GRACE_SECONDS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
-    PARTITION_PRUNING_INTERVAL,
-    TAKEOVER_STALE_THRESHOLD_SECONDS,
-    ActiveRunRef,
-    BatchQueue,
-)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
+)
+from products.warehouse_sources_queue.backend.sdk import (
+    PARTITION_PRUNING_INTERVAL,
+    RECOVERY_GRACE_SECONDS,
+    TAKEOVER_STALE_THRESHOLD_SECONDS,
+    ActiveRunRef,
+    BatchQueue,
 )
 
 logger = structlog.get_logger(__name__)

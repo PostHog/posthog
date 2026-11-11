@@ -242,29 +242,6 @@ export const commonConfig = {
                 )
             },
         },
-        // @posthog/icons declares each of its 300+ icons as `const IconFoo = forwardRef(...)` in
-        // one ES bundle. A bundler cannot prove a bare call is side-effect free, so every entry
-        // point that renders a single icon ships the whole set (~260 KiB on the boot path).
-        // forwardRef only wraps its argument, so annotate the calls and let tree shaking keep
-        // the icons a chunk actually renders. Drop this once the package annotates them itself.
-        {
-            name: 'icons-pure-annotations',
-            setup(build) {
-                build.onLoad({ filter: /@posthog[\\/]icons[\\/]dist[\\/][^\\/]+\.es\.js$/ }, async (args) => {
-                    const source = await fs.readFile(args.path, 'utf8')
-                    const contents = source.replace(
-                        /^const ([A-Za-z0-9_$]+) = forwardRef\(/gm,
-                        'const $1 = /* @__PURE__ */ forwardRef('
-                    )
-                    if (contents === source) {
-                        // Bundle shape changed upstream - fail loudly rather than silently
-                        // reshipping the whole icon set on every page.
-                        throw new Error(`icons-pure-annotations: no icon declarations found in ${args.path}`)
-                    }
-                    return { contents, loader: 'js' }
-                })
-            },
-        },
         // monaco-vim imports monaco-editor internals without .js extensions (e.g. monaco-editor/esm/vs/editor/editor.api)
         // which esbuild can't resolve through monaco-editor's package.json exports map
         {
@@ -320,6 +297,8 @@ export const commonConfig = {
             polyfills: {
                 buffer: false,
                 crypto: false,
+                // The plugin stubs out fs by default but not fs/promises, which would pull in the whole fs polyfill.
+                'fs/promises': 'empty',
                 process: true,
                 stream: false,
             },
@@ -534,8 +513,10 @@ let buildsInProgress = 0
 // disposes its context before releasing the lock (see runBuild), so the next heavy build reuses
 // the freed memory instead of stacking on top of it. Dev is unaffected: it keeps contexts alive
 // for incremental watch rebuilds and isn't memory-constrained.
+// onBuildComplete runs after the lock is released, so heavy post-build work there must take the
+// lock too. The lock is not reentrant: fn must never call runExclusiveHeavy, or it waits forever.
 let heavyBuildChain = Promise.resolve()
-function runExclusiveHeavy(fn) {
+export function runExclusiveHeavy(fn) {
     const result = heavyBuildChain.then(fn)
     heavyBuildChain = result.then(
         () => {},

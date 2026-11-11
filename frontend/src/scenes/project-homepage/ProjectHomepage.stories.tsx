@@ -12,8 +12,8 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import type { MockResolverInfo } from '~/mocks/utils'
 
-import __dashboard1 from '../dashboard/__mocks__/dashboard1.json'
-import __dashboards from '../dashboard/__mocks__/dashboards.json'
+import __dashboard1 from 'products/dashboards/frontend/__mocks__/dashboard1.json'
+import __dashboards from 'products/dashboards/frontend/__mocks__/dashboards.json'
 
 const dashboardRaw = __dashboard1 as any
 // Mark all tiles as cached to prevent refresh attempts in storybook
@@ -76,7 +76,6 @@ const meta: Meta = {
                 '/api/environments/:team_id/dashboards/1/': dashboard,
                 ...insightMocks,
                 '/api/environments/:team_id/insights/:id/': insightFetchMock,
-                '/api/environments/:team_id/dashboards/1/collaborators/': [],
                 '/api/environments/:team_id/session_recordings/': EMPTY_PAGINATED_RESPONSE,
                 '/api/environments/:team_id/insights/my_last_viewed/': [],
                 // Add variable data mock to prevent loading issues

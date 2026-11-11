@@ -101,12 +101,12 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
 
     const frameworkStep: StepDefinition = {
         title: 'Framework-specific exception capture',
-        badge: 'optional',
+        badge: 'recommended',
         content: (
             <>
                 <Markdown>
                     {dedent`
-                        Python frameworks often have built-in error handlers. This means PostHog's default exception autocapture won't work and we need to manually capture errors instead. The exact process depends on the framework:
+                        Web frameworks catch exceptions raised in your routes and turn them into error responses, so these exceptions never reach the hooks that exception autocapture uses. The Python SDK includes integrations for Django, Flask, and ASGI frameworks such as FastAPI. They capture these exceptions and add request properties to every event captured during a request. The Flask, ASGI, and Django REST Framework integrations require version \`7.69.0\` or later of the Python SDK.
                     `}
                 </Markdown>
                 <Tab.Group tabs={['Django', 'Flask', 'FastAPI']}>
@@ -119,19 +119,28 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         <Tab.Panel>
                             <Markdown>
                                 {dedent`
-                                    The Python SDK provides a Django middleware that automatically wraps all requests with a [context](https://posthog.com/docs/libraries/python#contexts). Add the middleware to your Django settings:
+                                    Add the Django middleware to your settings. It wraps each request in a [context](https://posthog.com/docs/libraries/python#contexts) and captures exceptions raised by your views.
+
+                                    The middleware sends exceptions through the global \`posthog\` client. When you create your own client with \`Posthog(...)\`, set it as \`POSTHOG_MW_CLIENT\`. Otherwise the middleware sends exceptions to the unconfigured global client, and they don't reach PostHog:
                                 `}
                             </Markdown>
                             <CodeBlock
                                 blocks={[
                                     {
                                         language: 'python',
-                                        file: 'Python',
+                                        file: 'settings.py',
                                         code: dedent`
+                                            from posthog import Posthog
+
+                                            POSTHOG_MW_CLIENT = Posthog(
+                                                '<ph_project_token>',
+                                                host='<ph_client_api_host>',
+                                                enable_exception_autocapture=True,
+                                            )
+
                                             MIDDLEWARE = [
                                                 # ... other middleware
                                                 'posthog.integrations.django.PosthogContextMiddleware',
-                                                # ... other middleware
                                             ]
                                         `,
                                     },
@@ -139,49 +148,98 @@ export const getPythonSteps = (ctx: OnboardingComponentsContext): StepDefinition
                             />
                             <Markdown>
                                 {dedent`
-                                    By default, the middleware captures exceptions and sends them to PostHog. Disable with \`POSTHOG_MW_CAPTURE_EXCEPTIONS = False\`. Use \`POSTHOG_MW_EXTRA_TAGS\`, \`POSTHOG_MW_REQUEST_FILTER\`, and \`POSTHOG_MW_TAG_MAP\` to customize. See the [Django integration docs](https://posthog.com/docs/libraries/django) for full configuration.
+                                    If you configure the global client instead, with \`posthog.api_key\` and \`posthog.host\`, leave \`POSTHOG_MW_CLIENT\` unset.
+
+                                    Django REST Framework converts exceptions into error responses before the middleware sees them. If you use it, also add the DRF exception handler:
+                                `}
+                            </Markdown>
+                            <CodeBlock
+                                blocks={[
+                                    {
+                                        language: 'python',
+                                        file: 'settings.py',
+                                        code: dedent`
+                                            REST_FRAMEWORK = {
+                                                # ... other DRF settings
+                                                'EXCEPTION_HANDLER': 'posthog.integrations.drf.exception_handler',
+                                            }
+                                        `,
+                                    },
+                                ]}
+                            />
+                            <Markdown>
+                                {dedent`
+                                    Set \`POSTHOG_MW_CAPTURE_EXCEPTIONS = False\` to keep the request context without exception capture. See the [Django integration docs](https://posthog.com/docs/libraries/django#exception-capture) for all settings.
                                 `}
                             </Markdown>
                         </Tab.Panel>
                         <Tab.Panel>
+                            <Markdown>
+                                {dedent`
+                                    Register the Flask integration with your app and your client. It captures unhandled exceptions raised by your routes:
+                                `}
+                            </Markdown>
                             <CodeBlock
                                 blocks={[
                                     {
                                         language: 'python',
                                         file: 'Python',
                                         code: dedent`
-                                            from flask import Flask, jsonify
+                                            from flask import Flask
                                             from posthog import Posthog
-                                            posthog = Posthog('<ph_project_token>', host='https://us.i.posthog.com')
-                                            @app.errorhandler(Exception)
-                                            def handle_exception(e):
-                                                event_id = posthog.capture_exception(e)
-                                                response = jsonify({'message': str(e), 'error_id': event_id})
-                                                response.status_code = 500
-                                                return response
+                                            from posthog.integrations.flask import PosthogFlaskIntegration
+
+                                            app = Flask(__name__)
+                                            posthog = Posthog(
+                                                '<ph_project_token>',
+                                                host='<ph_client_api_host>',
+                                                enable_exception_autocapture=True,
+                                            )
+
+                                            PosthogFlaskIntegration(app, client=posthog)
                                         `,
                                     },
                                 ]}
                             />
+                            <Markdown>
+                                {dedent`
+                                    The integration doesn't capture expected HTTP exceptions, such as \`404 Not Found\`, or exceptions that your own error handlers consume. To report an exception that you handle, call \`posthog.capture_exception(e)\` in the handler. See the [Flask integration docs](https://posthog.com/docs/libraries/flask#error-tracking).
+                                `}
+                            </Markdown>
                         </Tab.Panel>
                         <Tab.Panel>
+                            <Markdown>
+                                {dedent`
+                                    Add the ASGI middleware to your app. It captures exceptions that escape your routes. It works the same way for Starlette, Litestar, and other ASGI frameworks:
+                                `}
+                            </Markdown>
                             <CodeBlock
                                 blocks={[
                                     {
                                         language: 'python',
                                         file: 'Python',
                                         code: dedent`
-                                            from fastapi.responses import JSONResponse
+                                            from fastapi import FastAPI
                                             from posthog import Posthog
-                                            posthog = Posthog('<ph_project_token>', host='https://us.i.posthog.com')
-                                            @app.exception_handler(Exception)
-                                            async def http_exception_handler(request, exc):
-                                                posthog.capture_exception(exc)
-                                                return JSONResponse(status_code=500, content={'message': str(exc)})
+                                            from posthog.integrations.asgi import PosthogASGIMiddleware
+
+                                            posthog = Posthog(
+                                                '<ph_project_token>',
+                                                host='<ph_client_api_host>',
+                                                enable_exception_autocapture=True,
+                                            )
+
+                                            app = FastAPI()
+                                            app.add_middleware(PosthogASGIMiddleware, client=posthog)
                                         `,
                                     },
                                 ]}
                             />
+                            <Markdown>
+                                {dedent`
+                                    The middleware still captures an exception that an \`@app.exception_handler(Exception)\` catch-all handles. A handler for a specific exception class, such as \`@app.exception_handler(ValueError)\`, turns that exception into a response before the middleware sees it. To report those exceptions, call \`posthog.capture_exception(exc)\` in the handler. See the [ASGI middleware docs](https://posthog.com/docs/libraries/python#asgi-request-middleware).
+                                `}
+                            </Markdown>
                         </Tab.Panel>
                     </Tab.Panels>
                 </Tab.Group>

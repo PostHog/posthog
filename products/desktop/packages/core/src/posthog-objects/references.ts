@@ -3,6 +3,11 @@ import {
   parseObjectTagAttrs,
   resolveObjectKindName,
 } from "@posthog/core/inbox/objectTags";
+import {
+  objectUrlLabel,
+  type PostHogLinkContext,
+  parsePostHogObjectUrl,
+} from "@posthog/core/posthog-objects/objectUrls";
 
 // Opening tags and closing tags are matched separately so an unmatched opener
 // costs one regex step instead of a lazy scan to the end of the message; the
@@ -10,6 +15,9 @@ import {
 const OPEN_TAG_PATTERN =
   /<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*"[^"]*")*)\s*(\/>|>)/g;
 const CLOSE_TAG_PATTERN = /<\/([a-z][\w-]*)\s*>/g;
+const URL_PATTERN = /<(https?:\/\/[^>\n]+)>|https?:\/\/[^\s<>"'`[\]]+/g;
+const LINK_LABEL_PATTERN = /(?<!!)\[([^[\]\n]*)\]\($/;
+const LIST_MARKER_PATTERN = /^ {0,3}(?:[-*+]|\d{1,9}[.)])(?:[ \t]|$)/;
 const MAX_REFERENCES = 50;
 const MAX_OBJECT_ID_LENGTH = 16_384;
 const MAX_LABEL_LENGTH = 255;
@@ -72,10 +80,22 @@ function stripInlineCode(line: string): string {
 // renderer shows as code. Mirrors the fence rules react-markdown applies:
 // backtick or tilde fences of three or more, up to three leading spaces, closed
 // only by a same-character run at least as long as the opener. Indented code
-// blocks are left alone on purpose — a line-based strip would also drop real
-// tags nested under list items; full parsing lives in the AST plugin instead.
+// blocks are blanked only outside lists, because list items indent real tags.
+function indentWidth(line: string): number {
+  let width = 0;
+  for (const char of line) {
+    if (char === " ") width++;
+    else if (char === "\t") width += 4 - (width % 4);
+    else break;
+  }
+  return width;
+}
+
 function stripCode(markdown: string): string {
   let fence: { char: string; length: number } | null = null;
+  let inList = false;
+  let inIndentedCode = false;
+  let afterBlank = true;
   return markdown
     .split("\n")
     .map((line) => {
@@ -88,6 +108,23 @@ function stripCode(markdown: string): string {
           line.slice(fenceMatch[0].length).trim() === "";
         if (closes) fence = null;
         return "";
+      }
+      if (line.trim() === "") {
+        afterBlank = true;
+        return "";
+      }
+      const indent = indentWidth(line);
+      const followsBlank = afterBlank;
+      afterBlank = false;
+      if (indent >= 4 && (inIndentedCode || (followsBlank && !inList))) {
+        inIndentedCode = true;
+        return "";
+      }
+      inIndentedCode = false;
+      if (LIST_MARKER_PATTERN.test(line)) {
+        inList = true;
+      } else if (indent === 0 && followsBlank) {
+        inList = false;
       }
       if (fenceMatch) {
         fence = { char: fenceMatch[1][0], length: fenceMatch[1].length };
@@ -148,12 +185,44 @@ function* scanTags(text: string): Generator<TagMatch> {
   }
 }
 
+function trimBareUrl(candidate: string): string {
+  let url = candidate.replace(/[.,;:!?*_~]+$/, "");
+  while (url.endsWith(")") && url.split(")").length > url.split("(").length) {
+    url = url.slice(0, -1).replace(/[.,;:!?*_~]+$/, "");
+  }
+  return url;
+}
+
+function linkCandidates(text: string): { label: string; url: string }[] {
+  return Array.from(text.matchAll(URL_PATTERN), (match) => ({
+    label:
+      LINK_LABEL_PATTERN.exec(
+        text.slice(Math.max(0, match.index - MAX_LABEL_LENGTH), match.index),
+      )?.[1] ?? "",
+    url: match[1] ?? trimBareUrl(match[0]),
+  }));
+}
+
 export function extractPostHogObjectReferences(
   markdown: string,
+  links: PostHogLinkContext | null = null,
 ): PostHogObjectReference[] {
   const references: PostHogObjectReference[] = [];
   const seen = new Set<string>();
-  for (const match of scanTags(stripCode(markdown))) {
+  const add = (kind: string, id: string, label: string): boolean => {
+    if (id.length > MAX_OBJECT_ID_LENGTH) return false;
+    const key = `${kind}\0${id}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    references.push({
+      kind,
+      id,
+      label: label.replace(/\s+/g, " ").trim().slice(0, MAX_LABEL_LENGTH),
+    });
+    return references.length >= MAX_REFERENCES;
+  };
+  const text = stripCode(markdown);
+  for (const match of scanTags(text)) {
     const kind = resolveObjectKindName(match.name);
     if (!kind) continue;
     const ref = buildObjectTagRef(
@@ -161,16 +230,17 @@ export function extractPostHogObjectReferences(
       parseObjectTagAttrs(match.rawAttributes),
       match.body,
     );
-    if (!ref || ref.id.length > MAX_OBJECT_ID_LENGTH) continue;
-    const key = `${ref.kind}\0${ref.id}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    references.push({
-      kind: ref.kind,
-      id: ref.id,
-      label: ref.label.replace(/\s+/g, " ").trim().slice(0, MAX_LABEL_LENGTH),
-    });
-    if (references.length >= MAX_REFERENCES) break;
+    if (ref && add(ref.kind, ref.id, ref.label)) return references;
+  }
+  if (!links) return references;
+  for (const candidate of linkCandidates(text)) {
+    const ref = parsePostHogObjectUrl(candidate.url, links);
+    if (!ref) continue;
+    const label =
+      candidate.label.trim() && candidate.label.trim() !== candidate.url.trim()
+        ? candidate.label
+        : objectUrlLabel(ref);
+    if (add(ref.kind, ref.id, label)) return references;
   }
   return references;
 }

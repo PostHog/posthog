@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 from braintrust import Score
@@ -149,14 +151,14 @@ def test_search_recovery_rejects_a_product_call_parallel_with_the_learn(learn_fi
 
 
 def test_skill_answer_correctness_self_skips_when_not_requested() -> None:
-    prepared = SkillAnswerCorrectness()._prepare({"last_message": "anything"}, {})
+    prepared = asyncio.run(SkillAnswerCorrectness().eval_async({"last_message": "anything"}, {}))
     assert isinstance(prepared, Score)
     assert prepared.score is None
 
 
 def test_skill_answer_correctness_fails_without_final_message() -> None:
     expected = {"skill_answer_correctness": {"expected_answer": "the answer"}}
-    prepared = SkillAnswerCorrectness()._prepare({"last_message": "  "}, expected)
+    prepared = asyncio.run(SkillAnswerCorrectness().eval_async({"last_message": "  "}, expected))
     assert isinstance(prepared, Score)
     assert prepared.score == 0.0
 

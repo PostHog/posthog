@@ -1,7 +1,7 @@
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from products.conversations.backend.cache import (
     MESSAGES_CACHE_TTL,
@@ -40,7 +40,7 @@ class TestIdentityTicketsCacheNamespace(SimpleTestCase):
         assert get_identity_tickets_cache_namespace(team_id=1) is None
 
 
-class TestCacheKeyGeneration(TestCase):
+class TestCacheKeyGeneration(SimpleTestCase):
     def test_messages_cache_key_without_after(self):
         key = get_messages_cache_key(team_id=1, ticket_id="abc-123")
         assert key == "conversations:messages:1:abc-123:initial"
@@ -62,7 +62,7 @@ class TestCacheKeyGeneration(TestCase):
         assert key == "conversations:unread_count:42"
 
 
-class TestMessagesCacheOperations(TestCase):
+class TestMessagesCacheOperations(SimpleTestCase):
     @patch("products.conversations.backend.cache.cache")
     def test_get_cached_messages_returns_cached_data(self, mock_cache):
         mock_cache.get.return_value = {"messages": []}
@@ -123,7 +123,7 @@ class TestMessagesCacheOperations(TestCase):
         invalidate_messages_cache(team_id=1, ticket_id="abc")
 
 
-class TestTicketsCacheOperations(TestCase):
+class TestTicketsCacheOperations(SimpleTestCase):
     @patch("products.conversations.backend.cache.cache")
     def test_get_cached_tickets_returns_cached_data(self, mock_cache):
         mock_cache.get.return_value = {"results": [], "has_more": False}
@@ -187,7 +187,7 @@ class TestTicketsCacheOperations(TestCase):
         invalidate_tickets_cache(team_id=1, widget_session_id="session")
 
 
-class TestUnreadCountCacheOperations(TestCase):
+class TestUnreadCountCacheOperations(SimpleTestCase):
     @patch("products.conversations.backend.cache.cache")
     def test_get_cached_unread_count_returns_cached_data(self, mock_cache):
         mock_cache.get.return_value = 5

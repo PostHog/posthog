@@ -59,6 +59,32 @@ function ComparisonRow({
     return <ComparisonBarRow label={label} value={value} max={max} formatValue={formatValue} muted={!current} />
 }
 
+function PreviousWindowNote({ text }: { text: string }): JSX.Element {
+    return (
+        <div className="flex items-center gap-2">
+            <span className="w-24 shrink-0 truncate text-[11px] text-tertiary">Previous window</span>
+            <span className="text-[11px] text-tertiary">{text}</span>
+        </div>
+    )
+}
+
+/** Why the previous window can't be compared with this one, or null when it can. */
+function previousWindowGap(
+    previousValue: number | null | undefined,
+    formatValue: (value: number) => string,
+    relative: boolean
+): string | null {
+    if (previousValue == null) {
+        return 'No data'
+    }
+    // A relative change against a value that displays as zero (a 9s median shown as "0m") reads as a
+    // huge swing that the shown numbers can't explain.
+    if (relative && previousValue > 0 && formatValue(previousValue) === formatValue(0)) {
+        return 'Too close to zero to compare'
+    }
+    return null
+}
+
 export function WindowComparisonCard({
     title,
     value,
@@ -76,7 +102,7 @@ export function WindowComparisonCard({
     title: string
     /** This window's value. */
     value: number | null | undefined
-    /** The previous window's value; without one the card shows this window's bar alone. */
+    /** The previous window's value; without one the card says the previous window has no data. */
     previousValue: number | null | undefined
     formatValue: (value: number) => string
     goodWhenDown?: boolean
@@ -93,8 +119,10 @@ export function WindowComparisonCard({
     loading?: boolean
     emptyText: string
 }): JSX.Element {
-    const max = Math.max(value ?? 0, previousValue ?? 0)
-    const delta = deltaUnit === 'pt' ? pointChange(value, previousValue) : percentChange(value, previousValue)
+    const previousGap = previousWindowGap(previousValue, formatValue, deltaUnit !== 'pt')
+    const comparablePrevious = previousGap == null ? previousValue : null
+    const max = Math.max(value ?? 0, comparablePrevious ?? 0)
+    const delta = deltaUnit === 'pt' ? pointChange(value, comparablePrevious) : percentChange(value, comparablePrevious)
     const tooltipContent = benchmark ? (
         <div className="flex flex-col gap-1">
             {tooltip}
@@ -142,15 +170,17 @@ export function WindowComparisonCard({
                             share={share}
                             current
                         />
-                        {previousValue != null && (
+                        {comparablePrevious != null ? (
                             <ComparisonRow
                                 label="Previous window"
-                                value={previousValue}
+                                value={comparablePrevious}
                                 max={max}
                                 formatValue={formatValue}
                                 share={share}
                                 current={false}
                             />
+                        ) : (
+                            <PreviousWindowNote text={previousGap ?? 'No data'} />
                         )}
                     </div>
                 </>

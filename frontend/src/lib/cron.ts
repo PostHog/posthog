@@ -9,7 +9,10 @@ function hasFiveFields(expr: string): boolean {
 }
 
 /** Human-readable description of a 5-field cron expression, or an error string. Returns null for empty input. */
-export function describeCron(expr: string | null | undefined): string | null {
+export function describeCron(
+    expr: string | null | undefined,
+    options?: Parameters<typeof cronstrue.toString>[1]
+): string | null {
     if (!expr) {
         return null
     }
@@ -21,7 +24,7 @@ export function describeCron(expr: string | null | undefined): string | null {
         // produce garbled output (e.g. "Monday through undefined") for
         // syntactically incomplete expressions like "0 9 * * 1-".
         CronExpressionParser.parse(expr)
-        return cronstrue.toString(expr)
+        return cronstrue.toString(expr, options)
     } catch {
         return 'Invalid cron expression'
     }

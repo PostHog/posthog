@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import json
 import time
 import uuid
@@ -51,6 +50,8 @@ from .agentsh import (
     read_gh_guard_script,
 )
 from .local_skills import (
+    BUNDLED_SKILLS_PATHS,
+    ENV_EVAL_SKILLS_MANIFEST,
     ENV_LOCAL_SKILLS_HOST_PATH,
     LocalSkillsCache,
     bundled_skills_disabled,
@@ -67,6 +68,7 @@ from .sandbox import (
     build_agent_runtime_env_prefix,
     build_subscription_flags,
     parse_sandbox_repo_mount_map,
+    read_pinned_agent_version,
     redact_sandbox_command,
     wait_for_health_check,
 )
@@ -96,6 +98,8 @@ STREAMLIT_AUTH_PROXY_PORT = 8080
 # host.docker.internal at `docker run` time (non-localhost hosts pass through).
 _DOCKER_URL_ENV_KEYS = frozenset(
     {
+        "AI_GATEWAY_URL",
+        "LLM_GATEWAY_URL",
         "POSTHOG_API_URL",
         "POSTHOG_SITE_URL",
         "POSTHOG_AGENT_OTEL_LOGS_URL",
@@ -261,15 +265,13 @@ class DockerSandbox(AgentServerLaunchMixin):
 
         monorepo_root = os.path.abspath(monorepo_root)
         required_paths = [
-            os.path.join(monorepo_root, ".npmrc"),
             os.path.join(monorepo_root, "package.json"),
             os.path.join(monorepo_root, "pnpm-workspace.yaml"),
             os.path.join(monorepo_root, "pnpm-lock.yaml"),
-            os.path.join(monorepo_root, "patches"),
             os.path.join(monorepo_root, "scripts", "rimraf.mjs"),
             *[
                 os.path.join(monorepo_root, "packages", package_name, "package.json")
-                for package_name in ("agent", "harness", "shared", "git", "enricher")
+                for package_name in ("agent", "harness", "agent-contracts", "git", "enricher")
             ],
         ]
         missing = [path for path in required_paths if not os.path.exists(path)]
@@ -347,12 +349,11 @@ class DockerSandbox(AgentServerLaunchMixin):
             os.makedirs(packages_path)
             os.makedirs(scripts_path)
 
-            for file_name in (".npmrc", "package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
+            for file_name in ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml"):
                 shutil.copy2(os.path.join(monorepo_root, file_name), workspace_path)
-            shutil.copytree(os.path.join(monorepo_root, "patches"), os.path.join(workspace_path, "patches"))
             shutil.copy2(os.path.join(monorepo_root, "scripts", "rimraf.mjs"), scripts_path)
 
-            for package_name in ("agent", "harness", "shared", "git", "enricher"):
+            for package_name in ("agent", "harness", "agent-contracts", "git", "enricher"):
                 shutil.copytree(
                     os.path.join(monorepo_root, "packages", package_name),
                     os.path.join(packages_path, package_name),
@@ -451,8 +452,8 @@ class DockerSandbox(AgentServerLaunchMixin):
     def _get_image(config: SandboxConfig) -> str:
         """Get the image to use, checking for snapshots first."""
         config.snapshot_restored = False
-        if config.snapshot_external_id:
-            snapshot_image = f"posthog-sandbox-snapshot:{config.snapshot_external_id}"
+        if config.resume_snapshot_external_id:
+            snapshot_image = f"posthog-sandbox-snapshot:{config.resume_snapshot_external_id}"
             result = DockerSandbox._run(["docker", "images", "-q", snapshot_image])
             if result.stdout.strip():
                 config.snapshot_restored = True
@@ -550,11 +551,8 @@ class DockerSandbox(AgentServerLaunchMixin):
                 container_path = f"{WORKING_DIR}/repos/{org}/{repo}"
                 volume_args.extend(["-v", f"{local_path}:{container_path}"])
 
-            # Opt-in bind-mount for local skills. Set by the eval harness so
-            # sandboxes see the working-tree skills without rebuilding the
-            # base image. Mounts per-subdirectory rather than the parent so
-            # the baked-in rendered skills in the image stay visible — only
-            # the specific skills the user has on disk get overlaid.
+            # Native runtimes need the same files as plugin discovery. Eval snapshots replace
+            # whole directories so image-only skills cannot enter the comparison.
             local_skills_host = os.environ.get(ENV_LOCAL_SKILLS_HOST_PATH)
             if (
                 skill_source != "local"
@@ -562,14 +560,16 @@ class DockerSandbox(AgentServerLaunchMixin):
                 and local_skills_host
                 and os.path.isdir(local_skills_host)
             ):
-                for entry in sorted(os.listdir(local_skills_host)):
+                entries = [""] if os.environ.get(ENV_EVAL_SKILLS_MANIFEST) else sorted(os.listdir(local_skills_host))
+                for entry in entries:
                     if entry.startswith(".") or entry == "__pycache__":
                         continue
-                    host_skill = os.path.join(local_skills_host, entry)
+                    host_skill = str(Path(local_skills_host) / entry)
                     if not os.path.isdir(host_skill):
                         continue
-                    container_skill = f"/scripts/plugins/posthog/skills/{entry}"
-                    volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
+                    for skills_path in BUNDLED_SKILLS_PATHS:
+                        container_skill = str(Path(skills_path) / entry)
+                        volume_args.extend(["-v", f"{host_skill}:{container_skill}:ro"])
 
             cap_args = ["--cap-add", "SYS_PTRACE"]
             if config.template == SandboxTemplate.PI_BASE:
@@ -643,6 +643,8 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     @staticmethod
     def _local_skill_source(config: SandboxConfig) -> str | None:
+        if os.environ.get(ENV_EVAL_SKILLS_MANIFEST):
+            return None
         if not settings.DEBUG or config.template not in {
             SandboxTemplate.DEFAULT_BASE,
             SandboxTemplate.VM_BASE,
@@ -974,15 +976,15 @@ class DockerSandbox(AgentServerLaunchMixin):
         event_ingest_token: str | None = None,
         task_run_session_token: str | None = None,
         event_ingest_url: str | None = None,
-        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
         benjamin_enabled: bool = False,
-        peer_messaging: bool = False,
+        pi_acp_conversation: bool = False,
         posthog_exec_permission_regex: str | None = None,
         claude_model_access: str | None = None,
         codex_model_access: str | None = None,
         codex_run_token_file: str | None = None,
+        sandbox_runtime: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -992,6 +994,7 @@ class DockerSandbox(AgentServerLaunchMixin):
             interaction_origin=interaction_origin,
             agent_runtime=agent_runtime,
             sandbox_id=self.id,
+            sandbox_runtime=sandbox_runtime,
             runtime_adapter=runtime_adapter,
             provider=provider,
             model=model,
@@ -1003,10 +1006,9 @@ class DockerSandbox(AgentServerLaunchMixin):
             event_ingest_token=event_ingest_token,
             task_run_session_token=task_run_session_token,
             event_ingest_url=event_ingest_url,
-            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
             benjamin_enabled=benjamin_enabled,
-            peer_messaging=peer_messaging,
+            pi_acp_conversation=pi_acp_conversation,
         )
         subscription_flag = build_subscription_flags(claude_model_access, codex_model_access)
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
@@ -1085,6 +1087,9 @@ class DockerSandbox(AgentServerLaunchMixin):
 
     def _agent_server_reuse_enabled(self) -> bool:
         return False
+
+    def _sandbox_runtime(self) -> str | None:
+        return "docker"
 
     def _install_agent_server_launch_files(self) -> tuple[str, ...]:
         return ()
@@ -1353,12 +1358,7 @@ def _none_if_blank(value: str) -> str | None:
 
 
 def _pinned_agent_version(dockerfile_path: str) -> str | None:
-    try:
-        source = Path(dockerfile_path).read_text(encoding="utf-8")
-    except OSError:
-        return None
-    match = re.search(r"^ARG AGENT_VERSION=(\S+)", source, re.MULTILINE)
-    return match.group(1) if match else None
+    return read_pinned_agent_version(Path(dockerfile_path))
 
 
 def ensure_fresh_base_image(*, force: bool = False) -> None:

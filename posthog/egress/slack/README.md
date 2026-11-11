@@ -18,7 +18,7 @@ No lanes, because nothing is gated.
 
 - Slack SDK calls use `SlackWebClient` or `SlackAsyncWebClient` from `client.py` and `async_client.py`. A retry handler records every HTTP attempt, including each retry.
 - `SlackIntegration(integration, source=...)` sets the `source` label on the clients it builds. A flow that posts on its own, such as an alert, a digest, or a subscription, passes its own name, so its calls and 429s are separate from other callers. A caller that passes no name records as `integration`.
-- Direct HTTP calls, such as file downloads in `posthog/temporal/ai/slack_app/attachments.py`, use `slack_request`.
+- Direct HTTP calls, such as file downloads in `products/slack_app/backend/temporal/attachments.py`, use `slack_request`.
 - OAuth code exchanges in `posthog/models/integration/oauth.py` and MCP Store token exchanges and refreshes record their responses with `record_slack_api_response`.
 
 The `slack-api-calls-go-through-egress` semgrep rule fails CI on a bare `WebClient` or a raw `requests` call to `slack.com/api`.

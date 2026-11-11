@@ -1,13 +1,16 @@
+from collections.abc import Sequence
+
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import EntityType, FunnelsQuery, LifecycleQuery, RetentionQuery, StickinessQuery, TrendsQuery
+from posthog.schema import FunnelsQuery, LifecycleQuery, RetentionEntity, RetentionQuery, StickinessQuery, TrendsQuery
 
 from posthog.hogql.constants import MAX_EXPANDED_INSIGHT_QUERIES
 
-from posthog.hogql_queries.utils.entities import has_data_warehouse_node
+from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, is_data_warehouse_entity
 from posthog.hogql_queries.utils.properties import has_any_property_filters
 from posthog.hogql_queries.validation.utils import get_query_insight_name
 from posthog.hogql_queries.validation.validation import QueryValidationContext
+from posthog.types import EntityNode
 
 
 class RequireAtLeastOneSeries:
@@ -24,7 +27,10 @@ class RequireAtLeastOneSeries:
 
 
 class DisallowUnsupportedDataWarehouseSettings:
-    """Global property filters, test account filters and sampling can't be used together with data warehouse series."""
+    """Global property filters, test account filters and sampling can't be used together with data warehouse series.
+
+    A query whose warehouse series all read flag calls takes global property filters and test account filters.
+    """
 
     code = "data_warehouse_series_unsupported_settings"
 
@@ -32,14 +38,16 @@ class DisallowUnsupportedDataWarehouseSettings:
         self,
         context: QueryValidationContext[TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery | RetentionQuery],
     ) -> None:
-        if not _query_has_data_warehouse_series(context.query):
+        series = _series_entities(context.query)
+        if not any(is_data_warehouse_entity(node) for node in series):
             return
 
         unsupported_settings: list[str] = []
-        if has_any_property_filters(context.query.properties):
-            unsupported_settings.append("filters")
-        if context.query.filterTestAccounts:
-            unsupported_settings.append("test account filters")
+        if not every_warehouse_series_reads_flag_calls(series):
+            if has_any_property_filters(context.query.properties):
+                unsupported_settings.append("filters")
+            if context.query.filterTestAccounts:
+                unsupported_settings.append("test account filters")
         if context.query.samplingFactor is not None:
             unsupported_settings.append("sampling")
 
@@ -52,16 +60,12 @@ class DisallowUnsupportedDataWarehouseSettings:
             )
 
 
-def _query_has_data_warehouse_series(
+def _series_entities(
     query: TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery | RetentionQuery,
-) -> bool:
+) -> Sequence[EntityNode | RetentionEntity | None]:
     if isinstance(query, RetentionQuery):
-        return any(
-            entity is not None and entity.type == EntityType.DATA_WAREHOUSE
-            for entity in (query.retentionFilter.targetEntity, query.retentionFilter.returningEntity)
-        )
-
-    return has_data_warehouse_node(query.series)
+        return [query.retentionFilter.targetEntity, query.retentionFilter.returningEntity]
+    return query.series
 
 
 SERIES_FAN_OUT_TOO_LARGE = "insight_series_fan_out_too_large"

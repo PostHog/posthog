@@ -9,9 +9,10 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.models.activity_logging.utils import activity_storage
+from posthog.models.team.team import Team
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
+    from posthog.integrations import IntegrationRecord
     from posthog.models.user import User
     from posthog.models.user_integration import UserIntegration
 
@@ -60,9 +61,10 @@ class GitHubAuditPayload:
         "deleted": {"outcome"},
         "credential_created": {"reason"},
         "credential_replaced": {"reason"},
-        "credential_refreshed": {"reason"},
+        "credential_refreshed": {"reason", "refresh_token_rotated"},
         "credential_deleted": {"reason"},
-        "credential_delete_failed": {"failure_type"},
+        "credential_reauthorization_required": {"reason", "token_age_seconds"},
+        "credential_mark_failed": {"failure_type"},
         "discovery_credential_selected": {"discovery_id", *PERSONAL_FIELDS},
         "discovery_github_response": {"discovery_id", "github_status", "github_request_id"},
         "discovery_candidates": {"discovery_id", "source"},
@@ -145,11 +147,11 @@ class GitHubAudit:
     personal_metadata: dict[str, Any] | None = None
 
     @classmethod
-    def project(cls, integration: Integration, user: User | None = None) -> GitHubAudit:
+    def project(cls, integration: IntegrationRecord, user: User | None = None) -> GitHubAudit:
         return cls(
-            organization_id=integration.team.organization_id,
+            organization_id=Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id),
             team_id=integration.team_id,
-            integration_id=str(integration.pk),
+            integration_id=str(integration.id),
             installation_id=integration.integration_id,
             owner=(integration.config.get("account") or {}).get("name"),
             user=user,

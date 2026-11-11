@@ -326,6 +326,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         repo: str = "PostHog/posthog",
         job: str = "",
         runner_name: str = "",
+        ci_engine: str = "",
+        head_sha: str = "",
+        native_workflow_run_id: str = "",
     ) -> str:
         # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
         # column strips it. Resource attributes are stored as-is; attempt="" drops the
@@ -346,6 +349,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 ("ci.pr_number", pr),
                 ("ci.branch", branch),
                 ("ci.repository", repo),
+                ("ci.engine", ci_engine),
+                ("ci.sha", head_sha),
+                ("ci.native_workflow_run_id", native_workflow_run_id),
             )
             if value
         ]
@@ -443,6 +449,58 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_classification_needs_proof_to_call_a_test_flaky(self, _name: str, nodeid: str, expected: str) -> None:
         assert self._rows()[nodeid]["classification"] == expected
 
+    @parameterized.expand(
+        [
+            ("same_identity", ("github_actions", "workflow-a"), ("github_actions", "sha-a", "workflow-a"), 1),
+            ("different_engine", ("github_actions", "workflow-a"), ("depot_ci", "sha-a", "workflow-a"), 0),
+            ("different_commit", ("github_actions", "workflow-a"), ("github_actions", "sha-b", "workflow-a"), 0),
+            ("different_workflow", ("github_actions", "workflow-a"), ("github_actions", "sha-a", "workflow-b"), 0),
+            ("missing_depot_workflow", ("depot_ci", ""), ("depot_ci", "sha-a", ""), 0),
+        ]
+    )
+    def test_retry_recovery_requires_engine_workflow_and_commit_identity(
+        self, _name: str, failed: tuple[str, str], passed: tuple[str, str, str], recovered: int
+    ) -> None:
+        failed_engine, failed_workflow = failed
+        engine, sha, workflow = passed
+        nodeid = "posthog/api/test/test_identity/TestIdentity::test_retry"
+        stamp = datetime.now(UTC) - timedelta(hours=1)
+        rows = [
+            self._span(
+                9001,
+                nodeid,
+                "failed",
+                ts=stamp,
+                run="9900",
+                branch="master",
+                ci_engine=failed_engine,
+                head_sha="sha-a",
+                native_workflow_run_id=failed_workflow,
+            ),
+            self._span(
+                9002,
+                nodeid,
+                "passed",
+                ts=stamp,
+                run="9900",
+                attempt="2",
+                branch="master",
+                ci_engine=engine,
+                head_sha=sha,
+                native_workflow_run_id=workflow,
+            ),
+        ]
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, timestamp, end_time, observed_timestamp, status_code, service_name, attributes_map_str, resource_attributes) VALUES "
+            + ",".join(rows)
+        )
+        try:
+            assert self._rows()[nodeid]["same_commit_recovery_run_count"] == recovered
+        finally:
+            sync_execute(
+                "ALTER TABLE trace_spans DELETE WHERE uuid IN ('uuid-9001', 'uuid-9002') SETTINGS mutations_sync = 2"
+            )
+
     def test_evidence_is_counted_once_per_run(self) -> None:
         rows = self._rows()
 
@@ -537,6 +595,26 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
+            ("test_substring", {"test": "TESTTHREE::test_fails"}, T_THREE_PRS, 3),
+            # A pytest selector keeps '.py', which the nodeid drops, so it matches through the selector.
+            ("pytest_selector", {"test": "test_injob.py::TestInJob"}, T_IN_JOB_RETRY, 0),
+            # A PR or branch scope still counts the test's failures on every other PR.
+            ("pr_number", {"pr_number": "502"}, T_THREE_PRS, 3),
+            ("branch", {"branch": "f2"}, T_THREE_PRS, 3),
+            # A test that failed on too few PRs needs the lower bar to show up for its PR.
+            ("pr_number_below_the_bar", {"pr_number": "601", "min_failed_prs": "1"}, T_TWO_PRS, 2),
+        ]
+    )
+    def test_test_and_scope_filters_apply_before_limit(
+        self, _name: str, params: dict, expected: str, expected_failed_prs: int
+    ) -> None:
+        items = self._get(limit="1", **params)["items"]
+
+        assert [item["nodeid"] for item in items] == [expected]
+        assert items[0]["failed_pr_count"] == expected_failed_prs
+
+    @parameterized.expand(
+        [
             ("window_over_30_days", {"date_from": "-45d"}),
             ("reversed_window", {"date_from": "-1d", "date_to": "-5d"}),
             ("zero_min_failed_prs", {"min_failed_prs": "0"}),
@@ -544,6 +622,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             ("oversized_limit", {"limit": "201"}),
             ("non_integer_threshold", {"min_failed_prs": "lots"}),
             ("unknown_runner", {"runner": "playwright"}),
+            ("non_integer_pr_number", {"pr_number": "abc"}),
         ]
     )
     def test_invalid_params_return_400(self, _name: str, params: dict) -> None:

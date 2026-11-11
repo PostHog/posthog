@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconSend } from '@posthog/icons'
 import { LemonButton, LemonSearchableSelect, Spinner } from '@posthog/lemon-ui'
 
+import { createDisabledReason } from './broadcastLifecycle'
 import { broadcastPreviewLogic } from './broadcastPreviewLogic'
 import { broadcastTestSendLogic } from './broadcastTestSendLogic'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
@@ -24,8 +25,10 @@ function PreviewRow({ label, children }: { label: string; children: React.ReactN
  */
 export function BroadcastEmailPreview({
     intro = 'Preview and test before this reaches the audience.',
+    showTestButton = true,
 }: {
     intro?: string
+    showTestButton?: boolean
 }): JSX.Element {
     const { email } = useValues(broadcastWizardLogic)
     const {
@@ -47,15 +50,18 @@ export function BroadcastEmailPreview({
         <div className="flex flex-col gap-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-muted text-xs">{intro}</span>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconSend />}
-                    onClick={() => setModalOpen(true)}
-                    data-attr="broadcast-open-test-email"
-                >
-                    Send test email
-                </LemonButton>
+                {showTestButton ? (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconSend />}
+                        onClick={() => setModalOpen(true)}
+                        disabledReason={createDisabledReason()}
+                        data-attr="broadcast-open-test-email"
+                    >
+                        Send test email
+                    </LemonButton>
+                ) : null}
             </div>
             <SendTestBroadcastModal />
 

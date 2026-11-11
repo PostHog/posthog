@@ -1,11 +1,13 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+import userEvent from '@testing-library/user-event'
 import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 
-import { STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, STORYBOOK_FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -138,16 +140,86 @@ export const SettingsEnvironmentMarketingAnalytics: Story = {
 
 export const SettingsEnvironmentWebAnalytics: Story = { args: { sectionId: 'environment-web-analytics' } }
 
+const EXPERIMENTS_CONFIG_MOCK = {
+    experiment_recalculation_times: ['02:00:00'],
+    default_experiment_confidence_level: null,
+    default_experiment_stats_method: null,
+    default_only_count_matured_users: false,
+    default_cuped_enabled: false,
+    default_cuped_lookback_days: null,
+    default_minimum_detectable_effect: 5,
+    default_sequential_testing_enabled: false,
+    default_sequential_tuning_parameter: null,
+    flag_cleanup_repository: null,
+}
+
+export const SettingsEnvironmentExperiments: Story = {
+    args: { sectionId: 'environment-experiments' },
+    parameters: {
+        // STORYBOOK_FEATURE_FLAGS enables every flag, so the flag-off picker needs the exclusion
+        featureFlags: STORYBOOK_FEATURE_FLAGS.filter(
+            (f) => f !== FEATURE_FLAGS.EXPERIMENT_MULTIPLE_RECALCULATION_TIMES
+        ),
+    },
+    decorators: [
+        mswDecorator({
+            get: { '/api/projects/:id/experiments_config/': EXPERIMENTS_CONFIG_MOCK },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentExperimentsMultipleRecalculationTimes: Story = {
+    args: { sectionId: 'environment-experiments' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/experiments_config/': {
+                    ...EXPERIMENTS_CONFIG_MOCK,
+                    experiment_recalculation_times: ['02:00:00', '14:00:00'],
+                },
+            },
+        }),
+    ],
+}
+
 export const SettingsEnvironmentReplay: Story = { args: { sectionId: 'environment-replay' } }
 
 export const SettingsEnvironmentSurveys: Story = { args: { sectionId: 'environment-surveys' } }
 
 export const SettingsEnvironmentFeatureFlags: Story = { args: { sectionId: 'environment-feature-flags' } }
 
-export const SettingsEnvironmentErrorTracking: Story = { args: { sectionId: 'environment-error-tracking' } }
+export const SettingsEnvironmentErrorTracking: Story = {
+    args: { sectionId: 'environment-error-tracking' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': {
+                    project_rate_limit_value: null,
+                    project_rate_limit_bucket_size_minutes: null,
+                    per_issue_rate_limit_value: null,
+                    per_issue_rate_limit_bucket_size_minutes: null,
+                    ingestion_enabled: true,
+                },
+            },
+        }),
+    ],
+}
 
 export const SettingsEnvironmentErrorTrackingConfiguration: Story = {
     args: { sectionId: 'environment-error-tracking-configuration' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': {
+                    project_rate_limit_value: null,
+                    project_rate_limit_bucket_size_minutes: null,
+                    per_issue_rate_limit_value: null,
+                    per_issue_rate_limit_bucket_size_minutes: null,
+                    ingestion_enabled: true,
+                },
+            },
+        }),
+    ],
 }
 
 export const SettingsEnvironmentCSPReporting: Story = { args: { sectionId: 'environment-csp-reporting' } }
@@ -180,6 +252,12 @@ export const SettingsEnvironmentBusinessKnowledge: Story = {
                     learn_from_support_enabled: false,
                     support_enabled: true,
                 },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
             },
         }),
     ],
@@ -193,6 +271,12 @@ export const SettingsEnvironmentBusinessKnowledgeSupportOff: Story = {
                 '/api/projects/:id/business_knowledge/settings/': {
                     learn_from_support_enabled: false,
                     support_enabled: false,
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
                 },
             },
         }),
@@ -208,6 +292,140 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
                     learn_from_support_enabled: true,
                     support_enabled: false,
                 },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeLearningFromPastTickets: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                    learning_backfill: {
+                        status: 'running',
+                        started_at: '2023-05-24T22:00:00Z',
+                        finished_at: null,
+                        tickets_read: 42,
+                        tickets_in_progress: 3,
+                        knowledge_created: 7,
+                    },
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
+            },
+        }),
+    ],
+}
+
+const codexSubscriptionMocks = (codex: Record<string, unknown>): Record<string, Record<string, unknown>> => ({
+    get: {
+        '/api/users/@me/integrations/codex/': codex,
+    },
+})
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnected: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'connected',
+                plan_type: 'pro',
+                email: 'jane@example.com',
+                connected_at: '2023-05-20T10:00:00Z',
+            }),
+        },
+    },
+}
+
+export const SettingsEnvironmentAiSubscriptionsCodexReauthRequired: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'reauth_required',
+                plan_type: 'plus',
+                email: 'jane@example.com',
+                connected_at: '2023-05-20T10:00:00Z',
+            }),
+        },
+    },
+}
+
+export const SettingsEnvironmentAiSubscriptionsCodexConnectModal: Story = {
+    args: { sectionId: 'environment-ai-subscriptions' },
+    parameters: {
+        msw: {
+            mocks: codexSubscriptionMocks({
+                status: 'not_connected',
+                plan_type: null,
+                email: null,
+                connected_at: null,
+            }),
+        },
+    },
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByText('Connect Codex'))
+    },
+}
+
+export const SettingsEnvironmentAgentInstructions: Story = {
+    args: { sectionId: 'environment-task-agent-instructions' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/tasks/config/': {
+                    ai_run_preferences: null,
+                    agent_instructions: 'Use pnpm, not npm.\nOpen pull requests as drafts.',
+                },
+                '/api/projects/:id/tasks/@me/config/': {
+                    ai_run_preferences: null,
+                    resolved_ai_run_defaults: null,
+                    agent_instructions: '',
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsMcpAnalyticsCustomHarnesses: Story = {
+    args: { sectionId: 'mcp-analytics' },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/mcp_analytics/custom_harnesses/': [
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000001',
+                        name: 'Acme agent',
+                        match_pattern: 'acme-agent',
+                        icon: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAApUlEQVR42tWX3Q2AMAiEW+IaOpDOqwPpIPXVmGJpQX54VXrcV6K5lIwrYw/mtRRJoevImTSAtHBrENAUr2mApnhNC6yXELTdvymwCZy7AAGuOGcIHzsggX6UQkwCmNsRCvEItFz2UohFgOquh0IcAr13S30/BoHRrxylzz8B7u+21e+bANc95Zzpq3HZlAhgoUEjH/jZAU0KTy2g5Lc/o5l5ODWvGwdJQtrvVp3WAAAAAElFTkSuQmCC',
+                        created_at: '2023-05-20T10:00:00Z',
+                        updated_at: '2023-05-20T10:00:00Z',
+                    },
+                    {
+                        id: '0193f2a1-0000-7000-8000-000000000002',
+                        name: 'Support bot',
+                        match_pattern: 'support-bot',
+                        icon: '',
+                        created_at: '2023-05-21T10:00:00Z',
+                        updated_at: '2023-05-21T10:00:00Z',
+                    },
+                ],
             },
         }),
     ],

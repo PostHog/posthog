@@ -32,7 +32,6 @@ import {
     externalDataSourcesResumeCdcCreate,
 } from 'products/warehouse_sources/frontend/generated/api'
 
-import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
@@ -151,8 +150,9 @@ function confirmThen(opts: {
 
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { sourceFieldConfig } = useValues(sourceSettingsLogic)
 
-    if (!CDC_SOURCE_TYPES.includes(source.source_type)) {
+    if (!sourceFieldConfig?.cdcEngine) {
         return null
     }
     if (source.access_method !== 'warehouse') {
@@ -168,7 +168,7 @@ export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Elem
         <div className="mt-6 rounded border p-4">
             <div className="flex items-center gap-2 mb-1">
                 <h3 className="text-base font-semibold mb-0">Change data capture (CDC)</h3>
-                <LemonTag type="completion">Alpha</LemonTag>
+                <LemonTag type="completion">Beta</LemonTag>
                 {cdc.enabled && <LemonTag type="success">Enabled</LemonTag>}
             </div>
             <p className="text-sm text-secondary mb-3">

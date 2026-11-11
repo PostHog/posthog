@@ -8,7 +8,8 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ReviewHogReviewsGetSchema = () => {
     const ReviewHogReviewsRetrieveParams = orvalSchemas.ReviewHogReviewsRetrieveParams()
-    return ReviewHogReviewsRetrieveParams.omit({ project_id: true })
+    const ReviewHogReviewsRetrieveQueryParams = orvalSchemas.ReviewHogReviewsRetrieveQueryParams()
+    return ReviewHogReviewsRetrieveParams.omit({ project_id: true }).extend(ReviewHogReviewsRetrieveQueryParams.shape)
 }
 
 const reviewHogReviewsGet = (): ToolBase<ReturnType<typeof ReviewHogReviewsGetSchema>, Schemas.ReviewDetail> => ({
@@ -19,6 +20,9 @@ const reviewHogReviewsGet = (): ToolBase<ReturnType<typeof ReviewHogReviewsGetSc
         const result = await context.api.request<Schemas.ReviewDetail>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/${encodeURIComponent(String(params.id))}/`,
+            query: {
+                run_index: params.run_index,
+            },
         })
         return result
     },
@@ -46,6 +50,33 @@ const reviewHogReviewsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/code-review')
+    },
+})
+
+const ReviewHogReviewsPrStatusSchema = () => {
+    const ReviewHogReviewsPrStatusRetrieveQueryParams = orvalSchemas.ReviewHogReviewsPrStatusRetrieveQueryParams()
+    return ReviewHogReviewsPrStatusRetrieveQueryParams
+}
+
+const reviewHogReviewsPrStatus = (): ToolBase<
+    ReturnType<typeof ReviewHogReviewsPrStatusSchema>,
+    Schemas.ReviewPRStatus
+> => ({
+    name: 'review-hog-reviews-pr-status',
+    schema: ReviewHogReviewsPrStatusSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ReviewHogReviewsPrStatusSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ReviewPRStatus>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/pr_status/`,
+            query: {
+                head_sha: params.head_sha,
+                pr_url: params.pr_url,
+                requested_at: params.requested_at,
+                run_mode: params.run_mode,
+            },
+        })
+        return result
     },
 })
 
@@ -81,5 +112,6 @@ const reviewHogReviewsTrigger = (): ToolBase<
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'review-hog-reviews-get': reviewHogReviewsGet,
     'review-hog-reviews-list': reviewHogReviewsList,
+    'review-hog-reviews-pr-status': reviewHogReviewsPrStatus,
     'review-hog-reviews-trigger': reviewHogReviewsTrigger,
 }

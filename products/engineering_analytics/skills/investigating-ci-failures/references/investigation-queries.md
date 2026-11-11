@@ -64,7 +64,7 @@ The actual error lines behind a fingerprint, newest first — for reading the tr
 confirming two occurrences really are the same failure.
 
 ```sql
-SELECT timestamp, branch, substring(head_sha, 1, 11) AS sha, run_id, job_name, error_signature
+SELECT timestamp, branch, substring(head_sha, 1, 11) AS sha, ci_engine, run_id, job_name, error_signature
 FROM engineering_analytics_ci_failures
 WHERE timestamp >= now() - INTERVAL 14 DAY
   AND fingerprint = '<fingerprint from query 1>'
@@ -72,8 +72,9 @@ ORDER BY timestamp DESC
 LIMIT 50
 ```
 
-`run_id` links each row to `ci_job_history` (and to the GitHub UI:
-`https://github.com/<owner>/<repo>/actions/runs/<run_id>`).
+Join runs on `(ci_engine, run_id)`. Only `github_actions` IDs link to
+`https://github.com/<owner>/<repo>/actions/runs/<run_id>`. Historical logs with a null engine
+have unknown provenance; do not infer their engine or use them to prove retry recovery.
 
 ## 4. What's new on master (novelty scan)
 
@@ -110,24 +111,25 @@ fingerprint ever appeared are considered.
 
 ```sql
 SELECT
+    h.ci_engine,
     h.run_id,
     h.run_attempt,
     h.conclusion AS job_conclusion,
     f.run_id != 0 AS fingerprint_present
 FROM engineering_analytics_ci_job_history AS h
 LEFT JOIN (
-    SELECT DISTINCT run_id, run_attempt
+    SELECT DISTINCT ci_engine, run_id, run_attempt
     FROM engineering_analytics_ci_failures
     WHERE timestamp >= now() - INTERVAL 7 DAY AND fingerprint = '<fingerprint from query 1>'
-) AS f ON h.run_id = f.run_id AND h.run_attempt = f.run_attempt
+) AS f ON h.ci_engine = f.ci_engine AND h.run_id = f.run_id AND h.run_attempt = f.run_attempt
 WHERE h.job_name = '<failing job name>'
   AND h.created_at >= now() - INTERVAL 7 DAY
   AND h.created_at_raw >= '<8 days ago, YYYY-MM-DD>'
-  AND h.run_id IN (
-    SELECT DISTINCT run_id FROM engineering_analytics_ci_failures
+  AND (h.ci_engine, h.run_id) IN (
+    SELECT DISTINCT ci_engine, run_id FROM engineering_analytics_ci_failures
     WHERE timestamp >= now() - INTERVAL 7 DAY AND fingerprint = '<fingerprint from query 1>'
   )
-ORDER BY h.run_id, h.run_attempt
+ORDER BY h.ci_engine, h.run_id, h.run_attempt
 ```
 
 Reading: `fingerprint_present` dropping on a later attempt while the job goes green = retry-passed
@@ -196,7 +198,7 @@ The `trunk-merge/pr-<n>/<uuid>` branch is ephemeral, but the jobs it ran stay in
 under that `head_branch`. One row per job attempt, failures first:
 
 ```sql
-SELECT head_branch, run_id, workflow_name, job_name, conclusion, created_at
+SELECT head_branch, ci_engine, run_id, workflow_name, job_name, conclusion, created_at
 FROM engineering_analytics_ci_job_history
 WHERE startsWith(head_branch, 'trunk-merge/pr-<n>/')
   AND created_at >= now() - INTERVAL 7 DAY

@@ -5,9 +5,10 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 
@@ -28,7 +29,7 @@ export function CreateScannerButton({
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const { push } = useActions(router)
     const [consentRequested, setConsentRequested] = useState(false)
-    const goToCreate = (): void => push(urls.replayVisionTemplates())
+    const goToCreate = (): void => push(urls.replayVisionNewScanner())
 
     // A member cannot allow anything, so don't label the CTA as if they can. Clicking still opens
     // the popover, where their actual next step is to ask an admin.
@@ -62,7 +63,7 @@ export function CreateScannerButton({
             showArrow
             ignoreDismissal
             hideTrainingDisclaimer
-            pendingRedirectUrl={urls.replayVisionTemplates()}
+            pendingRedirectUrl={urls.replayVisionNewScanner()}
             hidden={!consentRequested}
             onApprove={() => {
                 setConsentRequested(false)

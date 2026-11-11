@@ -5,7 +5,6 @@ from products.ai_observability.backend.api import (
     AIBlobViewSet,
     AIObservabilityClusteringRunViewSet,
     AIObservabilityInstrumentationChecklistViewSet,
-    AIObservabilityOfflineEvaluationsViewSet,
     AIObservabilitySummarizationViewSet,
     AIObservabilityTextReprViewSet,
     AIObservabilityTranslateViewSet,
@@ -34,6 +33,7 @@ from products.ai_observability.backend.api import (
     TaggerViewSet,
     TraceReviewViewSet,
 )
+from products.ai_observability.backend.presentation.views import TraceViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -56,6 +56,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"ai_observability/instrumentation_checklist",
         AIObservabilityInstrumentationChecklistViewSet,
         "project_ai_observability_instrumentation_checklist",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"ai_observability/traces",
+        TraceViewSet,
+        "project_ai_observability_traces",
         ["team_id"],
     )
     routers.root.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
@@ -130,12 +136,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"llm_analytics/clustering_jobs", ClusteringJobViewSet, "project_llm_analytics_clustering_jobs", ["team_id"]
-    )
-    routers.projects.register(
-        r"llm_analytics/offline_evaluations",
-        AIObservabilityOfflineEvaluationsViewSet,
-        "project_llm_analytics_offline_evaluations",
-        ["team_id"],
     )
     routers.projects.register(
         r"llm_analytics/review_queue_items",

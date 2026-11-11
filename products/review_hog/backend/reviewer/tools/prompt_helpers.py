@@ -9,6 +9,18 @@ from products.review_hog.backend.reviewer.sandbox.code_context import prepare_co
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
+# The AI gateway turns this line into an OpenAI prompt cache breakpoint and drops the per-session cache key.
+# Sessions whose prompts match up to the marker, such as the sessions of one review, then read that prefix
+# from one cache entry.
+PROMPT_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint -->"
+# What a copy of the marker in pull request text becomes, so the prompt holds only ours.
+_QUOTED_CACHE_MARKER = "<!-- posthog:prompt-cache-breakpoint (quoted) -->"
+
+
+def without_cache_marker(text: str) -> str:
+    """Pull request text with any copy of the cache marker defused, so it cannot pose as the real one."""
+    return text.replace(PROMPT_CACHE_MARKER, _QUOTED_CACHE_MARKER)
+
 
 def load_template_and_schema(prompt_subdir: str) -> tuple[Template, str]:
     """Load a prompt's Jinja template and its output schema from reviewer/prompts/<prompt_subdir>/."""
@@ -30,6 +42,16 @@ def load_template_and_schema(prompt_subdir: str) -> tuple[Template, str]:
 def format_pr_intent(pr_metadata: PRMetadata) -> str:
     """The PR's title + description — the only PR metadata a perspective-agnostic prompt injects as intent."""
     return f"Title: {pr_metadata.title}\n\nDescription:\n{pr_metadata.body.strip() or '(no description provided)'}"
+
+
+def author_comments(pr_comments: list[PRComment], pr_metadata: PRMetadata) -> list[PRComment]:
+    """The PR author's own inline comments, for prompts that need the author's intent and replies.
+
+    Other reviewers' comments stay out of the review prompts: a reviewer that reads another bot's finding
+    tends to agree with it or skip it, and dedup matches findings against those comments after the review.
+    """
+    author = pr_metadata.author.lower()
+    return [comment for comment in pr_comments if comment.user.lower() == author]
 
 
 def build_chunk_prompt_context(

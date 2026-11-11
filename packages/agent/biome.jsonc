@@ -1,0 +1,156 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.2.4/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "ignoreUnknown": false
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2
+  },
+  "linter": {
+    "enabled": true,
+    // Keep parity with the desktop workspace, which never enabled Biome's test domain.
+    "domains": {
+      "test": "none"
+    },
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noExplicitAny": "warn"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "double"
+    }
+  },
+  "assist": {
+    "enabled": true,
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "overrides": [
+    {
+      // Disallow console.* in agent source code - use logger instead
+      "includes": ["packages/agent/src/**/*.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "error"
+          }
+        }
+      }
+    },
+    {
+      // Logger implementations intentionally wrap console
+      "includes": ["packages/agent/src/utils/logger.ts"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/shared", "@posthog/shared/*"],
+                    "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": [
+        "packages/agent/src/sdk/**/*.ts",
+        "packages/agent/src/server/agent-server.ts",
+        "packages/agent/src/server/pi-agent-server.ts",
+        "packages/agent/src/server/product/**/*.ts",
+        "packages/agent/src/server/launch/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/shared", "@posthog/shared/*"],
+                    "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
+                  },
+                  {
+                    "group": ["**/products/**"],
+                    "message": "The server and SDK receive one product definition from application boot. Do not import products into the runtime."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/agent/src/products/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/server/**", "**/boot/**"],
+                    "message": "Products use the agent SDK in src/sdk. Do not import runtime internals."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/agent-contracts/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/*"],
+                    "message": "agent-contracts is a leaf shared with every host. It imports no internal package."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

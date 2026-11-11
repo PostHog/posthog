@@ -1,18 +1,16 @@
 """
 Shared type surface for warehouse_sources.
 
-The framework-light shared enums and typed structures that cross-product consumers
-compare against or annotate with. They carry Django ``TextChoices`` / ``StrEnum``
-semantics (not framework-free), so they live here as object wiring rather than in
-``facade.contracts``. Defined in the facade so the contract-check inputs always watch
-them; ``backend.types`` re-exports them for product-internal use.
+The shared enums and typed structures that cross-product consumers compare against or annotate with.
+The choices enums use ``LabeledStrEnum`` from ``posthog.enums``, so this module does not import Django.
+The module is in the facade so that the contract-check inputs watch these types.
+``backend.types`` re-exports them for product-internal use.
 """
 
 import typing
 from enum import StrEnum
 
-from django.db import models
-from django.utils.functional import Promise
+from posthog.enums import LabeledStrEnum
 
 __all__ = [
     "DIRECT_ENGINE_BY_SOURCE_TYPE",
@@ -24,6 +22,7 @@ __all__ = [
     "ExternalDataSchemaStatus",
     "ExternalDataSchemaSyncFrequency",
     "ExternalDataSchemaSyncType",
+    "SettableSyncFrequency",
     "ExternalDataSourceAccessMethod",
     "ExternalDataSourceCreatedVia",
     "ExternalDataSourceStatus",
@@ -32,7 +31,9 @@ __all__ = [
     "IncrementalFieldType",
     "ManagedWarehouseSQLMode",
     "PartitionSettings",
+    "SourceKey",
     "WarehouseColumnAnnotationDescriptionSource",
+    "source_key",
 ]
 
 
@@ -59,6 +60,8 @@ class IncrementalField(typing.TypedDict, total=False):
     # Used to warn users picking an incremental field that would force a full scan
     # on every sync. Defaults to True when omitted so missing detection never warns.
     is_indexed: bool
+    recommended: bool
+    notes: list[str]
 
 
 class PartitionSettings(typing.NamedTuple):
@@ -73,7 +76,7 @@ class PartitionSettings(typing.NamedTuple):
     partition_size: int
 
 
-class ExternalDataSourceType(models.TextChoices):
+class ExternalDataSourceType(LabeledStrEnum):
     ASHBY = "Ashby", "Ashby"
     SUPABASE = "Supabase", "Supabase"
     CUSTOMERIO = "CustomerIO", "CustomerIO"
@@ -112,6 +115,7 @@ class ExternalDataSourceType(models.TextChoices):
     ATTIO = "Attio", "Attio"
     SNAPCHATADS = "SnapchatAds", "SnapchatAds"
     LINEAR = "Linear", "Linear"
+    LITELLM = "LiteLLM", "LiteLLM"
     INTERCOM = "Intercom", "Intercom"
     AMPLITUDE = "Amplitude", "Amplitude"
     MIXPANEL = "Mixpanel", "Mixpanel"
@@ -149,6 +153,7 @@ class ExternalDataSourceType(models.TextChoices):
     SQUARE = "Square", "Square"
     ZOOM = "Zoom", "Zoom"
     TRELLO = "Trello", "Trello"
+    TRAFFICSTARS = "TrafficStars", "TrafficStars"
     MONDAY = "Monday", "Monday"
     CLICKUP = "ClickUp", "ClickUp"
     CONFLUENCE = "Confluence", "Confluence"
@@ -158,6 +163,7 @@ class ExternalDataSourceType(models.TextChoices):
     GONG = "Gong", "Gong"
     CALENDLY = "Calendly", "Calendly"
     TYPEFORM = "Typeform", "Typeform"
+    UNITYADS = "UnityAds", "UnityAds"
     ITERABLE = "Iterable", "Iterable"
     ZOHOCRM = "ZohoCRM", "ZohoCRM"
     CLOSE = "Close", "Close"
@@ -202,6 +208,7 @@ class ExternalDataSourceType(models.TextChoices):
     PLAID = "Plaid", "Plaid"
     SURVEYMONKEY = "SurveyMonkey", "SurveyMonkey"
     EVENTBRITE = "Eventbrite", "Eventbrite"
+    EVERFLOW = "Everflow", "Everflow"
     RINGCENTRAL = "RingCentral", "RingCentral"
     TWILIO = "Twilio", "Twilio"
     FRESHSALES = "Freshsales", "Freshsales"
@@ -268,9 +275,12 @@ class ExternalDataSourceType(models.TextChoices):
     INCIDENTIO = "IncidentIo", "IncidentIo"
     PINGDOM = "Pingdom", "Pingdom"
     CLOUDFLARE = "Cloudflare", "Cloudflare"
+    CLOUDFLARED1 = "CloudflareD1", "CloudflareD1"
     COSMOSDB = "CosmosDB", "CosmosDB"
     PLANETSCALEMYSQL = "PlanetScaleMySQL", "PlanetScaleMySQL"
     PLANETSCALEPOSTGRES = "PlanetScalePostgres", "PlanetScalePostgres"
+    PLANE = "Plane", "Plane"
+    SCARF = "Scarf", "Scarf"
     SAPHANA = "SapHana", "SapHana"
     RIPPLING = "Rippling", "Rippling"
     HIBOB = "HiBob", "HiBob"
@@ -531,6 +541,7 @@ class ExternalDataSourceType(models.TextChoices):
     REPLYIO = "ReplyIo", "ReplyIo"
     RETAILEXPRESS = "RetailExpress", "RetailExpress"
     RETENTLY = "Retently", "Retently"
+    RETREAVER = "Retreaver", "Retreaver"
     REVOLUTMERCHANT = "RevolutMerchant", "RevolutMerchant"
     ROCKETCHAT = "RocketChat", "RocketChat"
     ROCKETLANE = "Rocketlane", "Rocketlane"
@@ -569,6 +580,7 @@ class ExternalDataSourceType(models.TextChoices):
     SQUARESPACE = "Squarespace", "Squarespace"
     STATSIG = "Statsig", "Statsig"
     STATUSPAGE = "Statuspage", "Statuspage"
+    STEAM = "Steam", "Steam"
     STIGG = "Stigg", "Stigg"
     STRAVA = "Strava", "Strava"
     SURVEYSPARROW = "SurveySparrow", "SurveySparrow"
@@ -796,6 +808,7 @@ class ExternalDataSourceType(models.TextChoices):
     LAMBDALABS = "LambdaLabs", "LambdaLabs"
     LANGSMITH = "LangSmith", "LangSmith"
     LINODE = "Linode", "Linode"
+    LISTMONK = "Listmonk", "Listmonk"
     LLAMACLOUD = "LlamaCloud", "LlamaCloud"
     MEM0 = "Mem0", "Mem0"
     METRIPORT = "Metriport", "Metriport"
@@ -980,6 +993,7 @@ class ExternalDataSourceType(models.TextChoices):
     AWSCOSTANDUSAGEREPORT = "AwsCostAndUsageReport", "AwsCostAndUsageReport"
     AWSCOSTANOMALYDETECTION = "AwsCostAnomalyDetection", "AwsCostAnomalyDetection"
     AWSCOSTEXPLORER = "AwsCostExplorer", "AwsCostExplorer"
+    AWSDOCUMENTDB = "AwsDocumentDB", "AwsDocumentDB"
     AWSGLUEDATACATALOG = "AwsGlueDataCatalog", "AwsGlueDataCatalog"
     AWSGUARDDUTY = "AwsGuardduty", "AwsGuardduty"
     AWSHEALTH = "AwsHealth", "AwsHealth"
@@ -1026,6 +1040,7 @@ class ExternalDataSourceType(models.TextChoices):
     BLACKBOARDLEARN = "BlackboardLearn", "BlackboardLearn"
     BLING = "Bling", "Bling"
     BLOOMERANG = "Bloomerang", "Bloomerang"
+    BLUESHIFT = "Blueshift", "Blueshift"
     BLUESKY = "Bluesky", "Bluesky"
     BOLRETAILER = "BolRetailer", "BolRetailer"
     BOULEVARD = "Boulevard", "Boulevard"
@@ -1079,6 +1094,7 @@ class ExternalDataSourceType(models.TextChoices):
     DONORBOX = "Donorbox", "Donorbox"
     DOORLOOP = "Doorloop", "Doorloop"
     DOVETAIL = "Dovetail", "Dovetail"
+    DRAGONBOAT = "Dragonboat", "Dragonboat"
     DRCHRONO = "Drchrono", "Drchrono"
     DYNAMICS365BUSINESSCENTRAL = "Dynamics365BusinessCentral", "Dynamics365BusinessCentral"
     ECBDATAPORTAL = "EcbDataPortal", "EcbDataPortal"
@@ -1175,6 +1191,7 @@ class ExternalDataSourceType(models.TextChoices):
     LOOPRETURNS = "LoopReturns", "LoopReturns"
     MASTODON = "Mastodon", "Mastodon"
     MEETUP = "Meetup", "Meetup"
+    MEGAPHONE = "Megaphone", "Megaphone"
     MEMBERFUL = "Memberful", "Memberful"
     MERCADOPAGO = "MercadoPago", "MercadoPago"
     METEOSTAT = "Meteostat", "Meteostat"
@@ -1314,6 +1331,7 @@ class ExternalDataSourceType(models.TextChoices):
     WHATSAPPBUSINESSMANAGEMENT = "WhatsappBusinessManagement", "WhatsappBusinessManagement"
     WHOGHO = "WhoGho", "WhoGho"
     WHOP = "Whop", "Whop"
+    WISTIA = "Wistia", "Wistia"
     WIZ = "Wiz", "Wiz"
     WOMPI = "Wompi", "Wompi"
     WORKIZ = "Workiz", "Workiz"
@@ -1393,6 +1411,7 @@ class ExternalDataSourceType(models.TextChoices):
     SIMONDATA = "SimonData", "SimonData"
     COMMISSIONJUNCTION = "CommissionJunction", "CommissionJunction"
     LIVEBLOCKS = "Liveblocks", "Liveblocks"
+    LIVESTORM = "Livestorm", "Livestorm"
     NATIONBUILDER = "NationBuilder", "NationBuilder"
     TANA = "Tana", "Tana"
     ZENCHEF = "Zenchef", "Zenchef"
@@ -1422,11 +1441,83 @@ class ExternalDataSourceType(models.TextChoices):
     EXPO = "Expo", "Expo"
     POSTNORD = "PostNord", "PostNord"
     COMMSLAYER = "Commslayer", "Commslayer"
+    SPRINTO = "Sprinto", "Sprinto"
+    GEM = "Gem", "Gem"
+    AUDIOGO = "AudioGO", "AudioGO"
+    EXACTONLINE = "ExactOnline", "ExactOnline"
+    LETTRLABS = "LettrLabs", "LettrLabs"
+    GRAFANAIRM = "GrafanaIRM", "GrafanaIRM"
+    TESSITURA = "Tessitura", "Tessitura"
+    CHARGEBACKSTOP = "ChargebackStop", "ChargebackStop"
+    CHARGEFLOW = "Chargeflow", "Chargeflow"
+    DREAMDATA = "Dreamdata", "Dreamdata"
+    GOOGLEBUSINESSPROFILE = "GoogleBusinessProfile", "GoogleBusinessProfile"
+    LEDYER = "Ledyer", "Ledyer"
+    SUPERMETRICS = "Supermetrics", "Supermetrics"
+    SQLITE = "SQLite", "SQLite"
+    MODAL = "Modal", "Modal"
+    VIMEO = "Vimeo", "Vimeo"
+    SCRUNCH = "Scrunch", "Scrunch"
+    LOOM = "Loom", "Loom"
+    ARCADE = "Arcade", "Arcade"
+    NEO4J = "Neo4j", "Neo4j"
+    TESTDINO = "TestDino", "TestDino"
+    CHESSCOM = "ChessCom", "ChessCom"
+    USERBACK = "Userback", "Userback"
+    REWARDFUL = "Rewardful", "Rewardful"
+    TRACKLUTION = "Tracklution", "Tracklution"
+    STACKADAPT = "StackAdapt", "StackAdapt"
+    CHECKHQ = "CheckHQ", "CheckHQ"
+    RAINFORESTPAY = "RainforestPay", "RainforestPay"
+    WISE = "Wise", "Wise"
+    LARAVELCLOUD = "LaravelCloud", "LaravelCloud"
+    NORTHBEAM = "Northbeam", "Northbeam"
+    NAVERADS = "NaverAds", "NaverAds"
+    CHANNELIO = "ChannelIO", "ChannelIO"
+    AIRSHIP = "Airship", "Airship"
+    CREEM = "Creem", "Creem"
+    LEANTIME = "Leantime", "Leantime"
+    TESTOMATIO = "Testomatio", "Testomatio"
+    GOOGLEADMOB = "GoogleAdMob", "GoogleAdMob"
+    KLAR = "Klar", "Klar"
+    CONECTOCRM = "ConectoCRM", "ConectoCRM"
+    CLOUDFLARER2 = "CloudflareR2", "CloudflareR2"
+    PARTICLE = "Particle", "Particle"
+    FILEUPLOAD = "FileUpload", "FileUpload"
+    DRIPIFY = "Dripify", "Dripify"
+    AWSS3TABLES = "AwsS3Tables", "AwsS3Tables"
+    BEACONS = "Beacons", "Beacons"
+    WOOPAYMENTS = "WooPayments", "WooPayments"
+    SONIOX = "Soniox", "Soniox"
+    NANGO = "Nango", "Nango"
+    FATHOM = "Fathom", "Fathom"
+    STAMPED = "Stamped", "Stamped"
 
 
-def external_data_source_type_choices() -> list[tuple[str, str | Promise]]:
+def external_data_source_type_choices() -> list[tuple[typing.Any, str]]:
     # Callable so growing the enum doesn't generate a no-op migration.
+    # A plugin source key has no member here. The model does not validate choices on save, and the
+    # API serializers validate the key against the source registry, so the list stays enum-only and
+    # evaluating it never imports the vendor catalog.
     return list(ExternalDataSourceType.choices)
+
+
+# The key that names a warehouse source: what `ExternalDataSource.source_type` stores and what the
+# source registry is keyed on. A core source uses its `ExternalDataSourceType` member. A plugin source
+# names itself with a plain string that has no member, so the type is `str`.
+SourceKey = str
+
+
+def source_key(key: str) -> SourceKey:
+    """The `ExternalDataSourceType` member for `key` when one exists, else `key` unchanged.
+
+    Code that compares against or reads attributes of a member keeps working for core keys, and a
+    plugin key passes through as the string it is.
+    """
+    try:
+        return ExternalDataSourceType(key)
+    except ValueError:
+        return key
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only
@@ -1441,7 +1532,14 @@ DIRECT_ENGINE_BY_SOURCE_TYPE: dict[str, str] = {
     ExternalDataSourceType.CLICKHOUSECLOUD: "clickhouse",
     ExternalDataSourceType.MOTHERDUCK: "motherduck",
     ExternalDataSourceType.TRINO: "trino",
+    ExternalDataSourceType.BIGQUERY: "bigquery",
 }
+
+
+class CDCEngine(StrEnum):
+    """Change data capture engine of a source type, which picks its CDC setup form and status panel."""
+
+    POSTGRES = "postgres"
 
 
 class ManagedWarehouseSQLMode(StrEnum):
@@ -1450,12 +1548,12 @@ class ManagedWarehouseSQLMode(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
-class DataWarehouseManagedViewSetKind(models.TextChoices):
+class DataWarehouseManagedViewSetKind(LabeledStrEnum):
     REVENUE_ANALYTICS = "revenue_analytics", "Revenue Analytics"
     ENGINEERING_ANALYTICS = "engineering_analytics", "Engineering Analytics"
 
 
-class DataWarehouseTableFormat(models.TextChoices):
+class DataWarehouseTableFormat(LabeledStrEnum):
     CSV = "CSV", "CSV"
     CSVWithNames = "CSVWithNames", "CSVWithNames"
     Parquet = "Parquet", "Parquet"
@@ -1464,7 +1562,7 @@ class DataWarehouseTableFormat(models.TextChoices):
     DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
 
-class DataWarehouseTableCreatedVia(models.TextChoices):
+class DataWarehouseTableCreatedVia(LabeledStrEnum):
     # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
     # attribution can be counted together. The last three have no source equivalent — they cover
     # the tables PostHog creates itself, which a request surface would otherwise misattribute to
@@ -1479,7 +1577,7 @@ class DataWarehouseTableCreatedVia(models.TextChoices):
     DEMO = "demo", "demo"
 
 
-class ExternalDataJobStatus(models.TextChoices):
+class ExternalDataJobStatus(LabeledStrEnum):
     RUNNING = "Running", "Running"
     FAILED = "Failed", "Failed"
     COMPLETED = "Completed", "Completed"
@@ -1487,18 +1585,18 @@ class ExternalDataJobStatus(models.TextChoices):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
-class ExternalDataJobPipelineVersion(models.TextChoices):
+class ExternalDataJobPipelineVersion(LabeledStrEnum):
     V1 = "v1-dlt-sync", "v1-dlt-sync"
     V2 = "v2-non-dlt", "v2-non-dlt"
     V3 = "v3-kafka-s3", "v3-kafka-s3"
 
 
-class ExternalDataSourceAccessMethod(models.TextChoices):
+class ExternalDataSourceAccessMethod(LabeledStrEnum):
     WAREHOUSE = "warehouse", "warehouse"
     DIRECT = "direct", "direct"
 
 
-class ExternalDataSourceCreatedVia(models.TextChoices):
+class ExternalDataSourceCreatedVia(LabeledStrEnum):
     WEB = "web", "web"
     API = "api", "api"
     MCP = "mcp", "mcp"
@@ -1506,7 +1604,7 @@ class ExternalDataSourceCreatedVia(models.TextChoices):
     SELF_DRIVING = "self_driving", "self_driving"
 
 
-class ExternalDataSourceStatus(models.TextChoices):
+class ExternalDataSourceStatus(LabeledStrEnum):
     RUNNING = "Running", "Running"
     PAUSED = "Paused", "Paused"
     ERROR = "Error", "Error"
@@ -1514,7 +1612,7 @@ class ExternalDataSourceStatus(models.TextChoices):
     CANCELLED = "Cancelled", "Cancelled"
 
 
-class ExternalDataSchemaStatus(models.TextChoices):
+class ExternalDataSchemaStatus(LabeledStrEnum):
     RUNNING = "Running", "Running"
     PAUSED = "Paused", "Paused"
     FAILED = "Failed", "Failed"
@@ -1523,7 +1621,7 @@ class ExternalDataSchemaStatus(models.TextChoices):
     BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 
 
-class ExternalDataSchemaSyncType(models.TextChoices):
+class ExternalDataSchemaSyncType(LabeledStrEnum):
     FULL_REFRESH = "full_refresh", "full_refresh"
     INCREMENTAL = "incremental", "incremental"
     APPEND = "append", "append"
@@ -1532,7 +1630,7 @@ class ExternalDataSchemaSyncType(models.TextChoices):
     XMIN = "xmin", "xmin"
 
 
-class IncrementalSyncBlockedReason(models.TextChoices):
+class IncrementalSyncBlockedReason(LabeledStrEnum):
     """Why the last sync run could not merge rows on a schema's primary key.
 
     A missing key is a configuration state and stays until someone picks one. A duplicate key is a
@@ -1544,14 +1642,51 @@ class IncrementalSyncBlockedReason(models.TextChoices):
     DUPLICATE_PRIMARY_KEY = "duplicate_primary_key", "Duplicate primary key"
 
 
-class ExternalDataSchemaSyncFrequency(models.TextChoices):
+class ExternalDataSchemaSyncFrequency(LabeledStrEnum):
     DAILY = "day", "Daily"
     WEEKLY = "week", "Weekly"
     MONTHLY = "month", "Monthly"
     # TODO provide flexible schedule definition
 
 
-class WarehouseColumnAnnotationDescriptionSource(models.TextChoices):
+class SettableSyncFrequency(LabeledStrEnum):
+    """The frequencies a user may set. `1min` stays readable for schemas created before the 5-minute floor."""
+
+    NEVER = "never", "never"
+    FIVE_MINUTES = "5min", "5min"
+    FIFTEEN_MINUTES = "15min", "15min"
+    THIRTY_MINUTES = "30min", "30min"
+    ONE_HOUR = "1hour", "1hour"
+    SIX_HOURS = "6hour", "6hour"
+    TWELVE_HOURS = "12hour", "12hour"
+    ONE_DAY = "24hour", "24hour"
+    SEVEN_DAYS = "7day", "7day"
+    THIRTY_DAYS = "30day", "30day"
+
+
+class WarehouseColumnAnnotationDescriptionSource(LabeledStrEnum):
     CANONICAL = "canonical", "Canonical"
     AI_GENERATED = "ai_generated", "AI generated"
     USER_EDITED = "user_edited", "User edited"
+
+
+class WarehouseColumnSensitivity(LabeledStrEnum):
+    """The kind of personal or secret data a column's name and type suggest it holds."""
+
+    EMAIL = "email", "Email"
+    PHONE = "phone", "Phone"
+    NAME = "name", "Name"
+    ADDRESS = "address", "Address"
+    DATE_OF_BIRTH = "date_of_birth", "Date of birth"
+    IP_ADDRESS = "ip_address", "IP address"
+    TOKEN = "token", "Token"
+    SECRET = "secret", "Secret"
+    CARD_NUMBER = "card_number", "Card number"
+
+
+class UploadedFileFormat(LabeledStrEnum):
+    """How an uploaded file is read: CSV with a header row, JSON one object per line, or Parquet."""
+
+    CSV = "csv", "csv"
+    JSON = "json", "json"
+    PARQUET = "parquet", "parquet"

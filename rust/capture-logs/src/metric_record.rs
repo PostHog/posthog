@@ -5,7 +5,6 @@ use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
 use chrono::serde::ts_microseconds;
 use chrono::DateTime;
-use chrono::TimeDelta;
 use chrono::Utc;
 use opentelemetry_proto::tonic::{
     common::v1::{
@@ -23,7 +22,7 @@ use siphasher::sip::SipHasher13;
 use tracing::debug;
 use uuid::Uuid;
 
-use crate::log_record::{extract_span_id, extract_trace_id};
+use crate::log_record::{extract_span_id, extract_trace_id, override_timestamp};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct KafkaMetricRow {
@@ -54,6 +53,23 @@ pub struct KafkaMetricRow {
     pub series_fingerprint: i64,
     pub has_labels: bool,
     pub retention_days: Option<i32>,
+}
+
+const POINT_BYTES: u64 = 24;
+const LABEL_BYTES: u64 = 8;
+const HISTOGRAM_BUCKET_BYTES: u64 = 8;
+
+/// Billable size of one point: 24 bytes, plus 8 bytes for each label and each histogram bucket.
+/// The size uses counts, not string lengths, so customers can predict it from what they send.
+/// The wire format, batch size and name lengths do not change it.
+pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
+    let labels = (row.resource_attributes.len() + row.attributes.len()) as u64;
+    let buckets = row.histogram_counts.len() as u64;
+    POINT_BYTES + LABEL_BYTES * labels + HISTOGRAM_BUCKET_BYTES * buckets
+}
+
+pub fn sum_kafka_metric_row_bytes(rows: &[KafkaMetricRow]) -> u64 {
+    rows.iter().map(compute_kafka_metric_row_bytes).sum()
 }
 
 /// Flatten an OTEL Metric into one or more KafkaMetricRow records.
@@ -137,8 +153,10 @@ pub fn flatten_metric(
             for dp in hist.data_points {
                 let value = dp.sum.unwrap_or(0.0);
                 let count = dp.count as i64;
-                let bounds = dp.explicit_bounds.clone();
-                let counts: Vec<i64> = dp.bucket_counts.iter().map(|c| *c as i64).collect();
+                let (bounds, counts) = drop_trailing_infinite_bounds(
+                    dp.explicit_bounds.clone(),
+                    dp.bucket_counts.iter().map(|c| *c as i64).collect(),
+                );
 
                 let (mut row, overridden) = build_number_row(
                     &metric_name,
@@ -303,7 +321,7 @@ fn build_number_row(
         })
         .collect();
 
-    // Identity is assigned once, here. Computed before the synthetic $originalTimestamp
+    // Identity is assigned once, here. Computed before the synthetic original timestamp attribute
     // is added so an overridden timestamp never splits a series.
     let series_fingerprint = compute_series_fingerprint(
         metric_name,
@@ -314,7 +332,10 @@ fn build_number_row(
     );
 
     if let Some(original) = original_timestamp {
-        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
+        attributes.insert(
+            crate::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
+            original.to_rfc3339(),
+        );
     }
 
     let observed_timestamp = Utc::now();
@@ -393,6 +414,22 @@ fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
     }
 }
 
+/// prom-client histograms with an explicit `Infinity` bucket send `+Inf` as their last
+/// bound, followed by an empty overflow bucket. Readers reject the non-finite bound.
+fn drop_trailing_infinite_bounds(
+    mut bounds: Vec<f64>,
+    mut counts: Vec<i64>,
+) -> (Vec<f64>, Vec<i64>) {
+    if counts.len() != bounds.len() + 1 {
+        return (bounds, counts);
+    }
+    while bounds.last() == Some(&f64::INFINITY) && counts.last() == Some(&0) {
+        bounds.pop();
+        counts.pop();
+    }
+    (bounds, counts)
+}
+
 /// Flatten exponential histogram buckets into explicit bounds and counts.
 fn flatten_exponential_buckets(
     scale: i32,
@@ -452,19 +489,6 @@ fn temporality_str(temporality: i32) -> String {
     }
 }
 
-const TIMESTAMP_OVERRIDE_HOURS: i64 = 24;
-
-pub fn override_timestamp(timestamp: DateTime<Utc>) -> (DateTime<Utc>, Option<DateTime<Utc>>) {
-    let now = Utc::now();
-    let max_delta = TimeDelta::hours(TIMESTAMP_OVERRIDE_HOURS);
-
-    if timestamp < now - max_delta || timestamp > now + max_delta {
-        (now, Some(timestamp))
-    } else {
-        (timestamp, None)
-    }
-}
-
 fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> String {
     if let Some(value) = attributes.get(key) {
         if let Ok(JsonValue::String(value)) = serde_json::from_str::<JsonValue>(value) {
@@ -477,7 +501,7 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
-fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
+pub(crate) fn extract_resource_attributes(resource: Option<&Resource>) -> HashMap<String, String> {
     let Some(resource) = resource else {
         return HashMap::new();
     };
@@ -534,33 +558,7 @@ fn any_value_to_string(value: AnyValue) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_override_timestamp_within_range_is_unchanged() {
-        let now = Utc::now();
-        let one_hour_ago = now - TimeDelta::hours(1);
-        let (final_ts, original) = override_timestamp(one_hour_ago);
-        assert_eq!(final_ts, one_hour_ago);
-        assert!(original.is_none());
-    }
-
-    #[test]
-    fn test_override_timestamp_far_past_is_overridden() {
-        let now = Utc::now();
-        let two_days_ago = now - TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ago);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ago);
-    }
-
-    #[test]
-    fn test_override_timestamp_far_future_is_overridden() {
-        let now = Utc::now();
-        let two_days_ahead = now + TimeDelta::hours(48);
-        let (final_ts, original) = override_timestamp(two_days_ahead);
-        assert!((final_ts - now).num_seconds().abs() < 2);
-        assert_eq!(original.unwrap(), two_days_ahead);
-    }
+    use chrono::TimeDelta;
 
     #[test]
     fn test_number_value_as_double() {
@@ -624,6 +622,30 @@ mod tests {
         )
         .expect("build_number_row should succeed");
         row
+    }
+
+    #[test]
+    fn test_row_bytes_count_points_labels_and_buckets_not_lengths() {
+        let mut row = build_test_row(&[]);
+        row.metric_name = "rpc.latency".to_string();
+        row.histogram_bounds = vec![1.0, 5.0];
+        row.histogram_counts = vec![1, 2, 3];
+        row.resource_attributes = HashMap::from([("host".to_string(), "web-1".to_string())]);
+        row.attributes = HashMap::from([("route".to_string(), "/api".to_string())]);
+
+        assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
+
+        row.metric_name = "m".repeat(200);
+        row.instrumentation_scope = "s".repeat(200);
+        row.unit = "u".repeat(200);
+        row.attributes = HashMap::from([("r".repeat(100), "v".repeat(100))]);
+        assert_eq!(compute_kafka_metric_row_bytes(&row), 24 + 2 * 8 + 3 * 8);
+
+        // The second row's overridden timestamp adds a `posthog.original_timestamp` label.
+        assert_eq!(
+            sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
+            (24 + 2 * 8 + 3 * 8) + (24 + 8)
+        );
     }
 
     #[test]
@@ -757,6 +779,88 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trace_id, BASE64_STANDARD.encode(VALID_TRACE_BYTES));
         assert_eq!(rows[0].span_id, BASE64_STANDARD.encode(VALID_SPAN_BYTES));
+    }
+
+    #[test]
+    fn test_histogram_drops_trailing_empty_infinite_bound() {
+        struct Case {
+            name: &'static str,
+            bounds: Vec<f64>,
+            counts: Vec<u64>,
+            want_bounds: Vec<f64>,
+            want_counts: Vec<i64>,
+        }
+        let cases = vec![
+            Case {
+                name: "prom-client explicit Infinity",
+                bounds: vec![16.0, 32.0, f64::INFINITY],
+                counts: vec![1, 2, 3, 0],
+                want_bounds: vec![16.0, 32.0],
+                want_counts: vec![1, 2, 3],
+            },
+            Case {
+                name: "repeated Infinity",
+                bounds: vec![16.0, f64::INFINITY, f64::INFINITY],
+                counts: vec![1, 2, 0, 0],
+                want_bounds: vec![16.0],
+                want_counts: vec![1, 2],
+            },
+            Case {
+                name: "count above Infinity unchanged",
+                bounds: vec![16.0, f64::INFINITY],
+                counts: vec![1, 2, 5],
+                want_bounds: vec![16.0, f64::INFINITY],
+                want_counts: vec![1, 2, 5],
+            },
+            Case {
+                name: "finite bounds unchanged",
+                bounds: vec![16.0, 32.0],
+                counts: vec![1, 2, 3],
+                want_bounds: vec![16.0, 32.0],
+                want_counts: vec![1, 2, 3],
+            },
+            Case {
+                name: "length mismatch unchanged",
+                bounds: vec![16.0, f64::INFINITY],
+                counts: vec![1, 2],
+                want_bounds: vec![16.0, f64::INFINITY],
+                want_counts: vec![1, 2],
+            },
+        ];
+        for Case {
+            name,
+            bounds,
+            counts,
+            want_bounds,
+            want_counts,
+        } in cases
+        {
+            let metric = Metric {
+                name: "test.histogram".to_string(),
+                description: String::new(),
+                unit: String::new(),
+                metadata: vec![],
+                data: Some(Data::Histogram(Histogram {
+                    aggregation_temporality: 2,
+                    data_points: vec![HistogramDataPoint {
+                        attributes: vec![],
+                        start_time_unix_nano: 1_700_000_000_000_000_000,
+                        time_unix_nano: 1_700_000_000_000_000_000,
+                        count: counts.iter().sum(),
+                        sum: Some(1.0),
+                        bucket_counts: counts,
+                        explicit_bounds: bounds,
+                        exemplars: vec![],
+                        flags: 0,
+                        min: None,
+                        max: None,
+                    }],
+                })),
+            };
+            let (rows, _) = flatten_metric(metric, None, None).expect("flatten_metric ok");
+            assert_eq!(rows[0].histogram_bounds, want_bounds, "{name}");
+            assert_eq!(rows[0].histogram_counts, want_counts, "{name}");
+        }
     }
 
     #[test]
@@ -901,7 +1005,7 @@ mod tests {
 
     #[test]
     fn test_series_fingerprint_ignores_timestamp_override() {
-        // $originalTimestamp is a synthetic attribute added only when a point's timestamp
+        // posthog.original_timestamp is a synthetic attribute added only when a point's timestamp
         // falls outside the ±24h window, and it is inserted AFTER the fingerprint is
         // computed. A stale point and a fresh one for the same series must therefore share
         // a fingerprint. Guards the compute-before-insert ordering in build_number_row.
@@ -916,8 +1020,8 @@ mod tests {
         // The override must actually fire for the stale point, else the test is vacuous.
         assert!(!fresh_overridden);
         assert!(stale_overridden);
-        assert!(!fresh.attributes.contains_key("$originalTimestamp"));
-        assert!(stale.attributes.contains_key("$originalTimestamp"));
+        assert!(!fresh.attributes.contains_key("posthog.original_timestamp"));
+        assert!(stale.attributes.contains_key("posthog.original_timestamp"));
         // Despite that attribute difference, both map to one series.
         assert_eq!(fresh.series_fingerprint, stale.series_fingerprint);
     }

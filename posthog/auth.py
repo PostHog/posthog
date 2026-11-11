@@ -1,12 +1,13 @@
 import re
 import hmac
 import time
+import string
 import logging
 import functools
 from abc import abstractmethod
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, ClassVar, Optional, TypedDict, Union
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.apps import apps
 from django.conf import settings
@@ -20,28 +21,33 @@ from django.utils import timezone
 import jwt
 import structlog
 import posthoganalytics
+from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import authentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 from webauthn.helpers import base64url_to_bytes
 from zxcvbn import zxcvbn
 
-from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
+from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.helpers.verified_domain_enforcement import enforce_verified_domain
 from posthog.ingress.verify.schemes import hmac_sha256_signature, signatures_match
 from posthog.internal_api_secret import usable_internal_api_secrets
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt, get_oidc_verification_keys
+from posthog.models.activity_logging.activity_log import WORKLOAD_TRIGGER_JOB_TYPE, Trigger
 from posthog.models.activity_logging.utils import (
-    ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH,
-    ActivityCredential,
+    ACTIVITY_LOG_CLIENT_MAX_LENGTH,
+    WORKLOAD_CLIENT_PREFIX,
+    ActivityCredentialMixin,
+    DeclaredCredentialType,
     activity_storage,
-    oauth_activity_credential,
-    record_activity_actor,
     record_agent_intent,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
@@ -49,8 +55,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import (
     LEGACY_PERSONAL_API_KEY_SALT,
     PERSONAL_API_KEY_AUTH_COUNTER,
-    PERSONAL_API_KEY_MODES_TO_TRY,
     PersonalAPIKey,
+    personal_api_key_modes_to_try,
 )
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, find_project_secret_api_key
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -63,15 +69,28 @@ from posthog.models.utils import (
     hash_key_value,
 )
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.models.workload_trust_policy import (
+    WorkloadTrustPolicy,
+    workload_trust_policies_settings_url,
+    workload_trust_policy_active_cache_key,
+    workload_trust_policy_grantable_scopes,
+    workload_trust_policy_version,
+)
 from posthog.passkey import verify_passkey_authentication_response
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
+from posthog.scopes import LEGACY_SCOPE_FALLBACKS
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
-from posthog.utils import get_trusted_client_ip
+from posthog.utils import get_safe_cache, get_trusted_client_ip, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.exports.backend.facade.auth import get_export_renderer_asset_context
-from products.security.backend.facade.api import shadow_check as security_shadow_check
+from products.security.backend.facade.api import (
+    REFUSAL_CODE as SECURITY_REFUSAL_CODE,
+    access_refused as security_access_refused,
+)
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.signals.backend.facade.activity_client import resolve_scout_client_tag
@@ -103,6 +122,47 @@ PERSONAL_API_KEY_QUERY_PARAM_COUNTER = Counter(
 )
 
 AUTH_BRAND_COOKIE = "ph_auth_brand"
+
+# Shown at login and on every request once a block rule refuses the account. It says nothing
+# about the rule that matched; the code is what lets support trace it to an access rule.
+ACCOUNT_BLOCKED_DETAIL = (
+    "We couldn't sign you in. If you think this is a mistake, contact support "
+    f"and quote the code {SECURITY_REFUSAL_CODE}."
+)
+# The login page explains a refusal from this error code, so a passwordless login that refuses
+# an account redirects here.
+ACCOUNT_BLOCKED_LOGIN_URL = f"{settings.LOGIN_URL}?{urlencode({'error_code': SECURITY_REFUSAL_CODE})}"
+
+
+def account_refused(request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool) -> bool:
+    """Whether an enforced access rule blocks this account on the app surface. Never raises.
+
+    Every authenticator that resolves a user asks this, because DRF stops at the first one that
+    succeeds, so a check in one of them alone leaves the others open. An impersonated request is
+    never refused, so staff can investigate a blocked account; its match counts as a would-block.
+    """
+    try:
+        return security_access_refused(
+            SecuritySubject(
+                email=user.email,
+                user_uuid=str(user.uuid),
+                ip=get_trusted_client_ip(getattr(request, "_request", request)),
+            ),
+            SecuritySurface.APP,
+            call_site=call_site,
+            enforce=not impersonated,
+        )
+    except Exception:
+        structlog_logger.exception("security_access_check_site_failed", call_site=call_site)
+        return False
+
+
+def refuse_blocked_account(
+    request: Union[HttpRequest, Request], user: User, *, call_site: str, impersonated: bool
+) -> None:
+    """Raise when an enforced access rule blocks this account on the app surface."""
+    if account_refused(request, user, call_site=call_site, impersonated=impersonated):
+        raise AuthenticationFailed(ACCOUNT_BLOCKED_DETAIL, code=SECURITY_REFUSAL_CODE)
 
 
 def get_auth_brand_for_client_id(client_id: str | None) -> str | None:
@@ -157,6 +217,8 @@ class ZxcvbnValidator:
     Validate that the password satisfies zxcvbn
     """
 
+    NEXT_STEP = "Try a longer password that isn't a common word or pattern."
+
     def __init__(self, min_length=8):
         self.min_length = min_length
 
@@ -164,15 +226,20 @@ class ZxcvbnValidator:
         result = zxcvbn(password)
 
         if result["score"] < 3:
-            joined_feedback = " ".join(result["feedback"]["suggestions"])
+            # zxcvbn's suggestions assume passphrases ("Add another word or two"), so only its
+            # warning is shown, which names the weakness it found
+            warning = result["feedback"]["warning"] or "This password is too easy to guess."
 
             raise ValidationError(
-                joined_feedback or "This password is too weak.",
+                f"{warning} {self.NEXT_STEP}",
                 code="password_too_weak",
             )
 
 
-class SessionAuthentication(authentication.SessionAuthentication):
+class SessionAuthentication(
+    ActivityCredentialMixin,
+    authentication.SessionAuthentication,  # nosemgrep: no-drf-session-authentication
+):
     """
     This class is needed, because REST Framework's default SessionAuthentication does never return 401's,
     because they cannot fill the WWW-Authenticate header with a valid value in the 401 response. As a
@@ -185,6 +252,10 @@ class SessionAuthentication(authentication.SessionAuthentication):
     This class is also used to enforce Two-Factor Authentication for session-based authentication.
     """
 
+    # ActivityLoggingMiddleware records the session credential, not this class, so that views
+    # outside DRF get it too.
+    activity_credential_type = "session"
+
     def authenticate(self, request):
         with tracer.start_as_current_span("posthog.auth.session"):
             auth_result = super().authenticate(request)
@@ -195,18 +266,7 @@ class SessionAuthentication(authentication.SessionAuthentication):
             user, auth = auth_result
             enforce_two_factor(request, user)
             enforce_verified_domain(request, user)
-            try:
-                security_shadow_check(
-                    SecuritySubject(
-                        email=user.email,
-                        user_uuid=str(user.uuid),
-                        ip=get_trusted_client_ip(getattr(request, "_request", request)),
-                    ),
-                    SecuritySurface.APP,
-                    call_site="session",
-                )
-            except Exception:
-                structlog_logger.exception("security_shadow_check_site_failed", call_site="session")
+            refuse_blocked_account(request, user, call_site="session", impersonated=is_impersonated_session(request))
 
             return (user, auth)
 
@@ -214,7 +274,7 @@ class SessionAuthentication(authentication.SessionAuthentication):
         return "Session"
 
 
-class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
+class PersonalAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """A way of authenticating with personal API keys.
     Only the first key candidate found in the request is tried, and the order is:
     1. Request Authorization header of type Bearer.
@@ -223,6 +283,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    activity_credential_type = "personal_api_key"
     personal_api_key: PersonalAPIKey
     personal_api_key_source: Optional[str] = None
     # Set once the key is validated, so rate limiting can identify the key without re-reading the
@@ -290,7 +351,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         modes_tried = 0
 
         with tracer.start_as_current_span("posthog.auth.personal_api_key.db_lookup") as db_span:
-            for mode, iterations in PERSONAL_API_KEY_MODES_TO_TRY:
+            for mode, iterations in personal_api_key_modes_to_try(personal_api_key):
                 modes_tried += 1
                 secure_value = hash_key_value(
                     personal_api_key, mode=mode, legacy_salt=LEGACY_PERSONAL_API_KEY_SALT, iterations=iterations
@@ -311,9 +372,11 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             if mode_used:
                 db_span.set_attribute("auth.hash_mode_used", mode_used)
 
+        source_display = cls._SOURCE_DISPLAY.get(source, source)
         if not personal_api_key_object:
-            source_display = cls._SOURCE_DISPLAY.get(source, source)
             raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
+        if personal_api_key_object.is_expired:
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} has expired.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -348,6 +411,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 personal_api_key_object.last_used_at = now
                 personal_api_key_object.save(update_fields=["last_used_at"])
             assert personal_api_key_object.user is not None
+            refuse_blocked_account(
+                request, personal_api_key_object.user, call_site="personal_api_key", impersonated=False
+            )
 
             # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
             tag_authentication(
@@ -358,13 +424,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 api_key_label=personal_api_key_object.label,
             )
 
+            enforce_ip_restrictions(request, personal_api_key_object.user, self)
+
             # ActivityLoggingMiddleware only captures session-authenticated users (it runs before
             # DRF auth), so signal-driven activity logging would otherwise record bearer-token
             # requests as system actions.
-            record_activity_actor(
-                personal_api_key_object.user,
-                ActivityCredential(type="personal_api_key", id=personal_api_key_object.id),
-            )
+            self.record_activity_actor(personal_api_key_object.user, personal_api_key_object.id)
             record_agent_intent(request)
 
             self.personal_api_key = personal_api_key_object
@@ -404,7 +469,7 @@ class TeamSecretTokenUser(SyntheticUser):
         super().__init__(team, distinct_id=f"team-secret-token-{team.id}")
 
 
-class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
+class TeamSecretTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates using the legacy team-level Team.secret_api_token field.
 
@@ -420,8 +485,12 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    activity_credential_type = "team_secret_token"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        if not settings.ACCEPT_TEAM_SECRET_TOKENS:
+            return None
+
         secret_api_token = _extract_phs_token(request)
 
         if not secret_api_token:
@@ -439,7 +508,7 @@ class TeamSecretTokenAuthentication(authentication.BaseAuthentication):
                 team_id=team.id,
                 access_method=AccessMethod.TEAM_SECRET_TOKEN,
             )
-            record_activity_actor(None, ActivityCredential(type="team_secret_token"))
+            self.record_activity_actor(None)
 
             return (TeamSecretTokenUser(team), None)
         except Team.DoesNotExist:
@@ -464,10 +533,12 @@ class ProjectSecretAPIKeyUser(SyntheticUser):
         self.project_secret_api_key = project_secret_api_key
 
     def readable_system_table_access_scopes(self) -> set[str]:
-        return {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        scope_objects = {scope.split(":", 1)[0] for scope in self.project_secret_api_key.scopes or [] if ":" in scope}
+        # Same fallback as APIScopePermission, so a key that reads a split-off object's REST API also reads its tables.
+        return scope_objects | {new for new, legacy in LEGACY_SCOPE_FALLBACKS.items() if legacy in scope_objects}
 
 
-class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
+class ProjectSecretAPIKeyAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates a ProjectSecretAPIKey (PSAK) model record via its SHA256 hash.
 
@@ -479,6 +550,10 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
     """
 
     keyword = "Bearer"
+    activity_credential_type = "project_secret_key"
+    # True on routes where a backfilled PSAK (#63111) mirroring the team's legacy token
+    # must fall through to the route's legacy branch; transitional until #66179.
+    defer_migrated_team_tokens = False
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         token = _extract_phs_token(request)
@@ -489,6 +564,13 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         if psak is None:
             return None
 
+        if (
+            self.defer_migrated_team_tokens
+            and settings.ACCEPT_TEAM_SECRET_TOKENS
+            and token in (psak.team.secret_api_token, psak.team.secret_api_token_backup)
+        ):
+            return None
+
         now = timezone.now()
         if psak.last_used_at is None or (now - psak.last_used_at > timedelta(hours=1)):
             # Use .update() to bypass ModelActivityMixin save hooks and avoid
@@ -497,6 +579,9 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
 
         self.project_secret_api_key = psak
 
+        user = ProjectSecretAPIKeyUser(psak)
+        enforce_ip_restrictions(request, user, self)
+
         tag_authentication(
             user_id=None,
             team_id=psak.team_id,
@@ -504,21 +589,22 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
             api_key_mask=psak.mask_value,
             api_key_label=psak.label,
         )
-        record_activity_actor(None, ActivityCredential(type="project_secret_key", id=psak.id))
+        self.record_activity_actor(None, psak.id)
 
-        return (ProjectSecretAPIKeyUser(psak), None)
+        return (user, None)
 
     @classmethod
     def authenticate_header(cls, request) -> str:
         return cls.keyword
 
 
-class JwtAuthentication(authentication.BaseAuthentication):
+class JwtAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     A way of authenticating with a JWT, primarily by background jobs impersonating a User
     """
 
     keyword = "Bearer"
+    activity_credential_type = "internal_jwt"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.jwt"):
@@ -528,8 +614,9 @@ class JwtAuthentication(authentication.BaseAuthentication):
                     try:
                         token = authorization_match.group(1).strip()
                         info = decode_jwt(token, PosthogJwtAudience.IMPERSONATED_USER)
-                        user = User.objects.get(pk=info["id"])
-                        record_activity_actor(user, ActivityCredential(type="internal_jwt"))
+                        user = User.objects.get(pk=info["id"], is_active=True)
+                        refuse_blocked_account(request, user, call_site="jwt", impersonated=False)
+                        self.record_activity_actor(user)
                         return (user, None)
                     except AuthenticationFailed:
                         raise
@@ -549,15 +636,45 @@ class JwtAuthentication(authentication.BaseAuthentication):
         return cls.keyword
 
 
-class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
+def _bearer_token(request: Union[HttpRequest, Request]) -> Optional[str]:
+    auth_header = request.headers.get("authorization")
+    if not auth_header:
+        return None
+    match = re.match(r"^Bearer\s+(\S.+)$", auth_header)
+    return match.group(1).strip() if match else None
+
+
+def _is_signed_jwt_of_type(token: str, token_type: str) -> bool:
+    """Whether a bearer token is a JWT whose `typ` header names one of PostHog's own stateless token
+    types. Personal API key, OAuth and secret token prefixes are reserved for their own backends."""
+    if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
+        return False
+    if token.count(".") != 2:
+        return False
+    try:
+        header = jwt.get_unverified_header(token)
+    except jwt.PyJWTError:
+        return False
+    return header.get("typ") == token_type
+
+
+@frozen
+class VerifiedIdJagAccessToken:
+    user: User
+    organization_id: str
+    client_id: str
+    scopes: list[str]
+    expires_at: int
+
+
+class IDJagAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticates inbound API requests using an access token minted by the
     ID-JAG (XAA) JWT Bearer grant served from the OAuth token endpoint
     (`/oauth/token`, logic in `posthog.api.id_jag`). Validates the JWT against the
     RS256 public key derived from `OIDC_RSA_PRIVATE_KEY` and binds the request
-    to the User whose email matches the `userSub` half of the token's `sub`
-    claim (`{provider}:{userSub}` per
-    https://xaa.dev/docs/token-structure#sub-claim-format).
+    to the User named by the token's `user_uuid` claim, which the token endpoint
+    resolved from the IdP subject.
 
     Scope enforcement lives in `posthog.permissions.APIScopePermission`; this
     class only handles signature + claim validation and user resolution.
@@ -566,170 +683,368 @@ class IDJagAccessTokenAuthentication(authentication.BaseAuthentication):
     _ID_JAG_ACCESS_TOKEN_TYPE = "at+jwt"
 
     keyword = "Bearer"
+    activity_credential_type = "id_jag"
 
-    id_jag_claims: dict[str, Any]
+    client_id: str
     scopes: list[str]
     organization_id: str
 
     @classmethod
-    def _extract_token(cls, request: Union[HttpRequest, Request]) -> Optional[str]:
-        auth_header = request.headers.get("authorization")
-        if not auth_header:
-            return None
-        match = re.match(rf"^{cls.keyword}\s+(\S.+)$", auth_header)
-        if not match:
-            return None
-        token = match.group(1).strip()
-
-        return token
+    def is_id_jag_token(cls, token: str) -> bool:
+        return _is_signed_jwt_of_type(token, cls._ID_JAG_ACCESS_TOKEN_TYPE)
 
     @classmethod
-    def _parse_sub(cls, sub: str) -> Optional[tuple[str, str]]:
-        """`{providerName}:{userSub}` per spec — split into (provider, user_sub).
+    def verify_access_token(cls, token: str) -> VerifiedIdJagAccessToken:
+        """Verify the signature and claims and resolve the active member, or raise AuthenticationFailed.
 
-        Returns None if the format is malformed (no colon, empty provider, empty
-        user_sub) so the caller can fail with `invalid_token`.
-        """
-        if not sub or ":" not in sub:
-            return None
-        provider, user_sub = sub.split(":", 1)
-        if not provider or not user_sub:
-            return None
-        return provider, user_sub
+        No request side effects, so token introspection can share it."""
+        verification_keys = get_oidc_verification_keys()
+        if not verification_keys:
+            raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
-    @classmethod
-    def _is_id_jag_token(cls, token: str) -> bool:
-        # Personal/OAuth API key prefixes are reserved for those auth backends.
-        if token.startswith((PERSONAL_API_KEY_PREFIX, OAUTH_ACCESS_TOKEN_PREFIX, SECRET_API_TOKEN_PREFIX)):
-            return False
+        site_url = (settings.SITE_URL or "").rstrip("/")
+        if not site_url:
+            raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
 
-        if token.count(".") != 2:
-            return False
-        try:
-            header = jwt.get_unverified_header(token)
-        except jwt.PyJWTError:
-            return False
-        return header.get("typ") == cls._ID_JAG_ACCESS_TOKEN_TYPE
+        # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
+        # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
+        # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
+        from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
+
+        allowed_resources = get_allowed_resources()
+
+        # Try the active signing key first, then any keys being rotated out. A wrong
+        # key fails the signature check, so we move on; a key that matches but fails
+        # claim validation (expiry, audience, …) raises the real error to report.
+        claims = None
+        for verification_key in verification_keys:
+            try:
+                claims = jwt.decode(
+                    token,
+                    verification_key,
+                    algorithms=["RS256"],
+                    audience=allowed_resources,
+                    issuer=site_url,
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                    options={
+                        "require": ["iss", "sub", "user_uuid", "aud", "exp", "iat", "client_id", "scope", "org_id"],
+                        "verify_signature": True,
+                        "verify_exp": True,
+                        "verify_aud": True,
+                        "verify_iss": True,
+                    },
+                )
+                break
+            except jwt.InvalidSignatureError:
+                continue
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="ID-JAG access token has expired.")
+            except jwt.InvalidAudienceError:
+                raise AuthenticationFailed(detail="ID-JAG access token audience does not match this resource server.")
+            except jwt.InvalidIssuerError:
+                raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
+            except jwt.MissingRequiredClaimError as e:
+                raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+        if claims is None:
+            raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
+
+        organization_id = str(claims.get("org_id") or "")
+        if not organization_id:
+            raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
+
+        # Membership is re-checked on every request, because the user may have left the
+        # organization after the token was issued.
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=organization_id,
+                user__is_active=True,
+                user__uuid=str(claims["user_uuid"]),
+            )
+            .select_related("user", "organization")
+            .first()
+        )
+        if not membership:
+            raise AuthenticationFailed(
+                detail="No active PostHog user matches the ID-JAG access token subject for this organization."
+            )
+
+        user = membership.user
+        organization = membership.organization
+
+        if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
+            raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
+
+        return VerifiedIdJagAccessToken(
+            user=user,
+            organization_id=organization_id,
+            client_id=str(claims["client_id"]),
+            scopes=str(claims["scope"]).split(),
+            expires_at=int(claims["exp"]),
+        )
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.id_jag"):
-            token = self._extract_token(request)
+            token = _bearer_token(request)
             if not token:
                 return None
-            if not self._is_id_jag_token(token):
+            if not self.is_id_jag_token(token):
                 return None
 
-            verification_keys = get_oidc_verification_keys()
-            if not verification_keys:
-                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
-
-            site_url = (settings.SITE_URL or "").rstrip("/")
-            if not site_url:
-                raise AuthenticationFailed(detail="ID-JAG access tokens are not configured on this server.")
-
-            # The token's `aud` is the resource it was minted for (id_jag._construct_access_token_payload).
-            # Accept SITE_URL plus any advertised resource identifier; `iss` stays SITE_URL (we mint it).
-            # Function-level import keeps the heavier id_jag module off auth.py's foundational import path.
-            from posthog.api.id_jag import get_allowed_resources  # noqa: PLC0415
-
-            allowed_resources = get_allowed_resources()
-
-            # Try the active signing key first, then any keys being rotated out. A wrong
-            # key fails the signature check, so we move on; a key that matches but fails
-            # claim validation (expiry, audience, …) raises the real error to report.
-            claims = None
-            for verification_key in verification_keys:
-                try:
-                    claims = jwt.decode(
-                        token,
-                        verification_key,
-                        algorithms=["RS256"],
-                        audience=allowed_resources,
-                        issuer=site_url,
-                        leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
-                        options={
-                            "require": ["iss", "sub", "email", "aud", "exp", "iat", "client_id", "scope", "org_id"],
-                            "verify_signature": True,
-                            "verify_exp": True,
-                            "verify_aud": True,
-                            "verify_iss": True,
-                        },
-                    )
-                    break
-                except jwt.InvalidSignatureError:
-                    continue
-                except jwt.ExpiredSignatureError:
-                    raise AuthenticationFailed(detail="ID-JAG access token has expired.")
-                except jwt.InvalidAudienceError:
-                    raise AuthenticationFailed(
-                        detail="ID-JAG access token audience does not match this resource server."
-                    )
-                except jwt.InvalidIssuerError:
-                    raise AuthenticationFailed(detail="ID-JAG access token has an unexpected issuer.")
-                except jwt.MissingRequiredClaimError as e:
-                    raise AuthenticationFailed(detail=f"ID-JAG access token is missing required claim: {e.claim}.")
-                except jwt.PyJWTError:
-                    raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
-
-            if claims is None:
-                raise AuthenticationFailed(detail="ID-JAG access token is invalid.")
-
-            sub_parts = self._parse_sub(str(claims.get("sub", "")))
-            if sub_parts is None:
-                raise AuthenticationFailed(
-                    detail="ID-JAG access token sub claim is not in the expected '{provider}:{userSub}' format."
-                )
-
-            organization_id = str(claims.get("org_id") or "")
-            if not organization_id:
-                raise AuthenticationFailed(detail="ID-JAG access token is missing the org_id claim.")
-
-            token_email = str(claims.get("email") or "")
-            if not token_email:
-                raise AuthenticationFailed(detail="ID-JAG access token is missing the email claim.")
-
-            # Resolve the user by (email, org_id) so the token only authenticates
-            # against the specific organization it was minted for. This prevents
-            # a token from authenticating as another user that happens to share
-            # the email, and re-validates membership at every request (the user
-            # may have been removed from the org after the token was issued).
-            membership = (
-                OrganizationMembership.objects.filter(
-                    organization_id=organization_id,
-                    user__is_active=True,
-                    user__email__iexact=token_email,
-                )
-                .select_related("user", "organization")
-                .first()
-            )
-            if not membership:
-                raise AuthenticationFailed(
-                    detail="No active PostHog user matches the ID-JAG access token subject for this organization."
-                )
-
-            user = membership.user
-            organization = membership.organization
-
-            if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
-                raise AuthenticationFailed(detail="ID-JAG (XAA) is not enabled for this organization.")
-
-            self.id_jag_claims = claims
-            self.scopes = str(claims.get("scope") or "").split()
-            self.organization_id = organization_id
+            verified = self.verify_access_token(token)
+            refuse_blocked_account(request, verified.user, call_site="id_jag_token", impersonated=False)
+            self.client_id = verified.client_id
+            self.scopes = verified.scopes
+            self.organization_id = verified.organization_id
 
             tag_authentication(
-                user_id=user.pk,
-                team_id=user.current_team_id,
+                user_id=verified.user.pk,
+                team_id=verified.user.current_team_id,
                 access_method=AccessMethod.ID_JAG,
             )
 
-            record_activity_actor(
-                user,
-                ActivityCredential(type="id_jag", id=str(claims["client_id"])[:ACTIVITY_LOG_CREDENTIAL_ID_MAX_LENGTH]),
-            )
+            enforce_ip_restrictions(request, verified.user, self)
+
+            self.record_activity_actor(verified.user, verified.client_id)
             record_agent_intent(request)
 
-            return user, None
+            return verified.user, None
+
+    def authenticate_header(self, request) -> str:
+        return self.keyword
+
+
+# The `typ` header of a workload access token. A distinct value keeps the ID-JAG authenticator, which
+# only takes `at+jwt`, from ever accepting one, and lets this class skip every other JWT.
+WORKLOAD_ACCESS_TOKEN_TYPE = "posthog-workload+jwt"
+WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS = 10
+
+
+@frozen
+class VerifiedWorkloadAccessToken:
+    user: User
+    organization_id: str
+    team_id: int
+    policy_id: str
+    policy_name: str
+    scopes: list[str]
+    workload_provider: str
+    workload_subject_name: str
+    # The claims the provider's registry entry records, as the exchange read them from the OIDC token.
+    workload_claims: dict[str, str]
+
+
+def _template_fields(template: str) -> set[str]:
+    return {name for _, name, _, _ in string.Formatter().parse(template) if name}
+
+
+def _format_with_claims(template: str, claims: dict[str, str]) -> str:
+    """Fill a provider template's `{claim}` fields with the recorded claims. A missing claim formats as an
+    empty string. The registry refuses templates whose fields aren't recorded claims."""
+    return template.format_map({name: claims.get(name, "") for name in _template_fields(template)})
+
+
+class WorkloadAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
+    """
+    Authenticates API requests made with the short-lived token a workload gets by exchanging its
+    provider's OIDC token under a workload trust policy (`posthog.workload_identity.token_exchange`).
+
+    The token is a stateless JWT signed with the OIDC key. It acts as the organization owner the
+    exchange resolved, pinned to one project and to the policy's scope ceiling. Every request checks
+    that the owner is still an owner and that the policy is still enabled and unchanged since the token
+    was minted, so disabling or editing a policy cuts its tokens off within
+    `WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS`.
+    """
+
+    keyword = "Bearer"
+    activity_credential_type = "oidc_workload"
+
+    scopes: list[str]
+    organization_id: str
+    team_id: int
+    policy_id: str
+
+    @classmethod
+    def is_workload_token(cls, token: str) -> bool:
+        return _is_signed_jwt_of_type(token, WORKLOAD_ACCESS_TOKEN_TYPE)
+
+    def insufficient_scope_error(self, view: Any, required_scopes: list[str], missing_scopes: list[str]) -> Exception:
+        """What `APIScopePermission` raises when this token lacks a scope. A workload token always gets the
+        standard challenge, because hog reads the scopes from it to tell the user what to add to the
+        trust policy. A scope no policy may grant gets a plain 403 instead, so the user is never told to
+        add something an admin cannot add."""
+        not_grantable = set(missing_scopes) - workload_trust_policy_grantable_scopes()
+        if not_grantable:
+            return PermissionDenied(
+                f"Workload tokens can't use this endpoint: it needs {', '.join(sorted(not_grantable))}, "
+                "which a workload trust policy can't grant."
+            )
+        return InsufficientScope(
+            required_scopes,
+            detail=f"This workload token's trust policy doesn't grant {', '.join(missing_scopes)}. "
+            "Ask an organization admin to add the missing scopes to the policy.",
+            extra={"missing_scopes": missing_scopes, "policy_url": workload_trust_policies_settings_url(self.team_id)},
+        )
+
+    @staticmethod
+    def _active_policy_version(team_id: int, policy_id: str) -> str:
+        """The enabled policy's version, or an empty string when it is disabled or gone."""
+        cache_key = workload_trust_policy_active_cache_key(policy_id)
+        # The cache only spares a query, so a cache outage falls back to the database.
+        cached = get_safe_cache(cache_key)
+        if cached is not None:
+            return cached
+        # The exchange only mints tokens for a project's own team, so the id is already canonical.
+        policy = (
+            WorkloadTrustPolicy.objects.for_team(team_id, canonical=True).filter(pk=policy_id, enabled=True).first()
+        )
+        version = workload_trust_policy_version(policy) if policy else ""
+        safe_cache_set(cache_key, version, WORKLOAD_TRUST_POLICY_ACTIVE_CACHE_SECONDS)
+        return version
+
+    @classmethod
+    def verify_access_token(cls, token: str) -> VerifiedWorkloadAccessToken:
+        verification_keys = get_oidc_verification_keys()
+        site_url = (settings.SITE_URL or "").rstrip("/")
+        if not verification_keys or not site_url:
+            raise AuthenticationFailed(detail="Workload access tokens are not configured on this server.")
+
+        claims = None
+        for verification_key in verification_keys:
+            try:
+                claims = jwt.decode(
+                    token,
+                    verification_key,
+                    algorithms=["RS256"],
+                    audience=site_url,
+                    issuer=site_url,
+                    # The exchange and the API can run on servers whose clocks differ a little.
+                    leeway=settings.ID_JAG_CLOCK_SKEW_SECONDS,
+                    options={
+                        "require": ["iss", "aud", "exp", "iat", "user_uuid", "org_id", "team_id", "policy_id", "scope"],
+                    },
+                )
+                break
+            except jwt.InvalidSignatureError:
+                continue
+            except jwt.ExpiredSignatureError:
+                raise AuthenticationFailed(detail="Workload access token has expired. Exchange a new OIDC token.")
+            except jwt.PyJWTError:
+                raise AuthenticationFailed(detail="Workload access token is invalid.")
+        if claims is None:
+            raise AuthenticationFailed(detail="Workload access token is invalid.")
+
+        team_id = claims["team_id"]
+        if not isinstance(team_id, int):
+            raise AuthenticationFailed(detail="Workload access token is invalid.")
+        policy_id = str(claims["policy_id"])
+        active_version = cls._active_policy_version(team_id, policy_id)
+        if not active_version or active_version != str(claims.get("policy_version") or ""):
+            raise AuthenticationFailed(
+                detail="The workload trust policy behind this token was changed, disabled or deleted. Exchange a new OIDC token."
+            )
+
+        # The token acts as an owner, so it stops working as soon as that user leaves the
+        # organization or is no longer an owner.
+        membership = (
+            OrganizationMembership.objects.filter(
+                organization_id=str(claims["org_id"]),
+                user__uuid=str(claims["user_uuid"]),
+                user__is_active=True,
+                level=OrganizationMembership.Level.OWNER,
+            )
+            .select_related("user")
+            .first()
+        )
+        if membership is None:
+            raise AuthenticationFailed(
+                detail="The organization owner this workload token acts as is no longer an owner."
+            )
+
+        raw_workload = claims.get("workload")
+        workload = raw_workload if isinstance(raw_workload, dict) else {}
+        raw_recorded_claims = workload.get("claims")
+        recorded_claims = raw_recorded_claims if isinstance(raw_recorded_claims, dict) else {}
+        return VerifiedWorkloadAccessToken(
+            user=membership.user,
+            organization_id=str(claims["org_id"]),
+            team_id=team_id,
+            policy_id=policy_id,
+            policy_name=str(claims.get("policy_name") or ""),
+            scopes=str(claims["scope"]).split(),
+            workload_provider=str(workload.get("provider") or ""),
+            workload_subject_name=str(workload.get("subject_name") or ""),
+            workload_claims={str(key): str(value) for key, value in recorded_claims.items()},
+        )
+
+    def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
+        with tracer.start_as_current_span("posthog.auth.oidc_workload"):
+            token = _bearer_token(request)
+            if not token or not self.is_workload_token(token):
+                return None
+
+            verified = self.verify_access_token(token)
+            refuse_blocked_account(request, verified.user, call_site="oidc_workload_token", impersonated=False)
+            # The owner the token acts as never minted it, so the owner's staff rights don't carry over.
+            verified.user.withhold_staff_rights()
+            self.scopes = verified.scopes
+            self.organization_id = verified.organization_id
+            self.team_id = verified.team_id
+            self.policy_id = verified.policy_id
+
+            tag_authentication(
+                user_id=verified.user.pk, team_id=verified.team_id, access_method=AccessMethod.OIDC_WORKLOAD
+            )
+            self.record_activity_actor(verified.user, verified.policy_id)
+            self._record_workload(verified)
+            return verified.user, None
+
+    @staticmethod
+    def _record_workload(verified: VerifiedWorkloadAccessToken) -> None:
+        """Put the workload on every activity row this request writes, so the row names the workload as
+        the actor after the token is gone, and can be filtered by the client tag."""
+        if not activity_storage.is_request_scoped():
+            return
+        subject_name = verified.workload_subject_name
+        if subject_name:
+            activity_storage.set_client(f"{WORKLOAD_CLIENT_PREFIX}{subject_name}"[:ACTIVITY_LOG_CLIENT_MAX_LENGTH])
+
+        def workload_trigger() -> Trigger:
+            # Deferred because `posthog.api.oauth` imports its views, which import this module.
+            from posthog.workload_identity.providers import get_workload_provider_by_key  # noqa: PLC0415
+
+            provider = get_workload_provider_by_key(verified.workload_provider)
+            claims = verified.workload_claims
+            actor_label = (
+                _format_with_claims(provider.actor_label_template, claims).strip(" ·") if provider else ""
+            ) or subject_name
+            run_url_template = provider.run_url_template if provider else None
+            # A link with an empty path segment points nowhere useful, so it needs every claim it names.
+            run_url = (
+                _format_with_claims(run_url_template, claims)
+                if run_url_template and all(claims.get(name) for name in _template_fields(run_url_template))
+                else None
+            )
+            claim_labels = {claim.name: claim.label for claim in provider.recorded_claims} if provider else {}
+            return Trigger(
+                job_type=WORKLOAD_TRIGGER_JOB_TYPE,
+                job_id=verified.policy_id,
+                payload={
+                    "provider": verified.workload_provider,
+                    "provider_name": provider.name if provider else verified.workload_provider,
+                    "actor_label": actor_label,
+                    "subject_name": subject_name,
+                    "claims": claims,
+                    "claim_labels": {name: claim_labels.get(name, name) for name in claims},
+                    "run_url": run_url,
+                    "policy_id": verified.policy_id,
+                    "policy_name": verified.policy_name,
+                },
+            )
+
+        activity_storage.set_verified_trigger_resolver(workload_trigger)
 
     def authenticate_header(self, request) -> str:
         return self.keyword
@@ -753,12 +1068,13 @@ def mint_export_renderer_token(*, user_id: int, team_id: int, exported_asset_id:
     )
 
 
-class ExportRendererAuthentication(authentication.BaseAuthentication):
+class ExportRendererAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Scoped JWT auth for the export renderer. Only accepted on viewsets that opt in.
     """
 
     keyword = "Bearer"
+    activity_credential_type = "export_renderer"
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         if request.method not in ("GET", "HEAD"):
@@ -795,12 +1111,15 @@ class ExportRendererAuthentication(authentication.BaseAuthentication):
             self.team_id = team_id
             self.exported_asset_id = exported_asset_id
             self.export_context = export_context
-            user = User.objects.get(pk=user_id)
-            return user, None
+            user = User.objects.get(pk=user_id, is_active=True)
         except (jwt.DecodeError, jwt.InvalidAudienceError):
             return None
         except Exception:
             raise AuthenticationFailed(detail="Token invalid.")
+        # Outside the try, so the refusal keeps its code instead of becoming "Token invalid."
+        refuse_blocked_account(request, user, call_site="export_renderer", impersonated=False)
+        self.record_activity_actor(user, str(exported_asset_id))
+        return user, None
 
     def authenticate_header(self, request) -> str:
         return self.keyword
@@ -820,11 +1139,12 @@ def _organization_disallows_public_sharing(sharing_configuration: SharingConfigu
     )
 
 
-class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
+class SharingAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """Limited access for sharing views e.g. insights/dashboards for refreshing.
     Remember to add access restrictions based on `sharing_configuration` using `SharingTokenPermission` or manually.
     """
 
+    activity_credential_type = "sharing_access_token"
     sharing_configuration: SharingConfiguration
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, Any]]:
@@ -832,9 +1152,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.filter(SharingConfiguration.tokens_active_q()).get(
-                    access_token=sharing_access_token
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    SharingConfiguration.tokens_active_q(), SharingConfiguration.without_retired_resources_q()
+                ).get(access_token=sharing_access_token)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -848,17 +1168,19 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
                     raise AuthenticationFailed(detail="Sharing access token is invalid.")
 
                 self.sharing_configuration = sharing_configuration
+                self.record_activity_actor(None, str(sharing_configuration.id))
                 return (SharedLinkUser(sharing_configuration), None)
         return None
 
 
-class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
+class SharingPasswordProtectedAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     JWT-based authentication for password-protected shared resources.
     Supports both Bearer token (for API calls) and cookie (for rendering decisions).
     """
 
     keyword = "Bearer"
+    activity_credential_type = "sharing_password"
     sharing_configuration: SharingConfiguration
     share_password: "SharePassword"
 
@@ -888,7 +1210,8 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
                 SharePassword.objects.select_related("sharing_configuration")
                 .filter(
                     models.Q(sharing_configuration__expires_at__isnull=True)
-                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now()),
+                    SharingConfiguration.without_retired_resources_q(prefix="sharing_configuration__"),
                 )
                 .get(
                     id=payload["share_password_id"],
@@ -910,6 +1233,7 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             self.sharing_configuration = sharing_configuration
             self.share_password = share_password
+            self.record_activity_actor(None, str(share_password.id))
             return (SharedLinkUser(sharing_configuration), None)
 
         except jwt.InvalidTokenError:
@@ -946,13 +1270,19 @@ def _record_agent_attribution(request: Union[HttpRequest, Request], access_token
     record_agent_intent(request)
 
 
-class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
+class OAuthAccessTokenAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     OAuth 2.0 Bearer token authentication using access tokens
     """
 
     keyword = "Bearer"
+    activity_credential_type = "oauth"
     access_token: OAuthAccessToken
+
+    @property
+    def is_user_delegated(self) -> bool:
+        # Task-bound tokens represent PostHog-hosted workers, whose egress IP is not the user's.
+        return self.access_token.sandbox_task_id is not None
 
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         with tracer.start_as_current_span("posthog.auth.oauth"):
@@ -970,6 +1300,9 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
                 return self._authenticate_access_token(request, access_token)
 
             except AuthenticationFailed:
+                raise
+            except PermissionDenied:
+                # An IP restriction refusal is a 403, not a bad token. Let it keep its code.
                 raise
             except Exception as e:
                 # _validate_token converts its own failures, so anything reaching here is a
@@ -991,18 +1324,27 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         user = access_token.user
         if user is None:
             raise AuthenticationFailed(detail="User associated with access token not found.")
+        refuse_blocked_account(
+            request, user, call_site="oauth_token", impersonated=access_token.impersonated_by_id is not None
+        )
+
+        enforce_ip_restrictions(request, user, self)
 
         tag_authentication(
             user_id=user.pk,
             team_id=user.current_team_id,
             access_method=AccessMethod.OAUTH,
         )
+        if access_token.sandbox_task_id is not None and "scout_experiment_internal:read" in access_token.scope.split():
+            tag_queries(is_scout_experiment=True)
 
         # ActivityLoggingMiddleware only captures session-authenticated users (it runs
         # before DRF auth), so signal-driven activity logging would otherwise record
         # bearer-token requests as system actions. A token minted during staff
         # impersonation keeps the impersonation marker through `impersonated_by_id`.
-        record_activity_actor(user, oauth_activity_credential(access_token))
+        self.record_activity_actor(
+            user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id
+        )
         if activity_storage.is_request_scoped():
             _record_agent_attribution(request, access_token)
             self._set_scout_activity_client(access_token)
@@ -1063,7 +1405,11 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
         if (
             not user
             or not team
-            or not UserAccessControl(user, team=team).check_access_level_for_resource("toolbar", "viewer")
+            or not authorization.check(
+                resource=Resource(type=ResourceType.TOOLBAR, project_id=team.id),
+                action=Action.VIEW,
+                subject=Subject(user_id=user.pk),
+            )
         ):
             raise AuthenticationFailed(detail="You don't have access to the toolbar for this project.")
 
@@ -1112,6 +1458,11 @@ def _decode_delegated_user_token(request: Union[HttpRequest, Request]) -> dict[s
 
 
 class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
+    activity_credential_type = "personal_api_key"
+    # A delegated credential comes from an internal service acting for the user. Only the MCP server
+    # forwards a signed end-user IP, so an IP restriction judges this request only when that is set.
+    is_user_delegated = True
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
         if claims is None:
@@ -1127,7 +1478,10 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             )
         except (KeyError, PersonalAPIKey.DoesNotExist) as error:
             raise AuthenticationFailed(detail="Source personal API key is no longer valid.") from error
+        if personal_api_key.is_expired:
+            raise AuthenticationFailed(detail="Source personal API key is no longer valid.")
 
+        refuse_blocked_account(request, personal_api_key.user, call_site="personal_api_key", impersonated=False)
         self.personal_api_key = personal_api_key
         tag_authentication(
             user_id=personal_api_key.user.pk,
@@ -1136,14 +1490,20 @@ class DelegatedPersonalAPIKeyAuthentication(PersonalAPIKeyAuthentication):
             api_key_mask=personal_api_key.mask_value,
             api_key_label=personal_api_key.label,
         )
-        record_activity_actor(
-            personal_api_key.user, ActivityCredential(type="personal_api_key", id=personal_api_key.id)
-        )
+        enforce_ip_restrictions(request, personal_api_key.user, self)
+
+        self.record_activity_actor(personal_api_key.user, personal_api_key.id)
         record_agent_intent(request)
         return personal_api_key.user, None
 
 
 class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
+    activity_credential_type = "oauth"
+
+    @property
+    def is_user_delegated(self) -> bool:
+        return True
+
     def authenticate(self, request: Union[HttpRequest, Request]) -> Optional[tuple[Any, None]]:
         claims = _decode_delegated_user_token(request)
         if claims is None:
@@ -1165,12 +1525,14 @@ class DelegatedOAuthAccessTokenAuthentication(OAuthAccessTokenAuthentication):
         return self._authenticate_access_token(request, access_token)
 
 
-class WidgetAuthentication(authentication.BaseAuthentication):
+class WidgetAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Authenticate widget requests via conversations_settings.widget_public_token.
     This provides team-level authentication only. User-level scoping
     is enforced via widget_session_id validation in each endpoint.
     """
+
+    activity_credential_type = "widget_token"
 
     def authenticate(self, request: Request) -> Optional[tuple[None, Any]]:
         """
@@ -1184,9 +1546,10 @@ class WidgetAuthentication(authentication.BaseAuthentication):
         try:
             Team = apps.get_model(app_label="posthog", model_name="Team")
             team = Team.objects.get(conversations_settings__widget_public_token=token, conversations_enabled=True)
-        except Team.DoesNotExist:
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
             raise AuthenticationFailed("Invalid token or conversations not enabled")
 
+        self.record_activity_actor(None)
         return (None, team)
 
 
@@ -1209,10 +1572,11 @@ class InternalAPIUser:
         return False
 
 
-class InternalAPIAuthentication(authentication.BaseAuthentication):
+class InternalAPIAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """DRF authentication backend for internal API calls."""
 
     keyword = "InternalApiSecret"
+    activity_credential_type = "internal_api_secret"
     HEADER_NAME = "X-Internal-Api-Secret"
 
     def _get_team_id_from_request(self, request: Request) -> str | None:
@@ -1284,14 +1648,14 @@ class InternalAPIAuthentication(authentication.BaseAuthentication):
             )
             raise AuthenticationFailed("Invalid internal API authentication.")
 
-        record_activity_actor(None, ActivityCredential(type="internal_api_secret"))
+        self.record_activity_actor(None)
         return (self._get_internal_api_user(request), None)
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
 
 
-class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
+class ScopedServiceJWTAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """DRF authentication for internal routes called by other PostHog services, verifying the
     scoped per-purpose JWTs of posthog.scoped_service_jwt (the blessed replacement for
     INTERNAL_API_SECRET). Subclass per purpose:
@@ -1310,6 +1674,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
     claim fails closed instead of authenticating unscoped.
     """
 
+    activity_credential_type = "service_jwt"
     purpose: ClassVar[ScopedServiceJwtPurpose]
     require_team: ClassVar[bool] = True
 
@@ -1345,7 +1710,7 @@ class ScopedServiceJWTAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed("Invalid or expired service token.")
 
         principal, verified_claims = self._authenticate_claims(request, claims)
-        record_activity_actor(None, ActivityCredential(type="service_jwt", id=self.purpose.audience.value))
+        self.record_activity_actor(None, self.purpose.audience.value)
         return principal, verified_claims
 
     def _authenticate_claims(self, request: Request, claims: dict[str, Any]) -> tuple[Any, dict[str, Any]]:
@@ -1521,12 +1886,12 @@ class WebauthnBackend(BaseBackend):
         Required by Django's authentication system to load the user on subsequent requests.
         """
         try:
-            return User.objects.get(pk=user_id)
+            return User.objects.get(pk=user_id, is_active=True)
         except User.DoesNotExist:
             return None
 
 
-class WebhookSignatureAuthentication(authentication.BaseAuthentication):
+class WebhookSignatureAuthentication(ActivityCredentialMixin, authentication.BaseAuthentication):
     """
     Base HMAC-SHA256 webhook signature authentication.
 
@@ -1538,6 +1903,8 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
       - Stripe:      signature header "Stripe-Signature",  input format "{ts}.{body}"
     """
 
+    # Annotated so that a subclass can declare another type. Without it, mypy infers `Literal["webhook"]`.
+    activity_credential_type: ClassVar[DeclaredCredentialType] = "webhook"
     timestamp_tolerance: int = 300  # seconds
 
     @abstractmethod
@@ -1610,6 +1977,7 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
         if abs(time.time() - ts) > self.timestamp_tolerance:
             raise AuthenticationFailed("Webhook timestamp too old.")
 
+        self.record_activity_actor(None)
         # Return AnonymousUser (not None) so DRF throttles can safely access request.user.is_authenticated.
         return (AnonymousUser(), self.get_auth_context(request))
 

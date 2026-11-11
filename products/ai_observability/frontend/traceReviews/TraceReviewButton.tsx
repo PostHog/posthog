@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import {
@@ -372,7 +371,7 @@ export function TraceReviewButton({
     const effectiveReview = cachedReview === undefined ? currentReview : cachedReview
     const resolvedButtonLabel = buttonLabel ?? (effectiveReview ? 'Edit review' : 'Review trace')
     const modalTitle = effectiveReview ? 'Edit review' : 'Review trace'
-    const scorersUrl = combineUrl(urls.aiObservabilityReviews(), { human_reviews_tab: 'scorers' }).url
+    const scorersUrl = urls.aiObservabilityScorers()
     const showEmptyDefinitionsState =
         !definitionSearch.trim() && loadedDefinitions.length === 0 && selectedDefinitions.length === 0
     const wasSavingRef = useRef(false)

@@ -21,6 +21,19 @@ describe('usePagination', () => {
         expect(router.values.searchParams.page).toBe(2)
     })
 
+    it('carries the lower-bound flag through for a controlled, capped count', () => {
+        const { result } = renderHook(() =>
+            usePagination(DATA, {
+                controlled: true,
+                pageSize: 1,
+                currentPage: 1,
+                entryCount: 3,
+                entryCountIsLowerBound: true,
+            })
+        )
+        expect(result.current.entryCountIsLowerBound).toBe(true)
+    })
+
     it('setCurrentPage leaves the URL alone when useUrl is false', () => {
         const { result } = renderHook(() =>
             usePagination(DATA, { controlled: true, pageSize: 1, currentPage: 1, entryCount: 3, useUrl: false })

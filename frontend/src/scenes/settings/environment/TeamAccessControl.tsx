@@ -5,6 +5,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { AccessControlTerraformExport } from 'scenes/settings/environment/AccessControlTerraformExport'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -36,7 +37,12 @@ export function TeamAccessControl(): JSX.Element {
                             'Access control will start using the most specific rule. Review the changes before they take effect.'}
                     </LemonBanner>
                 )}
-            {currentTeam?.id ? <ResourcesAccessControlsV2 projectId={`${currentTeam.id}`} /> : null}
+            {currentTeam?.id ? (
+                <ResourcesAccessControlsV2
+                    projectId={`${currentTeam.id}`}
+                    tabsRightSlot={<AccessControlTerraformExport />}
+                />
+            ) : null}
         </div>
     )
 }

@@ -16,8 +16,10 @@ export const BatchExportsListParams = () => zod.object({
         ),
 })
 
+export const batchExportsListQueryLimitMax = 1000
+
 export const BatchExportsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(batchExportsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -204,7 +206,7 @@ export const BatchExportsCreateBody = () => zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the\nnon-credential fields of `PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
@@ -413,25 +415,13 @@ export const BatchExportsCreateBody = () => zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID.'
                                             ),
                                         bucket_credentials: zod
-                                            .union([
-                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
-                                            ])
-                                            .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
-                                            ),
+                                            .number()
+                                            .describe('AWS S3 integration ID used to stage files in the S3 bucket.'),
                                     })
                                     .describe(
                                         'S3 staging configuration for a Redshift batch export running in COPY mode.'
@@ -440,7 +430,7 @@ export const BatchExportsCreateBody = () => zod
                                     .describe("S3 staging configuration, required when mode is 'COPY'."),
                             })
                             .describe(
-                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Redshift batch-export destination.'),
@@ -459,7 +449,7 @@ export const BatchExportsCreateBody = () => zod
             .string()
             .nullish()
             .describe(
-                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
             ),
         hogql_modifiers: zod
             .union([
@@ -595,6 +585,12 @@ export const BatchExportsCreateBody = () => zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -603,6 +599,12 @@ export const BatchExportsCreateBody = () => zod
                         .optional()
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -622,6 +624,12 @@ export const BatchExportsCreateBody = () => zod
                         .optional()
                         .describe(
                             'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                        ),
+                    personIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -654,6 +662,12 @@ export const BatchExportsCreateBody = () => zod
                             'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                         ),
                     sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
                     sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                     timings: zod.union([zod.boolean(), zod.null()]).optional(),
                     typeAwareCastSimplification: zod
@@ -663,6 +677,12 @@ export const BatchExportsCreateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -682,8 +702,25 @@ export const BatchExportsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         timezone: zod
             .string()
             .nullish()
@@ -902,7 +939,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the\nnon-credential fields of `PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
@@ -1113,25 +1150,13 @@ export const BatchExportsPartialUpdateBody = () => zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID.'
                                             ),
                                         bucket_credentials: zod
-                                            .union([
-                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
-                                            ])
-                                            .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
-                                            ),
+                                            .number()
+                                            .describe('AWS S3 integration ID used to stage files in the S3 bucket.'),
                                     })
                                     .describe(
                                         'S3 staging configuration for a Redshift batch export running in COPY mode.'
@@ -1140,7 +1165,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe("S3 staging configuration, required when mode is 'COPY'."),
                             })
                             .describe(
-                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Redshift batch-export destination.'),
@@ -1161,7 +1186,7 @@ export const BatchExportsPartialUpdateBody = () => zod
             .string()
             .nullish()
             .describe(
-                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. With model 'events', it defines a custom schema of columns to export instead. Required when model is 'hogql'."
+                "HogQL SELECT query. With model 'hogql', its results are the data exported by every run. The query may reference the {data_interval_start} and {data_interval_end} placeholders, replaced with each run's data interval bounds, for example: WHERE timestamp >= {data_interval_start} AND timestamp < {data_interval_end}. Without them every run exports all rows the query returns. Required when model is 'hogql'."
             ),
         hogql_modifiers: zod
             .union([
@@ -1297,6 +1322,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1305,6 +1336,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .optional()
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -1324,6 +1361,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                         .optional()
                         .describe(
                             'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                        ),
+                    personIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -1356,6 +1399,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                         ),
                     sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
                     sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                     timings: zod.union([zod.boolean(), zod.null()]).optional(),
                     typeAwareCastSimplification: zod
@@ -1365,6 +1414,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -1384,8 +1439,25 @@ export const BatchExportsPartialUpdateBody = () => zod
             ])
             .optional()
             .describe(
-                "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
+        primary_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                "The column or columns in the provided HogQL query that make up the primary key for a HogQL-backed batch export. Required if incremental mode is 'MERGE'"
+            ),
+        version_key: zod
+            .array(zod.string())
+            .nullish()
+            .describe(
+                'The column or columns in the provided HogQL query that make up the version key for a HogQL-backed batch export.'
+            ),
+        incremental_mode: zod
+            .enum(['APPEND', 'MERGE'])
+            .describe('\* `APPEND` - Append\n\* `MERGE` - Merge')
+            .optional()
+            .describe('How this batch export handles incremental updates.\n\n\* `APPEND` - Append\n\* `MERGE` - Merge'),
         timezone: zod
             .string()
             .nullish()
@@ -1730,6 +1802,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1738,6 +1816,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .optional()
                         .describe(
                             'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                        ),
+                    negatedPersonFiltersNotIn: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                         ),
                     optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                     optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -1757,6 +1841,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                         .optional()
                         .describe(
                             'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                        ),
+                    personIdPushdown: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
                         ),
                     personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                     personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -1789,6 +1879,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                         ),
                     sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                    sessionTimestampBufferMinutes: zod
+                        .union([zod.number(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                        ),
                     sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                     timings: zod.union([zod.boolean(), zod.null()]).optional(),
                     typeAwareCastSimplification: zod
@@ -1798,6 +1894,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                    useNewEventsSchema: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                        ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
                         .union([zod.boolean(), zod.null()])
@@ -1815,7 +1917,7 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                 })
                 .optional()
                 .describe(
-                    "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                    "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
                 ),
             data_interval_start: zod.iso
                 .datetime({ offset: true })
@@ -2008,6 +2110,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                 materializationMode: zod
                     .union([zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']), zod.null()])
                     .optional(),
+                materializeRepeatedCTEs: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                    ),
                 materializedColumnsOptimizationMode: zod
                     .union([zod.enum(['disabled', 'optimized']), zod.null()])
                     .optional(),
@@ -2016,6 +2124,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe(
                         'Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap'
+                    ),
+                negatedPersonFiltersNotIn: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Replace negated person-property filters in the WHERE of an `events` query (such as `email not_icontains`) with `person_id NOT IN (SELECT id FROM persons WHERE <the filters fail>)`, so the query no longer joins every person. Applies only when every filtered person property has a materialized column, nothing else in the query reads that persons join, and the join would be a LEFT JOIN.'
                     ),
                 optimizeJoinedFilters: zod.union([zod.boolean(), zod.null()]).optional(),
                 optimizeProjections: zod.union([zod.boolean(), zod.null()]).optional(),
@@ -2035,6 +2149,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                     .optional()
                     .describe(
                         'HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `\*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_\*` modes drive the same hand-rolled Rust parser as `rust_\*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip.'
+                    ),
+                personIdPushdown: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table."
                     ),
                 personsArgMaxVersion: zod.union([zod.enum(['auto', 'v1', 'v2']), zod.null()]).optional(),
                 personsJoinMode: zod.union([zod.enum(['inner', 'left']), zod.null()]).optional(),
@@ -2065,6 +2185,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Pre-filter raw_sessions aggregation by `session_id_v7 IN (cheap pre-aggregation that only materializes the columns referenced by the outer-WHERE session predicate)`. Useful when the breakdown\/SELECT pulls in many session columns (e.g. `$channel_type`) but the filter only references one (e.g. `$entry_current_url`).'
                     ),
                 sessionTableVersion: zod.union([zod.enum(['auto', 'v1', 'v2', 'v3']), zod.null()]).optional(),
+                sessionTimestampBufferMinutes: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Padding, in minutes, on each side of the event time range when it filters the sessions table by session start. Defaults to 3 days. It can only narrow the range: values above the default are ignored. Lower it only for a query that keeps just the sessions that start inside its own time range.'
+                    ),
                 sessionsV2JoinMode: zod.union([zod.enum(['string', 'uuid']), zod.null()]).optional(),
                 timings: zod.union([zod.boolean(), zod.null()]).optional(),
                 typeAwareCastSimplification: zod
@@ -2074,6 +2200,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
+                useNewEventsSchema: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
+                    ),
                 usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                 usePreaggregatedTableTransforms: zod
                     .union([zod.boolean(), zod.null()])
@@ -2091,7 +2223,7 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
             })
             .optional()
             .describe(
-                "HogQL modifiers to use when the query runs. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. For example, set convertToProjectTimezone to false to export timestamps in UTC instead of the project timezone."
+                "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example {\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here overrides the project modifier with the same name, and the project modifiers apply to all others. If neither sets convertToProjectTimezone, it defaults to false, so timestamps are exported in UTC. Set it to true to export timestamps in the project timezone instead. Unknown modifier names are rejected. On update, the object replaces the modifiers stored on the export, so include every modifier to keep, or send null to remove them all."
             ),
         data_interval_start: zod.iso
             .datetime({ offset: true })

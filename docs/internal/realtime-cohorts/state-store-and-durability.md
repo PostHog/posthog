@@ -22,7 +22,7 @@ A column family is a separate keyspace inside the database, with its own setting
 
 | Column family             | One row per                          | Holds                                                                                                                                                                                                                                                                                        |
 | ------------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the firehose offsets already applied                                                                                                                                                                                         |
+| `cf_behavioral`           | person and behavioral leaf state key | Behavioral leaf state, its eviction deadline, and replay marks: the source offsets already applied                                                                                                                                                                                           |
 | `cf_person_records`       | person                               | The person record: matched person conditions, fingerprints, stamp, replay marks                                                                                                                                                                                                              |
 | `cf_stage2`               | cohort and person                    | The membership bit the processor registered for the pair. On the live, sweep, merge, cascade and reconcile paths it is the recomputed truth. On the seed path it is what downstream was last told. Also reconcile dirty markers, and an inventory of membership rows received through merges |
 | `cf_merge_drains_applied` | merge message                        | Marker: this merge was drained                                                                                                                                                                                                                                                               |
@@ -75,9 +75,7 @@ If the lost write would have been the person's first row, reconcile never sees t
 While a partition's worker runs, it is the only writer of its key range.
 Merges, cascades, sweeps, garbage collection, backfill and reconcile all run on that worker, so reads always see the worker's own previous writes.
 Partition wipes and the boot redrive of the transfer outbox run from outside the worker.
-A revoke wipes a slice after its worker exits, and a partition that moves in after boot is wiped just before its worker spawns.
-The boot redrive is meant to run before workers exist, but nothing enforces that, so a worker can already be running while it clears outbox rows.
-[Processor runtime](processor-runtime.md#startup) describes the gap.
+Both run before the first poll, and workers spawn only after them, as [processor runtime](processor-runtime.md#startup) describes.
 The processor needs no locks and no RocksDB snapshots.
 
 ## The durability invariant
@@ -117,38 +115,224 @@ A deployment that relies on backfilled state must enable it.
 With durable restore on, the processor picks where its store comes from at boot, in this order:
 
 1. **Reopen the live store** on the persistent volume, if it is there.
-2. **A local checkpoint**, if checkpoints are enabled and a recent one exists.
-3. **A remote checkpoint** downloaded from object storage, if checkpoints are enabled.
-4. **An empty store**, the cold start.
+   A store that carries a `restore.json` marker holds a checkpoint restore that has not finished, so that restore resumes instead (see [finishing a restore](#finishing-a-restore)).
+2. **A local checkpoint**, if checkpoints are enabled and one was captured within `CHECKPOINT_LOCAL_MAX_STALENESS_SECS`.
+3. **A remote checkpoint** from object storage, newest first, if checkpoints are enabled.
+4. **An empty store**, the cold start, when checkpoints are disabled or nothing is restorable.
 
+Before it decides, the boot deletes a leftover `<STORE_PATH>.restore` staging directory, which a restore killed midway leaves behind.
 Checkpoints, `CHECKPOINT_ENABLED`, are disabled by default, so in practice the choice is between reopening the live store and starting empty.
-A checkpoint restore that fails to clear the store, copy or download the checkpoint, or read its offsets falls back to a cold start.
-The restore never opens the RocksDB files, so a checkpoint whose files cannot open passes it, and the store open that follows fails the pod instead.
-A live store that fails to open does not fall back either: the pod fails to start.
+A live store that fails to open does not fall back to a checkpoint: the pod fails to start.
 
 A cold start does not rebuild history.
 The consumers resume at their committed offsets, so the store only fills from new traffic, and every cohort's past membership has to come back through a backfill.
+Its slices begin when their partitions are assigned, so the processor withholds every run whose boundary is earlier (see [slice coverage](#slice-coverage)).
 A backfill cannot bring back everything.
 `performed_event` leaves with an hour or minute window refill only from new live events, and a cohort made only of references refills through cascades from the backfills of the cohorts it references.
 
 With durable restore on, the processor also:
 
-- deletes the slices of partitions it no longer owns, once its assignment settles,
+- deletes the slices of partitions it no longer owns, with their coverage records, once its assignment settles,
 - re-produces every transfer still waiting in the merge outbox,
-- rebuilds each partition's in-memory eviction queue from its behavioral rows when that partition's worker spawns,
-- wipes the old slice of a partition that moves in after boot, before its worker spawns.
+- seeks every owned events partition back to the first event it polled during boot and did not dispatch,
+- spawns a worker for every owned partition when boot ends, and each worker rebuilds its in-memory eviction queue from its behavioral rows,
+- wipes the old slice of a partition that moves in after boot, with its coverage record, before its worker spawns, so the slice begins anew.
 
-After a checkpoint restore it also rewinds the consumers to the offsets recorded in the checkpoint.
-The events consumer retries its seek until it succeeds.
-It seeks only once its assignment settles, so a poll that arrives earlier is still dispatched, the same startup gap as the boot redrive.
-The merge, transfer, cascade and seed followers get one attempt each.
-A failed attempt only logs a warning, and a checkpoint with no offsets for the topic skips the rewind silently.
-Either way the follower resumes at its broker-stored offsets.
-Those can be ahead of the restored state, and the inputs in between are never applied.
+Nothing is dispatched to a worker, from the events consumer or a follower, until these boot steps end.
+[Processor runtime](processor-runtime.md#startup) lists them in order.
 
-When a partition is revoked, its worker drains and exits, and its slice is deleted.
-State never moves between pods, which is why the processor runs as a single pod.
-[Processor runtime](processor-runtime.md#rebalance-and-the-single-pod-constraint) explains that constraint.
+A pod owns its partitions for as long as it runs, so no slice changes owner while the pod runs.
+State moves between pods only in a reshard, which raises the pod count.
+The store records the split of the partitions it was written under, and opens only under a split that the recorded one covers.
+[Processor runtime](processor-runtime.md#ownership-and-the-single-pod-deployment) explains that constraint and the reshard.
+
+### Choosing a checkpoint
+
+The restore tries the freshest local checkpoint, then up to `CHECKPOINT_IMPORT_ATTEMPT_DEPTH` remote ones from the last `CHECKPOINT_IMPORT_WINDOW_HOURS`, newest first.
+A checkpoint counts only once its `metadata.json` exists, because the sweeper and the upload both write it last.
+A local attempt without one is passed over for the attempt before it, and a remote attempt without one is unusable and does not count toward the depth.
+A remote checkpoint whose split does not cover this pod is unusable and does not count toward the depth either.
+The restore judges each candidate from its `metadata.json` and `offsets.json` before the bulk download:
+
+- its store schema must be this build's,
+- its metadata and manifest formats must be ones this build reads,
+- its manifest's split must cover this pod's, which means it owns every partition this pod owns,
+- its manifest must record a position on the events topic,
+- the broker must still hold the events the checkpoint lacks on at least one partition this pod owns (see [the replay window](#the-replay-window)).
+
+A candidate that passes is materialized in `<STORE_PATH>.restore`, a sibling of the store on the same mount.
+A local checkpoint is hard-linked there, SSTs only, with every other file copied.
+A remote one is downloaded there, within `CHECKPOINT_IMPORT_TIMEOUT_SECS`.
+A file that fails to download is downloaded again from its start, up to three tries, while the other files continue.
+A file that fails every try fails the candidate.
+A download that times out fails, and the search stops there, because older candidates are about as large.
+The stage must open read-only with this build's column families and schema, and RocksDB's open checks that every SST its MANIFEST names is present at the recorded size.
+The replay window is then checked again, because a download can outlast part of it.
+The restore rewrites `uploaded.json` for the restored store, writes the `restore.json` marker into the stage, and renames the stage onto the store path.
+A kill at any point leaves either the stage, which the next boot deletes, or a published store with its marker.
+
+The first candidate that publishes wins, and no older one is downloaded.
+When none publishes:
+
+| What the candidates were    | Outcome                                               |
+| --------------------------- | ----------------------------------------------------- |
+| None, or only unusable ones | The store is created empty, behind the coverage fence |
+| Any that failed             | The boot blocks and retries                           |
+
+Unusable means an upload that never finished, a metadata or manifest format this build does not read, a schema mismatch while `COHORT_WIPE_ON_SCHEMA_MISMATCH` is on, a split that does not cover this pod, or a checkpoint whose replay expired on every partition this pod owns.
+Older candidates are no better, so a retry cannot help.
+A failed candidate is one that could restore after a fix: a download error, a local attempt whose files cannot be read, a stage that fails validation, a schema mismatch without the wipe flag.
+A failed listing, a failed Kafka read and a local file error also block.
+
+### A blocked restore
+
+A blocked boot retries in process, with a backoff that starts at 30 seconds and doubles to 5 minutes.
+The health server is already listening, so `/_health` answers and `/_ready` returns 503 with "events consumer boot recovery in progress".
+`checkpoint_restore_blocked` reads 1 while it retries, and each round logs the error.
+Every round measures the local staleness window and the remote listing window up to the first round's start, so a candidate that failed stays a candidate however long the boot blocks.
+A candidate whose stage failed validation is not downloaded again in later rounds.
+To give up on object storage, set `CHECKPOINT_ENABLED=false`.
+The boot then creates the store, and every slice begins behind the coverage fence.
+
+### The replay window
+
+A restored slice is only correct if the broker can still replay every input past the checkpoint's position for it.
+The restore checks each partition the pod owns against the enabled inputs' watermarks, because boot recovery deletes the others:
+
+- a partition the manifest does not list is reset,
+- a partition where any enabled input's position lies outside the broker's `[low, high]` range is reset,
+- every other partition resumes from its positions.
+
+A reset deletes the slice and its coverage record, and fsyncs the write-ahead log, so the slice begins again behind the coverage fence.
+Each reset counts in `checkpoint_restore_slices_reset_total{reason}` and logs its partition, its reason and the watermarks.
+An input whose gate turned on after the capture has no position, so it resumes from its group's commit.
+An input that is no longer enabled is ignored.
+
+The check holds at boot, but the consumer still has to read past the oldest retained segment before retention deletes it.
+A consumer whose position falls below the low watermark resets to `earliest` without a trace, so the events that retention deleted are lost.
+So keep `CHECKPOINT_IMPORT_WINDOW_HOURS` below the events topic's retention by more than a restore's catch-up time.
+A pod down longer than the window then lists no candidate and creates its store behind the coverage fence, which is the safe direction.
+The window bounds only the listing: a restore already published resumes at any age, and the checks before and after the download, and when the restore finishes, still catch a position that expired.
+
+### Finishing a restore
+
+A published restore stays pending until the events group commits the restored positions:
+
+1. Before the store opens, the restore commits each follower group's positions on the partitions it keeps.
+   It first waits until the [ownership fence](processor-runtime.md#ownership-and-the-single-pod-deployment) admits the pod's split again, because another split can claim the partitions while the restore runs.
+   A failure blocks the boot.
+2. The store opens, and the resets apply.
+3. The events consumer seeks each owned partition to the lower of its restored position and the first event it polled, commits that seek list, then deletes the marker.
+   A failed watermark read, commit or delete keeps boot rewinding, and the next poll retries.
+   Before the commit it checks every restored position on the partitions it owns again, on every input.
+   If the broker expired one since the boot checked it, the consumer stops the process instead, and the next boot's check resets that slice.
+4. Boot ends only then, so no worker folds, no follower dispatches and no checkpoint runs before the marker is gone.
+   The followers are assigned at their restored positions while boot settles, but they dispatch nothing.
+
+A crash before step 3 ends resumes the restore at the next boot.
+The replay window is checked again, because the broker may have expired more of it, and the follower commits repeat.
+An unreadable marker means the positions are unknown, so the boot deletes the store and restores again.
+It renames the store to the staging path first, so a deletion cut short never leaves a store that reopens without its marker.
+
+## Checkpoints
+
+With `CHECKPOINT_ENABLED`, the processor takes a whole-store RocksDB checkpoint into `CHECKPOINT_LOCAL_DIR` every `CHECKPOINT_INTERVAL_MS`, and uploads one in every few to object storage, at `CHECKPOINT_S3_UPLOAD_INTERVAL_MS`.
+The first checkpoint waits until the pod is ready, so its upload does not compete for the disk with the workers' eviction-queue rebuilds.
+Checkpoints require durable restore, a bucket, and an absolute checkpoint directory without `..` on the store's filesystem but outside the store and its `<STORE_PATH>.restore` staging directory, and the pod fails at start without them.
+
+- **One lineage per pod.**
+  A pod's checkpoints live under `cohort_stream_state/<ordinal>`, locally and in object storage, where the ordinal is the number that ends the StatefulSet pod name in `POD_NAME`.
+  Ordinal 0 keeps the single pod's original layout.
+  A pod writes only its own lineage.
+  A reshard child reads its parent's lineage only to take its partitions over.
+  Its first upload is full, so its lineage never names objects in its parent's lineage.
+- **Positions from the broker.**
+  Each checkpoint carries `offsets.json`: for every owned slice, the committed offset of every enabled input's consumer group, or the low watermark where the group has none, so idle partitions are recorded too.
+  The positions are read after a write-ahead-log flush and before the checkpoint.
+  Every commit follows a flush of its own, so the checkpoint holds at least the state the positions cover.
+- **Incremental uploads.**
+  An upload sends only the files its predecessor in the chain lacks.
+  A restarted process builds on the last upload, recorded locally in `uploaded.json`, only while the store's RocksDB DB id matches it, because a created store reuses SST file names.
+  `uploaded.json` also records the bucket, so a change of `CHECKPOINT_S3_BUCKET` starts a new chain instead of naming objects in the old bucket.
+  A restored store also reuses the SST numbers written after its checkpoint, so a restore from object storage makes the restored checkpoint the baseline, and a local restore removes the baseline, which makes the next upload full.
+  Once a chain is older than `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS`, the next upload is full, which bounds the age of the oldest object a restore needs.
+- **Paced uploads.**
+  One upload reads at most `CHECKPOINT_UPLOAD_MAX_BYTES_PER_SEC` from the store's disk across all its files, so a full upload does not starve the live path.
+- **Failed files.**
+  A file that fails to upload is sent again from its start, up to three tries, while the other files continue.
+  A file that fails every try fails the upload.
+- **A final checkpoint that stays local.**
+  A graceful stop cancels an upload in flight, and takes one more checkpoint once every consumer has made its final commit.
+  It does not upload, so a stop usually takes seconds, and the next start's first upload covers what changed since the last upload.
+  An S3 request in flight when the stop cancels an upload still runs to its end, retries included, and while object storage fails those retries take tens of seconds.
+  The checkpoint component's shutdown window is the hard limit, and a stop that reaches it skips the final checkpoint.
+  It is still the freshest local checkpoint when the volume survives and the store does not.
+  An upload stopped before its `metadata.json` is not restorable, so the last finished upload stays the newest restorable one.
+- **An upload on request.**
+  `SIGUSR1` asks the checkpoint loop for a checkpoint that uploads, whatever the cadence: run `kill -USR1 1` from a shell in the pod, such as the Argo terminal.
+  The image has no `kill` binary, so `kubectl exec` needs `sh -c 'kill -USR1 1'`.
+  Before the loop starts, the request waits for it.
+  The pod logs `checkpoint upload requested (SIGUSR1)`, and then `checkpoint uploaded to S3` with `trigger` `requested` and the `checkpoint_id`.
+  A requested checkpoint that fails at any step logs a warning with `trigger` `requested` instead, and is not retried, so send the signal again.
+  A request that arrives during a checkpoint waits for it, and requests that arrive meanwhile count as one.
+- **Compaction of unowned partitions.**
+  Boot deletes the slices of the partitions the pod does not own, and drops the SST files that lie wholly inside them.
+  The other files, such as those that also hold an owned partition, keep the deleted data until a compaction rewrites them.
+  So once the pod is ready, and before its first checkpoint, the checkpoint task compacts every unowned partition that still holds more than 16 MiB in a column family, one at a time.
+  It logs the bytes above that size before and after, and how long the pass took.
+  A routine boot finds none.
+  A compaction cannot be interrupted, so a stop waits for the one in progress.
+- **Expiry by age.**
+  The bucket's lifecycle rule expires objects by age.
+  That age must exceed `CHECKPOINT_FULL_UPLOAD_INTERVAL_SECS` plus `CHECKPOINT_IMPORT_WINDOW_HOURS`, because a restore can pick any upload in the import window, and that upload can name objects as old as its chain's full upload.
+
+The uploader is built on the first upload, so an outage of object storage never stops a pod that has its store.
+A failed build counts `checkpoint_uploads_total{result="unavailable"}`, and the next upload tries again.
+
+These metrics follow checkpoints:
+
+- `checkpoint_last_upload_timestamp_seconds` is the capture time of the newest successful upload.
+  It starts at the upload that `uploaded.json` records, or at process start without one, so a restart does not make an old upload look new,
+- `checkpoint_last_capture_timestamp_seconds` and `checkpoint_last_full_upload_timestamp_seconds` are the last captured manifest and the start of the newest upload's chain,
+- `checkpoint_size_bytes` and `checkpoint_file_count` are the size and the file count of the newest local checkpoint,
+- `checkpoint_uploads_total{result, trigger}` and `checkpoint_uploaded_bytes_total{kind}` count uploads and the bytes they sent, where `trigger` is `periodic` or `requested`,
+- `checkpoint_capture_failures_total{reason}` counts ticks skipped before the checkpoint,
+- `checkpoint_restore_total{source}` counts where each boot's store came from: `reopen_live`, `pending`, `local`, `s3` or `cold`,
+- `checkpoint_restore_candidates_total{verdict}` counts the candidates a restore tried,
+- `checkpoint_restore_blocked` reads 1 while a restore blocks the boot.
+
+## Slice coverage
+
+A slice is one partition's state in one store.
+A slice that lost its history looks like any other empty slice, so each slice carries a coverage record.
+The record says either that the slice is complete, or that it holds every event its partition delivered after an instant, and maybe some before.
+It lives in `cf_person_records` under a 3-byte key, `[partition][0xFE]`, which no person-record read reaches.
+
+| What happens                                                                                          | Coverage                                                                                                                          |
+| ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| The store is created: none on disk, a wipe at start, a wipe on schema mismatch, or nothing to restore | The open stamps `cf_meta[slice_coverage]`, with no records. Each slice begins when its partition is assigned                      |
+| A store with the stamp reopens                                                                        | Each slice resumes its own record                                                                                                 |
+| A store without the stamp reopens                                                                     | It predates coverage records. The open writes `complete` for every partition and the stamp in one batch, so it adopts once        |
+| The boot deletion of an unowned partition                                                             | `delete_partition` deletes the record with the slice, and the next worker begins the slice anew from its assignment               |
+| A checkpoint restore                                                                                  | The record and the stamp travel inside the checkpoint. A slice the restore cannot replay is reset with its record and begins anew |
+
+A reconcile certifies its partition only when the slice holds the run's history: the slice is complete, or it began at or before the run's boundary.
+Otherwise the partition withholds the run, as [the reconcile guard](seed-apply-and-reconcile.md#the-walk) describes, and its `covered_since` is the boundary a disaster-recovery run must pin.
+
+The record is written once and only deleted with its slice.
+An older image never reads the record or the stamp, and its own partition deletes remove records with their slices.
+A rolled-back image that recreates the store leaves a store without the stamp, and the next open adopts it as complete.
+That is the trust every store had before coverage records existed.
+So before rolling forward again, wipe any store that an older image created.
+
+Coverage does not detect a stale slice, one whose partition another writer advanced while this store held older state.
+With one pod, only a rollback of the store produces one.
+
+Three metrics follow coverage:
+
+- `cohort_slices_adopted_total` rises by the partition count at an adopting open,
+- `cohort_slices_begun_total` counts slices that began without earlier history,
+- `cohort_slice_covered_since_seconds{partition}` is when each owned slice began, and 0 for a complete one.
 
 ## Keeping the store bounded
 
@@ -166,6 +350,16 @@ State never moves between pods, which is why the processor runs as a single pod.
 - **Merge markers and tombstones** are removed after their retention period.
 - **Orphaned behavioral rows**, left behind when a leaf's definition changes, a cohort is deleted, or a team leaves the catalog, are not collected.
   They are removed only by a merge drain or a partition wipe.
+- **RocksDB's info logs** have a size cap.
+  The info `LOG` rolls at `COHORT_MAX_LOG_FILE_SIZE_BYTES` (256 MiB), and RocksDB keeps `COHORT_KEEP_LOG_FILE_NUM` (10) files, the active one included, so the info logs use at most about 2.5 GiB.
+  Each open and each roll delete the oldest rolled files beyond that count.
+  The first boot under the cap keeps the newest 9 rolled files that an uncapped build left, and they can be much larger than 256 MiB.
+  The next 9 rolls delete them.
+  Both values must be greater than 0, or the processor does not start.
+- **Usage by file type** of the store directory and the local checkpoints is the `store_file_bytes` gauge.
+  Its `kind` label is `sst`, `wal`, `info_log`, `manifest`, `other` or `checkpoint`.
+  The `checkpoint` value counts only local checkpoint files that the live store does not share, such as SSTs that compaction replaced.
+  It is 0 when checkpoints are off.
 
 ## Tuning that matters
 
@@ -192,9 +386,13 @@ A lint rule denies direct calls to most store I/O methods, and the synchronous s
 - Reopening the live store checks only that RocksDB's `CURRENT` file exists.
   A damaged store that has one is chosen, fails to open, and the pod crash-loops.
   It never falls back to a checkpoint.
-- A store directory without a `CURRENT` file is neither reopened nor wiped, and the open fails on the missing schema stamp.
-- Static group membership keeps a restart from causing a revoke.
-  A second group member, or a pod that loses its session or stops polling, still causes one.
-  Each revoke deletes the whole slice, including merge transfers not yet sent, whose merge offsets may already be committed.
+- With checkpoints disabled, a store directory without a `CURRENT` file is neither reopened nor wiped, and the open fails on the missing schema stamp.
+  With checkpoints enabled, the boot deletes it and restores.
+- A store directory that holds `restore.json` is a checkpoint restore in progress, not a live store.
+  An image from before that marker ignores it and reopens the store at the broker's old offsets, so do not roll back while a restore is pending.
+- Changing `COHORT_POD_COUNT` without `COHORT_RESHARD_FROM_POD_COUNT` holds every boot in the ownership fence.
+  Lowering it also makes every store refuse to open, because each records the split it was written under.
+  [Ownership](processor-runtime.md#ownership-and-the-single-pod-deployment) lists what to wipe.
+  Wiping a store deletes every slice, including merge transfers not yet sent, whose merge offsets may already be committed.
 - Person records grow with every person seen on a team with person-property conditions, including those that match nothing, unless a time-to-live is configured.
 - The person record time-to-live is judged against event time, so importing old events can write records that are already eligible for expiry.

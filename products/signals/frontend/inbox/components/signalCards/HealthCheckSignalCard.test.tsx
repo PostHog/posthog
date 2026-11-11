@@ -13,6 +13,8 @@ jest.mock('lib/components/TZLabel', () => ({
 function makeSignal(payload: Record<string, unknown>, title: string, content: string): SignalNode {
     return {
         signal_id: 'signal-1',
+        total_spend: null,
+        spend_accounting_failed_stages: [],
         content,
         source_product: 'health_checks',
         source_type: 'health_issue',

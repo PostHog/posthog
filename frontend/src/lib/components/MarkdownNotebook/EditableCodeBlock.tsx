@@ -190,10 +190,9 @@ export function EditableCodeBlock({
             return
         }
 
-        const selection = window.getSelection()
         const shouldSkipOwnInputSync =
-            (document.activeElement === element || isSelectionAnchoredInsideElement(selection, element)) &&
-            skipDomSyncForTextRef.current === node.text
+            skipDomSyncForTextRef.current === node.text &&
+            (document.activeElement === element || isSelectionAnchoredInsideElement(window.getSelection(), element))
         skipDomSyncForTextRef.current = null
 
         if (shouldSkipOwnInputSync) {

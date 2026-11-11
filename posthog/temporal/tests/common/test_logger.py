@@ -31,7 +31,7 @@ from posthog.clickhouse.log_entries import (
 )
 from posthog.kafka_client.client import _AsyncKafkaProducer
 from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
-from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, configure_logger, resolve_log_source
+from posthog.temporal.common.logger import BACKGROUND_LOGGER_TASKS, Logger, configure_logger, resolve_log_source
 
 pytestmark = pytest.mark.asyncio
 
@@ -266,17 +266,11 @@ async def test_logger_renders_tracebacks(log_capture):
     for entry in log_capture.write_entries:
         entry_dict = json.loads(entry)
 
-        assert "exception" in entry_dict
-        assert isinstance(entry_dict["exception"], list)
-
-        exceptions = entry_dict["exception"]
-
-        assert len(exceptions) == 1
-
-        exception = exceptions[0]
-
-        assert exception["exc_type"] == "ValueError"
-        assert exception["exc_value"] == "Oh no!"
+        assert "exc_info" not in entry_dict
+        assert entry_dict["exception.type"] == "ValueError"
+        assert entry_dict["exception.message"] == "Oh no!"
+        assert entry_dict["exception.stacktrace"].startswith("Traceback (most recent call last):\n")
+        assert 'raise ValueError("Oh no!")' in entry_dict["exception.stacktrace"]
 
 
 async def test_logger_formats_positional_args(log_capture):
@@ -959,3 +953,10 @@ def test_resolve_log_source_cdc_extraction():
 
     assert source == "external_data_jobs"
     assert source_id == "019bdc25-3569-0000-9f32-e7d02775304b"
+
+
+def test_logger_skips_produce_when_its_loop_is_closed():
+    loop = asyncio.new_event_loop()
+    loop.close()
+
+    Logger("test", queue=asyncio.Queue(), loop=loop).produce(b"late message")

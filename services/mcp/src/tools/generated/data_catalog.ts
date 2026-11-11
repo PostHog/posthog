@@ -46,6 +46,7 @@ const dataCatalogCertificationCertifyPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-certification-certify',
+            inputSchema: DataCatalogCertificationCertifySchema(),
             actionLabel: 'certify source',
             messageTemplate:
                 "About to mark certification '{id}' as certified (agents should prefer this source). Reply 'confirm' to proceed.\n",
@@ -73,8 +74,8 @@ const dataCatalogCertificationCertifyExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'data-catalog-certification-certify',
+                inputSchema: DataCatalogCertificationCertifySchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -120,6 +121,7 @@ const dataCatalogCertificationDeprecatePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-certification-deprecate',
+            inputSchema: DataCatalogCertificationDeprecateSchema(),
             actionLabel: 'deprecate source',
             messageTemplate:
                 "About to mark certification '{id}' as deprecated (agents should avoid this source). Reply 'confirm' to proceed.\n",
@@ -147,8 +149,8 @@ const dataCatalogCertificationDeprecateExecute = (): ToolBase<
         >(context, {
             incomingArgs: confirmationParams,
             purpose: 'data-catalog-certification-deprecate',
+            inputSchema: DataCatalogCertificationDeprecateSchema(),
             codec: __runtime.codec,
-            ledger: __runtime.ledger,
             stash: __runtime.stash,
             expectedScope: { projectId: String(__scopeProjectId) },
         })
@@ -207,8 +209,11 @@ const dataCatalogCertificationPropose = (): ToolBase<
 })
 
 const DataCatalogMetricApproveSchema = () => {
+    const DataCatalogMetricsApproveCreateBody = orvalSchemas.DataCatalogMetricsApproveCreateBody()
     const DataCatalogMetricsApproveCreateParams = orvalSchemas.DataCatalogMetricsApproveCreateParams()
-    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true })
+    return DataCatalogMetricsApproveCreateParams.omit({ project_id: true }).extend(
+        DataCatalogMetricsApproveCreateBody.shape
+    )
 }
 
 const DataCatalogMetricApproveSchemaExecute = z.strictObject({
@@ -230,6 +235,7 @@ const dataCatalogMetricApprovePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-metric-approve',
+            inputSchema: DataCatalogMetricApproveSchema(),
             actionLabel: 'approve metric',
             messageTemplate:
                 "About to approve metric '{name}' as a canonical, human-vouched metric. Reply 'confirm' to proceed.\n",
@@ -254,8 +260,8 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'data-catalog-metric-approve',
+                inputSchema: DataCatalogMetricApproveSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -265,9 +271,14 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
         }
         const params = __guard.verifiedArgs
         const projectId = __scopeProjectId
+        const body: Record<string, unknown> = {}
+        if (params.expected_updated_at !== undefined) {
+            body['expected_updated_at'] = params.expected_updated_at
+        }
         const result = await context.api.request<Schemas.DataCatalogMetric>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/${encodeURIComponent(String(params.name))}/approve/`,
+            body,
         })
         return result
     },
@@ -275,7 +286,11 @@ const dataCatalogMetricApproveExecute = (): ToolBase<
 
 const DataCatalogMetricCreateSchema = () => {
     const DataCatalogMetricsCreateBody = orvalSchemas.DataCatalogMetricsCreateBody()
-    return DataCatalogMetricsCreateBody
+    return DataCatalogMetricsCreateBody.extend({
+        overwrite: DataCatalogMetricsCreateBody.shape['overwrite'].describe(
+            'Set to true only after the user explicitly agreed to overwrite the live metric that already holds this name. Leave it unset on the first call.'
+        ),
+    })
 }
 
 const dataCatalogMetricCreate = (): ToolBase<
@@ -299,6 +314,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         if (params.unit !== undefined) {
             body['unit'] = params.unit
         }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
+        }
         if (params.definition !== undefined) {
             body['definition'] = params.definition
         }
@@ -313,6 +331,9 @@ const dataCatalogMetricCreate = (): ToolBase<
         }
         if (params.reasoning !== undefined) {
             body['reasoning'] = params.reasoning
+        }
+        if (params.overwrite !== undefined) {
+            body['overwrite'] = params.overwrite
         }
         body['created_source'] = 'ai_generated'
         const result = await context.api.request<Schemas.DataCatalogMetric>({
@@ -348,6 +369,7 @@ const dataCatalogMetricDeletePrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-metric-delete',
+            inputSchema: DataCatalogMetricDeleteSchema(),
             actionLabel: 'delete metric',
             messageTemplate: "About to delete metric '{name}'. Reply 'confirm' to proceed.\n",
             codec: __runtime.codec,
@@ -368,8 +390,8 @@ const dataCatalogMetricDeleteExecute = (): ToolBase<typeof DataCatalogMetricDele
             {
                 incomingArgs: confirmationParams,
                 purpose: 'data-catalog-metric-delete',
+                inputSchema: DataCatalogMetricDeleteSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -414,6 +436,9 @@ const dataCatalogMetricRun = (): ToolBase<
         if (params.interval !== undefined) {
             body['interval'] = params.interval
         }
+        if (params.offset !== undefined) {
+            body['offset'] = params.offset
+        }
         if (params.query_id !== undefined) {
             body['query_id'] = params.query_id
         }
@@ -457,6 +482,9 @@ const dataCatalogMetricUpdate = (): ToolBase<
         }
         if (params.unit !== undefined) {
             body['unit'] = params.unit
+        }
+        if (params.owner !== undefined) {
+            body['owner'] = params.owner
         }
         if (params.definition !== undefined) {
             body['definition'] = params.definition
@@ -533,6 +561,7 @@ const dataCatalogRelationshipAcceptPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-relationship-accept',
+            inputSchema: DataCatalogRelationshipAcceptSchema(),
             actionLabel: 'accept relationship',
             messageTemplate:
                 "About to accept relationship proposal '{id}', promoting it to a real warehouse join. Reply 'confirm' to proceed.\n",
@@ -560,8 +589,8 @@ const dataCatalogRelationshipAcceptExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'data-catalog-relationship-accept',
+                inputSchema: DataCatalogRelationshipAcceptSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -658,6 +687,7 @@ const dataCatalogRelationshipRejectPrepare = (): ToolBase<
         return await prepareConfirmedAction(context, {
             args: params,
             purpose: 'data-catalog-relationship-reject',
+            inputSchema: DataCatalogRelationshipRejectSchema(),
             actionLabel: 'reject relationship',
             messageTemplate:
                 "About to reject relationship proposal '{id}'. This permanently suppresses re-proposing the pair. Reply 'confirm' to proceed.\n",
@@ -685,8 +715,8 @@ const dataCatalogRelationshipRejectExecute = (): ToolBase<
             {
                 incomingArgs: confirmationParams,
                 purpose: 'data-catalog-relationship-reject',
+                inputSchema: DataCatalogRelationshipRejectSchema(),
                 codec: __runtime.codec,
-                ledger: __runtime.ledger,
                 stash: __runtime.stash,
                 expectedScope: { projectId: String(__scopeProjectId) },
             }
@@ -751,8 +781,11 @@ const metricList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/data_catalog/metrics/`,
             query: {
+                definition_kind: params.definition_kind,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
+                status: params.status,
             },
         })
         const filtered = {

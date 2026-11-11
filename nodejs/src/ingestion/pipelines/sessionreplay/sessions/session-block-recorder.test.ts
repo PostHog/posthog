@@ -22,7 +22,7 @@ describe('SessionBlockRecorder', () => {
         recorder = new SessionBlockRecorder('test_session_id', 1, 'test_batch_id')
     })
 
-    const createMessage = (windowId: string, events: any[]): ParsedMessageData => ({
+    const createMessage = (windowId: string, events: any[], capturedAtMs = 0): ParsedMessageData => ({
         distinct_id: 'distinct_id',
         session_id: 'session_id',
         token: null,
@@ -39,7 +39,7 @@ describe('SessionBlockRecorder', () => {
             partition: 1,
             topic: 'test',
             offset: 0,
-            timestamp: 0,
+            timestamp: capturedAtMs,
             rawSize: 0,
         },
     })
@@ -309,14 +309,25 @@ describe('SessionBlockRecorder', () => {
 
         it('should track min/max timestamps across multiple messages', async () => {
             const messages = [
-                createMessage('window1', [
-                    { type: RRWebEventType.Meta, timestamp: new Date('2025-01-01T01:00:00Z').getTime() },
-                    { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:01Z').getTime() },
-                ]),
-                createMessage('window2', [
-                    { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:02Z').getTime() },
-                    { type: RRWebEventType.IncrementalSnapshot, timestamp: new Date('2025-01-01T01:00:03Z').getTime() },
-                ]),
+                createMessage(
+                    'window1',
+                    [
+                        { type: RRWebEventType.Meta, timestamp: new Date('2025-01-01T01:00:00Z').getTime() },
+                        { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:01Z').getTime() },
+                    ],
+                    1_700_000_002_000
+                ),
+                createMessage(
+                    'window2',
+                    [
+                        { type: RRWebEventType.FullSnapshot, timestamp: new Date('2025-01-01T01:00:02Z').getTime() },
+                        {
+                            type: RRWebEventType.IncrementalSnapshot,
+                            timestamp: new Date('2025-01-01T01:00:03Z').getTime(),
+                        },
+                    ],
+                    1_700_000_001_000
+                ),
             ]
 
             messages.forEach((message) => recorder.recordMessage(message))
@@ -324,6 +335,7 @@ describe('SessionBlockRecorder', () => {
 
             expect(result.startDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:00Z').getTime())) // Min from all messages
             expect(result.endDateTime).toEqual(DateTime.fromMillis(new Date('2025-01-01T01:00:03Z').getTime())) // Max from all messages
+            expect(result.earliestCapturedAtMs).toBe(1_700_000_001_000)
         })
 
         it('should handle empty events array', async () => {

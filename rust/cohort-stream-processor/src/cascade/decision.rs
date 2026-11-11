@@ -37,7 +37,9 @@ pub fn should_emit(
                 person_id: incoming.change.person_id.clone(),
                 last_updated: new_last_updated.to_string(),
                 status: new_status,
-                origin: None,
+                // A flip caused by a seed or reconcile restates membership too, so consumers that skip
+                // backfill output must also skip its cascades.
+                origin: incoming.change.origin,
                 run_id: None,
             },
             // Carried forward so the chain keeps one stable replay identity across hops.
@@ -65,7 +67,10 @@ pub fn first_cascade(change: CohortMembershipChange, source_offset: i64) -> Casc
 
 #[cfg(test)]
 mod tests {
+    use cohort_core::seed::RunId;
+
     use super::*;
+    use crate::producer::ChangeOrigin;
 
     const TS_IN: &str = "2026-05-26 12:34:56.789123";
     const TS_OUT: &str = "2026-06-16 00:00:00.000000";
@@ -95,7 +100,9 @@ mod tests {
 
     #[test]
     fn normal_hop_increments_depth_and_extends_the_chain_carrying_fields() {
-        let incoming = incoming(10, 1, vec![10]);
+        let mut incoming = incoming(10, 1, vec![10]);
+        incoming.change.origin = Some(ChangeOrigin::Seed);
+        incoming.change.run_id = Some(RunId(uuid::Uuid::nil()));
         let decision = should_emit(&incoming, CohortId(20), MembershipStatus::Left, TS_OUT, 8);
 
         let CascadeDecision::Emit { outgoing } = decision else {
@@ -116,6 +123,11 @@ mod tests {
         assert_eq!(outgoing.change.person_id, incoming.change.person_id);
         assert_eq!(outgoing.source_offset, incoming.source_offset);
         assert_eq!(outgoing.originating_cohort_id, 10);
+        assert_eq!(outgoing.change.origin, Some(ChangeOrigin::Seed));
+        assert_eq!(
+            outgoing.change.run_id, None,
+            "the referrer is not part of the run"
+        );
     }
 
     #[test]

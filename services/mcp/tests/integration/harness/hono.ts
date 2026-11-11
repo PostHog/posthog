@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 
 import { createApp } from '@/hono/app'
 
-import { startSkillArchiveServer, type SkillArchiveServer } from './skill-archive'
+import { startContextMillArchiveServer, startSkillArchiveServer, type ArchiveServer } from './skill-archive'
 import type { IntegrationEnv, IntegrationHarness } from './types'
 
 // Pinned test DB so we don't collide with the dev Redis (DB 0). Must be in
@@ -49,18 +49,22 @@ export async function startHonoHarness(env: IntegrationEnv): Promise<Integration
     process.env.MCP_APPS_BASE_URL = baseUrl.toString().replace(/\/$/, '')
 
     let redis: Awaited<ReturnType<typeof startTestRedis>> | undefined
-    let skillArchive: SkillArchiveServer | undefined
+    let skillArchive: ArchiveServer | undefined
+    let contextMillArchive: ArchiveServer | undefined
     const stop = async (): Promise<void> => {
         await new Promise<void>((resolve) => server.close(() => resolve()))
         await skillArchive?.stop().catch(() => undefined)
+        await contextMillArchive?.stop().catch(() => undefined)
         await redis?.quit().catch(() => undefined)
     }
 
     try {
         redis = await startTestRedis()
         skillArchive = await startSkillArchiveServer()
-        // The dispatcher reads this when `createApp` constructs it.
+        // The dispatcher reads both archive URLs when `createApp` constructs it.
         process.env.POSTHOG_MCP_SKILLS_URL = skillArchive.url
+        contextMillArchive = await startContextMillArchiveServer()
+        process.env.POSTHOG_MCP_LOCAL_SKILLS_URL = contextMillArchive.url
         const { app, warmup } = createApp(redis as unknown as Parameters<typeof createApp>[0])
         await warmup()
         fetchHandler = app.fetch

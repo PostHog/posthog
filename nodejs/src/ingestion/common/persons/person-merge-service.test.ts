@@ -14,7 +14,9 @@ import { MergeFoldPlan } from './person-merge-fold'
 import {
     PersonMergeService,
     mergeClaimDroppedCounter,
+    mergeFinalFailuresCounter,
     mergeFoldFallbackCounter,
+    mergeNotAppliedRetriesCounter,
     mergeResponseMismatchCounter,
     mergeSettledFailureCounter,
     mergeUnsettledCounter,
@@ -22,13 +24,14 @@ import {
 import {
     PersonMergeCallFailedError,
     PersonMergeLimitExceededError,
+    PersonMergeNotAppliedError,
     PersonMergeResponseMismatchError,
     SourcePersonHasDistinctIdsError,
     SourcePersonNotFoundError,
     TargetPersonNotFoundError,
     createDefaultSyncMergeMode,
 } from './person-merge-types'
-import { MergePersonsOutcome, MergePersonsResult } from './persons-store'
+import { MergePersonsOutcome, MergePersonsResult, PersonsBackend } from './persons-store'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
 
 const counterTotal = async (counter: { get: () => Promise<{ values: { value: number }[] }> }): Promise<number> =>
@@ -54,10 +57,16 @@ describe('PersonMergeService store-owned merges', () => {
     let store: {
         mergePersons: jest.Mock
         fetchForUpdate: jest.Mock
+        backend?: PersonsBackend
     }
     let outputs: { queueMessages: jest.Mock }
 
-    const makeService = (eventName = '$identify', mergeFoldPlan?: MergeFoldPlan) => {
+    const makeService = (
+        eventName = '$identify',
+        mergeFoldPlan?: MergeFoldPlan,
+        identityEmitsMergeWarnings = false,
+        mergeNotAppliedWaitMs = 0
+    ) => {
         const event = {
             event: eventName,
             uuid: 'event-uuid',
@@ -82,7 +91,9 @@ describe('PersonMergeService store-owned merges', () => {
             createDefaultSyncMergeMode(),
             false,
             false,
-            mergeFoldPlan
+            mergeFoldPlan,
+            identityEmitsMergeWarnings,
+            mergeNotAppliedWaitMs
         )
         return new PersonMergeService(context)
     }
@@ -202,6 +213,112 @@ describe('PersonMergeService store-owned merges', () => {
             .filter((entry: any) => entry?.value)
             .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
         expect(warned).toContain('merge_settled_failure')
+    })
+
+    describe('a merge refused before it ran', () => {
+        const refused = (): Error =>
+            new PersonMergeNotAppliedError('refused before it ran', 'load_shed', new Error('shed'))
+        const warningTypes = (): string[] =>
+            outputs.queueMessages.mock.calls
+                .flat(3)
+                .filter((entry: any) => entry?.value)
+                .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+        const outcomes = async (): Promise<Record<string, number>> =>
+            Object.fromEntries(
+                (await mergeNotAppliedRetriesCounter.get()).values.map((entry) => [entry.labels.outcome, entry.value])
+            )
+
+        beforeEach(() => {
+            mergeNotAppliedRetriesCounter.reset()
+            jest.useFakeTimers()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('is re-sent past the bounded retries and keeps them once capacity returns', async () => {
+            const finalBefore = await counterTotal(mergeFinalFailuresCounter)
+            for (let i = 0; i < 5; i++) {
+                store.mergePersons.mockRejectedValueOnce(refused())
+            }
+            // The first accepted call answers unsettled: without its own bounded
+            // retries the merge would drop with the race warning instead of settling.
+            store.mergePersons.mockResolvedValueOnce({
+                survivor,
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+            })
+            const service = makeService('$identify', undefined, false, 5_000)
+
+            const merging = service.handleIdentifyOrAlias()
+            await jest.advanceTimersByTimeAsync(5_000)
+            const mergeResult = await merging
+
+            expect(mergeResult).toMatchObject({ success: true, person: survivor })
+            expect(store.mergePersons).toHaveBeenCalledTimes(7)
+            expect(warningTypes()).toEqual([])
+            expect(await counterTotal(mergeFinalFailuresCounter)).toBe(finalBefore)
+            expect(await outcomes()).toEqual({ recovered: 1 })
+        })
+
+        it('escalates to the pipeline retry when the budget runs out, never settling', async () => {
+            const finalBefore = await counterTotal(mergeFinalFailuresCounter)
+            store.mergePersons.mockRejectedValue(refused())
+            const service = makeService('$identify', undefined, false, 1_000)
+
+            const settled = service.handleIdentifyOrAlias().catch((error) => error)
+            await jest.advanceTimersByTimeAsync(10_000)
+            const error = await settled
+
+            expect(error).toBeInstanceOf(PersonMergeNotAppliedError)
+            expect(error.isRetriable).toBe(true)
+            expect(store.mergePersons.mock.calls.length).toBeGreaterThan(4)
+            expect(warningTypes()).not.toContain('merge_settled_failure')
+            expect(await counterTotal(mergeFinalFailuresCounter)).toBe(finalBefore)
+            expect(await outcomes()).toEqual({ escalated: 1 })
+        })
+
+        it('shares one budget across the batch, so a later merge escalates at once when it is spent', async () => {
+            // Merges for one distinct id run serially within a batch; a fresh
+            // budget per event would add up past the consumer stall threshold.
+            store.mergePersons.mockRejectedValue(refused())
+            const first = makeService('$identify', undefined, false, 1_000)
+                .handleIdentifyOrAlias()
+                .catch((e) => e)
+            await jest.advanceTimersByTimeAsync(10_000)
+            await first
+            store.mergePersons.mockClear()
+
+            const second = makeService('$identify', undefined, false, 1_000)
+                .handleIdentifyOrAlias()
+                .catch((e) => e)
+            await jest.advanceTimersByTimeAsync(10)
+            const error = await second
+
+            expect(error).toBeInstanceOf(PersonMergeNotAppliedError)
+            expect(error.isRetriable).toBe(true)
+            expect(store.mergePersons).toHaveBeenCalledTimes(3)
+            // The second merge never waited, so it is not a second escalation.
+            expect(await outcomes()).toEqual({ escalated: 1 })
+        })
+
+        it('an accepted re-send that then fails settles as before, counted apart from recovered', async () => {
+            for (let i = 0; i < 3; i++) {
+                store.mergePersons.mockRejectedValueOnce(refused())
+            }
+            store.mergePersons.mockRejectedValue(
+                new PersonMergeCallFailedError('personhog merge call failed with no verdict', new Error('transport'))
+            )
+            const service = makeService('$identify', undefined, false, 5_000)
+
+            const merging = service.handleIdentifyOrAlias()
+            await jest.advanceTimersByTimeAsync(5_000)
+            const result = await merging
+
+            expect(result.success).toBe(true)
+            expect(warningTypes()).toContain('merge_settled_failure')
+            expect(await outcomes()).toEqual({ accepted_failed: 1 })
+        })
     })
 
     it('a deterministic raw refusal acks once with a warning instead of wedging the batch', async () => {
@@ -656,6 +773,134 @@ describe('PersonMergeService store-owned merges', () => {
             // The sequential fallback then exhausts its retries on the same
             // claim and drops the merge, which reports success with no person.
             expect(mergeResult.success && mergeResult.person).toBeUndefined()
+        })
+    })
+
+    describe('when the identity service publishes the verdict warnings', () => {
+        const warnedTypes = (): string[] =>
+            outputs.queueMessages.mock.calls
+                .flat(3)
+                .filter((entry: any) => entry?.value)
+                .map((entry: any) => parseJSON(Buffer.from(entry.value).toString()).type)
+
+        beforeEach(() => {
+            store.backend = 'personhog'
+        })
+
+        it.each(['skipped_already_identified', 'skipped_illegal', 'skipped_race', 'skipped_refused', 'error'])(
+            'a settled %s verdict acks without a consumer-side warning',
+            async (outcome) => {
+                store.mergePersons.mockResolvedValue(result(outcome as MergePersonsOutcome))
+                const service = makeService('$identify', undefined, true)
+
+                const mergeResult = await service.merge('anon-1', 'd1', 1, timestamp)
+
+                expect(mergeResult.success).toBe(true)
+                expect(warnedTypes()).toEqual([])
+            }
+        )
+
+        it('a settled conflict still counts the drop but leaves the warning to the identity service', async () => {
+            store.mergePersons.mockResolvedValue({
+                survivor: null,
+                results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: true }],
+            })
+            mergeClaimDroppedCounter.reset()
+            const service = makeService('$identify', undefined, true)
+
+            await service.merge('anon-1', 'd1', 1, timestamp)
+
+            expect(warnedTypes()).toEqual([])
+            expect(await counterTotal(mergeClaimDroppedCounter)).toBe(1)
+        })
+
+        it.each([
+            [
+                'an unsettled conflict that outlasts every retry',
+                () =>
+                    store.mergePersons.mockResolvedValue({
+                        survivor: null,
+                        results: [{ sourceDistinctId: 'anon-1', outcome: 'skipped_conflict' as const, settled: false }],
+                    }),
+                'merge_race_condition',
+            ],
+            [
+                'a call that fails with no verdict',
+                () =>
+                    store.mergePersons.mockRejectedValue(
+                        new PersonMergeCallFailedError('no verdict', new Error('transport'))
+                    ),
+                'merge_settled_failure',
+            ],
+            [
+                'a raw refusal',
+                () =>
+                    store.mergePersons.mockRejectedValue(
+                        new ConnectError(
+                            'op_id was already used for a different request',
+                            Code.FailedPrecondition,
+                            new Headers({ 'x-semantic-refusal': 'op_id_reused' })
+                        )
+                    ),
+                'merge_settled_failure',
+            ],
+            [
+                'a verdict this build cannot name',
+                () => store.mergePersons.mockResolvedValue(result('unknown')),
+                'merge_settled_failure',
+            ],
+        ])('%s still warns from the consumer', async (_label, arrange, warningType) => {
+            arrange()
+            const service = makeService('$identify', undefined, true)
+
+            await service.handleIdentifyOrAlias()
+
+            expect(warnedTypes()).toContain(warningType)
+        })
+
+        it('an unmergeable id is still refused and warned before any call', async () => {
+            const service = makeService('$identify', undefined, true)
+
+            await service.merge('anon\u0000one', 'd1', 1, timestamp)
+
+            expect(store.mergePersons).not.toHaveBeenCalled()
+            expect(warnedTypes()).toContain('cannot_merge_with_illegal_distinct_id')
+        })
+
+        it('the setting is inert on the postgres backend', async () => {
+            store.backend = 'postgres'
+            store.mergePersons.mockResolvedValue(result('skipped_already_identified'))
+            const service = makeService('$identify', undefined, true)
+
+            await service.merge('anon-1', 'd1', 1, timestamp)
+
+            expect(warnedTypes()).toContain('cannot_merge_already_identified')
+        })
+
+        it('a fold leaves its settled verdicts to the identity service and still counts them', async () => {
+            const before = await counterTotal(mergeSettledFailureCounter)
+            store.mergePersons.mockResolvedValue({
+                survivor,
+                results: [
+                    { sourceDistinctId: 'anon-1', outcome: 'skipped_already_identified' },
+                    { sourceDistinctId: 'anon-2', outcome: 'error' },
+                ],
+            })
+            const plan: MergeFoldPlan = {
+                targetDistinctId: 'd1',
+                pairs: [
+                    { anonDistinctId: 'anon-1', eventUuid: 'event-uuid' },
+                    { anonDistinctId: 'anon-2', eventUuid: 'event-uuid-2' },
+                ],
+                status: 'planned',
+            }
+            const service = makeService('$identify', plan, true)
+
+            await service.handleIdentifyOrAlias()
+
+            expect(plan.status).toBe('executed')
+            expect(warnedTypes()).toEqual([])
+            expect(await counterTotal(mergeSettledFailureCounter)).toBe(before + 1)
         })
     })
 

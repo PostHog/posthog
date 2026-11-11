@@ -8,6 +8,8 @@ export type ParsedRemoteUrl = {
     providerUrl: string | undefined
 }
 
+const GITHUB_SLUG_PATTERN = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/
+
 export class GitMetadataParser {
     static getCommitLink(remote_url?: string, commit_id?: string): string | undefined {
         if (!commit_id || !remote_url) {
@@ -40,6 +42,18 @@ export class GitMetadataParser {
             return undefined
         }
         return this.buildRemoteLink(parsedRemoteUrl)
+    }
+
+    static getGitHubRepositorySlug(remote_url?: string): string | undefined {
+        if (!remote_url) {
+            return undefined
+        }
+        const parsedRemoteUrl = this.parseRemoteUrl(remote_url)
+        if (parsedRemoteUrl?.provider !== 'github') {
+            return undefined
+        }
+        const slug = `${parsedRemoteUrl.owner}/${parsedRemoteUrl.repository}`
+        return GITHUB_SLUG_PATTERN.test(slug) ? slug : undefined
     }
 
     static parseRemoteUrl(remoteUrl: string): ParsedRemoteUrl | undefined {

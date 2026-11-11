@@ -1,12 +1,18 @@
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 
 from products.slack_app.backend.services.slack_messages import app_home_url, post_slack_ephemeral
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_team_workspace_integration,
+)
 
 if TYPE_CHECKING:
     from products.slack_app.backend.api import RulesCommand
+    from products.slack_app.backend.models import ChannelWelcomeMode
     from products.slack_app.backend.services.integration_resolver import ResolutionResult
 
 MENTION_COMMAND_PREFIX = "@PostHog"
@@ -20,6 +26,8 @@ _SLASH_EQUIVALENT = {
     "project_show": "project",
     "project_set": "project <id>",
     "project_set_workspace": "project workspace <id>",
+    "welcome_show": "welcome",
+    "welcome_set": "welcome channel|private|off",
 }
 
 
@@ -60,7 +68,7 @@ def reject_invalid_rule_text(team_id: int, rule_text: str) -> str | None:
 
 def _handle_help(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -82,10 +90,16 @@ def _handle_help(
         f"`{command_prefix} project <id>` — Set the PostHog project your mentions route to in this workspace",
     ]
 
-    # The workspace-wide default is admins/owners-only, so only surface it to them.
+    lines.append(f"`{command_prefix} welcome` — Show where my welcome message goes when someone adds me to a channel")
+
+    # Workspace-wide settings are admins/owners-only, so only surface them to them.
     if is_slack_workspace_admin(slack, integration, slack_user_id):
         lines.append(
             f"`{command_prefix} project workspace <id>` — Set the workspace-wide default project (Slack admins/owners only)"
+        )
+        lines.append(
+            f"`{command_prefix} welcome channel|private|off` — Post the welcome to the channel, show it only to the "
+            "person who added me, or turn it off (Slack admins/owners only)"
         )
 
     lines.append(f"`{command_prefix} help` — Show this message\n")
@@ -102,7 +116,7 @@ def _handle_help(
 
 def _handle_rules_list(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     *,
@@ -137,7 +151,7 @@ def _handle_rules_list(
 
 def _handle_rules_add(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     user_id: int,
@@ -206,7 +220,7 @@ def _handle_rules_add(
 
 def _handle_rules_remove(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     rule_numbers: list[int] | None,
@@ -262,7 +276,7 @@ def _handle_project_show(
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
-    workspace_candidates: list[Integration] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
     *,
     command_prefix: str,
 ) -> None:
@@ -329,7 +343,7 @@ def _handle_project_show(
     )
 
 
-def _handle_project_set(
+def _reachable_project_integration(
     slack: SlackIntegration,
     channel: str,
     thread_ts: str,
@@ -337,11 +351,10 @@ def _handle_project_set(
     slack_workspace_id: str,
     user_id: int,
     target_team_id: int,
-    workspace_candidates: list[Integration] | None = None,
-) -> None:
+    workspace_candidates: Sequence[WorkspaceIntegration] | None,
+) -> WorkspaceIntegration | None:
+    """The workspace's install for the target project, or None after telling the Slack user why not."""
     from posthog.models.user import User
-
-    from products.slack_app.backend.models import SlackSettings
 
     user = User.objects.get(id=user_id)
     if not user.teams.filter(id=target_team_id).exists():
@@ -352,20 +365,12 @@ def _handle_project_set(
             thread_ts=thread_ts,
             text=f"You don't have access to project `{target_team_id}`.",
         )
-        return
+        return None
 
     if workspace_candidates is not None:
         target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
     else:
-        target = (
-            Integration.objects.filter(
-                kind="slack",
-                integration_id=slack_workspace_id,
-                team_id=target_team_id,
-            )
-            .select_related("team", "team__organization")
-            .first()
-        )
+        target = get_team_workspace_integration(target_team_id, slack_workspace_id)
     if target is None:
         post_slack_ephemeral(
             slack.client,
@@ -374,12 +379,31 @@ def _handle_project_set(
             thread_ts=thread_ts,
             text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
         )
+    return target
+
+
+def _handle_project_set(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    user_id: int,
+    target_team_id: int,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
+) -> None:
+    from products.slack_app.backend.models import SlackSettings
+
+    target = _reachable_project_integration(
+        slack, channel, thread_ts, slack_user_id, slack_workspace_id, user_id, target_team_id, workspace_candidates
+    )
+    if target is None:
         return
 
     SlackSettings.objects.update_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=slack_user_id,
-        defaults={"default_integration": target},
+        defaults={"default_integration_id": target.id},
     )
     post_slack_ephemeral(
         slack.client,
@@ -396,14 +420,14 @@ def _handle_project_set(
 
 def _handle_project_set_workspace(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
     target_team_id: int,
-    workspace_candidates: list[Integration] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
     *,
     command_prefix: str,
 ) -> None:
@@ -411,9 +435,8 @@ def _handle_project_set_workspace(
     which applies to every Slack user in the workspace without a personal default.
     Restricted to Slack workspace admins and owners.
     """
-    from posthog.models.user import User
 
-    from products.slack_app.backend.models import SlackSettings
+    from products.slack_app.backend.services.slack_settings import set_workspace_default_integration
     from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
 
     if not is_slack_workspace_admin(slack, integration, slack_user_id):
@@ -426,44 +449,13 @@ def _handle_project_set_workspace(
         )
         return
 
-    user = User.objects.get(id=user_id)
-    if not user.teams.filter(id=target_team_id).exists():
-        post_slack_ephemeral(
-            slack.client,
-            channel=channel,
-            user=slack_user_id,
-            thread_ts=thread_ts,
-            text=f"You don't have access to project `{target_team_id}`.",
-        )
-        return
-
-    if workspace_candidates is not None:
-        target = next((c for c in workspace_candidates if c.team_id == target_team_id), None)
-    else:
-        target = (
-            Integration.objects.filter(
-                kind="slack",
-                integration_id=slack_workspace_id,
-                team_id=target_team_id,
-            )
-            .select_related("team", "team__organization")
-            .first()
-        )
-    if target is None:
-        post_slack_ephemeral(
-            slack.client,
-            channel=channel,
-            user=slack_user_id,
-            thread_ts=thread_ts,
-            text=f"Project `{target_team_id}` isn't connected to this Slack workspace.",
-        )
-        return
-
-    SlackSettings.objects.update_or_create(
-        slack_workspace_id=slack_workspace_id,
-        slack_user_id=None,
-        defaults={"default_integration": target},
+    target = _reachable_project_integration(
+        slack, channel, thread_ts, slack_user_id, slack_workspace_id, user_id, target_team_id, workspace_candidates
     )
+    if target is None:
+        return
+
+    set_workspace_default_integration(slack_workspace_id, target.id)
     post_slack_ephemeral(
         slack.client,
         channel=channel,
@@ -477,6 +469,70 @@ def _handle_project_set_workspace(
     )
 
 
+CHANNEL_WELCOME_MODE_DESCRIPTIONS: dict[str, str] = {
+    "channel": "When someone adds me to a channel, I post a welcome message that everyone in the channel sees.",
+    "inviter": "When someone adds me to a channel, I show a welcome message only to that person.",
+    "off": "When someone adds me to a channel, I don't send a welcome message.",
+}
+
+
+def _handle_welcome_show(
+    slack: SlackIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    *,
+    command_prefix: str,
+) -> None:
+    from products.slack_app.backend.services.slack_settings import resolve_channel_welcome_mode
+
+    mode = resolve_channel_welcome_mode(slack_workspace_id)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=(
+            f"{CHANNEL_WELCOME_MODE_DESCRIPTIONS[mode.value]}\n"
+            f"Slack workspace admins can change this with `{command_prefix} welcome channel`, "
+            f"`{command_prefix} welcome private`, or `{command_prefix} welcome off`."
+        ),
+    )
+
+
+def _handle_welcome_set(
+    slack: SlackIntegration,
+    integration: WorkspaceIntegration,
+    channel: str,
+    thread_ts: str,
+    slack_user_id: str,
+    slack_workspace_id: str,
+    mode: "ChannelWelcomeMode",
+) -> None:
+    from products.slack_app.backend.services.slack_settings import set_channel_welcome_mode
+    from products.slack_app.backend.services.slack_user_info import is_slack_workspace_admin
+
+    if not is_slack_workspace_admin(slack, integration, slack_user_id):
+        post_slack_ephemeral(
+            slack.client,
+            channel=channel,
+            user=slack_user_id,
+            thread_ts=thread_ts,
+            text="Only Slack workspace admins or owners can change the channel welcome message.",
+        )
+        return
+
+    set_channel_welcome_mode(slack_workspace_id, mode)
+    post_slack_ephemeral(
+        slack.client,
+        channel=channel,
+        user=slack_user_id,
+        thread_ts=thread_ts,
+        text=f"Done. {CHANNEL_WELCOME_MODE_DESCRIPTIONS[mode.value]}",
+    )
+
+
 def resolve_command_target(
     *,
     slack_team_id: str,
@@ -485,7 +541,7 @@ def resolve_command_target(
     user_id: int,
     channel: str,
     thread_ts: str,
-) -> tuple[list[Integration], "ResolutionResult"]:
+) -> tuple[Sequence[WorkspaceIntegration], "ResolutionResult"]:
     """Load workspace candidates and decide which one to dispatch against.
 
     Returns ``(workspace_candidates, result)``. ``result.integration`` is
@@ -509,9 +565,17 @@ def resolve_command_target(
         return [], ResolutionResult(integration=None, source="needs_picker", candidates=[])
 
     # Workspace-level commands don't act on team data: ``help`` posts static
-    # text, and ``project_*`` commands enforce access inside the handler. They
+    # text, ``welcome_*`` commands store a workspace setting, and ``project_*``
+    # and ``welcome_set`` enforce access inside the handler. They
     # run against any workspace integration as a probe.
-    if command.action in ("project_show", "project_set", "project_set_workspace", "help"):
+    if command.action in (
+        "project_show",
+        "project_set",
+        "project_set_workspace",
+        "welcome_show",
+        "welcome_set",
+        "help",
+    ):
         return candidates, ResolutionResult(integration=candidates[0], source="sole_candidate", candidates=candidates)
 
     # Team-scoped commands (``list``/``add``/``remove``) must go through the
@@ -532,14 +596,14 @@ def resolve_command_target(
 def dispatch_rules_command(
     command: "RulesCommand",
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     *,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
     slack_workspace_id: str,
     user_id: int,
-    workspace_candidates: list[Integration] | None = None,
+    workspace_candidates: Sequence[WorkspaceIntegration] | None = None,
     command_prefix: str,
 ) -> None:
     """Run the right handler for a parsed ``RulesCommand``. Assumes the caller has
@@ -650,4 +714,25 @@ def dispatch_rules_command(
             command.project_team_id,
             workspace_candidates=workspace_candidates,
             command_prefix=command_prefix,
+        )
+    elif command.action == "welcome_show":
+        _handle_welcome_show(
+            slack,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command_prefix=command_prefix,
+        )
+    elif command.action == "welcome_set":
+        if command.welcome_mode is None:
+            return
+        _handle_welcome_set(
+            slack,
+            integration,
+            channel,
+            thread_ts,
+            slack_user_id,
+            slack_workspace_id,
+            command.welcome_mode,
         )

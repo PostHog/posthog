@@ -12,7 +12,7 @@ Platform map (where files live): [architecture.md](architecture.md). Ship checkl
 widget_specs/configs.py          Pydantic *WidgetConfig per type (+ shared common.py)
         │
         ├─► pydantic_openapi.py       injects `model_json_schema()` into OpenAPI components (no DRF bridge)
-        ├─► openapi.py           polymorphic batch-add / PATCH / catalog OpenAPI (auto from WIDGET_SPECS)
+        ├─► openapi.py           polymorphic PATCH / catalog OpenAPI, untyped batch config (auto from WIDGET_SPECS)
         ├─► registry.py          WIDGET_SPECS manifest + validate_widget_config() (config, catalog labels, run_*)
         └─► widget_catalog.py    config_schema = model_json_schema() (for agents)
 
@@ -36,7 +36,7 @@ hogli build:openapi
 | `common.py`                         | Shared `dateRange`, `widgetFilters`, `filterTestAccounts`                                                                                  |
 | `registry.py`                       | `WIDGET_SPECS` + `validate_widget_config()` — per-type manifest (Pydantic model, `run_*`, scopes, RBAC, agent catalog labels/availability) |
 | `widgets/config.py`                 | Query-time only — `resolve_filter_test_accounts(config, team)` (validation lives in Pydantic)                                              |
-| `openapi.py`                        | Polymorphic OpenAPI for batch-add, catalog `config_schema`, dashboard PATCH — built from `WIDGET_SPECS` (no per-type hand wiring)          |
+| `openapi.py`                        | Polymorphic OpenAPI for catalog `config_schema` and dashboard PATCH — built from `WIDGET_SPECS` (no per-type hand wiring)                  |
 | `api/widget_openapi_serializers.py` | Stable re-export surface for `dashboard.api` imports (implementation in `widget_specs/openapi.py`)                                         |
 
 **Frontend config layering** (do not duplicate the full schema by hand):
@@ -71,7 +71,9 @@ Widget config Zod is product-scoped: `products/dashboards/frontend/bin/generate-
 
 **New `widget_type`:** add a Pydantic `*WidgetConfig` in `widget_specs/configs.py` following the `*ListWidgetConfig` → `*WidgetConfig` naming convention — `build:widget-types` auto-derives Orval export names and fails if the OpenAPI slice is missing the model.
 
-**Schema gen blocker:** `build:openapi-schema` uses `--fail-on-warn`. Polymorphic per-type OpenAPI serializers each use a singleton `ChoiceField` for `widget_type`; `dashboard.py` uses the full `EXPECTED_WIDGET_TYPES` list — drf-spectacular enum names collide. When shipping a new type, add `{YourWidgetTypeEnum: ["your_widget_type"]}` to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` — `hogli build:widget-types` and `test_widget_openapi_enums.py` fail if a registry type lacks an override; spectacular collision test fails if the override hash is wrong. Diagnostic: `python manage.py find_enum_collisions` (logic in `posthog/openapi/enum_collisions.py`). See `/improving-drf-endpoints`.
+**Batch tool schemas:** the batch-add and batch-update request schemas take `widget_type` and an untyped `config` object, so they stay the same size as widget types are added. Agents read each type's `config_schema` from the catalog, and `validate_widget_config()` rejects a bad config with a 400. Do not add per-type config variants back to these schemas.
+
+**Schema gen blocker:** `build:openapi-schema` uses `--fail-on-warn`. Per-type catalog entry serializers each use a singleton `ChoiceField` for `widget_type`; the OpenAPI fields that accept every type use the `DashboardWidgetType` choices class in `openapi.py` — drf-spectacular enum names collide otherwise. When shipping a new type, add it to `DashboardWidgetType` and add `{YourWidgetTypeEnum: ["your_widget_type"]}` to `ENUM_NAME_OVERRIDES` in `posthog/settings/web.py` — `hogli build:widget-types` and `test_widget_openapi_enums.py` fail if a registry type lacks an override; spectacular collision test fails if the override hash is wrong. Diagnostic: `python manage.py find_enum_collisions` (logic in `posthog/openapi/enum_collisions.py`). See `/improving-drf-endpoints`.
 
 **Schema parity tests** (cheap drift guards — run when touching `widget_specs/`):
 

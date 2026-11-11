@@ -26,9 +26,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.oauth import OAuthApplication, TokenEndpointAuthMethod
+from posthog.models.oauth import (
+    OIDC_SIGNING_KEY_MISSING_MESSAGE,
+    OAuthApplication,
+    TokenEndpointAuthMethod,
+    oidc_signing_key_configured,
+)
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import filter_to_unprivileged_scopes
+from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling
 
 from .client_name import sanitize_client_name, validate_client_name
 from .logo_uri import MAX_LOGO_URI_LENGTH, usable_logo_uri
@@ -38,8 +43,8 @@ logger = structlog.get_logger(__name__)
 
 def filter_dcr_scopes(scope: str) -> list[str]:
     """Parse an RFC 7591 space-delimited `scope` string into the deduped, allow-listed
-    scopes a DCR client may register. See `filter_to_unprivileged_scopes` for the rule."""
-    return filter_to_unprivileged_scopes(scope.split())
+    scopes a DCR client may register. See `filter_self_registered_ceiling` for the rule."""
+    return filter_self_registered_ceiling(scope.split())
 
 
 class DCRBurstThrottle(IPThrottle):
@@ -122,6 +127,12 @@ class DynamicClientRegistrationView(APIView):
     throttle_classes = [DCRBurstThrottle, DCRSustainedThrottle]
 
     def post(self, request: Request) -> Response:
+        if not oidc_signing_key_configured():
+            return Response(
+                {"error": "server_error", "error_description": OIDC_SIGNING_KEY_MISSING_MESSAGE},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
         # Validate request
         serializer = DCRRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -162,7 +173,11 @@ class DynamicClientRegistrationView(APIView):
             return Response(
                 {
                     "error": "invalid_client_metadata",
-                    "error_description": "None of the requested scopes are available to self-registered clients. Omit `scope` to register with the default scope set.",
+                    "error_description": (
+                        "None of the requested scopes can be granted to a self-registered client. Use scopes "
+                        f"from scopes_supported in the authorization server metadata, request only {' '.join(OIDC_SCOPES)} "
+                        "for a sign-in-only client, or omit `scope` to register with the default scope set."
+                    ),
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )

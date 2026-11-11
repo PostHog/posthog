@@ -93,10 +93,10 @@ describe('teamDetailLogic', () => {
         unmountFilters = undefined
     })
 
-    it('reloads team CI health and merge trend for the shared date range', async () => {
+    it('reloads team CI health and merge trend for the shared date range, in the repo it shows', async () => {
         const filters = engineeringAnalyticsFiltersLogic()
         unmountFilters = filters.mount()
-        logic = teamDetailLogic({ ownerTeam: 'team-replay', sourceId: 'source-1' })
+        logic = teamDetailLogic({ ownerTeam: 'team-replay', sourceId: 'source-1', repo: 'PostHog/posthog-js' })
         logic.mount()
 
         await expectLogic(logic).toDispatchActionsInAnyOrder([
@@ -115,12 +115,14 @@ describe('teamDetailLogic', () => {
             owner_team: 'team-replay',
             limit: 1,
             source_id: 'source-1',
+            repo: 'PostHog/posthog-js',
         })
         expect(mockMergeTrend).toHaveBeenLastCalledWith('1', {
             owner_team: 'team-replay',
             date_from: '2026-06-01',
             date_to: '2026-06-30',
             source_id: 'source-1',
+            repo: 'PostHog/posthog-js',
         })
         expect(mockActivity).toHaveBeenCalledTimes(1)
     })
@@ -132,7 +134,7 @@ describe('teamDetailLogic', () => {
         const filters = engineeringAnalyticsFiltersLogic()
         unmountFilters = filters.mount()
         filters.actions.setDateRange(dateFrom, dateTo)
-        logic = teamDetailLogic({ ownerTeam: 'team-replay', sourceId: 'source-1' })
+        logic = teamDetailLogic({ ownerTeam: 'team-replay', sourceId: 'source-1', repo: null })
         logic.mount()
 
         await expectLogic(logic).toDispatchActionsInAnyOrder(['loadHealthRowSuccess', 'loadMergeTrendSuccess'])

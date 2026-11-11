@@ -116,7 +116,7 @@ export const getRobloxSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 <>
                     <Markdown>
                         {dedent`
-                            Raise a test error from a server \`Script\` and confirm it appears in [Error tracking](https://app.posthog.com/error_tracking).
+                            Raise a test error from a server \`Script\` and confirm it appears in [Error tracking](https://app.posthog.com/error-tracking).
                         `}
                     </Markdown>
                     <CodeBlock language="lua" code='error("Automatic test exception from Roblox")' />

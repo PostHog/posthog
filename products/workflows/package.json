@@ -1,9 +1,11 @@
 {
     "name": "@posthog/products-workflows",
     "scripts": {
-        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ skills/ -v --tb=short",
+        "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
@@ -12,7 +14,7 @@
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "kea-subscriptions": "catalog:",
-        "papaparse": "^5.4.1",
+        "papaparse": "^5.5.4",
         "posthog-js": "catalog:",
         "use-debounce": "catalog:",
         "zod": "^4.0.0"
@@ -24,6 +26,7 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
+        "@dnd-kit/core": "*",
         "@posthog/brand": "catalog:",
         "@posthog/icons": "catalog:",
         "@types/react": "*",

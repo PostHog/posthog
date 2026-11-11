@@ -1,4 +1,4 @@
-import { getOAuthContextIds, isOAuthMode } from 'lib/oauth/oauthClient'
+import { getOAuthContextIds, isOAuthMode } from 'lib/utils/oauthClient'
 
 import { AppContext, OrganizationType, PathType, TeamType, UserType } from '~/types'
 
@@ -86,3 +86,5 @@ export function getCurrentOrganizationId(): OrganizationType['id'] {
 }
 
 export const isUserLoggedIn = (): boolean => !getAppContext()?.anonymous
+
+export const isHobbyDeployment = (): boolean => getAppContext()?.run_mode === 'HOBBY'

@@ -26,6 +26,11 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     status = models.CharField(max_length=16, choices=SourceStatus.choices, default=SourceStatus.PENDING)
     # Human-facing failure reason. Empty when status != ERROR.
     error_message = models.TextField(blank=True, default="")
+    processing_claim_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Token of the run that last claimed this source PROCESSING, so a stale run cannot release a newer claim.",
+    )
 
     # --- Stage 2a: URL-source fields (all nullable — additive, text sources
     # leave them empty) ---

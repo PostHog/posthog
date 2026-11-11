@@ -25,7 +25,7 @@ SAVED_QUERY_NODE_TYPES = frozenset({NodeType.VIEW, NodeType.MAT_VIEW, NodeType.E
 _SAVED_QUERY_NODE_TYPE_VALUES = sorted(node_type.value for node_type in SAVED_QUERY_NODE_TYPES)
 
 
-# properties["system"] marker set by consolidate_dags --adopt-unresolvable when a query's SQL
+# properties["system"] marker set by adopt_saved_query_without_edges when a query's SQL
 # would not resolve and its node was created without edges. A successful sync clears it.
 DEGRADED_SYNC_KEY = "degraded_sync"
 
@@ -67,7 +67,6 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     name = models.TextField(max_length=2048, db_index=True)
     # type of the node (source table, view, or mat view)
     type = models.TextField(max_length=16, choices=NodeType, default=NodeType.TABLE)
-    description = models.TextField(max_length=1024, default="", blank=True)
     source_control_path = models.TextField(
         blank=True, default="", help_text="File path in the source control repository for synced nodes"
     )
@@ -92,6 +91,10 @@ class Node(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         system.pop(UNRESOLVED_DEPENDENCIES_KEY, None)
         if not system:
             self.properties.pop("system", None)
+
+    @property
+    def belongs_to_managed_viewset(self) -> bool:
+        return self.saved_query is not None and self.saved_query.managed_viewset_id is not None
 
     @property
     def lineage_issue(self) -> dict[str, Any] | None:

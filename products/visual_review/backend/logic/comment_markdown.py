@@ -7,13 +7,15 @@ import html
 from collections import Counter
 from dataclasses import dataclass
 
-from django.conf import settings
 from django.db import models as db_models
+
+from posthog.egress.limiter.policies import Priority
 
 from ..db import READER_DB
 from ..facade.enums import ReviewState, SnapshotResult
 from ..models import Artifact, Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
+from . import app_urls
 
 
 def _format_change_counts(changed: int, new: int, removed: int) -> str:
@@ -73,16 +75,6 @@ def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
 _TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
 
 
-def _run_url(run: Run, repo: Repo) -> str:
-    """Link to the run page in PostHog."""
-    return f"{settings.SITE_URL}/project/{repo.team_id}/visual_review/runs/{run.id}"
-
-
-def _snapshot_url(run: Run, repo: Repo, snapshot: RunSnapshot) -> str:
-    """Deep link straight to a single snapshot on the run page."""
-    return f"{_run_url(run, repo)}?snapshot={snapshot.id}"
-
-
 def _snapshot_name_cell(identifier: str, suffix: str = "") -> str:
     """Render a snapshot identifier as a single-line table cell (code span, pipe-safe).
 
@@ -99,7 +91,7 @@ def _snapshot_name_cell(identifier: str, suffix: str = "") -> str:
 def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str = "") -> str:
     """Snapshot identifier linked to its deep link on the run page, so a reviewer can jump
     straight to that snapshot rather than the run as a whole."""
-    return f"[{_snapshot_name_cell(snapshot.identifier)}]({_snapshot_url(run, repo, snapshot)}){suffix}"
+    return f"[{_snapshot_name_cell(snapshot.identifier)}]({app_urls.snapshot_url(run, repo, snapshot)}){suffix}"
 
 
 def _image_cell(url: str | None, alt: str) -> str:
@@ -189,7 +181,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
 
     sections = [table(heading, rows) for heading, rows in (("Changed", changed_rows), ("New", new_rows)) if rows]
     if shown < total:
-        sections.append(f"…and {total - shown} more — [view all in PostHog]({_run_url(run, repo)}).")
+        sections.append(f"…and {total - shown} more — [view all in PostHog]({app_urls.run_url(run, repo)}).")
 
     return "\n\n".join(sections)
 
@@ -206,7 +198,7 @@ def _build_review_prompt_body(run: Run, repo: Repo) -> str:
     """Build the markdown body of the PR comment that asks for a visual review."""
     return (
         "👋 **Visual changes detected** for this PR.\n\n"
-        f"[Review and approve in PostHog Visual Review]({_run_url(run, repo)})\n\n"
+        f"[Review and approve in PostHog Visual Review]({app_urls.run_url(run, repo)})\n\n"
         "If these changes are unexpected, they may be caused by a flaky test or a "
         "broken snapshot on master. Don't approve — rerun the job or wait for a fix.\n\n"
         f"{_EXTENSION_FOOTER}"
@@ -252,7 +244,7 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
 
     sections = [
         f"✅ **Visual changes approved** by {approver_text}{sha_text}.",
-        f"[View this run in PostHog]({_run_url(run, repo)})",
+        f"[View this run in PostHog]({app_urls.run_url(run, repo)})",
     ]
     if summary:
         sections.append(f"{summary}.")
@@ -286,7 +278,7 @@ def _resolve_approver(user_id: int | None) -> _Approver | None:
         .first()
     )
     if gh is not None:
-        github_login = UserGitHubIntegration(gh).github_login
+        github_login = UserGitHubIntegration(gh, source="visual_review", priority=Priority.BATCH).github_login
         if github_login:
             return _Approver(label=github_login, is_github_login=True)
 

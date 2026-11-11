@@ -4,9 +4,9 @@ import posthog from 'posthog-js'
 
 import { CONVERSATIONS_MESSAGE_MAX_LENGTH, supportLogic } from 'lib/components/Support/supportLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -14,10 +14,32 @@ import { initKeaTests } from '~/test/init'
 import { BillingType, SidePanelTab } from '~/types'
 
 import type { ConversationTicket } from '../../types'
-import { sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { liveTicketsLogic, sidepanelTicketsLogic } from './sidepanelTicketsLogic'
+import { loadTicketsAcrossTabs } from './ticketsAcrossTabs'
+
+jest.mock('./ticketsAcrossTabs', () => ({
+    loadTicketsAcrossTabs: jest.fn((fetchTickets) => fetchTickets()),
+    clearSharedTickets: jest.fn(),
+}))
 
 describe('sidepanelTicketsLogic', () => {
     let logic: ReturnType<typeof sidepanelTicketsLogic.build>
+    let unmountLive: (() => void) | undefined
+
+    const mountLive = (): void => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        unmountLive = liveTicketsLogic.mount()
+    }
+
+    const mountSurface = (onSupportSurface: boolean): void => {
+        if (onSupportSurface) {
+            mountLive()
+        } else {
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+        }
+    }
 
     const setSubscriptionLevel = (subscriptionLevel: BillingType['subscription_level']): void => {
         billingLogic.actions.loadBillingSuccess({ subscription_level: subscriptionLevel } as BillingType)
@@ -42,6 +64,8 @@ describe('sidepanelTicketsLogic', () => {
     })
 
     afterEach(() => {
+        unmountLive?.()
+        unmountLive = undefined
         logic?.unmount()
         delete (posthog as any).conversations
     })
@@ -70,6 +94,7 @@ describe('sidepanelTicketsLogic', () => {
             kind: 'bug',
             isEmailFormOpen: true,
             message: 'It broke',
+            ticket_context: 'Project ID: 997',
             target: 'sidePanel',
         })
 
@@ -81,9 +106,24 @@ describe('sidepanelTicketsLogic', () => {
         expect(JSON.stringify(logic.values.newTicketDraft)).toContain('It broke')
         expect(supportLogic.values.isEmailFormOpen).toBe(false)
 
+        await expectLogic(logic, () => {
+            logic.actions.sendMessage('It broke badly', jest.fn())
+        }).toFinishAllListeners()
+        expect((posthog as any).conversations.sendMessage).toHaveBeenCalledWith(
+            'It broke badly\n\n-----\nProject ID: 997',
+            {},
+            true
+        )
+        // The new ticket must show up now, so it skips the shared freshness window
+        expect(loadTicketsAcrossTabs).toHaveBeenLastCalledWith(
+            expect.any(Function),
+            expect.objectContaining({ force: true })
+        )
+
         // Leaving the composer clears the prefill so a later blank "New ticket" starts empty
         logic.actions.setView('list')
         expect(logic.values.newTicketDraft).toBeNull()
+        expect(logic.values.newTicketContext).toBeNull()
     })
 
     it('switches to the composer when the support form opens while already mounted', async () => {
@@ -319,8 +359,7 @@ describe('sidepanelTicketsLogic', () => {
         })
         router.actions.push(urls.myTickets(linkedId))
 
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
+        mountLive()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.view).toBe(expectedView)
@@ -339,8 +378,7 @@ describe('sidepanelTicketsLogic', () => {
         sidePanelStateLogic.mount()
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support, 'ticket:t2')
 
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
+        mountLive()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.view).toBe('ticket')
@@ -392,22 +430,16 @@ describe('sidepanelTicketsLogic', () => {
     })
 
     // The panel already shows free plans the community and upgrade options, and they have no email
-    // channel, so warning them the chat failed would offer support they don't actually get. The
-    // unread badge also mounts this logic on every page, so outside a support surface the toast
-    // would interrupt unrelated work (and block clicks under the toast container) for anyone whose
+    // channel, so warning them the chat failed would offer support they don't actually get. A
+    // forced load can also run with no support surface open, and there the toast would interrupt unrelated work (and block clicks under the toast container) for anyone whose
     // ad blocker keeps the widget from loading.
     it.each([
         ['warns an entitled plan on the support panel', 'paid', true, true],
         ['stays quiet on a free plan', 'free', true, false],
         ['stays quiet outside support surfaces', 'paid', false, false],
-    ])('when the widget never loads, %s', async (_case, subscriptionLevel, onSupportPanel, expectWarning) => {
+    ])('when the widget never loads, %s', async (_case, subscriptionLevel, onSupportSurface, expectWarning) => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
-        if (onSupportPanel) {
-            sidePanelStateLogic.mount()
-            sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Support)
-        }
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
+        mountSurface(onSupportSurface as boolean)
         await expectLogic(logic).toFinishAllListeners()
 
         // After the mount, so the fixture loads don't put the paid plan back. canCreateTicket also
@@ -425,7 +457,7 @@ describe('sidepanelTicketsLogic', () => {
         ;(posthog.capture as jest.Mock).mockClear()
 
         await expectLogic(logic, () => {
-            logic.actions.loadTickets()
+            logic.actions.loadTickets(true)
         }).toFinishAllListeners()
 
         // Recorded either way, so the failure rate stays visible even where we don't interrupt
@@ -436,6 +468,33 @@ describe('sidepanelTicketsLogic', () => {
         expect(loadFailures[0][1]).toMatchObject({ can_create_ticket: subscriptionLevel === 'paid' })
         expect(errorToast).toHaveBeenCalledTimes(expectWarning ? 1 : 0)
         errorToast.mockRestore()
+    })
+
+    // A forced load can run with no support surface open, so a failure must not toast over unrelated
+    // work. It is still captured so the failure rate stays visible.
+    it.each([
+        ['toasts on the support panel', true, 1],
+        ['stays quiet outside support surfaces', false, 0],
+    ])('when fetching tickets fails, %s', async (_case, onSupportSurface, expectedToasts) => {
+        const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue('' as never)
+        jest.spyOn(console, 'error').mockImplementation(() => {})
+        mountSurface(onSupportSurface as boolean)
+        await expectLogic(logic).toFinishAllListeners()
+
+        ;(posthog as any).conversations.getTickets = jest.fn().mockRejectedValue(new Error('429'))
+        ;(posthog.capture as jest.Mock).mockClear()
+
+        await expectLogic(logic, () => {
+            logic.actions.loadTickets(true)
+        }).toFinishAllListeners()
+
+        const loadFailures = (posthog.capture as jest.Mock).mock.calls.filter(
+            ([event]) => event === 'support widget load failed'
+        )
+        expect(loadFailures).toHaveLength(1)
+        expect(errorToast).toHaveBeenCalledTimes(expectedToasts)
+        errorToast.mockRestore()
+        ;(console.error as jest.Mock).mockRestore()
     })
 
     it('reports a missing widget instead of silently dropping the composed message', async () => {
@@ -508,6 +567,140 @@ describe('sidepanelTicketsLogic', () => {
         })
     })
 
+    describe('live tickets', () => {
+        const oneTicket = {
+            results: [{ id: 't1', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' }],
+        }
+        const setPageVisibility = (state: DocumentVisibilityState): void => {
+            jest.spyOn(document, 'visibilityState', 'get').mockReturnValue(state)
+            jest.spyOn(document, 'hidden', 'get').mockReturnValue(state === 'hidden')
+            document.dispatchEvent(new Event('visibilitychange'))
+        }
+
+        afterEach(() => {
+            jest.useRealTimers()
+            jest.restoreAllMocks()
+        })
+
+        it('does not fetch for a reader, including when a side panel tab opens', async () => {
+            sidePanelStateLogic.mount()
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            await expectLogic(logic, () => {
+                sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Activity)
+                sidePanelStateLogic.actions.closeSidePanel()
+            }).toFinishAllListeners()
+
+            expect((posthog as any).conversations.getTickets).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            ['the ticket list', false, 20 * 1000],
+            ['an open thread', true, 10 * 1000],
+        ])('polls %s at its own cadence', async (_case, insideThread, interval) => {
+            jest.useFakeTimers()
+            const getTickets = jest.fn().mockResolvedValue(oneTicket)
+            ;(posthog as any).conversations.getTickets = getTickets
+            mountLive()
+            await jest.advanceTimersByTimeAsync(0)
+            if (insideThread) {
+                logic.actions.setCurrentTicket(oneTicket.results[0] as ConversationTicket)
+            }
+            getTickets.mockClear()
+
+            await jest.advanceTimersByTimeAsync(interval - 1)
+            expect(getTickets).not.toHaveBeenCalled()
+            await jest.advanceTimersByTimeAsync(1)
+            expect(getTickets).toHaveBeenCalledTimes(1)
+        })
+
+        it('does not resume polling when a load finishes after the surface unmounts', async () => {
+            jest.useFakeTimers()
+            let resolveTickets!: (value: typeof oneTicket) => void
+            const getTickets = jest.fn().mockReturnValue(
+                new Promise((resolve) => {
+                    resolveTickets = resolve
+                })
+            )
+            ;(posthog as any).conversations.getTickets = getTickets
+            mountLive()
+            unmountLive?.()
+            unmountLive = undefined
+
+            resolveTickets(oneTicket)
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.tickets).toHaveLength(1)
+
+            await jest.advanceTimersByTimeAsync(5 * 60 * 1000)
+            expect(getTickets).toHaveBeenCalledTimes(1)
+        })
+
+        it('refreshes when the tab returns and stops polling while it is hidden', async () => {
+            jest.useFakeTimers()
+            const getTickets = jest.fn().mockResolvedValue(oneTicket)
+            ;(posthog as any).conversations.getTickets = getTickets
+            mountLive()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(getTickets).toHaveBeenCalledTimes(1)
+
+            setPageVisibility('hidden')
+            await jest.advanceTimersByTimeAsync(5 * 60 * 1000)
+            expect(getTickets).toHaveBeenCalledTimes(1)
+
+            setPageVisibility('visible')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(getTickets).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([true, false])(
+            'waits for token restoration before fetching with widget available=%s',
+            async (available) => {
+                jest.useFakeTimers()
+                let finishRestore!: () => void
+                const restoreFromToken = jest.fn().mockReturnValue(
+                    new Promise<void>((resolve) => {
+                        finishRestore = resolve
+                    })
+                )
+                const getTickets = jest.fn().mockResolvedValue(oneTicket)
+                const isAvailable = jest.fn().mockReturnValue(available)
+                ;(posthog as any).conversations = { isAvailable, restoreFromToken, getTickets }
+                router.actions.push('/', { ph_conv_restore: 'token' })
+
+                mountLive()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(getTickets).not.toHaveBeenCalled()
+                isAvailable.mockReturnValue(true)
+                await jest.advanceTimersByTimeAsync(500)
+                expect(restoreFromToken).toHaveBeenCalledTimes(1)
+                logic.actions.loadTickets()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(getTickets).not.toHaveBeenCalled()
+
+                finishRestore()
+                await jest.advanceTimersByTimeAsync(0)
+                expect(getTickets).toHaveBeenCalledTimes(1)
+                expect(logic.values.tickets).toHaveLength(1)
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(getTickets).toHaveBeenCalledTimes(2)
+            }
+        )
+
+        it('consumes a restore link with no support surface open, then loads the restored tickets', async () => {
+            const restoreFromToken = jest.fn().mockResolvedValue({ status: 'success', migrated_ticket_ids: ['t1'] })
+            ;(posthog as any).conversations.restoreFromToken = restoreFromToken
+            ;(posthog as any).conversations.getTickets = jest.fn().mockResolvedValue(oneTicket)
+            router.actions.push('/', { ph_conv_restore: 'token' })
+
+            logic = sidepanelTicketsLogic.build()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(restoreFromToken).toHaveBeenCalledWith('token')
+            expect(logic.values.tickets).toHaveLength(1)
+        })
+    })
+
     // ticketsLoading drives a full-list spinner. Polls reuse loadTickets, so only the first
     // successful fetch may raise it, including a 0-ticket result that would otherwise flash
     // the spinner over the empty state on every refresh.
@@ -519,8 +712,7 @@ describe('sidepanelTicketsLogic', () => {
             })
         )
 
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
+        mountLive()
         expect(logic.values.ticketsLoading).toBe(true)
 
         resolveTickets({ results: [] })
@@ -541,8 +733,7 @@ describe('sidepanelTicketsLogic', () => {
     })
 
     it('does not raise ticketsLoading when tickets are already loaded', async () => {
-        logic = sidepanelTicketsLogic.build()
-        logic.mount()
+        mountLive()
         await expectLogic(logic).toFinishAllListeners()
 
         const ticket = {
@@ -570,11 +761,91 @@ describe('sidepanelTicketsLogic', () => {
 
     // TicketsList renders filteredTickets, so a broken selector would show the wrong chats
     // (or none) once someone picks a status.
+    // Unread tickets sort first, then most recent activity, regardless of creation order.
     it.each([
-        ['all', ['t-open', 't-resolved']],
+        ['all', ['t-unread', 't-resolved', 't-open']],
+        ['active', ['t-unread', 't-open']],
+        ['unread', ['t-unread']],
         ['open', ['t-open']],
         ['resolved', ['t-resolved']],
-    ] as const)('filters the ticket list to status %s', async (status, expectedIds) => {
+    ] as const)('filters the ticket list to %s', async (filter, expectedIds) => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            {
+                id: 't-unread',
+                status: 'pending',
+                message_count: 2,
+                unread_count: 1,
+                created_at: '2026-07-12T00:00:00Z',
+            },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter(filter)
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
+    })
+
+    // The fixtures above carry no last_message_at, so ordering there falls back to created_at and
+    // cannot tell the two apart. Surfacing a reply on an older thread is what this list is for.
+    it('orders by the latest message, not the creation time', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            {
+                id: 't-new-thread-quiet-since',
+                status: 'open',
+                message_count: 1,
+                created_at: '2026-07-14T00:00:00Z',
+                last_message_at: '2026-07-14T00:00:00Z',
+            },
+            {
+                id: 't-old-thread-fresh-reply',
+                status: 'open',
+                message_count: 2,
+                created_at: '2026-07-12T00:00:00Z',
+                last_message_at: '2026-07-15T00:00:00Z',
+            },
+        ] as ConversationTicket[])
+        logic.actions.setStatusFilter('all')
+
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual([
+            't-old-thread-fresh-reply',
+            't-new-thread-quiet-since',
+        ])
+    })
+
+    it('counts tickets per filter for the dropdown labels', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, unread_count: 2, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+            { id: 't-hold', status: 'on_hold', message_count: 1, created_at: '2026-07-12T00:00:00Z' },
+        ] as ConversationTicket[])
+
+        expect(logic.values.ticketFilterCounts).toEqual({
+            unread: 1,
+            active: 2,
+            all: 3,
+            new: 0,
+            open: 1,
+            pending: 0,
+            on_hold: 1,
+            resolved: 1,
+        })
+    })
+
+    // A long ticket history shouldn't bury the reply you're waiting on: with nothing chosen the
+    // list shows unread tickets when there are any, otherwise active ones, until the user picks.
+    it('defaults the filter to unread, then active, until the user chooses', async () => {
         logic = sidepanelTicketsLogic.build()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -583,8 +854,51 @@ describe('sidepanelTicketsLogic', () => {
             { id: 't-open', status: 'open', message_count: 1, created_at: '2026-07-13T00:00:00Z' },
             { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
         ] as ConversationTicket[])
-        logic.actions.setStatusFilter(status)
+        expect(logic.values.effectiveStatusFilter).toBe('active')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-open'])
 
-        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(expectedIds)
+        logic.actions.setTickets([
+            { id: 't-open', status: 'open', message_count: 1, unread_count: 1, created_at: '2026-07-13T00:00:00Z' },
+            { id: 't-resolved', status: 'resolved', message_count: 1, created_at: '2026-07-14T00:00:00Z' },
+        ] as ConversationTicket[])
+        expect(logic.values.effectiveStatusFilter).toBe('unread')
+
+        logic.actions.setStatusFilter('all')
+        expect(logic.values.effectiveStatusFilter).toBe('all')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-open', 't-resolved'])
+    })
+
+    // The full-screen scene renders the list next to the open thread. Opening a ticket marks it
+    // read, which under the unread filter would remove the row the user just clicked.
+    it('keeps the open ticket at the top of the list while it is being read', async () => {
+        logic = sidepanelTicketsLogic.build()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const unreadTicket = {
+            id: 't-reading',
+            status: 'open',
+            message_count: 2,
+            unread_count: 1,
+            created_at: '2026-07-12T00:00:00Z',
+        } as ConversationTicket
+        const otherUnread = {
+            id: 't-other',
+            status: 'open',
+            message_count: 1,
+            unread_count: 1,
+            created_at: '2026-07-14T00:00:00Z',
+        } as ConversationTicket
+        logic.actions.setTickets([unreadTicket, otherUnread])
+        expect(logic.values.effectiveStatusFilter).toBe('unread')
+
+        logic.actions.setCurrentTicket(unreadTicket)
+        logic.actions.setView('ticket')
+        // Reading the thread clears its unread count on the next poll
+        logic.actions.setTickets([{ ...unreadTicket, unread_count: 0 }, otherUnread])
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-other', 't-reading'])
+
+        logic.actions.setView('list')
+        expect(logic.values.filteredTickets.map((ticket) => ticket.id)).toEqual(['t-other'])
     })
 })

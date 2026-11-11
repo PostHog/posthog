@@ -11,8 +11,8 @@ import { withCurrentScope } from '../lib/scope'
 import { CountCell } from './CountCell'
 import { FrictionGroupBar } from './FrictionGroupBar'
 
-function authorUrl(handle: string, sourceId: string | null): string {
-    return withCurrentScope(urls.engineeringAnalyticsAuthor(handle), sourceId)
+function authorUrl(handle: string, repo: string | null, sourceId: string | null): string {
+    return withCurrentScope(urls.engineeringAnalyticsAuthor(handle, repo), sourceId)
 }
 
 const GROUPS_TOOLTIP = FRICTION_GROUP_ORDER.map(
@@ -27,6 +27,7 @@ export function AuthorFrictionTable({
     maxScore,
     loading,
     sourceId,
+    repo,
     emptyState,
     dataAttr,
 }: {
@@ -37,6 +38,8 @@ export function AuthorFrictionTable({
     maxScore: number
     loading: boolean
     sourceId: string | null
+    /** The 'owner/name' in scope, so an author link opens in the same repository. */
+    repo: string | null
     emptyState: string
     dataAttr: string
 }): JSX.Element {
@@ -72,7 +75,7 @@ export function AuthorFrictionTable({
                         <Lettermark name={row.author} size="small" />
                     )}
                     <Link
-                        to={authorUrl(row.author, sourceId)}
+                        to={authorUrl(row.author, repo, sourceId)}
                         className="whitespace-nowrap text-xs font-medium"
                         data-attr="engineering-analytics-friction-author-link"
                     >
@@ -114,7 +117,7 @@ export function AuthorFrictionTable({
             dataSource={authors}
             rowKey={(row) => row.author}
             rowClassName="cursor-pointer"
-            onRow={(row) => rowNavigationProps(authorUrl(row.author, sourceId))}
+            onRow={(row) => rowNavigationProps(authorUrl(row.author, repo, sourceId))}
             loading={loading}
             useURLForSorting={false}
             emptyState={emptyState}

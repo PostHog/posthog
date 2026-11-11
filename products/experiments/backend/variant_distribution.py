@@ -7,6 +7,8 @@ two implementations in sync; differences will produce subtle UI/backend disagree
 about whether a split is "even".
 """
 
+from collections.abc import Sequence
+
 
 def even_distribution(variant_count: int) -> list[int]:
     """
@@ -28,7 +30,7 @@ def even_distribution(variant_count: int) -> list[int]:
     return percentages
 
 
-def is_evenly_distributed(rollout_percentages: list[int]) -> bool:
+def is_evenly_distributed(rollout_percentages: Sequence[float | None]) -> bool:
     """
     Treat anything matching the auto-even distribution as even — including the
     integer-rounded cases like 34/33/33, matching the frontend's
@@ -36,4 +38,4 @@ def is_evenly_distributed(rollout_percentages: list[int]) -> bool:
     """
     if not rollout_percentages:
         return True
-    return rollout_percentages == even_distribution(len(rollout_percentages))
+    return list(rollout_percentages) == even_distribution(len(rollout_percentages))

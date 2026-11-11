@@ -1,0 +1,124 @@
+@layer components {
+    .quill-highlight {
+        --quill-highlight-bleed: 0.15em;
+
+        /* The negative margin cancels the padding, so the highlight bleeds past the text without moving it. */
+        padding-inline: var(--quill-highlight-bleed);
+        margin-inline: calc(var(--quill-highlight-bleed) * -1);
+        color: var(--quill-highlight-foreground);
+        background-color: transparent;
+        background-image: linear-gradient(var(--quill-highlight-background), var(--quill-highlight-background));
+        background-repeat: no-repeat;
+        background-position: left center;
+        background-size: 100% 100%;
+        border-radius: 0.2em;
+
+        /* Keep the default `box-decoration-break: slice`: one background strip spans all line fragments, so the stroke finishes one line before it starts the next. */
+    }
+
+    /*
+     * The ink follows the stroke: two text-clipped layers paint the glyphs (highlight color over the inherited color),
+     * and the top one grows in step with the marker layer underneath.
+     */
+    .quill-highlight:is([data-phase='waiting'], [data-phase='drawing']) {
+        --quill-highlight-progress: 0%;
+
+        color: inherit;
+        background-image:
+            linear-gradient(var(--quill-highlight-foreground), var(--quill-highlight-foreground)),
+            linear-gradient(currentColor, currentColor),
+            linear-gradient(var(--quill-highlight-background), var(--quill-highlight-background));
+        background-clip: text, text, padding-box;
+        background-size:
+            var(--quill-highlight-progress) 100%,
+            100% 100%,
+            var(--quill-highlight-progress) 100%;
+        -webkit-text-fill-color: transparent;
+    }
+
+    .quill-highlight[data-phase='drawing'] {
+        --quill-highlight-progress: 100%;
+
+        transition: background-size var(--quill-highlight-duration) cubic-bezier(0.45, 0.1, 0.35, 1)
+            var(--quill-highlight-delay);
+    }
+
+    /* Colors — decorative only, no semantic meaning. Background is a pale tint, text the same hue at full strength. */
+    .quill-highlight--color-orange {
+        --quill-highlight-background: oklch(0.92 0.05 45deg);
+        --quill-highlight-foreground: oklch(0.56 0.17 42deg);
+    }
+
+    .quill-highlight--color-red {
+        --quill-highlight-background: oklch(0.92 0.045 20deg);
+        --quill-highlight-foreground: oklch(0.53 0.19 25deg);
+    }
+
+    .quill-highlight--color-yellow {
+        --quill-highlight-background: oklch(0.94 0.08 95deg);
+        --quill-highlight-foreground: oklch(0.52 0.11 75deg);
+    }
+
+    .quill-highlight--color-green {
+        --quill-highlight-background: oklch(0.93 0.06 150deg);
+        --quill-highlight-foreground: oklch(0.5 0.13 150deg);
+    }
+
+    .quill-highlight--color-blue {
+        --quill-highlight-background: oklch(0.92 0.04 260deg);
+        --quill-highlight-foreground: oklch(0.55 0.19 262deg);
+    }
+
+    .quill-highlight--color-purple {
+        --quill-highlight-background: oklch(0.88 0.07 305deg);
+        --quill-highlight-foreground: oklch(0.47 0.2 305deg);
+    }
+
+    :is(.dark, [theme='dark']) .quill-highlight--color-orange {
+        --quill-highlight-background: oklch(0.38 0.09 45deg / 70%);
+        --quill-highlight-foreground: oklch(0.85 0.1 50deg);
+    }
+
+    :is(.dark, [theme='dark']) .quill-highlight--color-red {
+        --quill-highlight-background: oklch(0.36 0.1 20deg / 70%);
+        --quill-highlight-foreground: oklch(0.84 0.09 20deg);
+    }
+
+    :is(.dark, [theme='dark']) .quill-highlight--color-yellow {
+        --quill-highlight-background: oklch(0.4 0.08 90deg / 70%);
+        --quill-highlight-foreground: oklch(0.9 0.12 95deg);
+    }
+
+    :is(.dark, [theme='dark']) .quill-highlight--color-green {
+        --quill-highlight-background: oklch(0.36 0.08 150deg / 70%);
+        --quill-highlight-foreground: oklch(0.87 0.1 150deg);
+    }
+
+    :is(.dark, [theme='dark']) .quill-highlight--color-blue {
+        --quill-highlight-background: oklch(0.36 0.1 262deg / 70%);
+        --quill-highlight-foreground: oklch(0.84 0.09 262deg);
+    }
+
+    :is(.dark, [theme='dark']) .quill-highlight--color-purple {
+        --quill-highlight-background: oklch(0.36 0.12 305deg / 70%);
+        --quill-highlight-foreground: oklch(0.85 0.09 305deg);
+    }
+
+    /* The reduced-motion hook only answers after hydration, so server-rendered markup needs this to show the finished highlight on first paint. */
+    @media (prefers-reduced-motion: reduce) {
+        .quill-highlight[data-phase='waiting'] {
+            --quill-highlight-progress: 100%;
+        }
+    }
+
+    /* Forced colors drop gradient backgrounds, so paint the system mark colors and undo the text clip of the stroke. */
+    @media (forced-colors: active) {
+        .quill-highlight,
+        .quill-highlight[data-phase] {
+            color: MarkText;
+            background-color: Mark;
+            background-clip: padding-box;
+            -webkit-text-fill-color: currentColor;
+        }
+    }
+}

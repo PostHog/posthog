@@ -16,7 +16,15 @@ export function SyncedSources({ destination }: SyncedSourcesProps): JSX.Element 
     const sources = destination.synced_sources ?? []
 
     if (sources.length === 0) {
-        return <span className="text-muted">Nothing yet</span>
+        // "Nothing yet" read as "no data yet" rather than "this destination does nothing", so the
+        // cell carries the step that makes it work.
+        return (
+            <Tooltip title="Nothing syncs here yet. Open a source and pick this destination on its Destinations tab.">
+                <Link to={urls.sources()} data-attr="warehouse-destination-not-used">
+                    Not used yet
+                </Link>
+            </Tooltip>
+        )
     }
 
     const shown = sources.slice(0, NAMES_SHOWN)

@@ -162,7 +162,7 @@ class DataQualityCheck(
     subject_status = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in SubjectStatus],
-        default=SubjectStatus.ACTIVE,
+        default=SubjectStatus.ACTIVE.value,
         help_text="orphaned once the subject stops resolving; orphaned checks are skipped, not deleted.",
     )
     column_name = models.CharField(
@@ -185,7 +185,7 @@ class DataQualityCheck(
     severity = models.CharField(
         max_length=16,
         choices=[(s.value, s.value) for s in CheckSeverity],
-        default=CheckSeverity.ERROR,
+        default=CheckSeverity.ERROR.value,
         help_text="error failures mark the subject failing and notify; warn failures only surface.",
     )
     enabled = models.BooleanField(default=True, help_text="Disabled checks are never run by any trigger.")
@@ -219,7 +219,7 @@ class DataQualityCheck(
     created_source = models.CharField(
         max_length=32,
         choices=[(s.value, s.value) for s in CreatedSource],
-        default=CreatedSource.USER,
+        default=CreatedSource.USER.value,
         help_text="Whether a human or an agent authored this check.",
     )
     ai_model = models.CharField(max_length=128, blank=True, help_text="Model that generated the check, if AI-authored.")

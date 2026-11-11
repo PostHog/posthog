@@ -1,54 +1,50 @@
 from __future__ import annotations
 
+from contextlib import AbstractContextManager, nullcontext
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 import structlog
 
-from posthog.api.cohort import validate_filters_and_compute_realtime_support
+from posthog.cohort_resave import resave_team_cohorts, termination_unwinds, unclassified_cohort_ids
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
-from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortType
-from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team, realtime_allowlist_matches_every_team
+from products.cohorts.backend.realtime_teams import (
+    backfill_triggers_suppressed,
+    is_processing_team,
+    realtime_allowlist_matches_every_team,
+)
 
 logger = structlog.get_logger(__name__)
 
-# How many unclassified cohort ids to name in the failure output before summarizing the rest.
-UNCLASSIFIED_REPORT_LIMIT = 20
-
-# The cohort types the realtime membership gate routes, so a null condition_type changes how they
-# evaluate. See `uses_realtime_membership` in rust/feature-flags/src/cohorts/cohort_models.rs.
-REALTIME_GATED_COHORT_TYPES = (CohortType.REALTIME, CohortType.BEHAVIORAL)
+# How many ids to name in a failure message before summarizing the rest.
+ID_REPORT_LIMIT = 20
 
 
-class UnclassifiedCohortsError(CommandError):
-    """The run finished and persisted its saves, but left cohorts the realtime gate misreads.
+def _summarize_ids(ids: list[int]) -> str:
+    shown = ", ".join(str(value) for value in ids[:ID_REPORT_LIMIT])
+    remainder = len(ids) - ID_REPORT_LIMIT
+    if remainder > 0:
+        shown += f", and {remainder} more"
+    return shown
+
+
+class IncompleteResaveError(CommandError):
+    """The run finished and persisted its saves, but left state a rerun does not repair.
 
     Distinct from the other `CommandError`s the command raises, which all reject the invocation
     before any work happens, so a caller can tell a run that never started from one that did.
     """
 
 
-@frozen
-class CohortResaveStats:
-    total: int
-    changed: int
-    errors: int
-    validation_errors: int
-    prospective_realtime: int
+class UnclassifiedCohortsError(IncompleteResaveError):
+    """The run left cohorts the realtime gate misreads."""
 
 
-@frozen
-class CohortResaveOutcome:
-    changed: bool
-    validation_failed: bool
-    prospective_realtime: bool
-
-
-UNTOUCHED_COHORT = CohortResaveOutcome(changed=False, validation_failed=False, prospective_realtime=False)
+class StaleFlagsCacheError(IncompleteResaveError):
+    """The run left teams whose flags cache rebuild never reached the broker."""
 
 
 @frozen
@@ -73,7 +69,12 @@ class Command(BaseCommand):
         parser.add_argument(
             "--realtime-allowlist",
             action="store_true",
-            help="Process the teams matched by REALTIME_COHORT_TEAM_ALLOWLIST.",
+            help="Process the teams the realtime pipeline processes: REALTIME_COHORT_TEAM_ALLOWLIST plus granted teams.",
+        )
+        parser.add_argument(
+            "--no-backfill-triggers",
+            action="store_true",
+            help="Enqueue no backfill run for a resaved cohort, whatever the team's trigger settings say.",
         )
         parser.add_argument(
             "--batch-size",
@@ -92,6 +93,9 @@ class Command(BaseCommand):
         selection = self._resolve_teams(options)
         dry_run: bool = bool(options.get("dry_run"))
         batch_size: int = int(options.get("batch_size") or 500)
+        backfill_triggers: AbstractContextManager[None] = (
+            backfill_triggers_suppressed() if options.get("no_backfill_triggers") else nullcontext()
+        )
 
         # Log start of operation
         logger.info(
@@ -115,51 +119,60 @@ class Command(BaseCommand):
         global_errors = 0
         global_validation_errors = 0
         global_prospective_realtime = 0
+        stale_cache_team_ids: list[int] = []
         teams_processed = 0
         total_teams = teams_qs.count()
 
         # Process each team separately
-        for team in teams_qs:
-            teams_processed += 1
-            logger.info(
-                "cohort_resave_team_started",
-                team_id=team.id,
-                team_progress=f"{teams_processed}/{total_teams}",
-            )
-            self.stdout.write(f"Processing team {team.id} ({teams_processed}/{total_teams})")
-
-            stats = self._process_team_cohorts(team, batch_size, dry_run)
-
-            # Accumulate stats
-            global_total += stats.total
-            global_changed += stats.changed
-            global_errors += stats.errors
-            global_validation_errors += stats.validation_errors
-            global_prospective_realtime += stats.prospective_realtime
-
-            # Log team completion
-            if stats.total > 0:
+        with termination_unwinds() as coalesce_rebuilds, backfill_triggers:
+            for team in teams_qs:
+                teams_processed += 1
                 logger.info(
-                    "cohort_resave_team_completed",
+                    "cohort_resave_team_started",
                     team_id=team.id,
-                    total_cohorts=stats.total,
-                    changed_cohorts=stats.changed,
-                    realtime_cohorts=stats.prospective_realtime,
-                    error_count=stats.errors,
-                    validation_error_count=stats.validation_errors,
-                    dry_run=dry_run,
+                    team_progress=f"{teams_processed}/{total_teams}",
                 )
-                msg = f"  Team {team.id}: {stats.total} cohorts, {stats.changed} changed, {stats.prospective_realtime} realtime"
-                if stats.errors > 0:
-                    msg += f", {stats.errors} errors"
-                if stats.validation_errors > 0:
-                    msg += f", {stats.validation_errors} validation errors"
-                style = self.style.WARNING if (stats.errors > 0 or stats.validation_errors > 0) else self.style.SUCCESS
-                self.stdout.write(style(msg))
+                self.stdout.write(f"Processing team {team.id} ({teams_processed}/{total_teams})")
+
+                stats = resave_team_cohorts(
+                    team, batch_size=batch_size, dry_run=dry_run, coalesce_rebuilds=coalesce_rebuilds
+                )
+
+                # Accumulate stats
+                global_total += stats.total
+                global_changed += stats.changed
+                global_errors += stats.errors
+                global_validation_errors += stats.validation_errors
+                global_prospective_realtime += stats.prospective_realtime
+                if stats.rebuild_dispatch_failed:
+                    stale_cache_team_ids.append(team.id)
+
+                # Log team completion
+                if stats.total > 0:
+                    logger.info(
+                        "cohort_resave_team_completed",
+                        team_id=team.id,
+                        total_cohorts=stats.total,
+                        changed_cohorts=stats.changed,
+                        realtime_cohorts=stats.prospective_realtime,
+                        error_count=stats.errors,
+                        validation_error_count=stats.validation_errors,
+                        rebuild_dispatch_failed=stats.rebuild_dispatch_failed,
+                        dry_run=dry_run,
+                    )
+                    msg = f"  Team {team.id}: {stats.total} cohorts, {stats.changed} changed, {stats.prospective_realtime} realtime"
+                    if stats.errors > 0:
+                        msg += f", {stats.errors} errors"
+                    if stats.validation_errors > 0:
+                        msg += f", {stats.validation_errors} validation errors"
+                    if stats.rebuild_dispatch_failed:
+                        msg += ", flags cache rebuild not enqueued"
+                    unhealthy = stats.errors > 0 or stats.validation_errors > 0 or stats.rebuild_dispatch_failed
+                    self.stdout.write((self.style.WARNING if unhealthy else self.style.SUCCESS)(msg))
 
         # A dry run persists nothing, so there is no post-run state to verify. `None` keeps that
         # apart from an empty list, which would claim the check ran and found nothing.
-        unclassified = None if dry_run else self._unclassified_cohort_ids(selection)
+        unclassified = None if dry_run else unclassified_cohort_ids(selection.team_ids)
 
         # Log final summary
         change_pct = round((global_changed / global_total * 100), 2) if global_total > 0 else 0
@@ -173,12 +186,13 @@ class Command(BaseCommand):
             realtime_cohorts=global_prospective_realtime,
             error_count=global_errors,
             validation_error_count=global_validation_errors,
+            stale_cache_team_count=len(stale_cache_team_ids),
             change_percentage=change_pct,
             realtime_percentage=realtime_pct,
             unclassified_count=None if unclassified is None else len(unclassified),
         )
         self.stdout.write("")
-        healthy = global_errors == 0 and global_validation_errors == 0 and not unclassified
+        healthy = global_errors == 0 and global_validation_errors == 0 and not stale_cache_team_ids and not unclassified
         final_style = self.style.SUCCESS if healthy else self.style.WARNING
         unclassified_label = "unclassified not checked" if unclassified is None else f"{len(unclassified)} unclassified"
         self.stdout.write(
@@ -188,6 +202,7 @@ class Command(BaseCommand):
                 f"{global_changed} changed ({change_pct}%), "
                 f"{global_prospective_realtime} realtime ({realtime_pct}%), "
                 f"{global_errors} errors, {global_validation_errors} validation errors, "
+                f"{len(stale_cache_team_ids)} teams with a stale flags cache, "
                 f"{unclassified_label}"
             )
         )
@@ -195,19 +210,8 @@ class Command(BaseCommand):
         if unclassified and selection.explicit:
             self._fail_on_unclassified(unclassified)
 
-    def _unclassified_cohort_ids(self, selection: TeamSelection) -> list[int]:
-        """Cohorts the realtime gate routes that still have a null `condition_type`, read back from
-        the database.
-
-        Reading persisted state covers every way a cohort ends up unclassified: a save that raised, a
-        filter set the validator rejected, and a well-formed filter group with no leaf conditions,
-        which the resave classifies as realtime and leaves with a null `condition_type`. It only
-        means anything after a run that persisted, so the caller skips it on a dry run.
-        """
-        qs = Cohort.objects.filter(cohort_type__in=REALTIME_GATED_COHORT_TYPES, condition_type__isnull=True)
-        if selection.team_ids is not None:
-            qs = qs.filter(team_id__in=selection.team_ids)
-        return list(qs.order_by("id").values_list("id", flat=True))
+        if stale_cache_team_ids:
+            self._fail_on_stale_cache(stale_cache_team_ids)
 
     def _fail_on_unclassified(self, cohort_ids: list[int]) -> None:
         """Refuse to report success while a gated cohort still has a null `condition_type`.
@@ -215,14 +219,22 @@ class Command(BaseCommand):
         The realtime membership gate reads a null `condition_type` as "no behavioral condition", so
         an unclassified cohort silently evaluates as if it had none.
         """
-        shown = ", ".join(str(cohort_id) for cohort_id in cohort_ids[:UNCLASSIFIED_REPORT_LIMIT])
-        remainder = len(cohort_ids) - UNCLASSIFIED_REPORT_LIMIT
-        if remainder > 0:
-            shown += f", and {remainder} more"
         raise UnclassifiedCohortsError(
-            f"{len(cohort_ids)} cohorts still have a null condition_type: {shown}. "
+            f"{len(cohort_ids)} cohorts still have a null condition_type: {_summarize_ids(cohort_ids)}. "
             "Fix their filters and rerun before treating the team as classified. "
             "Deleted cohorts count too, because restoring one returns it to the realtime gate unclassified."
+        )
+
+    def _fail_on_stale_cache(self, team_ids: list[int]) -> None:
+        """Refuse to report success while a team still serves the cohort rules the run replaced.
+
+        The rebuild never reached the broker, and nothing sweeps that back: the service-cache
+        verifier does not compare cohorts, and a rerun finds nothing left to change.
+        """
+        raise StaleFlagsCacheError(
+            f"{len(team_ids)} teams kept a stale flags cache: {_summarize_ids(team_ids)}. "
+            "A rerun changes nothing, so enqueue update_team_flags_cache and "
+            "update_team_service_flags_cache for them."
         )
 
     def _existing_team_ids(self, requested: list[int]) -> tuple[int, ...]:
@@ -260,202 +272,16 @@ class Command(BaseCommand):
             allowed = tuple(
                 candidate
                 for candidate in Team.objects.order_by("id").values_list("id", flat=True)
-                if is_realtime_cohort_team(candidate)
+                if is_processing_team(candidate)
             )
             # An allowlist that matches nothing would resave nothing and still report success, which
             # during a rollout reads the same as "every cohort is classified".
             if not allowed:
-                raise CommandError("REALTIME_COHORT_TEAM_ALLOWLIST matches no teams")
+                raise CommandError("--realtime-allowlist matches no teams")
             return TeamSelection(
                 team_ids=allowed,
-                label=f"{len(allowed)} realtime-allowlisted teams",
+                label=f"{len(allowed)} realtime-processed teams",
                 explicit=True,
             )
 
         return TeamSelection(team_ids=None, label="all teams", explicit=False)
-
-    def _process_team_cohorts(self, team: Team, batch_size: int, dry_run: bool) -> CohortResaveStats:
-        """Process all cohorts for a single team."""
-        all_cohorts = self._load_team_cohorts(team, batch_size)
-        seen_cohorts_cache: dict[int, CohortOrEmpty] = {c.id: c for c in all_cohorts}
-        cohort_dependencies = self._build_dependency_map(all_cohorts, seen_cohorts_cache)
-
-        # Sort cohorts topologically - dependencies first, then dependents
-        sorted_cohort_ids = sort_cohorts_topologically({c.id for c in all_cohorts}, seen_cohorts_cache)
-
-        total = 0
-        changed = 0
-        errors = 0
-        validation_errors = 0
-        prospective_realtime = 0
-
-        for cohort_id in sorted_cohort_ids:
-            cohort = seen_cohorts_cache.get(cohort_id)
-            if not cohort:
-                continue
-
-            total += 1
-            try:
-                outcome = self._recompute_cohort(cohort, team, seen_cohorts_cache, cohort_dependencies)
-                if outcome.validation_failed:
-                    validation_errors += 1
-                # Counted before the save, so a realtime cohort whose save raises still reports as one.
-                if outcome.prospective_realtime:
-                    prospective_realtime += 1
-                if outcome.changed:
-                    if not dry_run:
-                        cohort.save(update_fields=["filters", "cohort_type", "condition_type"])
-                    changed += 1
-            except Exception as err:
-                errors += 1
-                logger.error(
-                    "cohort_resave_error",
-                    cohort_id=cohort.id,
-                    team_id=team.id,
-                    error=str(err),
-                    exc_info=True,
-                )
-
-        return CohortResaveStats(
-            total=total,
-            changed=changed,
-            errors=errors,
-            validation_errors=validation_errors,
-            prospective_realtime=prospective_realtime,
-        )
-
-    def _load_team_cohorts(self, team: Team, batch_size: int) -> list[Cohort]:
-        """Read every cohort on the team, one page at a time."""
-        # No `select_related("team")`: the caller already holds the team object and passes it into
-        # `_recompute_cohort`, so joining it in here would only hydrate the deprecated taxonomy
-        # columns (which TOAST out to megabytes) onto every retained cohort row. The forward-FK
-        # defer that `TeamManager` applies does not reach a `select_related` JOIN.
-        base_qs = Cohort.objects.filter(team=team).order_by("id")
-        all_cohorts: list[Cohort] = []
-        last_id = 0
-
-        while True:
-            batch = list(base_qs.filter(id__gt=last_id)[:batch_size])
-            if not batch:
-                return all_cohorts
-            all_cohorts.extend(batch)
-            last_id = batch[-1].id
-
-    def _build_dependency_map(
-        self, all_cohorts: list[Cohort], seen_cohorts_cache: dict[int, CohortOrEmpty]
-    ) -> dict[int, set[int]]:
-        """Map each cohort id to every cohort id it depends on, recursively: A->B->C makes A depend on
-        both B and C."""
-        cohort_dependencies: dict[int, set[int]] = {}
-        for cohort in all_cohorts:
-            if not cohort.filters:
-                continue
-            dependencies = get_all_cohort_dependencies(cohort, seen_cohorts_cache=seen_cohorts_cache)
-            cohort_dependencies[cohort.id] = {dep.id for dep in dependencies}
-        return cohort_dependencies
-
-    def _recompute_cohort(
-        self,
-        cohort: Cohort,
-        team: Team,
-        seen_cohorts_cache: dict[int, CohortOrEmpty],
-        cohort_dependencies: dict[int, set[int]],
-    ) -> CohortResaveOutcome:
-        """Recompute one cohort's filters, cohort_type, and condition_type in memory.
-
-        This only mutates the cohort in memory and returns the outcome; the caller persists the
-        change and counts it.
-        """
-        filters = cohort.filters
-        # Nothing to recompute without filters.
-        if not filters:
-            return UNTOUCHED_COHORT
-
-        # Compute the new filters with inline bytecode and cohort_type
-        # Use defensive validation with detailed error reporting
-        clean_filters, computed_type, validation_error_list = validate_filters_and_compute_realtime_support(
-            filters, team, current_cohort_type=cohort.cohort_type, cohort_count=cohort.count
-        )
-
-        # If validation failed but we got the original filters back, log the issue and skip
-        if validation_error_list:
-            logger.warning(
-                "cohort_validation_skipped",
-                cohort_id=cohort.id,
-                team_id=cohort.team_id,
-                reason="Invalid filter structure - keeping original filters",
-            )
-            return CohortResaveOutcome(changed=False, validation_failed=True, prospective_realtime=False)
-
-        if computed_type == "realtime" and self._references_block_realtime(
-            filters, seen_cohorts_cache, cohort_dependencies
-        ):
-            computed_type = None
-
-        computed_condition_type = Cohort.compute_condition_type(clean_filters)
-
-        # Decide if there is any change worth persisting/reporting
-        will_change = (
-            clean_filters != filters
-            or computed_type != cohort.cohort_type
-            or computed_condition_type != cohort.condition_type
-        )
-
-        # ALWAYS update in-memory for dependency checking
-        cohort.filters = clean_filters
-        cohort.cohort_type = computed_type
-        cohort.condition_type = computed_condition_type
-
-        return CohortResaveOutcome(
-            changed=will_change,
-            validation_failed=False,
-            prospective_realtime=computed_type == "realtime",
-        )
-
-    def _references_block_realtime(
-        self,
-        filters: dict[str, Any],
-        seen_cohorts_cache: dict[int, CohortOrEmpty],
-        cohort_dependencies: dict[int, set[int]],
-    ) -> bool:
-        """Whether a directly referenced cohort stops this one from evaluating in realtime."""
-        for ref_id in self._get_direct_cohort_references(filters):
-            ref_cohort = seen_cohorts_cache.get(ref_id)
-            if not ref_cohort:
-                continue
-            # Static cohorts cannot be realtime, so any cohort referencing them can't be realtime
-            if ref_cohort.is_static:
-                return True
-            # Cohorts without filters (empty cohorts) can be considered realtime-compatible
-            # since they match no one (always false)
-            if not ref_cohort.filters:
-                continue
-            # If any directly referenced cohort has dependencies, this cannot be realtime
-            if cohort_dependencies.get(ref_id):
-                return True
-            # Also check if the referenced cohort is not realtime
-            if ref_cohort.cohort_type != "realtime":
-                return True
-        return False
-
-    def _get_direct_cohort_references(self, filters: dict[str, Any]) -> set[int]:
-        """Get only the direct cohort references from filters (not transitive)."""
-        referenced_ids = set()
-
-        if isinstance(filters, dict):
-            properties = filters.get("properties", {})
-            if isinstance(properties, dict):
-                values = properties.get("values", [])
-                if isinstance(values, list):
-                    for value in values:
-                        if isinstance(value, dict):
-                            if value.get("type") == "cohort" and value.get("value"):
-                                try:
-                                    referenced_ids.add(int(value["value"]))
-                                except (ValueError, TypeError):
-                                    pass
-                            # Recursively check nested groups
-                            if "values" in value:
-                                referenced_ids.update(self._get_direct_cohort_references({"properties": value}))
-
-        return referenced_ids

@@ -1,5 +1,7 @@
 import posthog from 'posthog-js'
 
+import { applyFullStageAppContext } from 'scenes/fullStageAppContext'
+
 import { initKeaTests } from '~/test/init'
 import { AppContext } from '~/types'
 
@@ -359,6 +361,16 @@ describe('taxonomicFilterPinnedPropertiesLogic', () => {
             expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
             expect(localStorage.getItem(DEFAULTS_SEEDED_KEY)).toBe(seededState(['$current_url', 'email']))
             expect(captureSpy).toHaveBeenCalledWith('taxonomic filter default pins seeded', { values: ['email'] })
+        })
+
+        it('tops up email when the full stage app context arrives after the mount', () => {
+            mountWith(true, false)
+            delete window.POSTHOG_APP_CONTEXT?.has_person_email
+            window.POSTHOG_APP_CONTEXT!.current_team = { id: 1 } as AppContext['current_team']
+
+            applyFullStageAppContext({ current_user: {}, current_team: { id: 1 }, has_person_email: true })
+
+            expect(logic.values.pinnedFilters.map((f) => f.value)).toEqual(['$current_url', 'email'])
         })
 
         it('any pin interaction opts the user out of all future seeding', () => {

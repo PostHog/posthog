@@ -1,5 +1,7 @@
+import time
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
 from django.utils import timezone
 
@@ -22,7 +24,7 @@ from posthog.models import Team, User
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.billing import ESTIMATE_MONTH_DAYS
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, SamplingMode, ScannerType
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     eligibility_predicates,
     surfacing_score_predicate,
@@ -95,6 +97,87 @@ class _EstimateQueryPlan:
     sampled: bool
 
 
+# One exclusion query covers this many ids, which is also the sweep's chunk size.
+_MATCH_CHECK_ROWS = 1_000
+
+
+class MatchCheckIncomplete(Exception):
+    """The match check could not reach an answer: every fetched recording was excluded and more remain."""
+
+
+def _combines_with_or(query: RecordingsQuery) -> bool:
+    # Read the way the recordings query builder reads it: every operand but AND, an explicit null included, is OR.
+    return query.operand != FilterLogicalOperator.AND_
+
+
+def has_recent_matching_recording(
+    *,
+    team: Team,
+    query: RecordingsQuery,
+    user: User | None,
+    sampling_mode: SamplingMode | str = SamplingMode.COMPREHENSIVE,
+    budget: EstimateBudget = PREVIEW_ESTIMATE_BUDGET,
+) -> bool:
+    """Whether the sweep would observe at least one recording that matches `query` in the estimate's window.
+
+    The estimate is no answer to this: it drops negative filters, because they never sample and an
+    over-count is the safe direction for a forecast. This runs the sweep's own selection instead: the
+    recordings list without its in-query blocklists, the sweep's eligibility rules, then the negative
+    filters against the fetched rows, the way `find_scanner_candidates` excludes.
+
+    It reads one batch, because each further page would scan the whole window again. Raises
+    `MatchCheckIncomplete` when the exclusions remove every fetched row and more remain, and lets a
+    timeout or query failure raise, so the caller never reads "no match" from a check that did not
+    finish. Both queries share one deadline from `budget`. `user` is the principal for the exposure
+    access check and the exclusion reads.
+    """
+    deadline = time.monotonic() + budget.max_execution_seconds
+
+    def seconds_left() -> int:
+        remaining = int(deadline - time.monotonic())
+        if remaining < 1:
+            raise TimeoutError("The recent-recording match check ran out of time.")
+        return remaining
+
+    scan_window_days = budget.window_days(unsampled=_combines_with_or(query))
+    windowed = query.model_copy(deep=True)
+    windowed.date_from = (dt.datetime.now(dt.UTC) - dt.timedelta(days=scan_window_days)).isoformat()
+    windowed.date_to = None
+    windowed.limit = _MATCH_CHECK_ROWS
+    windowed.offset = None
+    windowed.after = None
+    extra_having = eligibility_predicates()
+    if (surfacing := surfacing_score_predicate(sampling_mode)) is not None:
+        extra_having.append(surfacing)
+    tag_queries(team_id=team.id, product=Product.REPLAY_VISION, feature=Feature.QUERY)
+    listing = SessionRecordingListFromQuery(
+        team=team,
+        query=windowed,
+        user=user,
+        extra_having_predicates=extra_having,
+        skip_negative_blocklists=True,
+        max_execution_time=seconds_left(),
+        throw_on_timeout=True,
+    )
+    page = listing.run()
+    session_ids = [row["session_id"] for row in page.results]
+    excluded: set[str] = set()
+    for exclusion in listing.excluded_sessions_queries(session_ids) if session_ids else []:
+        response = execute_hogql_query(
+            query=exclusion,
+            team=team,
+            user=user,
+            query_type="ScannerMatchCheckExcludedSessions",
+            settings=HogQLGlobalSettings(max_execution_time=seconds_left(), timeout_overflow_mode="throw"),
+        )
+        excluded.update(row[0] for row in response.results or [])
+    if any(session_id not in excluded for session_id in session_ids):
+        return True
+    if page.has_more_recording:
+        raise MatchCheckIncomplete()
+    return False
+
+
 def estimate_scanner_session_volume(
     *,
     team: Team,
@@ -119,7 +202,7 @@ def estimate_scanner_session_volume(
     # Sampling is only sound when every match must pass the sampled events leg; under OR, sessions
     # matched via unsampled branches (persons, cohorts, console logs) would be multiplied by the
     # correction. Without sampling the scan is full price, so bound its window instead.
-    unsampled = query.operand == FilterLogicalOperator.OR_
+    unsampled = _combines_with_or(query)
     sample_factor = None if unsampled else _ESTIMATE_EVENTS_SAMPLE_FACTOR
     scan_window_days = budget.window_days(unsampled=unsampled)
 
@@ -318,20 +401,28 @@ def refresh_scanner_estimate(
             budget=budget,
             ch_user=ch_user,
         )
+    # Balanced sampling redistributes rather than shrinks the budget (VariantSamplingPlan.
+    # effective_rate always equals the configured rate), so the projection is the same with
+    # balancing on or off and needs no plan here.
     projection = project_monthly_observations(estimate, scanner.sampling_rate)
     estimated_at = timezone.now()
     # Filtered write so a config edit racing the (slow) estimate query can't get stamped fresh with stale numbers.
     # JSONField quirk: `field=None` filters for JSON null, not SQL NULL, so the no-targeting case needs isnull.
+    guard_fields: dict[str, Any] = (
+        {"experiment_targeting__isnull": True}
+        if scanner.experiment_targeting is None
+        else {"experiment_targeting": scanner.experiment_targeting}
+    )
+    if scanner.scanner_type == ScannerType.EXPERIMENT:
+        # The experiment type keeps its scope in scanner_config, so a racing config edit must
+        # invalidate the stamp the way an experiment_targeting edit does for the other types.
+        guard_fields["scanner_config"] = scanner.scanner_config
     updated = ReplayScanner.objects.filter(
         pk=scanner.pk,
         query=scanner.query,
         sampling_rate=scanner.sampling_rate,
         sampling_mode=scanner.sampling_mode,
-        **(
-            {"experiment_targeting__isnull": True}
-            if scanner.experiment_targeting is None
-            else {"experiment_targeting": scanner.experiment_targeting}
-        ),
+        **guard_fields,
     ).update(estimated_monthly_observations=projection, estimated_at=estimated_at)
     if updated:
         scanner.estimated_monthly_observations = projection
@@ -346,8 +437,8 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     reference; no launch heals that, so callers keep it on their error path. Both groups raise
     the same DRF ValidationError type inside the recordings query, so this re-resolves the
     linkage to tell them apart. The extra resolution runs on the failure path only."""
-    targeting = scanner.experiment_targeting if isinstance(scanner.experiment_targeting, dict) else {}
-    experiment_id = targeting.get("experiment_id")
+    scope = scanner.experiment_scope() or {}
+    experiment_id = scope.get("experiment_id")
     if experiment_id is None:
         return False
     if isinstance(error, PermissionDenied):
@@ -358,7 +449,12 @@ def is_experiment_linkage_unresolved(scanner: ReplayScanner, error: Exception) -
     from products.experiments.backend.facade.replay import resolve_exposure_linkage  # noqa: PLC0415
 
     try:
-        resolve_exposure_linkage(scanner.team, experiment_id=experiment_id, variant=targeting.get("variant"))
+        resolve_exposure_linkage(
+            scanner.team,
+            experiment_id=experiment_id,
+            variant=scope.get("variant"),
+            variants=scope.get("variants"),
+        )
     except ValidationError:
         return True
     except Exception:

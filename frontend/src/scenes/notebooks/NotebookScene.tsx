@@ -16,17 +16,22 @@ import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
 import { notebookLogic } from './Notebook/notebookLogic'
 import {
     NotebookExpandButton,
+    NotebookJupyterModeButton,
     NotebookKernelInfoButton,
     NotebookVariablesButton,
     NotebookPresence,
     NotebookSyncInfo,
 } from './Notebook/NotebookMeta'
+import { NotebookRunAllBanner } from './Notebook/NotebookRunAllBanner'
+import { NotebookRunAllButton } from './Notebook/NotebookRunAllButton'
 import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
@@ -47,6 +52,7 @@ export const scene: SceneExport<NotebookSceneLogicProps> = {
 }
 
 export function NotebookScene(): JSX.Element {
+    const [collapsedToolbarContainer, setCollapsedToolbarContainer] = useState<HTMLDivElement | null>(null)
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
     const { notebook, accessDeniedToNotebook } = useValues(
@@ -57,6 +63,7 @@ export function NotebookScene(): JSX.Element {
     const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const { todayRailEnabled } = useValues(todayShellLogic)
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -128,17 +135,27 @@ export function NotebookScene(): JSX.Element {
     return (
         <>
             <NotebookSceneMenuBar shortId={notebookId} />
-            <div className={cn('flex items-center justify-between', sceneMenuBarEnabled && 'mt-2')}>
+            {/* Under the Today layout the title row carries the breadcrumbs, as on every other scene. */}
+            {todayRailEnabled && (
+                <SceneTitleSection
+                    name={notebook?.title || 'Unnamed'}
+                    isLoading={!notebook}
+                    resourceType={{ type: 'notebook' }}
+                />
+            )}
+            <div className={cn('flex flex-wrap gap-2 items-center justify-between', sceneMenuBarEnabled && 'mt-2')}>
                 <div className="flex gap-2 items-center">
-                    <SceneBreadcrumbBackButton />
+                    {!todayRailEnabled && <SceneBreadcrumbBackButton />}
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                     <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
                         <NotebookVariablesButton type="tertiary" size="small" />
+                        <NotebookRunAllButton type="tertiary" size="small" />
                     </BindLogic>
                 </div>
 
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-wrap gap-2 items-center justify-end ml-auto">
+                    <div ref={setCollapsedToolbarContainer} className="shrink-0 empty:hidden" />
                     <NotebookSyncInfo shortId={notebookId} />
                     <NotebookPresence shortId={notebookId} />
 
@@ -151,6 +168,11 @@ export function NotebookScene(): JSX.Element {
                                 size="small"
                                 onBeforeShowKernelInfo={() => setIsMarkdownSourceOpen(false)}
                             />
+                        </BindLogic>
+                    )}
+                    {!sceneMenuBarEnabled && (
+                        <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                            <NotebookJupyterModeButton type="secondary" size="small" />
                         </BindLogic>
                     )}
                     {!sceneMenuBarEnabled && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
@@ -177,7 +199,12 @@ export function NotebookScene(): JSX.Element {
                 </div>
             </div>
 
+            <BindLogic logic={notebookLogic} props={{ shortId: notebookId, target: NotebookTarget.Scene }}>
+                <NotebookRunAllBanner shortId={notebookId} />
+            </BindLogic>
+
             <Notebook
+                collapsedToolbarContainer={collapsedToolbarContainer}
                 key={notebookId}
                 shortId={notebookId}
                 editable={!isTemplate}

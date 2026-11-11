@@ -47,8 +47,7 @@ export type messageRatingsLogicType = MakeLogicType<
 /**
  * Persists PostHog AI answer ratings ("good"/"bad") in localStorage.
  *
- * Keys are runtime-specific: the legacy thread uses the message's trace id, the sandbox thread
- * uses `<conversationId>:turn-<n>`.
+ * Keys are trace ids. A sandbox turn without a trace id uses `<conversationId>:turn-<n>`.
  */
 export const messageRatingsLogic = kea<messageRatingsLogicType>([
     path(['scenes', 'max', 'logics', 'messageRatingsLogic']),

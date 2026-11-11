@@ -187,7 +187,7 @@ class ResourceLink(PulseModel):
         "alerts.AlertConfiguration", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
     subscription = models.ForeignKey(
-        "exports.Subscription", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+        "subscriptions.Subscription", on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
     )
 
     resource_type = models.CharField(max_length=20, choices=ResourceType.choices)

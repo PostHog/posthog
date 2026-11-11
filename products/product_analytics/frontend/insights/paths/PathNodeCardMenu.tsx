@@ -38,6 +38,9 @@ export function PathNodeCardMenu({
 
     return (
         <div
+            // The popover is portaled out of the card but its events still bubble through the chart,
+            // so it needs the same overlay mark as the card.
+            data-hog-charts-interactive-overlay
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: PATH_NODE_CARD_WIDTH }}
         >

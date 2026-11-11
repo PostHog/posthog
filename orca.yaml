@@ -1,0 +1,5 @@
+scripts:
+    setup: |
+        bin/devbox-worktree-hook created orca
+    archive: |
+        bin/devbox-worktree-hook removing

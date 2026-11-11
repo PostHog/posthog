@@ -39,6 +39,9 @@ class LogEntriesTable(Table):
         "Console/diagnostic log lines emitted by plugins, batch exports, and session replay, filtered by `log_source`."
     )
     fields: dict[str, FieldOrTable] = LOG_ENTRIES_FIELDS
+    # log_entries lives on the single-shard aux cluster, so wide-window GROUP BYs can't lean on
+    # shard fan-out and must be able to spill to disk under the profile's thresholds.
+    inherit_profile_spill: bool = True
 
     def to_printed_clickhouse(self, context):
         return "log_entries"

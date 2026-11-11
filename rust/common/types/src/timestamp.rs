@@ -105,8 +105,13 @@ fn handle_timestamp(
 
     // Handle offset if present
     if let Some(offset_ms) = offset {
-        parsed_ts = now - Duration::milliseconds(offset_ms);
-        source = TimestampSource::Offset;
+        // Chrono panics on a client offset outside its range, so such an offset is ignored.
+        let from_offset =
+            Duration::try_milliseconds(offset_ms).and_then(|age| now.checked_sub_signed(age));
+        if let Some(from_offset) = from_offset {
+            parsed_ts = from_offset;
+            source = TimestampSource::Offset;
+        }
     }
 
     ParsedTimestamp {
@@ -164,7 +169,11 @@ fn normalize_timezone_format(input: &str) -> Cow<'_, str> {
         return Cow::Borrowed(input);
     }
 
-    let last_3_chars = &input[input.len() - 3..];
+    // `input` is client-supplied, so its last three bytes can fall inside a multi-byte
+    // character. Slicing at a index that is not a character boundary panics.
+    let Some(last_3_chars) = input.get(input.len() - 3..) else {
+        return Cow::Borrowed(input);
+    };
     if !(last_3_chars.starts_with('+') || last_3_chars.starts_with('-'))
         || !last_3_chars[1..].chars().all(|c| c.is_ascii_digit())
     {
@@ -199,8 +208,55 @@ fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> 
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_timestamp_ending_mid_character_is_rejected_rather_than_fatal() {
+        // The timestamp string comes straight from the client. Reading its last three
+        // bytes panicked when they fell inside a multi-byte character, and a panic here
+        // aborts the request, so the caller loses the whole batch and retries it forever.
+        for input in [
+            "2023-01-01T00:00:00+0\u{1F980}",
+            "\u{1F980}",
+            "ab\u{1F980}",
+            "\u{65E5}\u{672C}\u{8A9E}",
+        ] {
+            assert_eq!(parse_date(input), None, "{input}");
+        }
+
+        // The format the slice exists to catch still normalizes.
+        assert_eq!(
+            parse_date("2025-09-17T14:05:04.805+03"),
+            parse_date("2025-09-17T14:05:04.805+03:00"),
+        );
+    }
+
     fn dt(s: &str) -> DateTime<Utc> {
         DateTime::parse_from_rfc3339(s).unwrap().with_timezone(&Utc)
+    }
+
+    #[test]
+    fn an_offset_out_of_range_is_ignored_rather_than_fatal() {
+        // `offset` is a client i64, and a panic here aborts the request, so the caller
+        // loses the whole batch.
+        let now = dt("2023-01-01T12:00:00Z");
+        for offset in [i64::MIN, i64::MIN + 1, i64::MAX, -8_300_000_000_000_000] {
+            let result = parse_event_timestamp(None, Some(offset), None, false, now);
+            assert_eq!(result.timestamp, now, "offset={offset}");
+            assert_eq!(result.source, TimestampSource::Now, "offset={offset}");
+
+            // A timestamp the client also sent still sets the event time.
+            let result =
+                parse_event_timestamp(Some("2023-01-01T11:00:00Z"), Some(offset), None, false, now);
+            assert_eq!(
+                result.timestamp,
+                dt("2023-01-01T11:00:00Z"),
+                "offset={offset}"
+            );
+            assert_eq!(
+                result.source,
+                TimestampSource::ClientTimestamp,
+                "offset={offset}"
+            );
+        }
     }
 
     #[test]

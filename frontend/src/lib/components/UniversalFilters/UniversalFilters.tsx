@@ -12,7 +12,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
@@ -29,7 +28,13 @@ import {
 } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
-import { isActionFilter, isEditableFilter, isEntityFilter, isEventFilter } from './utils'
+import {
+    isActionFilter,
+    isEditableFilter,
+    isEntityFilter,
+    isEventFilter,
+    taxonomicFilterGroupTypeToEntityType,
+} from './utils'
 
 export type UniversalFiltersProps = {
     rootKey: string
@@ -265,7 +270,7 @@ const Value = ({
 const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' | 'icon'>): JSX.Element => {
     const [dropdownOpen, setDropdownOpen] = useState<boolean>(false)
 
-    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -277,6 +282,7 @@ const AddFilterButton = (props: Omit<LemonButtonProps, 'onClick' | 'sideAction' 
                         setDropdownOpen(false)
                     }}
                     taxonomicGroupTypes={taxonomicGroupTypes}
+                    endpointFilters={endpointFilters}
                     enableKeywordShortcuts
                 />
             }
@@ -310,7 +316,7 @@ const PureTaxonomicFilter = ({
     searchQuery?: string
     taxonomicFilterLogicKey?: string
 }): JSX.Element => {
-    const { taxonomicGroupTypes } = useValues(universalFiltersLogic)
+    const { taxonomicGroupTypes, endpointFilters } = useValues(universalFiltersLogic)
     const { addGroupFilter } = useActions(universalFiltersLogic)
 
     return (
@@ -322,6 +328,7 @@ const PureTaxonomicFilter = ({
                 addGroupFilter(taxonomicGroup, value, item)
             }}
             taxonomicGroupTypes={taxonomicGroupTypes}
+            endpointFilters={endpointFilters}
             initialSearchQuery={initialSearchQuery}
             hideSearchInput={hideSearchInput}
             searchQuery={searchQuery}

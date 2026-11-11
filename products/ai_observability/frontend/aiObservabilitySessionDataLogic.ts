@@ -571,6 +571,8 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     const data = await llmAnalyticsSummarizationCreate(String(teamId), {
                         mode: 'minimal',
                         force_refresh: forceRefresh,
+                        // The session list shows only the title, so a bounded input is enough.
+                        compact_context: true,
                         trace_id: traceId,
                         ...getSummarizationLookupDateRange(trace?.createdAt),
                     })

@@ -3,7 +3,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -34,7 +34,7 @@ def _empty_evidence(**overrides: Any) -> RepositoryScanEvidence:
     )
 
 
-class TestShouldScanPath(TestCase):
+class TestShouldScanPath(SimpleTestCase):
     @parameterized.expand(
         [
             ("typescript", "src/index.ts", True),
@@ -65,7 +65,7 @@ class TestShouldScanPath(TestCase):
         assert _should_scan_path(path) == expected
 
 
-class TestCandidatePathScore(TestCase):
+class TestCandidatePathScore(SimpleTestCase):
     @parameterized.expand(
         [
             ("no_keywords", "src/utils.ts", 1),
@@ -87,7 +87,7 @@ class TestCandidatePathScore(TestCase):
         assert _candidate_path_score(path) == expected
 
 
-class TestSelectCandidatePaths(TestCase):
+class TestSelectCandidatePaths(SimpleTestCase):
     def test_filters_unscannable(self) -> None:
         paths = ["src/main.ts", "README.md", "package.json", "src/utils.py"]
         result = _select_candidate_paths(paths)
@@ -104,7 +104,7 @@ class TestSelectCandidatePaths(TestCase):
         assert len(result) == MAX_CANDIDATE_PATHS
 
 
-class TestClassifyRepository(TestCase):
+class TestClassifyRepository(SimpleTestCase):
     @parameterized.expand(
         [
             ("test_repo", "org/test-app", [], _empty_evidence(), "test_or_sandbox", True),
@@ -169,7 +169,7 @@ class TestClassifyRepository(TestCase):
         assert excluded is True
 
 
-class TestApplicableCapabilities(TestCase):
+class TestApplicableCapabilities(SimpleTestCase):
     @parameterized.expand(
         [
             ("excluded", "frontend_js", True, {"tracking": False, "computer_vision": False, "errors": False}),
@@ -208,12 +208,12 @@ class TestComputeRepositoryReadiness(TestCase):
         assert result["cacheAgeSeconds"] == 0
 
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_no_access_token_returns_unknown(self, mock_integration_cls: MagicMock, mock_refresh: MagicMock) -> None:
         integration = MagicMock()
         integration.id = 1
         integration.sensitive_config = {}
-        mock_integration_cls.objects.filter.return_value.first.return_value = integration
+        mock_integration_cls.github.oauth.find.return_value = integration
 
         result = compute_repository_readiness(team=self.team, repository="org/repo")
         assert result["overall"] == "unknown"
@@ -223,12 +223,12 @@ class TestComputeRepositoryReadiness(TestCase):
         integration.id = 1
         integration.kind = "github"
         integration.sensitive_config = {"access_token": "ghp_test"}
-        mock_integration_cls.objects.filter.return_value.first.return_value = integration
+        mock_integration_cls.github.oauth.find.return_value = integration
         return integration
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_scan_failure_graceful_degradation(
         self,
         mock_integration_cls: MagicMock,
@@ -248,7 +248,7 @@ class TestComputeRepositoryReadiness(TestCase):
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_cache_hit_returns_cache_age(
         self,
         mock_integration_cls: MagicMock,
@@ -265,7 +265,7 @@ class TestComputeRepositoryReadiness(TestCase):
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_refresh_bypasses_cache(
         self,
         mock_integration_cls: MagicMock,
@@ -282,7 +282,7 @@ class TestComputeRepositoryReadiness(TestCase):
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_detected_state_when_code_found_but_settings_off(
         self,
         mock_integration_cls: MagicMock,
@@ -315,7 +315,7 @@ class TestComputeRepositoryReadiness(TestCase):
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_waiting_for_data_when_code_found_and_settings_on(
         self,
         mock_integration_cls: MagicMock,
@@ -345,7 +345,7 @@ class TestComputeRepositoryReadiness(TestCase):
 
     @patch("products.tasks.backend.repository_readiness._scan_repository")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_needs_setup_when_no_code_evidence(
         self,
         mock_integration_cls: MagicMock,
@@ -367,7 +367,7 @@ class TestComputeRepositoryReadiness(TestCase):
     @patch("products.tasks.backend.repository_readiness._fetch_file_content")
     @patch("products.tasks.backend.repository_readiness._fetch_repository_tree")
     @patch("products.tasks.backend.repository_readiness._refresh_installation_token")
-    @patch("products.tasks.backend.repository_readiness.Integration")
+    @patch("products.tasks.backend.repository_readiness.IntegrationManager")
     def test_time_budget_exceeded_returns_partial_results(
         self,
         mock_integration_cls: MagicMock,

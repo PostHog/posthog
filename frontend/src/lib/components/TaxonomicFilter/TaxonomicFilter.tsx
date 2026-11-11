@@ -34,6 +34,7 @@ export function TaxonomicFilter({
     eventNames,
     schemaColumns,
     schemaColumnsLoading,
+    endpointFilters,
     height,
     width,
     excludedProperties,
@@ -80,6 +81,7 @@ export function TaxonomicFilter({
         eventNames,
         schemaColumns,
         schemaColumnsLoading,
+        endpointFilters,
         popoverEnabled,
         selectFirstItem,
         promoteSelectedItemToFirstPosition,
@@ -103,6 +105,7 @@ export function TaxonomicFilter({
         excludedOperators,
         selectingKeyOnly,
         collapseUrlsToContainsRow,
+        hideSearchInput,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

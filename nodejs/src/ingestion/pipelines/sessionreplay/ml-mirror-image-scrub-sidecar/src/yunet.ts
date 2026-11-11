@@ -11,7 +11,8 @@ import { ORT_THREADS } from './cores.ts'
 import { numFromEnv } from './env.ts'
 import { type Box } from './geometry.ts'
 import { rgbToChw } from './pixel-convert.ts'
-// Tiling bounds for extreme-aspect frames. A single pass scales by 640/longSide, so on a
+// Tiling bounds for extreme-aspect frames, with figures for the default 640 input (a larger input
+// scales them up). A single pass scales by 640/longSide, so on a
 // very tall/wide image a face (at most ~shortSide across) can land below the detector's smallest
 // stride. Above MAX_ASPECT the frame is cut along its long axis into windows of aspect TILE_ASPECT
 // (overlapping by one shortSide, so a face — at most one shortSide across — is always fully inside
@@ -21,10 +22,26 @@ import { rgbToChw } from './pixel-convert.ts'
 // Kept in step with PlanLimits.faceTileAbove / faceTileAspect: the planner needs the same rule to
 // know how much of a long frame this stage really sees, and two copies of it is the drift the
 // planner exists to remove.
-import { FACE_INPUT_SIDE, FACE_TILE_ABOVE, FACE_TILE_ASPECT, faceWindowLong } from './scale-plan.ts'
+import {
+    DEFAULT_FACE_INPUT_SIDE,
+    FACE_TILE_ABOVE,
+    FACE_TILE_ASPECT,
+    faceWindowLong,
+    limitsFromEnv,
+} from './scale-plan.ts'
 import { type Src, srcSharp } from './src-image.ts'
 
 const SCORE_MIN = numFromEnv('YUNET_SCORE', 0.7, 0.05, 0.95)
+const FACE_INPUT_SIDES = faceInputSides(limitsFromEnv().faceInputSide)
+
+/**
+ * The input sizes faces are detected at. YuNet's measured floors come from 640, and a close-up face at a larger input
+ * reaches the model bigger than anything it was checked against, so a larger input adds a 640 pass rather than
+ * replacing it.
+ */
+export function faceInputSides(inputSide: number): number[] {
+    return inputSide > DEFAULT_FACE_INPUT_SIDE ? [inputSide, DEFAULT_FACE_INPUT_SIDE] : [inputSide]
+}
 const NMS_IOU = 0.3
 const STRIDES = [8, 16, 32]
 const LARGEST_STRIDE = 32
@@ -112,16 +129,48 @@ function detectionWindows(W: number, H: number): Window[] {
     return windows
 }
 
+const windowScale = (win: Window, inputSide: number): number => Math.min(1, inputSide / Math.max(win.width, win.height))
+
+/** A window already within the smaller side reaches the model at full size on every pass. */
+export function passesForWindow(win: Window, inputSides: number[]): number[] {
+    const scales = new Set<number>()
+    return inputSides.filter((side) => {
+        const scale = windowScale(win, side)
+        if (scales.has(scale)) {
+            return false
+        }
+        scales.add(scale)
+        return true
+    })
+}
+
+type Candidate = { b: Box; s: number }
+
+/** Scores from different input sizes are not comparable, so a box from one pass never suppresses another pass's. */
+export function mergePasses(passes: Candidate[][]): Box[] {
+    return passes.flatMap((cand) => {
+        const sorted = [...cand].sort((a, b) => b.s - a.s)
+        const keep: Box[] = []
+        for (const { b } of sorted) {
+            if (!keep.some((k) => iou(k, b) > NMS_IOU)) {
+                keep.push(b)
+            }
+        }
+        return keep
+    })
+}
+
 async function detectInWindow(
     model: YunetModel,
     src: Src,
     W: number,
     H: number,
     win: Window,
-    scoreMin: number
-): Promise<{ b: Box; s: number }[]> {
+    scoreMin: number,
+    inputSide: number
+): Promise<Candidate[]> {
     // Padding rather than resizing to reach the stride, because resizing up enlarges real pixels (rule 1 in scale-plan.ts).
-    const scale = Math.min(1, FACE_INPUT_SIDE / Math.max(win.width, win.height))
+    const scale = windowScale(win, inputSide)
     const dw = Math.max(1, Math.round(win.width * scale))
     const dh = Math.max(1, Math.round(win.height * scale))
     const cw = upToStride(dw)
@@ -143,7 +192,7 @@ async function detectInWindow(
     // padding scale past the window edge and get clamped away.
     const sx = win.width / dw
     const sy = win.height / dh
-    const cand: { b: Box; s: number }[] = []
+    const cand: Candidate[] = []
     for (const s of STRIDES) {
         const cls = out[`cls_${s}`].data as Float32Array
         const obj = out[`obj_${s}`].data as Float32Array
@@ -184,18 +233,13 @@ export async function detectFacesYunet(
     opts: FaceOpts = {}
 ): Promise<Box[]> {
     const scoreMin = opts.scoreMin ?? SCORE_MIN
-    const cand: { b: Box; s: number }[] = []
-    for (const win of detectionWindows(W, H)) {
-        cand.push(...(await detectInWindow(model, src, W, H, win, scoreMin)))
-    }
-
-    // greedy NMS over all windows (overlap regions produce duplicates for the same face)
-    cand.sort((a, b) => b.s - a.s)
-    const keep: Box[] = []
-    for (const { b } of cand) {
-        if (!keep.some((k) => iou(k, b) > NMS_IOU)) {
-            keep.push(b)
+    const windows = detectionWindows(W, H)
+    const passes: Candidate[][] = FACE_INPUT_SIDES.map(() => [])
+    for (const win of windows) {
+        for (const inputSide of passesForWindow(win, FACE_INPUT_SIDES)) {
+            const pass = passes[FACE_INPUT_SIDES.indexOf(inputSide)]
+            pass.push(...(await detectInWindow(model, src, W, H, win, scoreMin, inputSide)))
         }
     }
-    return keep
+    return mergePasses(passes)
 }

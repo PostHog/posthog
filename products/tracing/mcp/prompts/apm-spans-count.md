@@ -12,7 +12,7 @@ All parameters go inside `query` — top-level fields are rejected:
 - When the user asks "how many X spans are there?" and you don't need to see individual spans.
 - To check whether a filter combination matches anything at all before committing to a full query.
 
-This counts **spans**, not traces. A single trace contains many spans, so a count of matching spans will exceed the number of matching traces.
+`count` is the number of matching **spans**. `traceCount` is the number of distinct traces whose root span matches. A trace contains many spans, so `count` is usually larger.
 
 If the count would scan too much data (a wide date range with no filters), the tool returns a 400 asking you to narrow the window or add filters — narrow the `dateRange` or add `serviceNames` / `statusCodes` / `filterGroup`, then retry.
 
@@ -36,6 +36,8 @@ Filter by OTel span status codes (list of integers: `0` Unset, `1` OK, `2` Error
 ## query.filterGroup
 
 Property filters to narrow the count. Same format as `query-apm-spans` filters — each filter specifies `key`, `operator`, `type` (span/span_attribute/span_resource_attribute), and optionally `value`.
+
+A `span` filter on `duration` takes a value in milliseconds. For example, `{ "key": "duration", "operator": "gt", "type": "span", "value": "30000" }` counts spans longer than 30 seconds.
 
 # Examples
 

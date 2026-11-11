@@ -1,4 +1,4 @@
-"""Node-run observability: one recorder for every terminal run transition (sql_v2_observability.md gap 1).
+"""Node-run observability: one recorder for every terminal run transition.
 
 Every path that moves a NotebookNodeRun to a terminal status reports it here exactly once:
 the sandbox callback, the direct lane, dispatch failures, and interrupts. The recorder

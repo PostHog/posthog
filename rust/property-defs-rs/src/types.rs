@@ -79,6 +79,12 @@ pub const SKIP_PROPERTIES: [&str; 9] = [
 // rare cases it arrives as a top-level event property, and carries little cardinality weight.
 pub const SKIP_EVENT_PROPERTY_PREFIXES: [&str; 2] = ["$feature/", "$feature_enrollment/"];
 
+// Person property prefixes that should NOT generate PropertyDefinition rows. A push
+// subscription is stored under one person property per device, and the key embeds a hash of
+// the device token, so every registered device would otherwise add a definition that only
+// names one device and clutters the property picker.
+pub const SKIP_PERSON_PROPERTY_DEFINITION_PREFIXES: [&str; 1] = ["$device_push_subscription_"];
+
 // "timestamp" is deliberately absent: any key that contains it already contains "time".
 const DATETIME_PROPERTY_NAME_KEYWORDS: [&str; 6] =
     ["time", "date", "_at", "-at", "createdat", "updatedat"];
@@ -355,6 +361,19 @@ impl Event {
                 continue;
             }
 
+            if parent_type == PropertyParentType::Person
+                && SKIP_PERSON_PROPERTY_DEFINITION_PREFIXES
+                    .iter()
+                    .any(|prefix| key.starts_with(prefix))
+            {
+                metrics::counter!(
+                    UPDATES_SKIPPED,
+                    &[("reason", "push_subscription_person_property")]
+                )
+                .increment(1);
+                continue;
+            }
+
             if !will_fit_in_postgres_column(key) {
                 let skipped = if parent_type == PropertyParentType::Event {
                     2 // EventProperty + PropertyDefinition
@@ -447,6 +466,12 @@ pub fn detect_property_type(key: &str, value: &Value) -> Option<PropertyValueTyp
         // These are feature flag values, and can be boolean or string.
         // Sometimes the first value sent is boolean (because flag isn't enabled) while
         // subsequent values are not. We don't want this to be misunderstood as a boolean.
+        return Some(PropertyValueType::String);
+    }
+
+    if key == "$mcp_protocol_version" {
+        // MCP protocol revisions are named by date ("2025-11-25") but are identifiers, and some
+        // aren't dates at all ("draft"). As DateTime they read back as midnight timestamps.
         return Some(PropertyValueType::String);
     }
 

@@ -34,39 +34,45 @@ describe("InlineEditInput", () => {
 });
 
 describe("TaskItem", () => {
-  it("renders inert archive progress instead of edit or pull request actions", () => {
-    const onClick = vi.fn();
-    const onDoubleClick = vi.fn();
-    const onContextMenu = vi.fn();
-    const { container } = render(
-      <TaskItem
-        taskId="task-1"
-        label="Archive me"
-        isActive={false}
-        isArchiving
-        isEditing
-        prUrl="https://github.com/PostHog/posthog/pull/123"
-        onClick={onClick}
-        onDoubleClick={onDoubleClick}
-        onContextMenu={onContextMenu}
-      />,
-    );
+  it.each([
+    ["archive", { isArchiving: true }, "Archiving"],
+    ["filing", { isFiling: true }, "Filing"],
+  ] as const)(
+    "renders inert %s progress instead of edit or pull request actions",
+    (_operation, progress, label) => {
+      const onClick = vi.fn();
+      const onDoubleClick = vi.fn();
+      const onContextMenu = vi.fn();
+      const { container } = render(
+        <TaskItem
+          taskId="task-1"
+          label="Archive me"
+          isActive={false}
+          {...progress}
+          isEditing
+          prUrl="https://github.com/PostHog/posthog/pull/123"
+          onClick={onClick}
+          onDoubleClick={onDoubleClick}
+          onContextMenu={onContextMenu}
+        />,
+      );
 
-    const row = screen.getByText("Archive me").closest("button");
-    expect(row).toHaveAttribute("aria-busy", "true");
-    expect(row).toHaveAttribute("aria-disabled", "true");
-    expect(screen.getByText("Archiving")).toHaveClass("sr-only");
-    expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByLabelText("Open pull request #123")).toBeNull();
+      const row = screen.getByText("Archive me").closest("button");
+      expect(row).toHaveAttribute("aria-busy", "true");
+      expect(row).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByText(label)).toHaveClass("sr-only");
+      expect(container.querySelector("[aria-hidden='true']")).not.toBeNull();
+      expect(screen.queryByRole("textbox")).toBeNull();
+      expect(screen.queryByLabelText("Open pull request #123")).toBeNull();
 
-    if (row) {
-      fireEvent.click(row);
-      fireEvent.doubleClick(row);
-      fireEvent.contextMenu(row);
-    }
-    expect(onClick).not.toHaveBeenCalled();
-    expect(onDoubleClick).not.toHaveBeenCalled();
-    expect(onContextMenu).not.toHaveBeenCalled();
-  });
+      if (row) {
+        fireEvent.click(row);
+        fireEvent.doubleClick(row);
+        fireEvent.contextMenu(row);
+      }
+      expect(onClick).not.toHaveBeenCalled();
+      expect(onDoubleClick).not.toHaveBeenCalled();
+      expect(onContextMenu).not.toHaveBeenCalled();
+    },
+  );
 });

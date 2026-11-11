@@ -10,37 +10,46 @@ export const useStacktraceDisplay = (): { ready: boolean; stacktraceText: string
     const { exceptionList, stackFrameRecords, stackFrameRecordsLoading, framesStoredCrashFirst } =
         useValues(errorPropertiesLogic)
 
-    const stacktraceText = useMemo(() => {
-        return exceptionList
-            .map((exception) =>
-                generateExceptionText(exception, stackFrameRecords, {
-                    includeInAppMarkers: true,
-                    storedCrashFirst: framesStoredCrashFirst,
-                })
-            )
-            .join('\n\n')
-    }, [exceptionList, stackFrameRecords, framesStoredCrashFirst])
+    const stacktraceText = useMemo(
+        () =>
+            generateStacktraceText(exceptionList, stackFrameRecords, {
+                includeInAppMarkers: true,
+                storedCrashFirst: framesStoredCrashFirst,
+            }),
+        [exceptionList, stackFrameRecords, framesStoredCrashFirst]
+    )
 
-    const copyableStacktraceText = useMemo(() => {
-        return exceptionList
-            .map((exception) =>
-                generateExceptionText(exception, stackFrameRecords, {
-                    includeInAppMarkers: false,
-                    storedCrashFirst: framesStoredCrashFirst,
-                })
-            )
-            .join('\n\n')
-    }, [exceptionList, stackFrameRecords, framesStoredCrashFirst])
+    const copyableStacktraceText = useMemo(
+        () =>
+            generateStacktraceText(exceptionList, stackFrameRecords, {
+                includeInAppMarkers: false,
+                storedCrashFirst: framesStoredCrashFirst,
+            }),
+        [exceptionList, stackFrameRecords, framesStoredCrashFirst]
+    )
 
     const ready = exceptionList.length > 0 && !stackFrameRecordsLoading
 
     return { ready, stacktraceText, copyableStacktraceText }
 }
 
+interface StacktraceTextOptions {
+    includeInAppMarkers: boolean
+    storedCrashFirst: boolean
+}
+
+export function generateStacktraceText(
+    exceptionList: ErrorTrackingException[],
+    stackFrameRecords: Record<string, any>,
+    options: StacktraceTextOptions
+): string {
+    return exceptionList.map((exception) => generateExceptionText(exception, stackFrameRecords, options)).join('\n\n')
+}
+
 function generateExceptionText(
     exception: ErrorTrackingException,
     stackFrameRecords: Record<string, any>,
-    options: { includeInAppMarkers: boolean; storedCrashFirst: boolean }
+    options: StacktraceTextOptions
 ): string {
     let result = `${formatType(exception)}${exception.value ? `: ${exception.value}` : ''}`
 

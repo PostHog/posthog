@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 import { useActions } from 'kea'
 
 import { LemonButton } from '@posthog/lemon-ui'
@@ -8,7 +9,7 @@ import { AccessControlLevel, DashboardBasicType, DashboardPlacement, DashboardTi
 
 import { DashboardWidgetItem } from 'products/dashboards/frontend/components/DashboardWidgetItem/DashboardWidgetItem'
 
-import { expect, userEvent, waitFor, within } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import { notebookWidgetDashboardLogic } from '../NotebookNodeGeneratedWidget/notebookWidgetDashboardLogic'
 import { NotebookWidgetDashboardModal } from '../NotebookNodeGeneratedWidget/NotebookWidgetDashboardModal'

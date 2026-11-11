@@ -20,15 +20,19 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import type { FeatureRequestApi } from '../../generated/api.schemas'
 import { getFeatureRequestDetailUrl } from '../FeatureRequests/featureRequestNavigation'
 import { ACCOUNT_FEATURE_REQUESTS_PAGE_SIZE, accountFeatureRequestsLogic } from './accountFeatureRequestsLogic'
+import type { AccountViewTileLogicProps } from './accountViewTileConfig'
+
+interface AccountFeatureRequestsExpansionProps extends AccountViewTileLogicProps {
+    accountId: string
+    embedded?: boolean
+}
 
 export function AccountFeatureRequestsExpansion({
     accountId,
     embedded = true,
-}: {
-    accountId: string
-    embedded?: boolean
-}): JSX.Element {
-    const logic = accountFeatureRequestsLogic({ accountId })
+    ...tileProps
+}: AccountFeatureRequestsExpansionProps): JSX.Element {
+    const logic = accountFeatureRequestsLogic({ accountId, ...tileProps })
     const {
         accountRequests,
         accountRequestsPage,

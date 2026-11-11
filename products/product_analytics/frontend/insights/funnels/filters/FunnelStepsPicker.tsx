@@ -5,8 +5,6 @@ import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lem
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-
 import { funnelDataLogic } from '../funnelDataLogic'
 
 export function FunnelStepsPicker(): JSX.Element | null {
@@ -36,7 +34,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                           labelInMenu: (
                               <>
                                   <span>Step {stepIndex + 1} – </span>
-                                  <EntityFilterInfo filter={seriesNodeToFilter(filterSteps[stepIndex])} />
+                                  <EntityFilterInfo filter={filterSteps[stepIndex]} />
                               </>
                           ),
                       }

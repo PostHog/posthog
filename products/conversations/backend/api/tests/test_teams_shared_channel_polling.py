@@ -3,6 +3,8 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from products.conversations.backend.models import (
@@ -74,7 +76,7 @@ def _channel_verify_resp() -> MagicMock:
     return _resp(json_data={"id": CHANNEL_ID, "membershipType": "shared"})
 
 
-class TestGraphMessageToActivity(BaseTest):
+class TestGraphMessageToActivity(SimpleTestCase):
     @parameterized.expand(
         [
             ("normal_message", _graph_message(), True),
@@ -97,7 +99,7 @@ class TestGraphMessageToActivity(BaseTest):
         self.assertEqual(activity["channelData"]["channel"]["id"], CHANNEL_ID)
 
 
-class TestGraphReplyToActivity(BaseTest):
+class TestGraphReplyToActivity(SimpleTestCase):
     @parameterized.expand(
         [
             ("normal_reply", _graph_message(reply_to_id="root-1"), True),

@@ -110,7 +110,6 @@ import math
 import hashlib
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
-from enum import StrEnum
 from typing import Optional
 
 from django.utils import timezone
@@ -127,6 +126,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.enums import LabeledStrEnum
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
@@ -314,31 +314,34 @@ class SessionEventDeltasUnavailable(Exception):
     "the variants behaved identically"."""
 
 
-class DeltaStrength(StrEnum):
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentWatchCardStrength(LabeledStrEnum):
     """How far apart a variant and the rest are, conservatively, in bands rather than as a number."""
 
     # Nobody in the other variants did it, among the people compared. A fact about the compared set
     # rather than a ratio, and the one band that is exact.
-    ONLY = "only"
-    FAR_MORE = "far_more"
-    MORE = "more"
-    SLIGHTLY_MORE = "slightly_more"
+    ONLY = "only", "only"
+    FAR_MORE = "far_more", "far_more"
+    MORE = "more", "more"
+    SLIGHTLY_MORE = "slightly_more", "slightly_more"
 
 
-class WatchCardKind(StrEnum):
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentWatchCardKind(LabeledStrEnum):
     # An event this variant did clearly more than the other variants together.
-    BEHAVIOR = "behavior"
+    BEHAVIOR = "behavior", "behavior"
     # Same evidence, but the event is an error/rage signal, so it reads as a defect lead.
-    FRICTION = "friction"
+    FRICTION = "friction", "friction"
     # An event only this variant can fire, because the variant is what renders it. Confirms the change is
     # live rather than saying anything about what people did with it.
-    VARIANT_ONLY = "variant_only"
+    VARIANT_ONLY = "variant_only", "variant_only"
     # A shortcut to recordings around one of the experiment's own metric events. No comparison
     # claim: what happened to the metric is the results tab's answer.
-    METRIC = "metric"
+    METRIC = "metric", "metric"
 
 
-class WatchEmptyReason(StrEnum):
+# The labels repeat the values because the published OpenAPI enum lists these exact pairs.
+class ExperimentWatchEmptyReason(LabeledStrEnum):
     """Why a shelf carries no cards. Set exactly when the shelf is empty.
 
     Each reason asks something different of the reader, so the frontend and the MCP tool report
@@ -347,11 +350,11 @@ class WatchEmptyReason(StrEnum):
 
     # Fewer than two variants cleared MIN_VARIANT_PERSONS. A rollout split that changed during the
     # run lands here too, undiagnosed, because the exposure chart already shows it.
-    TOO_EARLY = "too_early"
+    TOO_EARLY = "too_early", "too_early"
     # The variants were compared and no event told them apart.
-    NO_SEPARATION = "no_separation"
+    NO_SEPARATION = "no_separation", "no_separation"
     # Events told the variants apart, but no recording behind them can be opened.
-    NO_RECORDINGS = "no_recordings"
+    NO_RECORDINGS = "no_recordings", "no_recordings"
     # The experiment has exposed people and none of them has a session the scan can see in the
     # window. Only the sessions are read over the window; who counts as exposed is read over the
     # whole run, so the exposures can predate the window, which is why the copy must date the claim
@@ -359,7 +362,7 @@ class WatchEmptyReason(StrEnum):
     # captured the same way produces more exposed people without sessions. The read stops at the
     # request, though, so people exposed less than a horizon ago can still return, and the copy
     # must not claim the day has passed.
-    NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures"
+    NO_SESSION_LINKED_EXPOSURES = "no_session_linked_exposures", "no_session_linked_exposures"
 
 
 @dataclass(frozen=True)
@@ -415,12 +418,12 @@ class ExperimentWatchCard:
     recordings the card can actually show.
     """
 
-    kind: WatchCardKind
+    kind: ExperimentWatchCardKind
     event: str
     # The variant whose recordings these are — for comparison cards, the variant that did the event more.
     variant: str
     # None on metric cards: they are shortcuts, not comparisons.
-    strength: Optional[DeltaStrength]
+    strength: Optional[ExperimentWatchCardStrength]
     # The metric this card's event belongs to, on a shortcut card and on a comparison card alike.
     # Set means the results tab measures this event, so the card must be read as pointing there
     # rather than as a second answer.
@@ -473,13 +476,13 @@ class ExperimentWatchResult:
     too_early: bool
     # Settled per viewer in `finalize_watch_cards`: the recording access cut can empty a shelf the
     # scan built with findings on it.
-    empty_reason: Optional[WatchEmptyReason]
+    empty_reason: Optional[ExperimentWatchEmptyReason]
 
 
 @dataclass(frozen=True)
 class _Shelf:
     cards: list[ExperimentWatchCard]
-    empty_reason: Optional[WatchEmptyReason]
+    empty_reason: Optional[ExperimentWatchEmptyReason]
 
 
 def all_card_session_ids(result: ExperimentWatchResult) -> list[str]:
@@ -533,10 +536,12 @@ def finalize_watch_cards(result: ExperimentWatchResult, accessible_session_ids: 
 
 def _has_finding(cards: list[ExperimentWatchCard]) -> bool:
     """A metric shortcut claims nothing about the variants, so it cannot hold a shelf up alone."""
-    return any(card.kind != WatchCardKind.METRIC for card in cards)
+    return any(card.kind != ExperimentWatchCardKind.METRIC for card in cards)
 
 
-def _findings_or_nothing(cards: list[ExperimentWatchCard], empty_reason: Optional[WatchEmptyReason]) -> _Shelf:
+def _findings_or_nothing(
+    cards: list[ExperimentWatchCard], empty_reason: Optional[ExperimentWatchEmptyReason]
+) -> _Shelf:
     """The shelf, or nothing when only metric shortcuts are left on it.
 
     Shortcuts alone restate what the results tab already answers while reading as a finding.
@@ -546,7 +551,7 @@ def _findings_or_nothing(cards: list[ExperimentWatchCard], empty_reason: Optiona
     # No reason is set yet when the viewer's own recording access removed the findings. That case
     # must not be named: it would tell the viewer that recordings denied to them ran through this
     # experiment. "No recordings" is what they have either way.
-    return _Shelf(cards=[], empty_reason=empty_reason or WatchEmptyReason.NO_RECORDINGS)
+    return _Shelf(cards=[], empty_reason=empty_reason or ExperimentWatchEmptyReason.NO_RECORDINGS)
 
 
 def get_experiment_session_event_deltas(team: Team, user: User, experiment: Experiment) -> ExperimentWatchResult:
@@ -644,9 +649,9 @@ def get_experiment_session_event_deltas(team: Team, user: User, experiment: Expe
 
     # Empty variants read as too early, unless the people exposed have no sessions at all.
     no_comparison_reason = (
-        WatchEmptyReason.NO_SESSION_LINKED_EXPOSURES
+        ExperimentWatchEmptyReason.NO_SESSION_LINKED_EXPOSURES
         if scan.exposed_persons_without_session
-        else WatchEmptyReason.TOO_EARLY
+        else ExperimentWatchEmptyReason.TOO_EARLY
     )
     shelf = (
         _Shelf(cards=[], empty_reason=no_comparison_reason)
@@ -1291,7 +1296,7 @@ def _build_shelf(
         metric_names_by_event={named.event: named.metric_name for named in named_metric_events},
     )
     if not comparison_candidates:
-        return _Shelf(cards=[], empty_reason=WatchEmptyReason.NO_SEPARATION)
+        return _Shelf(cards=[], empty_reason=ExperimentWatchEmptyReason.NO_SEPARATION)
 
     metric_cards = _metric_card_candidates(
         named_metric_events,
@@ -1311,12 +1316,14 @@ def _build_shelf(
         metric_nodes=_shortcut_nodes(metric_cards, nodes_by_metric_event),
         enrollment=scan.enrollment,
     )
-    comparison_cards = [card for card in resolved if card.kind != WatchCardKind.METRIC]
+    comparison_cards = [card for card in resolved if card.kind != ExperimentWatchCardKind.METRIC]
     if not _has_finding(resolved):
         # Every finding died on the replay existence check; the surviving shortcuts alone are not
         # shown, so the shortcut recovery below has nothing to fill.
-        return _Shelf(cards=[], empty_reason=WatchEmptyReason.NO_RECORDINGS)
-    shortcut_by_pair = {(card.event, card.variant): card for card in resolved if card.kind == WatchCardKind.METRIC}
+        return _Shelf(cards=[], empty_reason=ExperimentWatchEmptyReason.NO_RECORDINGS)
+    shortcut_by_pair = {
+        (card.event, card.variant): card for card in resolved if card.kind == ExperimentWatchCardKind.METRIC
+    }
 
     # The shortcut selection is decided again now that survival is known: a comparison candidate
     # that died on the replay existence check must not keep suppressing its event's shortcuts, or
@@ -1383,22 +1390,22 @@ def _separation(
     return ratio, max(abs(math.log(ratio)) - CONFIDENCE_Z * standard_error, 0.0)
 
 
-def _strength(*, separation: float, baseline_count: int, target_count: int) -> DeltaStrength:
+def _strength(*, separation: float, baseline_count: int, target_count: int) -> ExperimentWatchCardStrength:
     """Which band the difference falls in, read off the conservative end of it rather than the raw
     one. A card that is only past the floor because the sample is large says "slightly", however
     big the point estimate looks."""
     if not baseline_count or not target_count:
-        return DeltaStrength.ONLY
+        return ExperimentWatchCardStrength.ONLY
     if separation >= FAR_MORE_LOG_RATIO:
-        return DeltaStrength.FAR_MORE
+        return ExperimentWatchCardStrength.FAR_MORE
     if separation >= MORE_LOG_RATIO:
-        return DeltaStrength.MORE
-    return DeltaStrength.SLIGHTLY_MORE
+        return ExperimentWatchCardStrength.MORE
+    return ExperimentWatchCardStrength.SLIGHTLY_MORE
 
 
 def _card_kind(
     *, event_name: str, target_count: int, target_persons: int, baseline_count: int, baseline_persons: int
-) -> WatchCardKind:
+) -> ExperimentWatchCardKind:
     """Which shelf a comparison card belongs on.
 
     Friction is decided first and beats everything: an error only the new variant throws is the
@@ -1412,14 +1419,14 @@ def _card_kind(
     and it needs the prediction to be large before an absence means anything at all.
     """
     if event_name in FRICTION_EVENTS:
-        return WatchCardKind.FRICTION
+        return ExperimentWatchCardKind.FRICTION
     expected_baseline = target_count / target_persons * baseline_persons
     if (
         expected_baseline >= VARIANT_ONLY_MIN_EXPECTED
         and baseline_count <= expected_baseline * VARIANT_ONLY_MAX_LEAKAGE
     ):
-        return WatchCardKind.VARIANT_ONLY
-    return WatchCardKind.BEHAVIOR
+        return ExperimentWatchCardKind.VARIANT_ONLY
+    return ExperimentWatchCardKind.BEHAVIOR
 
 
 def _pick_behavior_cards(
@@ -1486,13 +1493,13 @@ def _pick_behavior_cards(
     # capped low because it always sorts above everything else and is never the reason to open a
     # recording. Sharing one budget would let either of them push the whole behavior shelf out of
     # the response, which is the failure mode both splits exist to prevent.
-    by_kind: dict[WatchCardKind, list[ExperimentWatchCard]] = {}
+    by_kind: dict[ExperimentWatchCardKind, list[ExperimentWatchCard]] = {}
     for _separation_value, card in picked:
         by_kind.setdefault(card.kind, []).append(card)
     return (
-        by_kind.get(WatchCardKind.BEHAVIOR, [])[:MAX_BEHAVIOR_CARDS]
-        + by_kind.get(WatchCardKind.FRICTION, [])
-        + by_kind.get(WatchCardKind.VARIANT_ONLY, [])[:MAX_VARIANT_ONLY_CARDS]
+        by_kind.get(ExperimentWatchCardKind.BEHAVIOR, [])[:MAX_BEHAVIOR_CARDS]
+        + by_kind.get(ExperimentWatchCardKind.FRICTION, [])
+        + by_kind.get(ExperimentWatchCardKind.VARIANT_ONLY, [])[:MAX_VARIANT_ONLY_CARDS]
     )
 
 
@@ -1523,7 +1530,7 @@ def _drop_duplicate_recording_sets(cards: list[ExperimentWatchCard]) -> list[Exp
     be backed by a recording at all.
     """
     kept: list[ExperimentWatchCard] = []
-    seen_by_kind: dict[WatchCardKind, list[set[str]]] = {}
+    seen_by_kind: dict[ExperimentWatchCardKind, list[set[str]]] = {}
     for card in cards:
         session_ids = set(card.session_ids)
         shelf = seen_by_kind.setdefault(card.kind, [])
@@ -1615,7 +1622,7 @@ def _metric_card_candidates(
     ][:MAX_METRIC_CARD_EVENTS]
     return [
         ExperimentWatchCard(
-            kind=WatchCardKind.METRIC,
+            kind=ExperimentWatchCardKind.METRIC,
             event=named.event,
             variant=variant_key,
             strength=None,

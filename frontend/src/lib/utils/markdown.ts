@@ -44,7 +44,12 @@ function resolveUrl(href: string): string {
     }
     // Relative URL - prefix with current origin
     if (typeof window !== 'undefined') {
-        return new URL(href, window.location.origin).href
+        try {
+            return new URL(href, window.location.origin).href
+        } catch {
+            // marked accepts links that URL rejects, such as `//[bad`, and callers render this output
+            return href
+        }
     }
     return href
 }

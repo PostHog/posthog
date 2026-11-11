@@ -51,9 +51,12 @@ class DigestBatchTotals:
         return self.build_duration + self.send_duration
 
     @property
+    def orgs_attempted(self) -> int:
+        return self.orgs_processed + self.orgs_failed
+
+    @property
     def failure_rate(self) -> float:
-        attempted = self.orgs_processed + self.orgs_failed
-        return self.orgs_failed / attempted if attempted > 0 else 0.0
+        return self.orgs_failed / self.orgs_attempted if self.orgs_attempted > 0 else 0.0
 
     def __iadd__(self, other: Self) -> Self:
         for f in dataclasses.fields(self):

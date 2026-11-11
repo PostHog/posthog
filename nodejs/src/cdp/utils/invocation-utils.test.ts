@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
+import { DependencyUnavailableError } from '~/common/utils/db/error'
+
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
 import { HogInputsService } from '../services/hog-inputs.service'
@@ -35,6 +37,7 @@ describe('Invocation utils', () => {
 
             expect(invocations).toHaveLength(1)
             expect(invocations[0].state.globals.source).toEqual({
+                id: fn.id,
                 name: 'Hog Function',
                 url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
             })
@@ -324,10 +327,13 @@ describe('Invocation utils', () => {
                 new Error('Unsupported unit for dateDiff: super secret')
             )
 
-            const { logs } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
+            const { logs, buildFailures } = await buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())
 
             expect(logs[0].message).toContain('Unsupported unit for dateDiff: ***REDACTED***')
             expect(logs[0].message).not.toContain('super secret')
+            // The failure is redacted on its own path, and it leaves the process as a header on the parked record.
+            expect(buildFailures[0].error).toContain('Unsupported unit for dateDiff: ***REDACTED***')
+            expect(buildFailures[0].error).not.toContain('super secret')
             jest.restoreAllMocks()
         })
 
@@ -345,6 +351,23 @@ describe('Invocation utils', () => {
 
             expect(logs[0].message.length).toBeLessThan(MAX_LOG_LENGTH + 100)
             expect(logs[0].message).toContain('(truncated)')
+            jest.restoreAllMocks()
+        })
+
+        it('rethrows a dependency outage instead of reporting it as an inputs failure', async () => {
+            const fn = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+            const outage = new DependencyUnavailableError(
+                'connect ECONNREFUSED',
+                'Postgres',
+                new Error('connect ECONNREFUSED')
+            )
+            jest.spyOn(hogInputsService, 'buildInputsWithGlobals').mockRejectedValue(outage)
+
+            await expect(buildHogFunctionInvocations(hogInputsService, [fn], pageviewGlobals())).rejects.toBe(outage)
             jest.restoreAllMocks()
         })
     })

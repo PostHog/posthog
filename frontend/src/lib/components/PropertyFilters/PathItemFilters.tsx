@@ -1,14 +1,18 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, PropertyFilterRow } from '~/types'
 
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { propertyFilterLogic } from './propertyFilterLogic'
+import { isPropertyGroupFilterLike } from './utils'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
@@ -29,14 +33,17 @@ export function PathItemFilters({
     const logicProps = { propertyFilters, onChange, pageKey }
     const { filtersWithNew, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { setFilter, remove } = useActions(propertyFilterLogic(logicProps))
+    const quillSurface = useQuillSurface()
 
     return (
         <BindLogic logic={propertyFilterLogic} props={logicProps}>
-            {filtersWithNew?.map((filter: AnyPropertyFilter, index: number) => {
+            {filtersWithNew?.map((row: PropertyFilterRow, index: number) => {
+                // Path filters are always leaf rows, so a nested group never reaches this editor.
+                const filter = isPropertyGroupFilterLike(row) ? null : row
                 return (
                     <div key={filterIdsWithNew[index]} className="mb-2">
                         <PathItemSelector
-                            pathItem={filter.value as string | undefined}
+                            pathItem={filter?.value as string | undefined}
                             onChange={(pathItem) =>
                                 setFilter(index, {
                                     key: pathItem,
@@ -49,7 +56,16 @@ export function PathItemFilters({
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             wildcardOptions={wildcardOptions}
                         >
-                            {!filter.value ? (
+                            {!filter?.value && quillSurface ? (
+                                <Button
+                                    variant="outline"
+                                    className="new-prop-filter"
+                                    data-attr={'new-prop-filter-' + pageKey}
+                                >
+                                    <IconPlus />
+                                    Add exclusion
+                                </Button>
+                            ) : !filter?.value ? (
                                 <LemonButton
                                     className="new-prop-filter"
                                     data-attr={'new-prop-filter-' + pageKey}

@@ -1,19 +1,20 @@
-import { AnyPropertyFilter, EntityTypes, PropertyFilterType, PropertyOperator } from '~/types'
+import { NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import {
-    filterToActionStep,
-    generateActionNameFromFilter,
-    isAutocaptureFilterWithElements,
+    generateActionNameFromSeriesNode,
+    isAutocaptureSeriesWithElements,
     operatorToStringMatching,
+    seriesNodeToActionStep,
 } from './saveAsActionUtils'
-import { makeFilter } from './testHelpers'
+import { makeSeriesNode } from './testHelpers'
 
 describe('saveAsActionUtils', () => {
-    describe('isAutocaptureFilterWithElements', () => {
+    describe('isAutocaptureSeriesWithElements', () => {
         it.each([
             [
                 'autocapture with $el_text property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -27,7 +28,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'autocapture with element text property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'text',
@@ -41,7 +42,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'autocapture with selector property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'selector',
@@ -55,7 +56,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'autocapture with href property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'href',
@@ -69,7 +70,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'autocapture with no element properties',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$browser',
@@ -81,10 +82,10 @@ describe('saveAsActionUtils', () => {
                 }),
                 false,
             ],
-            ['autocapture with empty properties', makeFilter({ properties: [] }), false],
+            ['autocapture with empty properties', makeSeriesNode({ properties: [] }), false],
             [
                 'autocapture with only negated element operators',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -98,7 +99,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'selector with regex operator (no matching field to store it)',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'selector',
@@ -112,7 +113,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'selector with icontains operator (no matching field to store it)',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'selector',
@@ -126,8 +127,8 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'non-autocapture event with element-like properties',
-                makeFilter({
-                    id: '$pageview',
+                makeSeriesNode({
+                    event: '$pageview',
                     name: '$pageview',
                     properties: [
                         {
@@ -142,10 +143,10 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'action type filter',
-                makeFilter({
-                    id: '123',
+                makeSeriesNode({
+                    kind: NodeKind.ActionsNode,
+                    id: 123,
                     name: 'My Action',
-                    type: EntityTypes.ACTIONS,
                     properties: [
                         {
                             key: '$el_text',
@@ -158,7 +159,7 @@ describe('saveAsActionUtils', () => {
                 false,
             ],
         ])('%s → %s', (_description, filter, expected) => {
-            expect(isAutocaptureFilterWithElements(filter)).toBe(expected)
+            expect(isAutocaptureSeriesWithElements(filter)).toBe(expected)
         })
     })
 
@@ -178,9 +179,9 @@ describe('saveAsActionUtils', () => {
         })
     })
 
-    describe('filterToActionStep', () => {
+    describe('seriesNodeToActionStep', () => {
         it('converts $el_text property to text field', () => {
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: '$el_text',
@@ -190,7 +191,7 @@ describe('saveAsActionUtils', () => {
                     },
                 ],
             })
-            expect(filterToActionStep(filter)).toEqual({
+            expect(seriesNodeToActionStep(filter)).toEqual({
                 event: '$autocapture',
                 text: 'Submit',
                 text_matching: 'exact',
@@ -198,7 +199,7 @@ describe('saveAsActionUtils', () => {
         })
 
         it('converts element text property to text field', () => {
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: 'text',
@@ -208,7 +209,7 @@ describe('saveAsActionUtils', () => {
                     },
                 ],
             })
-            expect(filterToActionStep(filter)).toEqual({
+            expect(seriesNodeToActionStep(filter)).toEqual({
                 event: '$autocapture',
                 text: 'Click me',
                 text_matching: 'contains',
@@ -216,7 +217,7 @@ describe('saveAsActionUtils', () => {
         })
 
         it('converts selector property', () => {
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: 'selector',
@@ -226,14 +227,14 @@ describe('saveAsActionUtils', () => {
                     },
                 ],
             })
-            expect(filterToActionStep(filter)).toEqual({
+            expect(seriesNodeToActionStep(filter)).toEqual({
                 event: '$autocapture',
                 selector: '.btn-primary',
             })
         })
 
         it('converts href property', () => {
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: 'href',
@@ -243,7 +244,7 @@ describe('saveAsActionUtils', () => {
                     },
                 ],
             })
-            expect(filterToActionStep(filter)).toEqual({
+            expect(seriesNodeToActionStep(filter)).toEqual({
                 event: '$autocapture',
                 href: '/signup',
                 href_matching: 'regex',
@@ -251,7 +252,7 @@ describe('saveAsActionUtils', () => {
         })
 
         it('combines multiple element properties', () => {
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: '$el_text',
@@ -267,7 +268,7 @@ describe('saveAsActionUtils', () => {
                     },
                 ],
             })
-            expect(filterToActionStep(filter)).toEqual({
+            expect(seriesNodeToActionStep(filter)).toEqual({
                 event: '$autocapture',
                 text: 'Submit',
                 text_matching: 'exact',
@@ -282,7 +283,7 @@ describe('saveAsActionUtils', () => {
                 operator: PropertyOperator.Exact,
                 type: PropertyFilterType.Event,
             }
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: '$el_text',
@@ -293,7 +294,7 @@ describe('saveAsActionUtils', () => {
                     browserProp,
                 ],
             })
-            const result = filterToActionStep(filter)
+            const result = seriesNodeToActionStep(filter)
             expect(result.text).toBe('Submit')
             expect(result.properties).toEqual([browserProp])
         })
@@ -305,10 +306,10 @@ describe('saveAsActionUtils', () => {
                 operator: PropertyOperator.NotIContains,
                 type: PropertyFilterType.Event,
             }
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [negatedProp],
             })
-            const result = filterToActionStep(filter)
+            const result = seriesNodeToActionStep(filter)
             expect(result.text).toBeUndefined()
             expect(result.properties).toEqual([negatedProp])
         })
@@ -320,10 +321,10 @@ describe('saveAsActionUtils', () => {
                 operator: PropertyOperator.Exact,
                 type: PropertyFilterType.Event,
             }
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [arrayProp],
             })
-            const result = filterToActionStep(filter)
+            const result = seriesNodeToActionStep(filter)
             expect(result.text).toBeUndefined()
             expect(result.properties).toEqual([arrayProp])
         })
@@ -335,7 +336,7 @@ describe('saveAsActionUtils', () => {
                 operator: PropertyOperator.Exact,
                 type: PropertyFilterType.Event,
             }
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: '$el_text',
@@ -346,17 +347,17 @@ describe('saveAsActionUtils', () => {
                     secondTextProp,
                 ],
             })
-            const result = filterToActionStep(filter)
+            const result = seriesNodeToActionStep(filter)
             expect(result.text).toBe('Submit')
             expect(result.properties).toEqual([secondTextProp])
         })
     })
 
-    describe('generateActionNameFromFilter', () => {
+    describe('generateActionNameFromSeriesNode', () => {
         it.each([
             [
                 'text property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -370,7 +371,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'selector property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'selector',
@@ -384,7 +385,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'href property',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: 'href',
@@ -398,7 +399,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'text takes priority over selector',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -418,7 +419,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'array value uses first element',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -432,7 +433,7 @@ describe('saveAsActionUtils', () => {
             ],
             [
                 'skips negated props and uses next valid prop for name',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -450,10 +451,10 @@ describe('saveAsActionUtils', () => {
                 }),
                 'Autocapture: .btn',
             ],
-            ['empty properties', makeFilter({ properties: [] }), 'Autocapture action'],
+            ['empty properties', makeSeriesNode({ properties: [] }), 'Autocapture action'],
             [
                 'properties with empty values',
-                makeFilter({
+                makeSeriesNode({
                     properties: [
                         {
                             key: '$el_text',
@@ -466,12 +467,12 @@ describe('saveAsActionUtils', () => {
                 'Autocapture action',
             ],
         ])('%s → %s', (_description, filter, expected) => {
-            expect(generateActionNameFromFilter(filter)).toBe(expected)
+            expect(generateActionNameFromSeriesNode(filter)).toBe(expected)
         })
 
         it('truncates long values', () => {
             const longText = 'a'.repeat(100)
-            const filter = makeFilter({
+            const filter = makeSeriesNode({
                 properties: [
                     {
                         key: '$el_text',
@@ -481,7 +482,7 @@ describe('saveAsActionUtils', () => {
                     },
                 ],
             })
-            const name = generateActionNameFromFilter(filter)
+            const name = generateActionNameFromSeriesNode(filter)
             expect(name.length).toBeLessThan(70)
             expect(name).toContain('...')
         })

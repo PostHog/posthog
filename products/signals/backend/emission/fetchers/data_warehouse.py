@@ -8,6 +8,8 @@ from posthog.hogql.escape_sql import escape_hogql_identifier
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.workload import Workload
 from posthog.models import Team
 
 from products.signals.backend.contracts import scope_ids_problem
@@ -63,8 +65,9 @@ def data_warehouse_record_fetcher(
     scope_ids = scope_ids_from_source_config(config, context.get("source_config"))
     where_parts: list[str] = []
     placeholders: dict[str, Any] = {}
+    # toString() keeps the parse valid when the warehouse stored the column as a native timestamp.
     partition_expr = (
-        f"parseDateTimeBestEffort({config.partition_field})"
+        f"parseDateTimeBestEffort(toString({config.partition_field}))"
         if config.partition_field_is_datetime_string
         else config.partition_field
     )
@@ -84,10 +87,12 @@ def data_warehouse_record_fetcher(
     where_sql = " AND ".join(where_parts)
     fields_sql = ", ".join(config.fields)
     # Limiting can cause a data loss, as the missed records won't be picked in the next sync, but it's acceptable for the current use case
+    order_sql = f"ORDER BY {config.order_by}" if config.order_by else ""
     query = f"""
         SELECT {fields_sql}
         FROM {escape_table_name(table_name)}
         WHERE {where_sql}
+        {order_sql}
         LIMIT {config.max_records}
     """
     logger.info(
@@ -109,7 +114,12 @@ def data_warehouse_record_fetcher(
         # Internal data-import signal fetcher (no user); bypass warehouse HogQL access control so it
         # can read the source warehouse table.
         result = execute_hogql_query(
-            query=parsed, team=team, query_type="EmitSignalsNewRecords", bypass_warehouse_access_control=True
+            query=parsed,
+            team=team,
+            query_type="EmitSignalsNewRecords",
+            bypass_warehouse_access_control=True,
+            ch_user=ClickHouseUser.SIGNALS,
+            workload=Workload.OFFLINE,
         )
     except Exception as e:
         logger.exception(f"Error querying new records: {e}", **extra)

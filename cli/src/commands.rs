@@ -9,7 +9,10 @@ use crate::{
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
     error::CapturedError,
-    experimental::{endpoints::EndpointCommand, query::command::QueryCommand, tasks::TaskCommand},
+    experimental::{
+        endpoints::EndpointCommand, logs::command::LogsCommand, query::command::QueryCommand,
+        tasks::TaskCommand,
+    },
     invocation_context::{
         capture_command_run_without_context, context, init_context, set_telemetry_command_name,
         set_telemetry_env_id_from_environment, INVOCATION_CONTEXT,
@@ -40,13 +43,11 @@ pub struct Cli {
     rate_limit: Option<usize>,
 
     /// Load PostHog credentials from this dotenv-style file when not present in the process
-    /// environment. Prefer this over the `--env-file` alias: the npm package runs the binary
-    /// through a `node` wrapper, and Node's own built-in `--env-file` flag intercepts that spelling.
+    /// environment.
     /// Also settable as `POSTHOG_CLI_DOTENV_FILE`, for callers that control the environment but
     /// not the command line (e.g. an Xcode build phase invoking the iOS SDK's upload-symbols.sh).
     #[arg(
         long = "dotenv-file",
-        alias = "env-file",
         value_name = "PATH",
         env = "POSTHOG_CLI_DOTENV_FILE"
     )]
@@ -229,6 +230,12 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
+    /// Import historical logs into PostHog from another log store
+    Logs {
+        #[command(subcommand)]
+        cmd: LogsCommand,
+    },
+
     // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
     #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
@@ -305,6 +312,9 @@ impl Commands {
 impl ExpCommand {
     fn telemetry_command_name(&self) -> &'static str {
         match self {
+            ExpCommand::Logs { cmd } => match cmd {
+                LogsCommand::Import { .. } => "logs_import",
+            },
             ExpCommand::Task { cmd, .. } => match cmd {
                 TaskCommand::List { .. } => "task_list",
                 TaskCommand::Progress { .. } => "task_progress",
@@ -527,6 +537,9 @@ impl Cli {
                 ExpCommand::Endpoints { cmd } => {
                     cmd.run()?;
                 }
+                ExpCommand::Logs { cmd } => {
+                    cmd.run()?;
+                }
                 // TODO(sept 2026): remove these backward-compat aliases
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {
@@ -598,6 +611,18 @@ mod tests {
             arg.get_env(),
             Some(std::ffi::OsStr::new("POSTHOG_CLI_DOTENV_FILE"))
         );
+    }
+
+    #[test]
+    fn dotenv_file_flag_has_no_env_file_spelling() {
+        let cli = Cli::try_parse_from(["posthog-cli", "--dotenv-file", ".env", "login"]).unwrap();
+        assert_eq!(cli.env_file, Some(PathBuf::from(".env")));
+
+        let err = Cli::try_parse_from(["posthog-cli", "--env-file", ".env", "login"])
+            .err()
+            .expect("--env-file is not a supported spelling");
+        assert_eq!(err.kind(), clap::error::ErrorKind::UnknownArgument);
+        assert!(err.to_string().contains("--dotenv-file"));
     }
 
     #[test]

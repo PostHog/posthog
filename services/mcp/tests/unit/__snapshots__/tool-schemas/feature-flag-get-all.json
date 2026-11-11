@@ -2,6 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "active": {
+            "description": "Filter by flag state. `\"true\"` returns enabled flags, `\"false\"` returns disabled flags, and `\"STALE\"` returns enabled flags that PostHog classifies as stale.",
             "enum": ["STALE", "false", "true"],
             "type": "string"
         },
@@ -12,6 +13,11 @@
         },
         "created_by_id": {
             "description": "Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.",
+            "type": "string"
+        },
+        "deleted": {
+            "description": "Pass `true` to list only soft-deleted flags, which can be restored, archived or not. When omitted, deleted flags are excluded.",
+            "enum": ["false", "true"],
             "type": "string"
         },
         "eligible_for_experiment": {

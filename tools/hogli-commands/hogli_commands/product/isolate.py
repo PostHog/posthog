@@ -18,9 +18,11 @@ decisions — deliberately stays with the engineer or agent.
 
 from __future__ import annotations
 
+import io
 import re
 import ast
 import shutil
+import tokenize
 import subprocess
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -130,7 +132,7 @@ def strict_preflight(name: str) -> list[str]:
         name=name,
         product_dir=product_dir,
         backend_dir=product_dir / "backend",
-        is_isolated=True,
+        has_facade_contracts=True,
         structure=load_structure(),
         detailed=False,
     )
@@ -270,32 +272,48 @@ def rewrite_paths(text: str, renames: dict[str, str]) -> str:
 def _args_span(text: str, open_idx: int) -> int | None:
     """Index just past the ``)`` that balances the ``(`` at ``text[open_idx]``.
 
-    Counts nesting and skips string literals, so decorator args that contain
+    Uses the Python tokenizer, so parens inside string literals (triple-quoted
+    ones too) and inside comments do not count, and decorator args that contain
     their own parens (``expires=timedelta(hours=1)``) are matched whole instead
-    of being truncated at the first ``)``. Returns None if the parens never
-    balance.
+    of being truncated at the first ``)``. Returns None if the parens never balance.
     """
+    source = text[open_idx:]
+    line_starts = [0, *(match.end() for match in re.finditer("\n", source))]
     depth = 0
-    quote: str | None = None
-    i = open_idx
-    while i < len(text):
-        ch = text[i]
-        if quote is not None:
-            if ch == "\\":
-                i += 2
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type != tokenize.OP or tok.string not in "()":
                 continue
-            if ch == quote:
-                quote = None
-        elif ch in "\"'":
-            quote = ch
-        elif ch == "(":
-            depth += 1
-        elif ch == ")":
-            depth -= 1
+            depth += 1 if tok.string == "(" else -1
             if depth == 0:
-                return i + 1
-        i += 1
+                row, col = tok.end
+                return open_idx + line_starts[row - 1] + col
+    except (tokenize.TokenError, SyntaxError):
+        return None
     return None
+
+
+def _strip_comments(source: str) -> str:
+    """Drop the comments from ``source``, and drop lines that hold only a comment.
+
+    Tokenizes the whole text at once, so a ``#`` inside a string literal (also a
+    triple-quoted one that spans lines) stays. Returns ``source`` unchanged if it
+    cannot be tokenized.
+    """
+    try:
+        comments = [
+            tok.start for tok in tokenize.generate_tokens(io.StringIO(source).readline) if tok.type == tokenize.COMMENT
+        ]
+    except tokenize.TokenError:
+        return source
+    lines = source.split("\n")
+    for row, col in reversed(comments):
+        code = lines[row - 1][:col].rstrip()
+        if code:
+            lines[row - 1] = code
+        else:
+            del lines[row - 1]
+    return "\n".join(lines)
 
 
 def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
@@ -331,7 +349,8 @@ def pin_task_names(text: str, module_path: str) -> tuple[str, list[str]]:
         if args is None:
             replacement = f'@shared_task(name="{pinned_name}")'
         else:
-            inner = args[1:-1].strip()
+            # A comment after the last argument would swallow the appended name=.
+            inner = _strip_comments(args)[1:-1].strip().rstrip(",").rstrip()
             joined = f'{inner}, name="{pinned_name}"' if inner else f'name="{pinned_name}"'
             replacement = f"@shared_task({joined})"
         text = text[: dec.start()] + replacement + text[args_end:]

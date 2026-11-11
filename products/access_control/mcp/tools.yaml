@@ -1,9 +1,7 @@
-# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
-# The tool list and operation IDs are kept in sync automatically:
-#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-#
-# To enable a tool, set enabled: true and add required scopes + annotations.
-# All other fields (title, description, enrich_url, etc.) are yours to configure.
+# MCP tool definitions. Tools are opt-in: an operation is exposed only when it has an entry here.
+# List operations without an entry: pnpm --filter=@posthog/mcp run scaffold-yaml -- --candidates --product access_control
+# Add one: pnpm --filter=@posthog/mcp run scaffold-yaml -- --add <operationId> --product access_control
+# To keep an operation off on purpose, set enabled: false and give a disabled_reason.
 category: Access control
 feature: access_control
 url_prefix: /settings/environment-access-control
@@ -65,12 +63,13 @@ tools:
         description: >
             Sets the level everyone in the project gets for one scope when they have no member rule or role rule of
             their own there. Use it to change the project baseline (`resource: project` with the project id as
-            `resource_id`, level `member` or `admin`), the default for a whole tool (`resource: dashboard`, level
-            `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event property
-            (`resource: property_definition` with the property definition id as `resource_id`, level `none`, `read` or
-            `read_write`). A null `access_level` removes the rule, so the scope falls back to its inherited level. An
-            empty result means the rule is cleared. Read access-control-defaults-get first and tell the user the current
-            and the new level before you ask for confirmation. Requires human typed confirmation.
+            `resource_id`, level `none`, `member` or `admin`), the default for a whole tool (`resource: dashboard`,
+            level `none`, `viewer`, `editor` or `manager`), one object (add `resource_id`), or one person or event
+            property (`resource: property_definition` with the property definition id as `resource_id`, level `none`,
+            `read` or `read_write`). A project level of `none` blocks access to the project and its resources. A null
+            `access_level` removes the rule, so the scope falls back to its inherited level. An empty result means the
+            rule is cleared. Read access-control-defaults-get first and tell the user the current and new level before
+            asking for confirmation. Requires human typed confirmation.
         agent_note: >
             A member rule or a role rule on the same scope still wins over this default. Verify the result with
             access-control-defaults-get or access-control-members-list.
@@ -98,8 +97,8 @@ tools:
         confirmed_action:
             message: >
                 About to set the default {resource} access rule in project {id} to {access_level}, for object
-                {resource_id} (null means the whole tool; a null level clears the rule). This changes what every member
-                without a rule of their own gets. Reply 'confirm' to proceed.
+                {resource_id} (null means the whole tool; a null level clears the rule). A project level of `none`
+                blocks access to the project and its resources. Reply 'confirm' to proceed.
             action_label: change the default access rule
     access-control-defaults-get:
         operation: organizations_projects_access_control_defaults_retrieve
@@ -112,11 +111,11 @@ tools:
             idempotent: true
         title: Get the project's default access
         description: >
-            The access everyone in the project gets unless a rule of their own, or a role's rule, says otherwise: the
-            default project level (member or admin) and the default level per tool (none, viewer, editor, manager), with
-            the lowest and highest level each tool allows. Also lists which tools accept rules on single objects, such
-            as one dashboard or one notebook. Start here to understand a project's baseline before checking a member or
-            a role.
+            The access everyone in the project gets unless a member or role rule says otherwise: the default project
+            level (none, member or admin) and the default level per tool (none, viewer, editor or manager), with the
+            lowest and highest level each tool allows. A project level of `none` blocks access to the project and its
+            resources. Also lists which tools accept rules on single objects, such as one dashboard or one notebook.
+            Start here to understand a project's baseline before checking a member or role.
         agent_note: >
             access-control-members-list or access-control-roles-list show who deviates from this baseline.
             access-control-default-objects-list and access-control-default-properties-list show defaults set on single
@@ -202,13 +201,13 @@ tools:
         description: >
             Sets the level one organization member gets for one scope. A member rule applies to that person only and
             wins over their role rules and the default. The scope is the project (`resource: project` with the project
-            id as `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`,
+            id as `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`,
             `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource:
-            property_definition`, level `none`, `read` or `read_write`). A null `access_level` removes the member's
-            rule, so they fall back to their role rules or the default. An empty result means the rule is cleared. When
-            several people need the same change, prefer a role rule. Read access-control-members-list with `member_id`
-            first and tell the user the current and the new level before you ask for confirmation. Requires human typed
-            confirmation.
+            property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the
+            project and its resources. A null `access_level` removes the member's rule, so they fall back to their role
+            rules or the default. An empty result means the rule is cleared. When several people need the same change,
+            prefer a role rule. Read access-control-members-list with `member_id` first and tell the user the current
+            and new level before asking for confirmation. Requires human typed confirmation.
         agent_note: >
             Organization admins and owners have full access regardless of rules. Verify the result with
             access-control-members-list and `member_id`.
@@ -345,12 +344,13 @@ tools:
         description: >
             Sets the level every member of one role gets for one scope. A role rule wins over the default, and a
             member's own rule wins over it. The scope is the project (`resource: project` with the project id as
-            `resource_id`, level `member` or `admin`), a whole tool (`resource: dashboard`, level `none`, `viewer`,
-            `editor` or `manager`), one object (add `resource_id`), or one property (`resource: property_definition`,
-            level `none`, `read` or `read_write`). A null `access_level` removes the role's rule. An empty result means
-            the rule is cleared. Role rules are enforced only on plans with role-based access. Read
-            access-control-roles-list with `role_id` first and tell the user the current and the new level before you
-            ask for confirmation. Requires human typed confirmation.
+            `resource_id`, level `none`, `member` or `admin`), a whole tool (`resource: dashboard`, level `none`,
+            `viewer`, `editor` or `manager`), one object (add `resource_id`), or one property (`resource:
+            property_definition`, level `none`, `read` or `read_write`). A project level of `none` blocks access to the
+            project and its resources. A null `access_level` removes the role's rule. An empty result means the rule is
+            cleared. Role rules are enforced only on plans with role-based access. Read access-control-roles-list with
+            `role_id` first and tell the user the current and new level before asking for confirmation. Requires human
+            typed confirmation.
         agent_note: |
             Who is in the role is on role-members-list. Verify the result with access-control-roles-list and `role_id`.
         param_overrides:
@@ -420,15 +420,3 @@ tools:
                 - project.maximum
                 - resources.*.minimum
                 - resources.*.maximum
-    members-project-access-retrieve:
-        operation: members_project_access_retrieve
-        enabled: false
-    property-access-controls-create:
-        operation: property_access_controls_create
-        enabled: false
-    property-access-controls-destroy:
-        operation: property_access_controls_destroy
-        enabled: false
-    property-access-controls-retrieve:
-        operation: property_access_controls_retrieve
-        enabled: false

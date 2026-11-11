@@ -1,15 +1,23 @@
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from types import SimpleNamespace
 
-from unittest.mock import patch
+import pytest
+from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.aeo.backend.engines import (
+    GATEWAY_MAX_ATTEMPTS,
     OPENAI_MAX_OUTPUT_TOKENS,
     CitationCheck,
+    ClaudeWebSearchEngine,
     OpenAIWebSearchEngine,
+    _SharedBackoff,
     anthropic_truncated_error,
     build_check_fields,
+    gateway_post_json,
     is_target_url,
     openai_response_error,
     parse_anthropic_citations,
@@ -219,6 +227,29 @@ def test_openai_engine_run_wires_response_error(_name: str, body: dict, expected
         assert check.cited_urls  # completed body carries citations
 
 
+def test_claude_engine_calls_web_search_directly() -> None:
+    captured: dict = {}
+
+    def fake_post(_session, _url, _headers, payload, **_kwargs):
+        captured["payload"] = payload
+        return ANTHROPIC_BODY
+
+    with (
+        patch(
+            "products.aeo.backend.engines.resolve_ai_gateway_config",
+            return_value=SimpleNamespace(url="https://gw.test/v1", api_key="k"),
+        ),
+        patch("products.aeo.backend.engines.ai_gateway_headers", return_value={}),
+        patch("products.aeo.backend.engines.gateway_post_json", side_effect=fake_post),
+    ):
+        check = ClaudeWebSearchEngine().run("best session replay tool", trace_id="t1", custom_properties={})
+
+    [tool] = captured["payload"]["tools"]
+    assert tool["allowed_callers"] == ["direct"]
+    assert check.error is None
+    assert check.cited_urls == ["https://posthog.com/session-replay", "https://example.com/reviews"]
+
+
 def test_parse_exa_citations() -> None:
     parsed = parse_exa_citations(EXA_BODY)
     assert parsed.answer_text == "PostHog is one option."
@@ -326,3 +357,78 @@ def test_engine_derived_text_is_sanitized_before_it_reaches_the_event() -> None:
     # Sanitizing must not move the verdict: it runs on the recorded copy only.
     assert fields["cited"] is True
     assert fields["target_best_position"] == 1
+
+
+def _response(status: int, retry_after: str | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status
+    response._content = b'{"ok": true}'
+    if retry_after is not None:
+        response.headers["Retry-After"] = retry_after
+    return response
+
+
+@parameterized.expand(
+    [
+        ("throttled_then_ok", [_response(429, retry_after="7"), _response(200)], None, 2, [7.0]),
+        ("transient_until_attempts_run_out", [_response(503)] * GATEWAY_MAX_ATTEMPTS, requests.HTTPError, 3, [5, 10]),
+        ("client_error_is_not_retried", [_response(400)], requests.HTTPError, 1, []),
+    ]
+)
+def test_gateway_post_json_retries_throttling_and_transient_errors(
+    _name: str, responses: list, raises: type[Exception] | None, posts: int, sleeps: list[float]
+) -> None:
+    session = MagicMock(spec=requests.Session)
+    session.post.side_effect = responses
+
+    with (
+        patch("products.aeo.backend.engines.GATEWAY_BACKOFF", _SharedBackoff()),
+        _fake_clock() as sleep,
+    ):
+        if raises is None:
+            assert gateway_post_json(session, "https://gw.test", {}, {}) == {"ok": True}
+        else:
+            with pytest.raises(raises):
+                gateway_post_json(session, "https://gw.test", {}, {})
+
+    assert session.post.call_count == posts
+    assert [call.args[0] for call in sleep.call_args_list] == sleeps
+
+
+@parameterized.expand(
+    [
+        ("shorter_pause_does_not_cut_a_longer_one", [30, 5], None, [30.0]),
+        ("pause_extended_during_the_sleep", [30], 60, [30.0, 30.0]),
+    ]
+)
+def test_shared_backoff_waits_for_the_latest_deadline(
+    _name: str, pauses: list[float], extend_during_sleep: float | None, sleeps: list[float]
+) -> None:
+    backoff = _SharedBackoff()
+
+    def other_worker_pauses() -> None:
+        if extend_during_sleep is not None:
+            backoff.pause(extend_during_sleep)
+
+    with _fake_clock(on_first_sleep=other_worker_pauses) as sleep:
+        for seconds in pauses:
+            backoff.pause(seconds)
+        backoff.wait()
+
+    assert [call.args[0] for call in sleep.call_args_list] == sleeps
+
+
+@contextmanager
+def _fake_clock(on_first_sleep: Callable[[], None] | None = None) -> Iterator[MagicMock]:
+    now = [100.0]
+
+    def sleep(seconds: float) -> None:
+        if on_first_sleep is not None and sleep_mock.call_count == 1:
+            on_first_sleep()
+        now[0] += seconds
+
+    with (
+        patch("products.aeo.backend.engines.time.monotonic", side_effect=lambda: now[0]),
+        patch("products.aeo.backend.engines.time.sleep", side_effect=sleep) as sleep_mock,
+    ):
+        yield sleep_mock

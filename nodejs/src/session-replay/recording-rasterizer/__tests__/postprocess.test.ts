@@ -1,4 +1,8 @@
-import { computeVideoTimestamps, videoTimestampsFromFrames } from '~/session-replay/recording-rasterizer/postprocess'
+import {
+    computeVideoTimestamps,
+    navigationFromFrames,
+    videoTimestampsFromFrames,
+} from '~/session-replay/recording-rasterizer/postprocess'
 import { InactivityPeriod } from '~/session-replay/recording-rasterizer/types'
 
 describe('computeVideoTimestamps', () => {
@@ -202,5 +206,28 @@ describe('videoTimestampsFromFrames', () => {
 
     it('falls back to the predicted mapping when capture reported no timeline', () => {
         expect(videoTimestampsFromFrames(periods, [], 3)).toEqual(computeVideoTimestamps(periods))
+    })
+})
+
+describe('navigationFromFrames', () => {
+    it('places a change revealed by a skip on the first frame past the skip, and drops one past the end', () => {
+        // Frame 2 skips from 333ms to 1902529ms; its sample is the time before the skip.
+        const frameSessionMs = [0, 333, 666, 1902529, 1902862]
+        const samples = [
+            { sample: 0, session_ms: 0, window_id: 'w-a', window_number: 1, url: 'https://ex.com/flags' },
+            { sample: 2, session_ms: 1902529, window_id: 'w-b', window_number: 2, url: 'https://ex.com/billing' },
+            { sample: 9, session_ms: 1950000, window_id: 'w-a', window_number: 1, url: 'https://ex.com/flags' },
+        ]
+
+        expect(navigationFromFrames(samples, frameSessionMs, 4, 3, 6)).toEqual([
+            { video_s: 2, session_s: 0, window_id: 'w-a', window_number: 1, url: 'https://ex.com/flags' },
+            {
+                video_s: 9 / 3,
+                session_s: 1902.529,
+                window_id: 'w-b',
+                window_number: 2,
+                url: 'https://ex.com/billing',
+            },
+        ])
     })
 })

@@ -1,36 +1,11 @@
 import uuid as uuid_mod
 from collections.abc import Mapping
-from typing import Final
 
 from django.db.models import QuerySet
 
-from posthog.dataclasses import frozen
-
+from products.workflows.backend.facade.contracts import EmailSendingCounts, FlowEmailTotals
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
-
-# The app metric names the deliverability signals are read from. A Complaint (the recipient's
-# "report spam" relayed through the provider's feedback loop) is recorded as `email_blocked`, and
-# only permanent bounces count as `email_bounced_hard`, matching how AWS counts its bounce rate.
-# See the SES webhook handler in nodejs/src/cdp/services/messaging/helpers/ses.ts.
-SENT_METRIC: Final[str] = "email_sent"
-HARD_BOUNCE_METRIC: Final[str] = "email_bounced_hard"
-COMPLAINT_METRIC: Final[str] = "email_blocked"
-EMAIL_HEALTH_METRIC_NAMES: Final[list[str]] = [SENT_METRIC, HARD_BOUNCE_METRIC, COMPLAINT_METRIC]
-
-
-@frozen
-class EmailSendingCounts:
-    sent: int = 0
-    bounced_hard: int = 0
-    complained: int = 0
-
-    def plus(self, counts: Mapping[str, int]) -> "EmailSendingCounts":
-        return EmailSendingCounts(
-            sent=self.sent + counts.get(SENT_METRIC, 0),
-            bounced_hard=self.bounced_hard + counts.get(HARD_BOUNCE_METRIC, 0),
-            complained=self.complained + counts.get(COMPLAINT_METRIC, 0),
-        )
 
 
 def looks_like_uuid(value: str) -> bool:
@@ -39,12 +14,6 @@ def looks_like_uuid(value: str) -> bool:
         return True
     except (ValueError, AttributeError, TypeError):
         return False
-
-
-@frozen
-class FlowEmailTotals:
-    counts_by_flow: dict[str, EmailSendingCounts]
-    names_by_flow_id: dict[str, str]
 
 
 def fold_email_totals_by_flow(

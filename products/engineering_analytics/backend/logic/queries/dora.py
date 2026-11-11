@@ -455,6 +455,8 @@ class _DoraScan:
     placeholders: dict[str, ast.Expr]
     date_from: datetime
     date_to: datetime | None
+    # The earliest run start the merge-attribution scan reads, so the runs source must cover it.
+    runs_from: datetime
 
     def run(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None = None) -> HogQLQueryResponse:
         """Run ``sql`` with the shared placeholders plus ``placeholders`` that only this read binds."""
@@ -470,7 +472,7 @@ class _DoraScan:
             f"{self.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace(
                 "__PR_SOURCE__", self.curated.pr_source()
             )
-            .replace("__RUNS_SOURCE__", self.curated.run_source(started_floor=True))
+            .replace("__RUNS_SOURCE__", self.curated.run_source(started_floor=True, since=self.runs_from))
             .replace("__TEAM_FILTER__", pr_filter)
         )
 
@@ -667,7 +669,23 @@ def _query_lead_time(
         .replace("__PR_SOURCE__", scan.curated.pr_source())
         .replace("__TEAM_FILTER__", team_filter)
     )
-    headline = scan.run(headline_sql, query_type="engineering_analytics.dora_lead_time", placeholders=team_placeholders)
+    series_sql = f"WITH {attribution_ctes} " + (
+        _LEAD_TIME_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(granularity, "deployed_at")).replace(
+            "__DATE_TO_DEPLOYED__", scan.date_to_filter("deployed_at")
+        )
+    )
+    with scan.curated.concurrent_reads() as reads:
+        headline_read = reads.submit(
+            lambda: scan.run(
+                headline_sql, query_type="engineering_analytics.dora_lead_time", placeholders=team_placeholders
+            )
+        )
+        series_read = reads.submit(
+            lambda: scan.run(
+                series_sql, query_type="engineering_analytics.dora_lead_time_series", placeholders=team_placeholders
+            )
+        )
+    headline, rows = headline_read.result(), series_read.result()
     (
         deployed_cur,
         deployed_prev,
@@ -678,15 +696,6 @@ def _query_lead_time(
         attributed_cur,
         merged_cur,
     ) = headline.results[0] if headline.results else (0, 0, None, None, None, None, 0, 0)
-
-    series_sql = f"WITH {attribution_ctes} " + (
-        _LEAD_TIME_SERIES_SELECT.replace("__BUCKET_FN__", bucket_expr(granularity, "deployed_at")).replace(
-            "__DATE_TO_DEPLOYED__", scan.date_to_filter("deployed_at")
-        )
-    )
-    rows = scan.run(
-        series_sql, query_type="engineering_analytics.dora_lead_time_series", placeholders=team_placeholders
-    )
     stats_by_bucket = {normalize_bucket(row[0], granularity): row[1:] for row in (rows.results or [])}
     buckets = window_buckets(scan.date_from, scan.date_to, granularity)
     # Row layout mirrors _LEAD_TIME_SERIES_SELECT: count, then a six-stat slice per stage.
@@ -722,13 +731,14 @@ def _scan(
     """Resolve the environment scope and bind the deploys CTE and placeholders every deploy read shares."""
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
+    runs_from = prev_from - _MERGE_SCAN_LOOKBACK
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
-        "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
-        "run_started_floor": run_started_floor_constant(prev_from - _MERGE_SCAN_LOOKBACK),
+        "merge_scan_floor": ast.Constant(value=runs_from),
+        "run_started_floor": run_started_floor_constant(runs_from),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
@@ -755,6 +765,7 @@ def _scan(
         placeholders=placeholders,
         date_from=date_from,
         date_to=date_to,
+        runs_from=runs_from,
     )
 
 
@@ -771,7 +782,6 @@ def query_dora_overview(
     deploy_sources = curated.deploy_sources()
     members_source = curated.members_source()
     has_membership_data = members_source is not None
-    github_teams = _query_github_teams(curated, members_source)
 
     if deploy_sources is None:
         return _empty_overview(
@@ -779,7 +789,7 @@ def query_dora_overview(
             environment_scope=", ".join(validated_environments) if validated_environments else "persistent",
             environments=[],
             has_membership_data=has_membership_data,
-            github_teams=github_teams,
+            github_teams=_query_github_teams(curated, members_source),
             granularity=granularity,
         )
 
@@ -788,16 +798,25 @@ def query_dora_overview(
     scan = _scan(
         curated, deploy_sources, date_from=date_from, date_to=date_to, validated_environments=validated_environments
     )
-    outcomes = _query_deploy_outcomes(scan)
-    lead = _query_lead_time(scan, github_team=github_team, members_source=members_source, granularity=granularity)
+    with curated.concurrent_reads() as reads:
+        github_teams_read = reads.submit(lambda: _query_github_teams(curated, members_source))
+        environments_read = reads.submit(lambda: scan.environment_catalog.options)
+        outcomes_read = reads.submit(lambda: _query_deploy_outcomes(scan))
+        lead_read = reads.submit(
+            lambda: _query_lead_time(
+                scan, github_team=github_team, members_source=members_source, granularity=granularity
+            )
+        )
+        frequency_read = reads.submit(lambda: _query_frequency_series(scan, granularity))
+    outcomes, lead = outcomes_read.result(), lead_read.result()
 
     return DoraOverview(
         deploy_data_available=True,
         environment_scope=scan.environment_scope.scope,
-        environments=scan.environment_catalog.options,
+        environments=environments_read.result(),
         selected_environments=scan.environment_scope.values or [],
         has_membership_data=has_membership_data,
-        github_teams=github_teams,
+        github_teams=github_teams_read.result(),
         deployment_count=outcomes.deployment_count,
         deployment_count_prev=outcomes.deployment_count_prev,
         deployments_per_day=outcomes.deployment_count / window_days,
@@ -817,7 +836,7 @@ def query_dora_overview(
         merged_pr_count=lead.merged_count,
         unattributed_merged_pr_share=lead.unattributed_share,
         latest_deploy_status_at=outcomes.latest_status_at,
-        deployment_frequency_series=_query_frequency_series(scan, granularity),
+        deployment_frequency_series=frequency_read.result(),
         merge_to_deploy_series=lead.series,
         open_to_merge_series=lead.open_to_merge_series,
         open_to_deploy_series=lead.open_to_deploy_series,

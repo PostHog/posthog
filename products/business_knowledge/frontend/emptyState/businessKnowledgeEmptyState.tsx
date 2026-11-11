@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs'
+import { BusinessKnowledgeTabs } from '../components/BusinessKnowledgeTabs/BusinessKnowledgeTabs'
 import { BusinessKnowledgePreview } from './BusinessKnowledgePreview'
 import { BusinessKnowledgePrimaryAction } from './BusinessKnowledgePrimaryAction'
 import { businessKnowledgeSetupLogic } from './businessKnowledgeSetupLogic'
@@ -18,7 +18,7 @@ export const businessKnowledgeEmptyState: SceneProductEmptyState = {
     statusLogic: businessKnowledgeSetupLogic,
     // The scene already shows "not found" when the flag is off, so keep the gate behind it.
     featureFlag: FEATURE_FLAGS.PRODUCT_BUSINESS_KNOWLEDGE,
-    // The gate replaces the scene, so the Sources / Settings tab bar inside it never mounts.
+    // The gate replaces the scene, so the Libraries / Settings tab bar inside it never mounts.
     // Keep it on the frame so Settings stays reachable with no sources yet.
     SceneNav: function BusinessKnowledgeEmptyStateNav(): JSX.Element {
         return <BusinessKnowledgeTabs activeTab="sources" />

@@ -7,7 +7,7 @@ import { FeatureFlagLogicProps, featureFlagLogic } from 'scenes/feature-flags/fe
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagGroupType } from '~/types'
+import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -67,7 +67,8 @@ export function ReleaseConditionsModal(): JSX.Element {
                 <BindLogic logic={featureFlagLogic} props={{ id: experiment.feature_flag?.id ?? null }}>
                     <FeatureFlagReleaseConditions
                         id={`${experiment.feature_flag?.id}`}
-                        filters={featureFlag?.filters ?? []}
+                        // An experiment's flag is always v1: experiments create their own flags and cannot adopt another config version.
+                        filters={(featureFlag?.filters as FeatureFlagFilters | undefined) ?? { groups: [] }}
                         onChange={setFeatureFlagFilters}
                         nonEmptyFeatureFlagVariants={nonEmptyVariants}
                     />

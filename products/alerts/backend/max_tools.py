@@ -28,8 +28,10 @@ from posthog.scopes import APIScopeObject
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE, validate_alert_config
 from products.alerts.backend.facade.api import LLMAlertWrite, admit_llm_alert_write, is_llm_detector_config
+from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.insight_alert_state_machine import apply_disable, apply_enable, apply_threshold_change
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
+from products.alerts_platform.backend.facade.contracts import InvalidPlatformAlertEdit
 from products.product_analytics.backend.facade.api import lock_insight_for_evaluation
 from products.product_analytics.backend.facade.models import Insight, resolve_insight_by_id_or_short_id
 
@@ -170,6 +172,10 @@ class UpdateAlertAction(BaseModel):
 UpsertAlertAction = Union[CreateAlertAction, UpdateAlertAction]
 
 
+class AlertLimitReached(Exception):
+    """A create the plan limits refused once the team's alert lock was held."""
+
+
 @frozen
 class _SaveRefusal:
     """A write the alert save refused, with the error code the tool reports."""
@@ -183,6 +189,14 @@ class UpsertAlertToolArgs(BaseModel):
         description="The action to perform. Either create a new alert or update an existing one.",
         discriminator="action",
     )
+
+
+def _follow_on_commit(alert: AlertConfiguration) -> None:
+    # Deferred to break a cycle: platform_alert_backfill reaches this module back through the alert
+    # workflows and the chat agent.
+    from products.alerts.backend.platform_alert_backfill import follow_insight_alert  # noqa: PLC0415
+
+    transaction.on_commit(lambda: follow_insight_alert(alert), robust=True)
 
 
 class UpsertAlertTool(MaxTool):
@@ -327,6 +341,8 @@ class UpsertAlertTool(MaxTool):
                 },
             )
 
+        except AlertLimitReached as e:
+            return str(e), {"error": "plan_limit_reached"}
         except Exception as e:
             capture_exception(e, {"team_id": self._team.id, "user_id": self._user.id})
             return f"Failed to create alert: {str(e)}", {
@@ -401,6 +417,10 @@ class UpsertAlertTool(MaxTool):
                     message=refusal.message,
                     error_code="plan_limit_reached" if refusal.reason == "cap" else "validation_failed",
                 )
+            # The state before this update, which decides whether the update adds an active real-time alert.
+            previous = AlertConfiguration(
+                id=alert.id, calculation_interval=alert.calculation_interval, enabled=alert.enabled
+            )
             update_fields: list[str] = []
             conditions_or_threshold_changed = False
             schedule_reset_required = False
@@ -462,6 +482,29 @@ class UpsertAlertTool(MaxTool):
                 alert.next_check_at = timezone.now()
                 update_fields.append("next_check_at")
             alert.save(update_fields=update_fields)
+            if alert.platform_owned:
+                # Deferred for the same cycle as `_follow_on_commit`.
+                from products.alerts.backend.platform_ownership import on_updated  # noqa: PLC0415
+
+                try:
+                    on_updated(alert, snooze_changed=False, rescheduled=schedule_reset_required)
+                except (PlatformCannotOwn, InvalidPlatformAlertEdit) as error:
+                    # Rolls back the insight row, so neither row takes an edit the platform rejects.
+                    transaction.set_rollback(True)
+                    return _SaveRefusal(message=str(error), error_code="validation_failed")
+            elif enabled_changed and action.enabled:
+                _follow_on_commit(alert)
+            # Again under the lock, because the check above counted without it and another update can race.
+            # After `on_updated`, for the lock order the API's `update` keeps.
+            if limit_error := AlertConfiguration.update_limit_error(
+                team_id=alert.team_id,
+                organization=self._team.organization,
+                calculation_interval=new_interval,
+                enabled=new_enabled,
+                existing=previous,
+            ):
+                transaction.set_rollback(True)
+                return _SaveRefusal(message=limit_error, error_code="plan_limit_reached")
         return None
 
     @staticmethod
@@ -633,6 +676,11 @@ class UpsertAlertTool(MaxTool):
         enabled: bool,
         skip_weekend: bool,
     ) -> AlertConfiguration:
+        # Again under the lock, because the checks before this transaction can race another create.
+        if limit_error := AlertConfiguration.create_limit_error(
+            team_id=team.id, organization=team.organization, calculation_interval=calculation_interval, enabled=enabled
+        ):
+            raise AlertLimitReached(limit_error.message)
         threshold_to_persist.save()
 
         alert = AlertConfiguration.objects.create(
@@ -653,5 +701,12 @@ class UpsertAlertTool(MaxTool):
             alert_configuration=alert,
             created_by=user,
         )
+        # Deferred for the same cycle as `_follow_on_commit`.
+        from products.alerts.backend.platform_ownership import on_created  # noqa: PLC0415
+
+        # A draft is handed over too, so turning it on later needs no second cutover run.
+        handed_over = on_created(alert, timezone.now())
+        if alert.enabled and not handed_over:
+            _follow_on_commit(alert)
 
         return alert

@@ -107,16 +107,13 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert [cell["node_id"] for cell in notebook_run.cell_plan] == ["s1", "p1"]
         assert mock_start.call_args.args[0].node_ids == ["s1", "p1"]
 
-    @parameterized.expand([(False, 404), (True, 200)])
-    def test_prepared_insights_require_explicit_opt_in_and_widget_flag(
+    @parameterized.expand([(False, 400), (True, 200)])
+    def test_prepared_insights_require_explicit_opt_in(
         self, mock_start: MagicMock, _flag: MagicMock, enabled: bool, expected_status: int
     ) -> None:
         self.notebook.content = markdown_content('<Query nodeId="insight" dataframeQuery="select 1" />')
         self.notebook.save(update_fields=["content"])
-        with patch(
-            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=enabled
-        ):
-            response = self.client.post(self.runs_url, data={"include_prepared_insights": True}, format="json")
+        response = self.client.post(self.runs_url, data={"include_prepared_insights": enabled}, format="json")
         assert response.status_code == expected_status
         if enabled:
             assert response.json()["cell_count"] == 1
@@ -153,17 +150,14 @@ class TestNotebookRunEndpoints(APIBaseTest):
             )
         )
         self.notebook.save(update_fields=["content"])
-        with patch(
-            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True
-        ):
-            response = self.client.post(
-                self.runs_url,
-                data={
-                    "include_prepared_insights": True,
-                    "variables": [{"name": "country", "type": "string", "value": "US"}],
-                },
-                format="json",
-            )
+        response = self.client.post(
+            self.runs_url,
+            data={
+                "include_prepared_insights": True,
+                "variables": [{"name": "country", "type": "string", "value": "US"}],
+            },
+            format="json",
+        )
         assert response.status_code == status, response.json()
         if status == 200:
             assert response.json()["cell_count"] == count

@@ -1,7 +1,9 @@
 import {
   type FeedQueryIssue,
   type FeedQueryPlan,
+  type FeedQueryPlanContext,
   type FeedQueryToken,
+  type ParsedFeedQuery,
   parseFeedQuery,
   planFeedQuery,
 } from "@posthog/core/tasks/feedQuery";
@@ -40,16 +42,19 @@ export function taskFeedResultsQueryKey(query: string) {
   return [...taskFeedResultsQueryRoot, query] as const;
 }
 
-export function useFeedQueryPlan(query: string | undefined): {
+interface FeedQueryContextState {
   canRetry: boolean;
+  context: FeedQueryPlanContext | undefined;
   error: Error | null;
   errorMessage: string | null;
-  plan: FeedQueryPlan | undefined;
   isLoading: boolean;
   refetch: () => void;
-} {
-  const normalized = query?.trim() ?? "";
-  const parsed = useMemo(() => parseFeedQuery(normalized), [normalized]);
+}
+
+/** The teammates, spaces and viewer a query's tokens resolve against. */
+export function useFeedQueryContext(
+  parsed: ParsedFeedQuery,
+): FeedQueryContextState {
   const needsMembers = parsed.tokens.some(
     (token) => isPersonToken(token) && !isCurrentUserToken(token),
   );
@@ -78,27 +83,20 @@ export function useFeedQueryPlan(query: string | undefined): {
     (needsCurrentUser && currentUserLoading) ||
     (needsSpaces && channelsLoading);
 
-  const plan = useMemo(() => {
-    if (
-      normalized === "" ||
-      waiting ||
-      memberLookupFailed ||
-      memberLookupIncomplete
-    ) {
+  const context = useMemo(() => {
+    if (waiting || memberLookupFailed || memberLookupIncomplete) {
       return undefined;
     }
-    return planFeedQuery(parsed, {
+    return {
       members,
       spaces: channels.map((c) => ({ id: c.id, name: c.name })),
       me: me ?? null,
       reportsEnabled: false,
-    });
+    };
   }, [
-    normalized,
     waiting,
     memberLookupFailed,
     memberLookupIncomplete,
-    parsed,
     members,
     channels,
     me,
@@ -106,6 +104,7 @@ export function useFeedQueryPlan(query: string | undefined): {
 
   return {
     canRetry: memberLookupFailed,
+    context,
     error: memberLookupFailed
       ? membersError
       : memberLookupIncomplete
@@ -116,9 +115,35 @@ export function useFeedQueryPlan(query: string | undefined): {
       : memberLookupIncomplete
         ? "Organization member lookup is incomplete. This search cannot verify every teammate."
         : null,
-    isLoading: normalized !== "" && waiting,
-    plan,
+    isLoading: waiting,
     refetch: refetchMembers,
+  };
+}
+
+export function useFeedQueryPlan(query: string | undefined): {
+  canRetry: boolean;
+  error: Error | null;
+  errorMessage: string | null;
+  plan: FeedQueryPlan | undefined;
+  isLoading: boolean;
+  refetch: () => void;
+} {
+  const normalized = query?.trim() ?? "";
+  const parsed = useMemo(() => parseFeedQuery(normalized), [normalized]);
+  const { context, isLoading, ...state } = useFeedQueryContext(parsed);
+
+  const plan = useMemo(
+    () =>
+      normalized === "" || !context
+        ? undefined
+        : planFeedQuery(parsed, context),
+    [normalized, parsed, context],
+  );
+
+  return {
+    ...state,
+    isLoading: normalized !== "" && isLoading,
+    plan,
   };
 }
 

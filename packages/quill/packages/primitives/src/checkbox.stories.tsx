@@ -19,6 +19,17 @@ export const Default: Story = {
     ),
 } satisfies Story
 
+export const States: Story = {
+    render: () => (
+        <div className="flex items-center gap-3">
+            <Checkbox aria-label="Unchecked" />
+            <Checkbox aria-label="Checked" defaultChecked />
+            <Checkbox aria-label="Some checked" indeterminate />
+            <Checkbox aria-label="Small, some checked" size="sm" indeterminate />
+        </div>
+    ),
+} satisfies Story
+
 export const WithFieldGroup: Story = {
     render: () => (
         <FieldGroup className="max-w-sm">

@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
@@ -361,7 +362,7 @@ def _uuidv7_session_id_for(ts) -> str:
     return f"{hex12[:8]}-{hex12[8:12]}-7000-8000-000000000000"
 
 
-class TestUuidv7SessionLowerBound(APIBaseTest):
+class TestUuidv7SessionLowerBound(SimpleTestCase):
     @parameterized.expand(
         [
             ("uuidv4_id", "7c10ab30-3a9c-4b75-89ce-09e51c826989", None),

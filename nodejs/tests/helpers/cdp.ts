@@ -12,6 +12,7 @@ import {
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../src/cdp/outputs/producers'
+import { createFrequencyCapValkeyPool } from '../../src/cdp/services/messaging/frequency-cap-valkey-pool'
 import { createSesRateLimiterValkeyPool } from '../../src/cdp/services/rate-limiter/rate-limiter-valkey-pool'
 import { InternalCaptureService } from '../../src/common/services/internal-capture'
 import { Hub } from '../../src/types'
@@ -63,5 +64,6 @@ export function createCdpConsumerDeps(hub: Hub, kafkaProducer?: KafkaProducerWra
         groupRepository: noopGroupReadRepository,
         quotaLimiting: hub.quotaLimiting,
         emailValidationValkey: createSesRateLimiterValkeyPool(hub, 'email-mx-validation'),
+        frequencyCapValkey: createFrequencyCapValkeyPool(hub),
     }
 }

@@ -3,6 +3,8 @@ import time
 from posthog.test.base import BaseTest
 from unittest import TestCase
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.hogql import ast
@@ -358,7 +360,7 @@ class TestLikeMatches(BaseTest):
         self.assertLess(elapsed, 2.0, f"like_matches took {elapsed:.2f}s — wildcard matching is not linear")
 
 
-class TestUtils(BaseTest):
+class TestUtils(SimpleTestCase):
     @parameterized.expand(
         [
             ("JOIN",),

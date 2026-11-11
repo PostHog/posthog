@@ -7,6 +7,8 @@ import httpx
 from openai import APIConnectionError, APIStatusError, BadRequestError, InternalServerError, RateLimitError, omit
 from rest_framework import exceptions
 
+from posthog.temporal.common.posthog_client import is_expected_activity_failure
+
 from products.ai_observability.backend.summarization.constants import SUMMARIZATION_FLEX_TIMEOUT, SUMMARIZATION_TIMEOUT
 from products.ai_observability.backend.summarization.llm.openai import summarize_with_openai
 from products.ai_observability.backend.summarization.llm.schema import SummarizationResponse
@@ -28,6 +30,10 @@ def _flex_408_error() -> APIStatusError:
 def _gateway_ceiling_error() -> InternalServerError:
     # The ai-gateway answers 504 when a buffered call outlives its ~290s response ceiling.
     return InternalServerError("gateway timeout", response=httpx.Response(504, request=_REQUEST), body=None)
+
+
+def _bad_request_error() -> BadRequestError:
+    return BadRequestError("bad request", response=httpx.Response(400, request=_REQUEST), body=None)
 
 
 def _connection_error() -> APIConnectionError:
@@ -95,20 +101,66 @@ class TestSummarizeWithOpenAI:
                     model=OpenAIModel.GPT_4_1_MINI,
                 )
 
-    def test_api_error_raises_api_exception(self):
+    @pytest.mark.parametrize(
+        "error,expected_detail",
+        [
+            (Exception("API Error"), "Failed to generate summary"),
+            (_rate_limit_error(), "Failed to generate summary (the model provider returned 429)"),
+            (_bad_request_error(), "Failed to generate summary (the model provider returned 400)"),
+            (_connection_error(), "Failed to generate summary (we could not reach the model provider)"),
+        ],
+    )
+    def test_api_error_detail_carries_the_provider_failure(self, error, expected_detail):
         with patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client:
             mock_client = MagicMock()
             mock_get_client.return_value = mock_client
             mock_client.with_options.return_value = mock_client
-            mock_client.chat.completions.create.side_effect = Exception("API Error")
+            mock_client.chat.completions.create.side_effect = error
 
-            with pytest.raises(exceptions.APIException, match="Failed to generate summary"):
+            with pytest.raises(exceptions.APIException) as raised:
                 summarize_with_openai(
                     text_repr="L1: Test",
                     team_id=1,
                     mode=SummarizationMode.MINIMAL,
                     model=OpenAIModel.GPT_4_1_MINI,
                 )
+
+            assert str(raised.value.detail) == expected_detail
+
+    @pytest.mark.parametrize("final_attempt", [True, False])
+    def test_api_error_is_captured_only_when_no_retry_remains(self, final_attempt):
+        error = BadRequestError(
+            "bad request",
+            response=httpx.Response(400, request=_REQUEST, headers={"x-request-id": "req-123"}),
+            body=None,
+        )
+        with (
+            patch("products.ai_observability.backend.summarization.llm.openai.build_openai_client") as mock_get_client,
+            patch("products.ai_observability.backend.summarization.llm.openai.capture_exception") as mock_capture,
+        ):
+            mock_client = MagicMock()
+            mock_get_client.return_value = mock_client
+            mock_client.with_options.return_value = mock_client
+            mock_client.chat.completions.create.side_effect = error
+
+            with pytest.raises(exceptions.APIException) as raised:
+                summarize_with_openai(
+                    text_repr="L1: Test",
+                    team_id=1,
+                    mode=SummarizationMode.MINIMAL,
+                    model=OpenAIModel.GPT_4_1_MINI,
+                    final_attempt=final_attempt,
+                )
+
+            assert is_expected_activity_failure(raised.value)
+            if not final_attempt:
+                mock_capture.assert_not_called()
+                return
+            mock_capture.assert_called_once()
+            properties = mock_capture.call_args[1]["additional_properties"]
+            assert properties["$exception_fingerprint"] == "aio_summarization.BadRequestError.400"
+            assert properties["provider_status"] == 400
+            assert properties["gateway_request_id"] == "req-123"
 
     def test_uses_correct_model(self, valid_response_json):
         mock_response = MagicMock()

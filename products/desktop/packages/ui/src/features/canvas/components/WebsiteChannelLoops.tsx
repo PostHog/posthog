@@ -1,7 +1,6 @@
 import { channelDisplayReference } from "@posthog/core/canvas/channelName";
 import { ChannelHeader } from "@posthog/ui/features/canvas/components/ChannelHeader";
 import { useWorkLayout } from "@posthog/ui/features/canvas/hooks/useWorkLayout";
-import { useLoopsHogFlowsEnabled } from "@posthog/ui/features/feature-flags/useLoopsHogFlowsEnabled";
 import { useSetHeaderContent } from "@posthog/ui/hooks/useSetHeaderContent";
 import { type ReactNode, useMemo } from "react";
 import { LoopBuilderComposer } from "../../loops/components/LoopBuilderComposer";
@@ -11,8 +10,7 @@ import { LoopsListSection } from "../../loops/components/LoopsListSection";
 import { LoopsPageLayout } from "../../loops/components/LoopsPageLayout";
 import { LoopTemplatesSection } from "../../loops/components/LoopTemplatesSection";
 import { NewLoopButton } from "../../loops/components/NewLoopButton";
-import { useLoopLimitReason, useLoops } from "../../loops/hooks/useLoops";
-import { defaultLoopContextOutputs } from "../../loops/loopFormTypes";
+import { useLoops } from "../../loops/hooks/useLoops";
 import { startNewLoop } from "../../loops/loopWizardDialogStore";
 import { useChannels } from "../hooks/useChannels";
 
@@ -76,8 +74,6 @@ function SpaceAttachedLoops({
 }) {
   const { data: loops, isLoading, error } = useLoops();
   const { channels: spaces } = useChannels();
-  const workflowBacked = useLoopsHogFlowsEnabled();
-  const limitReason = useLoopLimitReason();
 
   const workLayout = useWorkLayout();
   useSetHeaderContent(
@@ -95,11 +91,7 @@ function SpaceAttachedLoops({
       ),
     [loops, channelId],
   );
-  const contextTarget = {
-    folderId: channelId,
-    name: contextName,
-    outputs: defaultLoopContextOutputs(),
-  };
+  const contextTarget = { folderId: channelId, name: contextName };
 
   const contextReference = channelDisplayReference(contextName);
   return (
@@ -107,7 +99,6 @@ function SpaceAttachedLoops({
       actions={
         <NewLoopButton
           label="New loop"
-          limitReason={limitReason}
           onClick={() => startNewLoop({ context: contextTarget })}
         />
       }
@@ -116,7 +107,6 @@ function SpaceAttachedLoops({
           context={{ folderId: channelId, name: contextName }}
           placeholder={`What should ${contextReference} keep an eye on?`}
           quickStarts={contextQuickStarts(contextName)}
-          disabledReason={limitReason}
         />
       }
     >
@@ -127,7 +117,6 @@ function SpaceAttachedLoops({
         error={error}
         showScope={false}
         showSpace={false}
-        showVisibility={!workflowBacked}
         emptyState={<LoopsEmptyState contextName={contextName} />}
       />
 

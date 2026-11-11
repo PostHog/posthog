@@ -7,6 +7,7 @@ from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentQuantileMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
 )
@@ -29,7 +30,13 @@ from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     extract_aggregation_and_inner_expr,
 )
 
-ExperimentMetric = Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric, ExperimentRetentionMetric]
+ExperimentMetric = Union[
+    ExperimentMeanMetric,
+    ExperimentFunnelMetric,
+    ExperimentRatioMetric,
+    ExperimentRetentionMetric,
+    ExperimentQuantileMetric,
+]
 MetricSource = Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
 
 
@@ -41,6 +48,14 @@ def get_conversion_window_seconds(metric: ExperimentMetric) -> int:
             metric.conversion_window_unit,
         )
     return 0
+
+
+def get_maturity_window_seconds(metric: ExperimentMetric) -> int:
+    """How long `only_count_matured_users` holds an entity back after the metric's anchor. Returns 0 when the metric
+    has no window. A retention metric can also carry a conversion window, which its maturity ignores."""
+    if isinstance(metric, ExperimentRetentionMetric):
+        return conversion_window_to_seconds(metric.retention_window_end, metric.retention_window_unit)
+    return get_conversion_window_seconds(metric)
 
 
 def build_conversion_window_predicate(conversion_window_seconds: int) -> ast.Expr:

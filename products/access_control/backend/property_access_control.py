@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from django.core.signals import request_finished, request_started
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -15,12 +16,12 @@ from celery.signals import task_postrun, task_prerun
 from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
-from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.facade.contracts import PropertyAccessLevel, UserNotOrganizationMemberError
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import RoleMembership
 
@@ -157,25 +158,21 @@ def get_property_access_level(
         return get_default_access_level()
 
     membership = None
-    user_role_ids: set[int] = set()
+    user_role_ids: set[UUID] = set()
     if user is not None:
         membership = (
             OrganizationMembership.objects.filter(
                 user=user,
                 organization_id=property.team.organization_id,
             )
-            .only("id", "level")
+            .only("id", "level", "user_id")
             .first()
         )
 
         if membership is None:
-            raise ValueError("user does not have organization membership")
+            raise UserNotOrganizationMemberError("user does not have organization membership")
 
-        user_role_ids = set(
-            RoleMembership.objects.filter(organization_member=membership)
-            .valid_for_authorization()
-            .values_list("role_id", flat=True)
-        )
+        user_role_ids = _get_user_role_ids(membership, property.team.organization)
 
     return _resolve_access_level(rules, membership=membership, user_role_ids=user_role_ids)
 
@@ -216,6 +213,7 @@ def get_non_writable_property_names(
     team_id: int,
     user: User | None,
     property_type: int,
+    group_type_index: int | None = None,
 ) -> set[str]:
     """
     Returns property names where the user does not have write access (i.e., the effective
@@ -224,6 +222,8 @@ def get_non_writable_property_names(
     :param team_id: The team whose restrictions to check.
     :param user: The user making the request.
     :param property_type: PropertyDefinition.Type value (e.g., PropertyDefinition.Type.PERSON).
+    :param group_type_index: For group properties, limits the rules to this group type (definitions
+        without a group type index apply to every group type).
     :returns: Set of property name strings that the user cannot write to.
     """
     from posthog.models import OrganizationMembership
@@ -240,6 +240,11 @@ def get_non_writable_property_names(
         .exclude(property_definition__isnull=True)
         .filter(property_definition__type=property_type)
     )
+    if group_type_index is not None:
+        rules = rules.filter(
+            Q(property_definition__group_type_index=group_type_index)
+            | Q(property_definition__group_type_index__isnull=True)
+        )
 
     rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
     for rule in rules:
@@ -256,20 +261,15 @@ def get_non_writable_property_names(
         return set()
 
     membership = None
-    user_role_ids: set[int] = set()
+    user_role_ids: set[UUID] = set()
     if user is not None:
-        from posthog.models.team import Team
-
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
-        membership = OrganizationMembership.objects.filter(user=user, organization_id=org_id).only("id").first()
-
-        from products.access_control.backend.models.role import RoleMembership
-
-        user_role_ids = set(
-            RoleMembership.objects.filter(user=user, role__organization_id=org_id)
-            .valid_for_authorization()
-            .values_list("role_id", flat=True)
+        organization = Organization.objects.get(team__id=team_id)
+        membership = (
+            OrganizationMembership.objects.filter(user=user, organization_id=organization.id)
+            .only("id", "level", "user_id")
+            .first()
         )
+        user_role_ids = _get_user_role_ids(membership, organization)
 
     non_writable: set[str] = set()
     for _prop_def_id, prop_rules in rules_by_property.items():
@@ -359,23 +359,19 @@ def get_restricted_properties_with_group_type_index_for_team(
 
     # resolve the user's membership and roles once
     membership = None
-    user_role_ids: set[int] = set()
+    user_role_ids: set[UUID] = set()
     if user is not None:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        organization = team.organization if team is not None else Organization.objects.get(team__id=team_id)
         membership_qs = OrganizationMembership.objects.filter(
             user=user,
-            organization_id=org_id,
-        ).only("id", "level")
+            organization_id=organization.id,
+        ).only("id", "level", "user_id")
         membership = membership_qs.first()
 
         if membership is None:
-            raise ValueError("user does not have organization membership")
+            raise UserNotOrganizationMemberError("user does not have organization membership")
 
-        user_role_ids = set(
-            RoleMembership.objects.filter(organization_member=membership)
-            .valid_for_authorization()
-            .values_list("role_id", flat=True)
-        )
+        user_role_ids = _get_user_role_ids(membership, organization)
 
     restricted: set[RestrictedProperty] = set()
 
@@ -411,11 +407,35 @@ def get_restricted_properties_for_team(
     return {(restriction.name, restriction.property_type) for restriction in restrictions}
 
 
+def _get_user_role_ids(membership: OrganizationMembership | None, organization: Organization) -> set[UUID]:
+    """Roles the member holds for property rule resolution.
+
+    Returns no roles without the role-based access feature, so role rules do not apply. Object
+    rules skip role rules the same way.
+    """
+    if membership is None or not organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        return set()
+    # Looked up by user, not by organization member: valid_for_authorization() accepts memberships
+    # without an organization member, and the access control facade loads roles the same way.
+    return set(
+        RoleMembership.objects.filter(user_id=membership.user_id, role__organization_id=organization.id)
+        .valid_for_authorization()
+        .values_list("role_id", flat=True)
+    )
+
+
+_ACCESS_LEVELS_MOST_PERMISSIVE_FIRST = (
+    PropertyAccessLevel.READ_WRITE,
+    PropertyAccessLevel.READ,
+    PropertyAccessLevel.NONE,
+)
+
+
 def _resolve_access_level(
     rules: list[PropertyAccessControl],
     *,
     membership: OrganizationMembership | None,
-    user_role_ids: set[int],
+    user_role_ids: set[UUID],
 ) -> PropertyAccessLevel:
     """
     Resolves the effective access level from a set of rules for a single property definition,
@@ -435,13 +455,11 @@ def _resolve_access_level(
                 return PropertyAccessLevel(rule.access_level)
 
     # 2. role-specific rules (most permissive wins)
-    role_rules = [r for r in rules if r.role_id is not None and r.role_id in user_role_ids]
-    if role_rules:
-        for rule in role_rules:
-            level = PropertyAccessLevel(rule.access_level)
-            if level.grants_access():
-                return level
-        return PropertyAccessLevel.NONE
+    role_levels = {
+        PropertyAccessLevel(r.access_level) for r in rules if r.role_id is not None and r.role_id in user_role_ids
+    }
+    if role_levels:
+        return next(level for level in _ACCESS_LEVELS_MOST_PERMISSIVE_FIRST if level in role_levels)
 
     # 3. default rule (null membership and null role)
     for rule in rules:

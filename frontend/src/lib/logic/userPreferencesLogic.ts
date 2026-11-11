@@ -23,9 +23,6 @@ export interface userPreferencesLogicActions {
     pinPersonProperty: (prop: string) => {
         prop: string
     }
-    setEditorVimModeEnabled: (enabled: boolean) => {
-        enabled: boolean
-    }
     setHideNullValues: (enabled: boolean) => {
         enabled: boolean
     }
@@ -52,7 +49,6 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
         unpinPersonProperty: (prop: string) => ({ prop }),
         pinGroupProperty: (prop: string) => ({ prop }),
         unpinGroupProperty: (prop: string) => ({ prop }),
-        setEditorVimModeEnabled: (enabled: boolean) => ({ enabled }),
     }),
     connect(() => ({
         values: [teamLogic, ['currentTeam']],
@@ -86,12 +82,8 @@ export const userPreferencesLogic = kea<userPreferencesLogicType>([
                 unpinGroupProperty: (state, { prop }) => state.filter((p) => p !== prop),
             },
         ],
-        editorVimModeEnabled: [
-            false,
-            { persist: true },
-            {
-                setEditorVimModeEnabled: (_, { enabled }) => enabled,
-            },
-        ],
+        // Read-only fallback for users who turned Vim mode on before sqlEditorVimLogic saved it to their account.
+        // pinned: the persisted localStorage key comes from this reducer name, so renaming it drops their setting.
+        editorVimModeEnabled: [false, { persist: true }, {}],
     })),
 ])

@@ -20,6 +20,12 @@ export const EngineeringAnalyticsBrokenTestsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsBrokenTestsQueryParams = () => zod.object({
+    branch: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.'
+        ),
     repo: zod
         .string()
         .optional()
@@ -30,7 +36,13 @@ export const EngineeringAnalyticsBrokenTestsQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
+        ),
+    test: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog\/api\/test\/test_user.py'. Applied before the limit, so a test past the cap is still found."
         ),
 })
 
@@ -52,7 +64,7 @@ export const EngineeringAnalyticsCiFailureLogsQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
 })
 
@@ -68,6 +80,12 @@ export const EngineeringAnalyticsFlakyTestsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsFlakyTestsQueryParams = () => zod.object({
+    branch: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional exact branch name. Keeps only tests that failed on it, but the counts still cover every branch, so a row shows whether the test also fails elsewhere. Applied before the limit.'
+        ),
     date_from: zod
         .string()
         .optional()
@@ -82,6 +100,12 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = () => zod.object({
         .describe(
             'A test with no recorded recovery qualifies once it failed on at least this many distinct pull requests in the window. Minimum 1. Defaults to 3.'
         ),
+    pr_number: zod
+        .number()
+        .optional()
+        .describe(
+            "Optional pull request number. Keeps only tests that failed in that PR's CI runs, but the counts still cover every PR. Pass min_failed_prs=1 too, so a test that failed on this PR alone qualifies. Applied before the limit."
+        ),
     repo: zod
         .string()
         .optional()
@@ -93,7 +117,13 @@ export const EngineeringAnalyticsFlakyTestsQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
+        ),
+    test: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional case-insensitive substring of the test id to keep, e.g. 'test_cohort' or 'posthog\/api\/test\/test_user.py'. Applied before the limit, so a test past the cap is still found."
         ),
 })
 
@@ -115,7 +145,7 @@ export const EngineeringAnalyticsPrCostQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
 })
 
@@ -137,12 +167,12 @@ export const EngineeringAnalyticsPrLifecycleQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
 })
 
 /**
- * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. The list is capped; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle.
+ * Open pull requests plus any merged or closed since date_from (default -30d), newest first, each with its head-SHA CI rollup. Pass state to list one state only. The list is paged by limit and offset; when more match, `truncated` is true and the ci_cards counts can exceed it. open_to_merge_seconds is coarse: it fuses draft and ready-for-review time; CI counts can lag until late completions settle. Cost and billable minutes can lag new CI by up to 5 minutes.
  */
 export const EngineeringAnalyticsPullRequestsParams = () => zod.object({
     project_id: zod
@@ -155,6 +185,19 @@ export const EngineeringAnalyticsPullRequestsParams = () => zod.object({
 export const EngineeringAnalyticsPullRequestsQueryParams = () => zod.object({
     author: zod.string().optional().describe("Optional GitHub login to scope the list to one author's pull requests."),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
+    date_to: zod
+        .string()
+        .optional()
+        .describe(
+            'Optional exclusive upper bound for merged_at \/ closed_at: relative or ISO8601. Defaults to now. Set a fixed value when you page, so new merges do not move rows between pages.'
+        ),
+    limit: zod.number().optional().describe('Page size, 1 to 1000. Defaults to 1000.'),
+    offset: zod
+        .number()
+        .optional()
+        .describe(
+            'Number of rows to skip. Defaults to 0. While `truncated` is true, add `limit` to offset to read the next page.'
+        ),
     repo: zod
         .string()
         .optional()
@@ -165,7 +208,13 @@ export const EngineeringAnalyticsPullRequestsQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
+        ),
+    state: zod
+        .enum(['closed', 'merged', 'open'])
+        .optional()
+        .describe(
+            "Optional state filter. 'merged' lists PRs merged in the window, newest merged_at first. 'closed' lists PRs closed without a merge in the window, newest closed_at first. 'open' lists all open PRs whatever their age, newest first. Omit it to get open PRs plus any merged or closed in the window."
         ),
 })
 
@@ -181,6 +230,10 @@ export const EngineeringAnalyticsRunFailureLogsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsRunFailureLogsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()
@@ -192,7 +245,7 @@ export const EngineeringAnalyticsRunFailureLogsQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
 })
 
@@ -239,11 +292,17 @@ export const EngineeringAnalyticsTeamCiHealthQueryParams = () => zod.object({
         .describe(
             "Restrict the roster to one owning team slug (or 'unowned'). The cheap way to read a single team's rollup."
         ),
+    repo: zod
+        .string()
+        .optional()
+        .describe(
+            "'owner\/name' repository to scope to when the selected source syncs several repositories (from the `sources` list). Defaults to the source's first repository."
+        ),
     source_id: zod
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
 })
 
@@ -283,7 +342,7 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
     workflow_name: zod
         .string()
@@ -305,6 +364,10 @@ export const EngineeringAnalyticsWorkflowJobsParams = () => zod.object({
 })
 
 export const EngineeringAnalyticsWorkflowJobsQueryParams = () => zod.object({
+    ci_engine: zod
+        .enum(['depot_ci', 'github_actions'])
+        .optional()
+        .describe('CI engine. Required when run_id exists in both engines.'),
     repo: zod
         .string()
         .optional()
@@ -322,7 +385,7 @@ export const EngineeringAnalyticsWorkflowJobsQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
 })
 
@@ -357,7 +420,7 @@ export const EngineeringAnalyticsWorkflowRunnerCostsQueryParams = () => zod.obje
         .string()
         .optional()
         .describe(
-            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.'
+            'Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source that the `sources` list reports as synced, when the team has more than one.'
         ),
     workflow_name: zod.string().describe('Workflow name to break down cost for.'),
 })

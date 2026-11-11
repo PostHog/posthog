@@ -14,7 +14,7 @@ import json
 from collections.abc import Collection, Sequence
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # The slug is the target of a `chart:` markdown link, so it has to survive being parsed as a URL.
 # Mirrors the routing-safe identifier shape used across the signals schemas, inlined to keep this
@@ -287,6 +287,33 @@ class ReportChart(BaseModel):
     @classmethod
     def query_must_be_a_renderable_node(cls, v: dict[str, Any]) -> dict[str, Any]:
         return validate_report_query(v)
+
+
+class ReportChartSnapshot(BaseModel):
+    """A stored report chart as a reader shows it.
+
+    Reading a chart this way skips the query checks `ReportChart` runs on write. The query was checked
+    when the chart was saved, and the reader's query endpoint checks it again when it runs.
+    """
+
+    model_config = {"frozen": True, "extra": "ignore"}
+
+    chart_id: str
+    title: str
+    query: dict[str, Any]
+
+
+def saved_charts(raw_charts: object) -> list[ReportChartSnapshot]:
+    """The charts in a report's stored `charts` list, in order. Malformed entries are skipped."""
+    if not isinstance(raw_charts, list):
+        return []
+    charts: list[ReportChartSnapshot] = []
+    for raw in raw_charts:
+        try:
+            charts.append(ReportChartSnapshot.model_validate(raw))
+        except ValidationError:
+            continue
+    return charts
 
 
 def chart_batch_query_chars(charts: Sequence[ReportChart]) -> int:

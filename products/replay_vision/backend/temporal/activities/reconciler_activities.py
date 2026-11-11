@@ -8,11 +8,13 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
 
 from products.replay_vision.backend.temporal.constants import (
+    LIST_ENABLED_SCANNERS_TIMEOUT,
     SCANNER_SCHEDULE_ID_PREFIX,
     SCANNER_SCHEDULE_TYPE,
     SWEEP_SCANNER_WORKFLOW_NAME,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
+from products.replay_vision.backend.temporal.query_budget import bounded_queries
 from products.replay_vision.backend.temporal.reconciler_types import (
     DeleteScannerScheduleActivityInputs,
     EnabledScannerEntry,
@@ -28,11 +30,16 @@ from products.replay_vision.backend.temporal.schedule import (
 logger = structlog.get_logger(__name__)
 
 
+def _load_enabled_scanner_fingerprints() -> dict[UUID, tuple[int, str]]:
+    with bounded_queries(LIST_ENABLED_SCANNERS_TIMEOUT):
+        return load_enabled_scanner_fingerprints()
+
+
 @activity.defn
 @track_activity()
 async def list_enabled_scanners_activity() -> list[EnabledScannerEntry]:
     """Every enabled ReplayScanner with its current fingerprint."""
-    rows = await database_sync_to_async(load_enabled_scanner_fingerprints)()
+    rows = await database_sync_to_async(_load_enabled_scanner_fingerprints)()
     return [EnabledScannerEntry(scanner_id=sid, team_id=team_id, fingerprint=fp) for sid, (team_id, fp) in rows.items()]
 
 

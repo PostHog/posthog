@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
@@ -12,6 +12,14 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
+
+from products.alerts_platform.backend.facade.contracts import (
+    MAX_EVALUATION_PERIODS as PLATFORM_MAX_EVALUATION_PERIODS,
+    SOURCE_CONDITION_KEY,
+    PlatformAlertConfigurationView,
+)
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.logs.backend.platform_source_config import filters_of
 
 if TYPE_CHECKING:
     from products.logs.backend.alert_state_machine import AlertSnapshot
@@ -165,7 +173,7 @@ class TeamLogsConfig(models.Model):
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many
 # non-errored rows per alert, so older OK rows are pruned. Mirrored in the serializer's
 # max_value so the two can't drift.
-MAX_EVALUATION_PERIODS = 10
+MAX_EVALUATION_PERIODS = PLATFORM_MAX_EVALUATION_PERIODS
 
 
 class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -186,6 +194,15 @@ class LogsView(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
+
+
+CHECK_INTERVAL_MINUTES: Final = 5
+# The logs alert's columns that make up `source_config["condition"]` on the platform.
+CONDITION_FIELDS: Final = ("threshold_count", "threshold_operator", "window_minutes")
+
+
+def _no_logs_row(*_: object, **__: object) -> None:
+    raise RuntimeError("This logs alert has no logs row. Write it through the platform.")
 
 
 class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
@@ -224,7 +241,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
 
     # Window & scheduling
     window_minutes = models.PositiveIntegerField(default=5)
-    check_interval_minutes = models.PositiveIntegerField(default=5)
+    check_interval_minutes = models.PositiveIntegerField(default=CHECK_INTERVAL_MINUTES)
 
     # State
     state = models.CharField(
@@ -250,6 +267,18 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     consecutive_failures = models.PositiveIntegerField(default=0)
     first_enabled_at = models.DateTimeField(null=True, blank=True)
 
+    # The platform's copy records the same owner, and only the cutover and rollback commands
+    # write the two, so each stack can decide from its own row.
+    owner = models.CharField(
+        max_length=16,
+        choices=PlatformAlertOwner.choices,
+        default=PlatformAlertOwner.SOURCE.value,
+        db_default=PlatformAlertOwner.SOURCE.value,
+    )
+    # Where the legacy shadow of a platform-owned row starts. An alert created in a team already
+    # cut over takes the team's cutover time, which can be before its own `created_at`.
+    owner_changed_at = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         db_table = "logs_logsalertconfiguration"
         indexes = [
@@ -258,6 +287,55 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
                 name="logs_alert_scheduler_idx",
             ),
         ]
+
+    @property
+    def platform_owned(self) -> bool:
+        """The platform evaluates and delivers this alert. The logs stack may still evaluate it to
+        compare, but it sends nothing for it."""
+        return self.owner == PlatformAlertOwner.PLATFORM
+
+    @property
+    def has_no_logs_row(self) -> bool:
+        """Whether `from_platform_view` built this alert, because only the platform keeps it."""
+        return self._state.adding and self.platform_owned
+
+    @classmethod
+    def from_platform_view(
+        cls, view: PlatformAlertConfigurationView, *, team_id: int, now: datetime
+    ) -> LogsAlertConfiguration:
+        """An unsaved alert that presents a platform alert with no logs row the way a logs row does.
+        Its `save` and `delete` raise, because every write goes to the platform."""
+        condition = view.source_config[SOURCE_CONDITION_KEY]
+        snoozed = view.snooze_until is not None and view.snooze_until > now
+        alert = cls(
+            id=view.id,
+            team_id=team_id,
+            name=view.name,
+            enabled=view.enabled,
+            filters=filters_of(view.source_config),
+            **{field: condition[field] for field in CONDITION_FIELDS},
+            check_interval_minutes=view.check_interval_minutes,
+            evaluation_periods=view.evaluation_periods,
+            datapoints_to_alarm=view.datapoints_to_alarm,
+            cooldown_minutes=view.cooldown_minutes,
+            schedule_restriction=view.schedule_restriction,
+            snooze_until=view.snooze_until,
+            next_check_at=view.next_check_at,
+            consecutive_failures=view.consecutive_failures,
+            # The API takes the state from the platform. Only a snooze is kept on this side, as on a
+            # logs row the platform owns.
+            state=cls.State.SNOOZED if snoozed else cls.State.NOT_FIRING,
+            owner=PlatformAlertOwner.PLATFORM,
+            # The platform checked the alert from its creation, so its whole history is the platform's.
+            owner_changed_at=view.created_at,
+            created_by_id=view.created_by_id,
+            first_enabled_at=view.first_enabled_at,
+            created_at=view.created_at,
+            updated_at=view.updated_at,
+        )
+        for method in ("save", "delete"):
+            setattr(alert, method, _no_logs_row)
+        return alert
 
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
@@ -356,6 +434,8 @@ class LogsAlertEvent(UUIDModel):
         UNSNOOZE = "unsnooze", "Unsnooze"
         THRESHOLD_CHANGE = "threshold_change", "Threshold change"
         BROKEN_CONFIG = "broken_config", "Broken config"
+        # An operator handed the alert back from the alerts platform, carrying its state over.
+        HANDBACK = "handback", "Handback"
 
     alert = models.ForeignKey(
         LogsAlertConfiguration,
@@ -470,6 +550,9 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
         PATH_DROP = "path_drop", "Path exclusion"
         RATE_LIMIT = "rate_limit", "Rate limit"
 
+    # Same choice set as metric rules, so the OpenAPI schema emits one enum for both.
+    RecordSource = LogsMetricRule.RecordSource
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=False)
@@ -482,6 +565,12 @@ class LogsExclusionRule(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields
     scope_path_pattern = models.CharField(max_length=1024, null=True, blank=True)
     scope_attribute_filters = models.JSONField(default=list)
     config = models.JSONField(default=dict)
+    # Record source the rule filters. Immutable after create: it decides which consumer (logs or traces)
+    # evaluates the rule. The default keeps pre-existing rows as log rules.
+    # db_default keeps inserts from workers on the previous release valid during a rolling deploy.
+    source = models.CharField(
+        max_length=16, choices=RecordSource.choices, default=RecordSource.LOGS, db_default=RecordSource.LOGS
+    )
     version = models.PositiveIntegerField(default=1)
 
     class Meta:

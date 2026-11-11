@@ -5,7 +5,7 @@ import * as path from 'node:path'
 import { fetchContextMillResources, filterValidEntries, loadManifestFromArchive } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
-import { errorCode } from './utils'
+import { assertResolvesInside, assertSafeDestination, errorCode } from './utils'
 
 export interface SkillListItem {
     id: string
@@ -46,14 +46,6 @@ function targetSkillDirectory(targetRoot: string, skillId: string): string {
     return destinationRoot
 }
 
-function assertSafeDestination(root: string, destination: string): void {
-    const normalizedRoot = path.resolve(root)
-    const normalizedDestination = path.resolve(destination)
-    if (normalizedDestination !== normalizedRoot && !normalizedDestination.startsWith(normalizedRoot + path.sep)) {
-        throw new Error(`Refusing to write outside ${normalizedRoot}: ${normalizedDestination}`)
-    }
-}
-
 function assertSafeSkillId(skillId: string): void {
     if (!skillId || skillId.includes('..') || /[/\\]/.test(skillId)) {
         throw new Error(`Invalid skill ID "${skillId}": must not contain path separators or traversal sequences.`)
@@ -80,6 +72,7 @@ export async function installSkill(
     }
 
     const destinationRoot = targetSkillDirectory(cwd, skillId)
+    await assertResolvesInside(cwd, destinationRoot)
     try {
         await fs.access(destinationRoot)
         if (!opts.force) {

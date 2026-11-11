@@ -67,7 +67,10 @@ class TestWebDimensionalPrecomputeParity(WebAnalyticsPreAggregatedTestBase):
         )
 
     def _setup_test_data(self):
-        sa, sb, sc = (str(uuid7(DATE_START)) for _ in range(3))
+        sa, sb = (str(uuid7(DATE_START)) for _ in range(2))
+        # user_c's device clock runs two hours slow: capture corrects the event timestamp, but the
+        # session id keeps the device time, which falls on the previous day.
+        sc = str(uuid7("2023-12-31T22:30:00+00:00"))
         with time_machine.travel("2024-01-01T09:00:00Z", tick=False):
             # Create persons so events resolve to a stable person_id per distinct_id
             # (without this, _create_event assigns a fresh random person_id per row).
@@ -109,7 +112,7 @@ class TestWebDimensionalPrecomputeParity(WebAnalyticsPreAggregatedTestBase):
             self._pageview(
                 "user_c",
                 sc,
-                "2024-01-01T12:00:00Z",
+                "2024-01-01T00:30:00Z",
                 **{
                     "$host": "blog.example.com",
                     "$device_type": "Desktop",

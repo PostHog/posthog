@@ -5,7 +5,7 @@ from io import BytesIO
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +21,7 @@ from products.streamlit_apps.backend.logic.app_runtime import (
     _get_sandbox_callback_url,
 )
 from products.streamlit_apps.backend.models import StreamlitApp, StreamlitAppSandbox, StreamlitAppVersion
+from products.tasks.backend.facade.sandbox import SandboxExecutionError, SandboxNotRunningError, SandboxTimeoutError
 
 
 def _make_zip_bytes(files: dict[str, str]) -> bytes:
@@ -190,6 +191,7 @@ class TestAppRuntimeStartApp(BaseTest):
         record = StreamlitAppSandbox.objects.get(app=app)
         assert record.status == StreamlitAppSandbox.Status.ERROR
         assert "Boom" in record.last_error
+        assert "Writing the bridge token" in record.last_error
 
     def test_start_app_starts_auth_proxy_and_streamlit(self, mock_get_sandbox_class, _mock_wait):
         mock_sandbox = _make_mock_sandbox()
@@ -247,6 +249,89 @@ class TestAppRuntimeStartApp(BaseTest):
         service = AppRuntimeService()
         with self.assertRaises(AppRuntimeError, msg="Auth proxy failed to become ready"):
             service.start_app(app)
+
+
+@patch("products.streamlit_apps.backend.logic.app_runtime.time.sleep")
+@patch("products.streamlit_apps.backend.logic.app_runtime.get_sandbox_class")
+@override_settings(STREAMLIT_AUTH_PROXY_HEALTH_DEADLINE_SECONDS=30, STREAMLIT_HEALTH_DEADLINE_SECONDS=30)
+class TestAppRuntimeHealthProbes(BaseTest):
+    def _create_started_app(self):
+        app = StreamlitApp.objects.create(team=self.team, name="Minimal App", created_by=self.user)
+        version = StreamlitAppVersion.objects.create(
+            app=app,
+            version_number=1,
+            zip_file="s3://bucket/app.zip",
+            zip_hash="abc123",
+            created_by=self.user,
+        )
+        app.active_version = version
+        app.save(update_fields=["active_version"])
+        return app
+
+    @parameterized.expand(
+        [
+            (
+                "timed out",
+                SandboxTimeoutError(
+                    "Execution timed out after 5 seconds", {}, cause=TimeoutError("exec timed out"), capture=False
+                ),
+            ),
+            (
+                "errored",
+                SandboxExecutionError(
+                    "Failed to execute command", {}, cause=RuntimeError("exec failed"), capture=False
+                ),
+            ),
+        ]
+    )
+    def test_a_probe_that_fails_once_does_not_fail_the_start(
+        self, mock_get_sandbox_class, _mock_sleep, _name, probe_error
+    ):
+        """Streamlit accepts on its port before it answers, so the first probe can
+        block past its budget. That is one unready sample: the app comes up a second
+        later, and the start must wait for the deadline instead of aborting."""
+        probes_seen = []
+
+        def execute(command, timeout_seconds=None):
+            if "_stcore/health" not in command:
+                return MagicMock(exit_code=0, stdout="200", stderr="")
+            probes_seen.append(command)
+            if len(probes_seen) == 1:
+                raise probe_error
+            return MagicMock(exit_code=0, stdout="200", stderr="")
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.execute.side_effect = execute
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app = self._create_started_app()
+        record = AppRuntimeService().start_app(app, zip_content=_make_zip_bytes({"app.py": "import streamlit as st"}))
+
+        assert record.status == StreamlitAppSandbox.Status.RUNNING
+        assert len(probes_seen) == 2
+
+    def test_a_dead_sandbox_fails_the_start_without_waiting_out_the_deadline(self, mock_get_sandbox_class, _mock_sleep):
+        """A probe against a sandbox that is gone can never pass, and holding the
+        worker for the rest of the deadline helps nobody."""
+        probes_seen = []
+
+        def execute(command, timeout_seconds=None):
+            if "_stcore/health" not in command:
+                return MagicMock(exit_code=0, stdout="200", stderr="")
+            probes_seen.append(command)
+            raise SandboxNotRunningError(
+                "Sandbox not in running state.", {}, cause=RuntimeError("sandbox is not running"), capture=False
+            )
+
+        mock_sandbox = _make_mock_sandbox()
+        mock_sandbox.execute.side_effect = execute
+        mock_get_sandbox_class.return_value = _make_mock_sandbox_class(mock_sandbox)
+
+        app = self._create_started_app()
+        with self.assertRaises(SandboxNotRunningError):
+            AppRuntimeService().start_app(app, zip_content=_make_zip_bytes({"app.py": "import streamlit as st"}))
+
+        assert len(probes_seen) == 1
 
 
 @patch("products.streamlit_apps.backend.logic.app_runtime.get_sandbox_class")
@@ -458,7 +543,7 @@ class TestAppRuntimeRestartApp(BaseTest):
                 service.start_app(app)
 
 
-class TestWaitForHealth(BaseTest):
+class TestWaitForHealth(SimpleTestCase):
     def test_returns_true_on_200(self):
         from products.streamlit_apps.backend.logic.app_runtime import _wait_for_health
 
@@ -723,7 +808,7 @@ class TestBuildSandboxConfig(BaseTest):
         assert f"posthog.app_id={app.id}" in attrs
 
 
-class TestGetOtelLogsConfig(BaseTest):
+class TestGetOtelLogsConfig(SimpleTestCase):
     @parameterized.expand(
         [
             ("dev_or_self_hosted", False, None, "https://example.ngrok.io/i/v1/logs", "phc_local"),
@@ -846,7 +931,7 @@ class TestAppRuntimeConnectUrl(BaseTest):
         assert record.status == StreamlitAppSandbox.Status.STOPPED
 
 
-class TestSandboxCallbackUrl(BaseTest):
+class TestSandboxCallbackUrl(SimpleTestCase):
     """Docker sandboxes reach the host via host.docker.internal (applied to
     SITE_URL by DockerSandbox), so they must ignore the STREAMLIT_SANDBOX_CALLBACK_URL
     tunnel override that only Modal needs. Honoring a stale tunnel here points a

@@ -5,6 +5,7 @@ import {
     PERSONS_OUTPUT,
     PERSON_DISTINCT_IDS_OUTPUT,
     PERSON_MERGE_EVENTS_OUTPUT,
+    REALTIME_ONLY_EVENTS_OUTPUT,
 } from '.'
 
 import {
@@ -29,6 +30,10 @@ export function createOutputsRegistry() {
             .register(FLAG_EVALUATIONS_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_FLAG_EVALUATIONS_TOPIC',
                 producerKey: 'INGESTION_OUTPUT_FLAG_EVALUATIONS_PRODUCER',
+            })
+            .register(REALTIME_ONLY_EVENTS_OUTPUT, {
+                topicKey: 'INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_TOPIC',
+                producerKey: 'INGESTION_OUTPUT_REALTIME_ONLY_EVENTS_PRODUCER',
             })
             .register(INGESTION_WARNINGS_OUTPUT, {
                 topicKey: 'INGESTION_OUTPUT_INGESTION_WARNINGS_TOPIC',

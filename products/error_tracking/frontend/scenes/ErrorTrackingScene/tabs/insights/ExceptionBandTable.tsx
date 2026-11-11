@@ -9,6 +9,9 @@ import {
     TableHeader,
     TableRow,
     Text,
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
 } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
@@ -45,17 +48,23 @@ function BandLabel({
         )
     }
     return (
-        <Button
-            variant="default"
-            size="sm"
-            className="h-6 w-full min-w-0 justify-start gap-1.5 px-1.5 text-xs"
-            data-attr="error-tracking-insights-band-filter"
-            tooltip="Filter this tab down to it"
-            onClick={() => onSelectBand(band.filters as BandFilter[])}
-        >
-            {swatch}
-            <span className="truncate">{band.label}</span>
-        </Button>
+        <Tooltip>
+            <TooltipTrigger
+                render={
+                    <Button
+                        variant="default"
+                        size="sm"
+                        className="h-6 w-full min-w-0 justify-start gap-1.5 px-1.5 text-xs"
+                        data-attr="error-tracking-insights-band-filter"
+                        onClick={() => onSelectBand(band.filters as BandFilter[])}
+                    />
+                }
+            >
+                {swatch}
+                <span className="truncate">{band.label}</span>
+            </TooltipTrigger>
+            <TooltipContent>Filter this tab down to it</TooltipContent>
+        </Tooltip>
     )
 }
 

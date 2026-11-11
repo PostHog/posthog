@@ -35,6 +35,7 @@ PYTHON_ONLY_ALLOWLIST: dict[str, str] = {
     "min": "Alias for gte, only used in HogQL insights queries",
     "max": "Alias for lte, only used in HogQL insights queries",
     "is_cleaned_path_exact": "Path normalization, only used in HogQL path analysis",
+    "is_cleaned_path_not_exact": "Path normalization, only used in HogQL path analysis",
 }
 
 # Operators intentionally present in Rust but not in Python/TypeScript.

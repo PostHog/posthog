@@ -1,4 +1,4 @@
-import { LOOPS_FLAG, PROJECT_BLUEBIRD_FLAG } from "@posthog/shared";
+import { LOOPS_FLAG } from "@posthog/shared";
 import {
   ANALYTICS_EVENTS,
   type SidebarNavItem,
@@ -8,7 +8,6 @@ import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activ
 import { useCommandCenterActiveCount } from "@posthog/ui/features/command-center/useCommandCenterActiveCount";
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
-import { useInboxAvailable } from "@posthog/ui/features/feature-flags/useInboxAvailable";
 import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
@@ -71,17 +70,10 @@ export function SidebarNavSection({
   // Loops stays behind the loops flag. Also gates the per-channel Loops tab
   // (see ChannelTabs).
   const loopsEnabled = useFeatureFlag(LOOPS_FLAG);
-  // Channels stay behind project-bluebird, including channel-only nav items.
-  const bluebirdEnabled = useFeatureFlag(
-    PROJECT_BLUEBIRD_FLAG,
-    import.meta.env.DEV,
-  );
-  const inboxAvailable = useInboxAvailable();
   const mentionsEnabled = useActivityFilterStore(
     (state) => state.mentionsEnabled,
   );
-  const inboxVisible = inboxAvailable;
-  const inboxDecisionCount = useInboxDecisionCount({ enabled: inboxVisible });
+  const inboxDecisionCount = useInboxDecisionCount();
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -142,12 +134,10 @@ export function SidebarNavSection({
     };
 
   const navItemAvailable: Record<NavItemId, boolean> = {
-    // The global reports inbox reclaims the slot from the channel-reports
-    // takeover; without it, spaces own reports and the entry goes away.
-    inbox: inboxAvailable,
+    inbox: true,
     "command-center": true,
     contexts: contextEnabled,
-    activity: bluebirdEnabled,
+    activity: true,
     configure: true,
     loops: loopsEnabled,
   };

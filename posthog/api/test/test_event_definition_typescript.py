@@ -15,13 +15,21 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.test import SimpleTestCase
 
 from rest_framework import status
 
 from posthog.api.event_definition_generators.typescript import TypeScriptGenerator
-from posthog.models import EventDefinition, EventSchema, SchemaPropertyGroup, SchemaPropertyGroupProperty
+
+from products.event_definitions.backend.models import (
+    EventDefinition,
+    EventSchema,
+    SchemaPropertyGroup,
+    SchemaPropertyGroupProperty,
+)
 
 from ee.models.event_definition import EnterpriseEventDefinition
 
@@ -286,7 +294,7 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
 
 
-class TestTypeScriptGeneratorOptionalInTypes(BaseTest):
+class TestTypeScriptGeneratorOptionalInTypes(SimpleTestCase):
     def test_optional_in_types_generates_optional_marker(self):
         generator = TypeScriptGenerator()
         event = MagicMock()

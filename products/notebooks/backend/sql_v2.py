@@ -13,7 +13,9 @@ hardening swaps them for the RS256 sandbox event-ingest JWTs used by PostHog Des
 
 import hmac
 import time
+import uuid
 import hashlib
+from typing import Literal
 
 from django.conf import settings
 from django.core import signing
@@ -54,9 +56,12 @@ DELIVERY_NONE = "none"  # kernel run that read no ClickHouse result, so no trans
 DELIVERY_MIXED = "mixed"  # one run materialized several inputs and they did not agree on a transport
 
 _CALLBACK_TOKEN_SALT = "notebooks.sql_v2.callback"
-_CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
 _DATA_PLANE_TOKEN_SALT = "notebooks.sql_v2.data_plane"
-_DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 3600
+# Both tokens are minted at dispatch and used until the run ends: the data-plane token for the
+# heartbeat, the callback token for the result. They must outlive the kernel's execute cap
+# (_EXECUTE_TIMEOUT_SECONDS in sandbox/kernel/executor.py, 6 hours) plus the input fetches.
+_CALLBACK_TOKEN_MAX_AGE_SECONDS = 7 * 60 * 60
+_DATA_PLANE_TOKEN_MAX_AGE_SECONDS = 7 * 60 * 60
 
 # Rows in the display page the run envelope carries to the UI.
 DISPLAY_PAGE_LIMIT = 50
@@ -82,6 +87,8 @@ _RUN_POST_TIMEOUT_SECONDS = 10
 _PAGE_POST_TIMEOUT_SECONDS = 60
 # An interrupt only sets a cancel event and sends a SIGINT in the sandbox: near-instant.
 _INTERRUPT_POST_TIMEOUT_SECONDS = 5
+# Just past the sandbox's own 2s introspection wait, so a busy kernel answers empty, not a timeout.
+_INTROSPECTION_POST_TIMEOUT_SECONDS = 4
 # Safety-net TTL for the per-user page-fetch lock: sized just past the POST timeout so a
 # worker killed before its finally-release can't wedge the user's paging for long.
 PAGE_LOCK_TTL_SECONDS = _PAGE_POST_TIMEOUT_SECONDS + 10
@@ -193,6 +200,10 @@ def build_callback_url(run_id: str) -> str:
 
 def build_data_plane_url() -> str:
     return f"{_backend_base_url()}/internal/notebooks/data_plane/query/"
+
+
+def build_heartbeat_url() -> str:
+    return f"{_backend_base_url()}/api/notebooks/sandbox/heartbeat/"
 
 
 def mint_data_plane_token(notebook_short_id: str, team_id: int, user_id: int | None, run_id: str | None = None) -> str:
@@ -431,6 +442,8 @@ def dispatch_sql_v2_run(
         "callback_token": mint_callback_token(str(run.id), notebook.team_id),
         "data_plane_url": build_data_plane_url(),
         "data_plane_token": mint_data_plane_token(notebook.short_id, notebook.team_id, user_id, str(run.id)),
+        # Authenticated with the data-plane token above.
+        "heartbeat_url": build_heartbeat_url(),
         "page_limit": DISPLAY_PAGE_LIMIT,
         "cache_limit": RESULT_CACHE_ROWS,
     }
@@ -532,6 +545,39 @@ def interrupt_sql_v2_run(notebook: Notebook, user: User | None, run: NotebookNod
         return True
     # A pre-run-scoped kernel-server omits `known`; treat its interrupt as delivered.
     return bool(body.get("known", True))
+
+
+def introspect_in_kernel(
+    notebook: Notebook, user: User | None, route: Literal["complete", "inspect"], payload: dict
+) -> dict | None:
+    """Ask the running kernel for completions or a name's docs; None when no kernel can answer.
+
+    Like a page fetch this never bootstraps a server: completion only makes sense against a
+    namespace a run already built. An older kernel-server without the route answers 404 until
+    the next run redeploys it.
+    """
+    runtime = _find_running_runtime(notebook, user)
+    if runtime is None or not runtime.server_url:
+        return None
+    # The command token is bound to an id; an introspection request is not a run, so it gets its own.
+    request_id = str(uuid.uuid4())
+    command_token = mint_command_token(kernel_server_secret(str(runtime.id)), request_id)
+    try:
+        response = requests.post(
+            f"{runtime.server_url.rstrip('/')}/{route}",
+            json={**payload, "run_id": request_id},
+            headers=_sandbox_auth_headers(runtime.server_connect_token, command_token),
+            timeout=_INTROSPECTION_POST_TIMEOUT_SECONDS,
+        )
+    except requests.RequestException:
+        return None
+    if response.status_code != 200:
+        return None
+    try:
+        body = response.json()
+    except ValueError:
+        return None
+    return body if isinstance(body, dict) else None
 
 
 def _kernel_error_detail(response: requests.Response) -> str:

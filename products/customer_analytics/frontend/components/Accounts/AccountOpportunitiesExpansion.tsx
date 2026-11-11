@@ -75,12 +75,16 @@ const columns: LemonTableColumns<AccountOpportunity> = [
 
 export function AccountOpportunitiesExpansion({
     accountId,
+    instanceId,
     embedded = true,
 }: {
     accountId: string
+    instanceId?: string
     embedded?: boolean
 }): JSX.Element {
-    const { opportunitiesResult, opportunitiesResultLoading } = useValues(accountOpportunitiesLogic({ accountId }))
+    const { opportunitiesResult, opportunitiesResultLoading } = useValues(
+        accountOpportunitiesLogic({ accountId, instanceId })
+    )
 
     if (opportunitiesResultLoading || opportunitiesResult === NOT_LOADED) {
         return <LemonSkeleton className="h-64 w-full" />

@@ -83,7 +83,10 @@ import {
 } from "@posthog/ui/features/canvas/stores/freeformChatStore";
 import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import type { EditorHandle } from "@posthog/ui/features/message-editor/types";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
+import {
+  canvasCommentFocusKey,
+  useCommentNavigationStore,
+} from "@posthog/ui/features/sessions/commentNavigationStore";
 import {
   buildCommentThreads,
   readCommentContext,
@@ -526,27 +529,27 @@ export function FreeformCanvasView({
     ? browseVersionId
     : (publishedBuild?.sourceVersionId ?? headVersionId);
   const commentTarget = useMemo(
-    () => ({ scope: "desktop_canvas" as const, itemId: dashboardId }),
+    () => ({ scope: "canvas" as const, itemId: dashboardId }),
     [dashboardId],
   );
-  const commentsQuery = useCommentsQuery(
-    commentTaskId ? commentTarget : null,
-    commentTaskId ?? "",
-  );
+  const commentsQuery = useCommentsQuery(commentTarget, commentTaskId ?? "");
   const focusedCommentId = useCommentNavigationStore(
-    (state) => state.focusByTask[commentTaskId ?? ""]?.threadId ?? null,
+    (state) =>
+      state.focusByTask[canvasCommentFocusKey(dashboardId)]?.threadId ?? null,
   );
   const activateComment = useCallback(
     (id: string) => {
-      if (!commentTaskId) return;
       useCanvasChatPanelStore.getState().openComments();
       useCommentNavigationStore
         .getState()
-        .requestCommentFocus(commentTaskId, commentTarget, id, {
-          intent: "reveal-thread",
-        });
+        .requestCommentFocus(
+          canvasCommentFocusKey(dashboardId),
+          commentTarget,
+          id,
+          { intent: "reveal-thread" },
+        );
     },
-    [commentTaskId, commentTarget],
+    [commentTarget, dashboardId],
   );
   const commentHighlights = useMemo<CanvasCommentHighlight[]>(() => {
     const threads = buildCommentThreads(commentsQuery.data ?? []);
@@ -853,7 +856,6 @@ export function FreeformCanvasView({
     generatingPanelOpen,
     viewOpen: embedded ? false : panelViewOpen,
     collapsed,
-    hasCommentTask: !!commentTaskId,
   });
   const showPanel = panelVisibility.editing;
   // Build failures/progress surface in view mode too — the toolbar renders

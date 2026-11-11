@@ -17,7 +17,7 @@ from prometheus_client import CollectorRegistry
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags import person_pg_cleanup_drain as drain
-from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE
+from posthog.dags.clickhouse_cleanup import PG_CLEANUP_QUEUE_TABLE, clickhouse_deletion_sweep_job
 from posthog.dags.person_pg_cleanup_drain import (
     Chunk,
     DrainTotals,
@@ -28,11 +28,7 @@ from posthog.dags.person_pg_cleanup_drain import (
     pg_recovery,
 )
 from posthog.personhog_client.fake_client import FakePersonHogClient, get_active_fake
-from posthog.personhog_client.proto import (
-    DeleteTombstonedPersonsRequest,
-    DeleteTombstonedPersonsResponse,
-    GetPersonByUuidRequest,
-)
+from posthog.personhog_client.proto import DeleteTombstonedPersonsRequest, DeleteTombstonedPersonsResponse
 from posthog.persons_db import persons_db_url
 
 TEAM_A = 4242
@@ -46,10 +42,12 @@ OP = "drain_person_pg_cleanup_queue"
 FAST = {"pause_ms": 0, "latency_multiplier": 0.0, "retry_backoff_seconds": 0.0}
 
 
-def queue(conn, rows: list[tuple[int, str, datetime]]) -> None:
+def queue(conn, rows: list[tuple[int, str, datetime]], max_version: int | None = 0) -> None:
     with conn.cursor() as cursor:
         cursor.executemany(
-            f"INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at) VALUES (%s, %s, %s)", rows
+            f"INSERT INTO {PG_CLEANUP_QUEUE_TABLE} (team_id, person_uuid, deleted_at, max_version) "
+            "VALUES (%s, %s, %s, %s)",
+            [(*row, max_version) for row in rows],
         )
     conn.commit()
 
@@ -62,12 +60,20 @@ def queued(conn) -> list[tuple[int, str, datetime, datetime | None]]:
         return cursor.fetchall()
 
 
-def run_job(cluster: ClickhouseCluster, *, dry_run: bool = False, raise_on_error: bool = True, **overrides):
+def run_job(
+    cluster: ClickhouseCluster,
+    *,
+    dry_run: bool = False,
+    raise_on_error: bool = True,
+    instance: dagster.DagsterInstance | None = None,
+    **overrides,
+):
     config = {"dry_run": dry_run, **FAST, **overrides}
     return person_pg_cleanup_drain_job.execute_in_process(
         run_config={"ops": {OP: {"config": config}}},
         resources={"cluster": cluster, "persons_database_url": persons_db_url(writer=True)},
         raise_on_error=raise_on_error,
+        instance=instance,
     )
 
 
@@ -81,13 +87,14 @@ def failure_of(result: dagster.ExecuteInProcessResult) -> tuple[str, Mapping[str
     return failure.user_failure_data.description or "", failure.user_failure_data.metadata
 
 
-def seed_tombstoned(fake: FakePersonHogClient, team_id: int, person_id: int) -> str:
+def seed_tombstoned(fake: FakePersonHogClient, team_id: int, person_id: int, version: int = 0) -> str:
     uuid = str(uuid4())
     distinct_ids = [f"{person_id}-a", f"{person_id}-b"]
     fake.add_person(
         team_id=team_id,
         person_id=person_id,
         uuid=uuid,
+        version=version,
         distinct_ids=distinct_ids,
         is_deleted=True,
         tombstoned_distinct_ids=distinct_ids,
@@ -132,15 +139,20 @@ def seed_big(fake: FakePersonHogClient, team_id: int, person_id: int, distinct_i
 
 
 def present(fake: FakePersonHogClient, team_id: int, uuid: str) -> bool:
-    return fake.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=uuid)).HasField("person")
+    return fake.stored_person(team_id, uuid) is not None
 
 
 def delete_requests(fake: FakePersonHogClient) -> list:
     return [call.request for call in fake.calls if call.method == "delete_tombstoned_persons"]
 
 
+def sent_uuids(request: DeleteTombstonedPersonsRequest) -> list[str]:
+    return [person.person_uuid for person in request.bounded_persons]
+
+
 def distinct_id_count(fake: FakePersonHogClient, team_id: int, uuid: str) -> int:
-    person = fake.get_person_by_uuid(GetPersonByUuidRequest(team_id=team_id, uuid=uuid)).person
+    person = fake.stored_person(team_id, uuid)
+    assert person is not None
     return len(fake._distinct_ids.get((team_id, person.id), []))
 
 
@@ -205,7 +217,7 @@ def test_deletes_tombstoned_persons_and_removes_their_queue_rows(cluster: Clickh
     assert queued(persons_database) == []
     requests = delete_requests(fake)
     assert sorted(request.team_id for request in requests) == [TEAM_A, TEAM_B]
-    assert {uuid for request in requests for uuid in request.person_uuids} == {a1, a2, b1}
+    assert {uuid for request in requests for uuid in sent_uuids(request)} == {a1, a2, b1}
     assert all(request.max_rows == drain.STEP_START_ROWS for request in requests)
     totals = totals_of(result)
     assert (totals.persons_deleted, totals.rows_deleted, totals.queue_rows_deleted) == (3, 6, 3)
@@ -229,6 +241,53 @@ def test_removes_rows_for_live_and_unknown_persons_without_deleting_them(cluster
     assert present(fake, TEAM_A, live)
     totals = totals_of(result)
     assert (totals.persons_deleted, totals.persons_skipped_live, totals.persons_not_found) == (1, 1, 1)
+
+
+@pytest.mark.django_db
+def test_deletes_only_at_or_below_the_version_bound_and_leaves_unversioned_rows_queued(
+    cluster: ClickhouseCluster, persons_database
+):
+    # A person tombstoned again after the sweep still has ClickHouse rows, so its Postgres row stays.
+    # A row without a bound is never sent, because nothing says which versions the sweep removed.
+    fake = get_active_fake()
+    at_bound = seed_tombstoned(fake, TEAM_A, 1, version=3)
+    above = seed_tombstoned(fake, TEAM_A, 2, version=4)
+    unversioned = seed_tombstoned(fake, TEAM_A, 3)
+    queue(persons_database, [(TEAM_A, at_bound, SWEEP_1), (TEAM_A, above, SWEEP_1)], max_version=3)
+    queue(persons_database, [(TEAM_A, unversioned, SWEEP_1)], max_version=None)
+
+    result = run_job(cluster)
+
+    assert not present(fake, TEAM_A, at_bound)
+    assert present(fake, TEAM_A, above) and present(fake, TEAM_A, unversioned)
+    assert queued(persons_database) == [(TEAM_A, unversioned, SWEEP_1, None)]
+    bounds = [(person.person_uuid, person.max_version) for r in delete_requests(fake) for person in r.bounded_persons]
+    assert sorted(bounds) == sorted([(at_bound, 3), (above, 3)])
+    totals = totals_of(result)
+    assert (totals.persons_deleted, totals.persons_skipped_version, totals.persons_not_found) == (1, 1, 0)
+    assert (totals.rows_unversioned, totals.queue_rows_deleted) == (1, 2)
+
+
+@pytest.mark.django_db
+def test_a_replica_that_ignores_the_version_bounds_fails_the_run_without_writing(
+    cluster: ClickhouseCluster, persons_database, monkeypatch
+):
+    # A replica without bounded_persons support deletes nothing, and applying its answer would drop every queue row.
+    fake = get_active_fake()
+    gone = seed_tombstoned(fake, TEAM_A, 1)
+    queue(persons_database, [(TEAM_A, gone, SWEEP_1)])
+    monkeypatch.setattr(
+        fake, "delete_tombstoned_persons", lambda request, timeout=None: DeleteTombstonedPersonsResponse()
+    )
+
+    result = run_job(cluster, raise_on_error=False)
+
+    assert not result.success
+    assert queued(persons_database) == [(TEAM_A, gone, SWEEP_1, None)]
+    assert present(fake, TEAM_A, gone)
+    description, metadata = failure_of(result)
+    assert "did not apply the version bounds" in description
+    assert metadata["queue_rows_deleted"].value == 0
 
 
 @pytest.mark.django_db
@@ -282,7 +341,7 @@ def test_a_person_over_the_budget_is_finished_across_pending_resends_and_small_p
     assert not present(fake, TEAM_A, big) and not present(fake, TEAM_A, small)
     # Call 1 deletes the small person and leaves the budget spent; calls 2 and 3 trim two rows
     # each; call 4 finds one row left, which fits, and deletes the person whole.
-    assert [sorted(request.person_uuids) for request in delete_requests(fake)] == [sorted([big, small]), [big]] + [
+    assert [sorted(sent_uuids(request)) for request in delete_requests(fake)] == [sorted([big, small]), [big]] + [
         [big]
     ] * 2
     assert (totals.rpc_calls, totals.requests_pending_resent, totals.rows_deleted, totals.persons_deleted) == (
@@ -403,9 +462,9 @@ def test_every_row_is_drained_exactly_once_across_page_and_chunk_boundaries(
 
     result = run_job(cluster, page_size=2, rpc_batch_size=1)
 
-    sent = [uuid for request in delete_requests(fake) for uuid in request.person_uuids]
+    sent = [uuid for request in delete_requests(fake) for uuid in sent_uuids(request)]
     assert sorted(sent) == sorted(uuids)
-    assert all(len(request.person_uuids) == 1 for request in delete_requests(fake))
+    assert all(len(sent_uuids(request)) == 1 for request in delete_requests(fake))
     assert queued(persons_database) == []
     assert totals_of(result).pages == 3
 
@@ -454,7 +513,7 @@ def test_rows_from_two_sweeps_are_sent_separately_and_a_requeued_row_survives(
     def requeue_during_rpc(
         request: DeleteTombstonedPersonsRequest, timeout: float | None = None
     ) -> DeleteTombstonedPersonsResponse:
-        if requeued in request.person_uuids:
+        if requeued in sent_uuids(request):
             with persons_database.cursor() as cursor:
                 cursor.execute(
                     f"UPDATE {PG_CLEANUP_QUEUE_TABLE} SET deleted_at = %s WHERE person_uuid = ANY(%s::uuid[])",
@@ -467,7 +526,7 @@ def test_rows_from_two_sweeps_are_sent_separately_and_a_requeued_row_survives(
 
     result = run_job(cluster)
 
-    sent = [sorted(request.person_uuids) for request in delete_requests(fake)]
+    sent = [sorted(sent_uuids(request)) for request in delete_requests(fake)]
     assert sorted(sent) == sorted([sorted([old, requeued, requeued_blocked]), [new]])
     # Both re-queued rows survive untouched: the resolved one is not deleted, and the blocked one is
     # not stamped, because both now belong to the newer sweep.
@@ -560,6 +619,61 @@ def test_max_runtime_stops_between_pages_unless_disabled(
 
     result = run_job(cluster, page_size=1, **overrides)
 
+    totals = totals_of(result)
+    assert (totals.stopped_reason, totals.persons_deleted) == (stopped_reason, expected_deleted)
+    assert len(queued(persons_database)) == 3 - expected_deleted
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "status,starts,expected_deleted,stopped_reason",
+    [
+        pytest.param(dagster.DagsterRunStatus.STARTED, "before", 0, "sweep_running", id="executing_sweep"),
+        # A canceling sweep's last mutation keeps applying server-side, so it still executes.
+        pytest.param(dagster.DagsterRunStatus.CANCELING, "before", 0, "sweep_running", id="canceling_sweep"),
+        pytest.param(dagster.DagsterRunStatus.STARTED, "mid_run", 1, "sweep_running", id="sweep_starts_mid_run"),
+        # A page can outlast the sweep's wait, so the drain also checks before each request.
+        pytest.param(dagster.DagsterRunStatus.STARTED, "mid_page", 1, "sweep_running", id="sweep_starts_mid_page"),
+        # A failing request can retry for the whole retry window, so the drain also checks before each retry.
+        pytest.param(
+            dagster.DagsterRunStatus.STARTED, "during_retry", 0, "sweep_running", id="sweep_starts_during_a_retry"
+        ),
+        pytest.param(dagster.DagsterRunStatus.SUCCESS, "before", 3, "drained", id="finished_sweep"),
+    ],
+)
+def test_the_drain_stops_while_a_sweep_executes(
+    cluster: ClickhouseCluster, persons_database, monkeypatch, status, starts, expected_deleted, stopped_reason
+):
+    # The sweep waits for the drain to stop, so a drain that kept going would hold the weekly sweep.
+    fake = get_active_fake()
+    uuids = [seed_tombstoned(fake, TEAM_A, person_id) for person_id in range(1, 4)]
+    queue(persons_database, [(TEAM_A, uuid, SWEEP_1) for uuid in uuids])
+    monkeypatch.setattr(drain, "SWEEP_CHECK_INTERVAL_SECONDS", 0.0)
+    instance = dagster.DagsterInstance.ephemeral()
+    start_sweep = partial(instance.create_run_for_job, job_def=clickhouse_deletion_sweep_job, status=status)
+    if starts == "before":
+        start_sweep()
+    else:
+        original = fake.delete_tombstoned_persons
+        calls = 0
+
+        def start_sweep_on_the_first_request(
+            request: DeleteTombstonedPersonsRequest, timeout: float | None = None
+        ) -> DeleteTombstonedPersonsResponse:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                start_sweep()
+                if starts == "during_retry":
+                    raise _RpcError(grpc.StatusCode.UNAVAILABLE)
+            return original(request, timeout=timeout)
+
+        monkeypatch.setattr(fake, "delete_tombstoned_persons", start_sweep_on_the_first_request)
+
+    # One row per request either way: one page per row, or one page of three rows.
+    result = run_job(cluster, instance=instance, page_size=3 if starts == "mid_page" else 1, rpc_batch_size=1)
+
+    assert result.success
     totals = totals_of(result)
     assert (totals.stopped_reason, totals.persons_deleted) == (stopped_reason, expected_deleted)
     assert len(queued(persons_database)) == 3 - expected_deleted
@@ -661,34 +775,36 @@ def test_queue_statement_failures_reconnect_and_retry_inside_the_window(
         ([], 3, []),
         (
             [
-                QueueRow(team_id=1, person_uuid="a", deleted_at=SWEEP_1),
-                QueueRow(team_id=1, person_uuid="b", deleted_at=SWEEP_1),
+                QueueRow(team_id=1, person_uuid="a", deleted_at=SWEEP_1, max_version=1),
+                QueueRow(team_id=1, person_uuid="b", deleted_at=SWEEP_1, max_version=2),
+                QueueRow(team_id=1, person_uuid="c", deleted_at=SWEEP_1, max_version=None),
             ],
             3,
-            [Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("a", "b"))],
+            [Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("a", "b"), max_versions={"a": 1, "b": 2})],
         ),
         (
             [
-                QueueRow(team_id=1, person_uuid="a", deleted_at=SWEEP_1),
-                QueueRow(team_id=1, person_uuid="b", deleted_at=SWEEP_2),
-                QueueRow(team_id=2, person_uuid="c", deleted_at=SWEEP_1),
+                QueueRow(team_id=1, person_uuid="a", deleted_at=SWEEP_1, max_version=1),
+                QueueRow(team_id=1, person_uuid="b", deleted_at=SWEEP_2, max_version=2),
+                QueueRow(team_id=2, person_uuid="c", deleted_at=SWEEP_1, max_version=3),
             ],
             3,
             [
-                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("a",)),
-                Chunk(team_id=1, deleted_at=SWEEP_2, person_uuids=("b",)),
-                Chunk(team_id=2, deleted_at=SWEEP_1, person_uuids=("c",)),
+                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("a",), max_versions={"a": 1}),
+                Chunk(team_id=1, deleted_at=SWEEP_2, person_uuids=("b",), max_versions={"b": 2}),
+                Chunk(team_id=2, deleted_at=SWEEP_1, person_uuids=("c",), max_versions={"c": 3}),
             ],
         ),
         (
-            [QueueRow(team_id=1, person_uuid=uuid, deleted_at=SWEEP_1) for uuid in "abcde"],
+            [QueueRow(team_id=1, person_uuid=uuid, deleted_at=SWEEP_1, max_version=0) for uuid in "abcde"],
             2,
             [
-                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("a", "b")),
-                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("c", "d")),
-                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("e",)),
+                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("a", "b"), max_versions={"a": 0, "b": 0}),
+                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("c", "d"), max_versions={"c": 0, "d": 0}),
+                Chunk(team_id=1, deleted_at=SWEEP_1, person_uuids=("e",), max_versions={"e": 0}),
             ],
         ),
+        ([QueueRow(team_id=1, person_uuid="a", deleted_at=SWEEP_1, max_version=None)], 3, []),
     ],
 )
 def test_chunks_for_page_groups_by_team_and_sweep_then_splits(rows, rpc_batch_size, expected):
@@ -761,8 +877,15 @@ def publish(totals: DrainTotals) -> tuple[CollectorRegistry, list[str]]:
     return registry, pushed_jobs
 
 
-def test_a_dry_run_publishes_no_metrics():
-    registry, pushed_jobs = publish(DrainTotals(dry_run=True, rows_read=5))
+@pytest.mark.parametrize(
+    "totals",
+    [
+        pytest.param(DrainTotals(dry_run=True, rows_read=5), id="dry_run"),
+        pytest.param(DrainTotals(stopped_reason="sweep_running", rows_read=5), id="stopped_for_the_sweep"),
+    ],
+)
+def test_a_run_that_cannot_prove_the_drain_works_publishes_no_metrics(totals: DrainTotals):
+    registry, pushed_jobs = publish(totals)
 
     # The helper pushes with PUT, which replaces the whole job. Entering it with an empty
     # registry would delete the last-success gauge, so not entering it at all is the assertion.
@@ -775,10 +898,12 @@ def test_publishes_every_measurement_the_run_took():
         rows_read=5,
         persons_deleted=3,
         persons_skipped_live=2,
+        persons_skipped_version=6,
         persons_not_found=7,
         persons_blocked=1,
         rows_deleted=40,
         rows_stamped_blocked=1,
+        rows_unversioned=8,
         requests_pending_resent=4,
         queue_rows_estimate_at_start=1000,
         step_rows_min=250,
@@ -798,10 +923,12 @@ def test_publishes_every_measurement_the_run_took():
             "rows_read",
             "persons_deleted",
             "persons_skipped_live",
+            "persons_skipped_version",
             "persons_not_found",
             "persons_blocked",
             "rows_deleted",
             "rows_stamped_blocked",
+            "rows_unversioned",
             "requests_pending_resent",
             "step_rows_min",
             "rpc_errors",
@@ -813,10 +940,12 @@ def test_publishes_every_measurement_the_run_took():
         "rows_read": 5,
         "persons_deleted": 3,
         "persons_skipped_live": 2,
+        "persons_skipped_version": 6,
         "persons_not_found": 7,
         "persons_blocked": 1,
         "rows_deleted": 40,
         "rows_stamped_blocked": 1,
+        "rows_unversioned": 8,
         "requests_pending_resent": 4,
         "step_rows_min": 250,
         "rpc_errors": 2,

@@ -20,7 +20,7 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from products.batch_exports.backend.temporal.destinations.databricks_batch_export import DatabricksField
+from products.batch_exports.backend.facade.destinations.databricks import DatabricksField
 
 _INFORMATION_SCHEMA_TABLES = re.compile(r"information_schema\.tables", re.IGNORECASE)
 _TABLE_NAME_PREDICATE = re.compile(r"table_name\)?\s*=\s*'([^']*)'", re.IGNORECASE)

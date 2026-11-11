@@ -9,13 +9,10 @@ from decimal import Decimal
 from time import monotonic
 from uuid import UUID
 
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-
-import posthoganalytics
 
 from posthog.dataclasses import frozen
 from posthog.models import Team, User
@@ -57,7 +54,6 @@ JOB_STALE_AFTER = timedelta(minutes=10)
 GENERATION_CANCELLATION_TTL_SECONDS = 60 * 15
 MAX_SCHEMA_CONTEXT_BYTES = 64 * 1_024
 MAX_INPUT_CONTRACT_BYTES = 512 * 1_024
-NOTEBOOK_GENERATED_WIDGETS_FLAG = "notebook-generated-widgets"
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -453,41 +449,13 @@ def _is_ai_usage_limited(team_api_token: str) -> bool:
     return is_team_over_ai_credit_budget(team_api_token)
 
 
-def is_notebook_widget_enabled(user: User | None) -> bool:
-    if settings.DEBUG or settings.TEST:
-        return True
-    if user is None or not user.distinct_id:
-        return False
-    organization = getattr(user, "organization", None)
-    if organization is None:
-        return bool(
-            posthoganalytics.feature_enabled(
-                NOTEBOOK_GENERATED_WIDGETS_FLAG,
-                user.distinct_id,
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    organization_id = str(organization.id)
-    return bool(
-        posthoganalytics.feature_enabled(
-            NOTEBOOK_GENERATED_WIDGETS_FLAG,
-            user.distinct_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
-
-
 def _display_name(prompt: str) -> str:
     return prompt if len(prompt) <= 80 else f"{prompt[:77].rstrip()}..."
 
 
 def _ensure_widget_instance(*, notebook: Notebook, node_id: str, prompt: str, user_id: int) -> NotebookWidgetInstance:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
     from products.tasks.backend.facade import (  # noqa: PLC0415 — keeps Tasks imports off notebook startup
         api as tasks_facade,
@@ -1009,8 +977,8 @@ def heartbeat_widget_generation_job(job_id: UUID, team_id: int) -> None:
 
 
 def run_widget_generation_job(job_id: UUID, team_id: int) -> None:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas and object storage off worker registration
+        notebooks as canvas_facade,
     )
     from products.notebooks.backend.widget_generation import (  # noqa: PLC0415 — keeps the model client off Django startup
         WidgetSecurityReviewError,
@@ -1384,8 +1352,8 @@ def _latest_job(instance: NotebookWidgetInstance) -> GeneratedWidgetGenerationJo
 
 
 def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     assert_widget_node_exists(notebook, node_id)
@@ -1541,8 +1509,8 @@ def get_widget_status(*, notebook: Notebook, node_id: str) -> WidgetStatus:
 
 
 def list_widget_versions(*, notebook: Notebook, node_id: str, offset: int = 0, limit: int = 25) -> WidgetVersionPage:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas build imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     assert_widget_node_exists(notebook, node_id)
@@ -1658,8 +1626,8 @@ def _get_instance_and_version(
 
 
 def read_widget_source(*, notebook: Notebook, node_id: str, version_id: UUID | None = None) -> str:
-    from products.canvas.backend import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 - keeps Canvas storage imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     instance, version = _get_instance_and_version(notebook, node_id, version_id)
@@ -1681,8 +1649,8 @@ def revert_widget_version(
     expected_current_version_id: UUID,
     user_id: int,
 ) -> WidgetStatus:
-    from products.canvas.backend import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
-        notebook_integration as canvas_facade,
+    from products.canvas.backend.facade import (  # noqa: PLC0415 — keeps Canvas storage imports off notebook startup
+        notebooks as canvas_facade,
     )
 
     instance, target = _get_instance_and_version(notebook, node_id, version_id)

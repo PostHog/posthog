@@ -103,6 +103,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$batch_export_run_failed',
                 },
             ]
+        case 'replay-vision-requests':
+            return [
+                {
+                    label: 'Replay vision request completed',
+                    value: '$replay_vision_request_completed',
+                },
+            ]
         default:
             return [
                 {

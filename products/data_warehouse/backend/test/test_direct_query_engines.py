@@ -16,7 +16,8 @@ class TestDirectQueryEngineRegistry:
         assert adapter is not None
         assert adapter.engine == engine
 
-    @parameterized.expand([("none", None), ("unknown", "bigquery")])
+    # BigQuery is direct-capable but registers no materialization engine; the setup flow skips table registration.
+    @parameterized.expand([("none", None), ("raw_only_bigquery", "bigquery"), ("unknown", "sqlite")])
     def test_non_direct_engine_returns_none(self, _name: str, engine):
         assert get_direct_query_engine(engine) is None
 

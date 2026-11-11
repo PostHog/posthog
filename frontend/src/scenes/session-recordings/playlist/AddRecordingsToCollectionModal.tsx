@@ -21,7 +21,7 @@ function AddSelectedFooter({
 
     return (
         <div className="flex justify-end gap-2">
-            <LemonButton type="secondary" onClick={onClose}>
+            <LemonButton data-attr="collection-add-modal-close" type="secondary" onClick={onClose}>
                 Done
             </LemonButton>
             <LemonButton

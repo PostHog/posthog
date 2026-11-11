@@ -11,6 +11,18 @@ export default defineConfig({
         dts({
             tsconfigPath: resolve(__dirname, 'tsconfig.build.json'),
             exclude: ['src/**/*.stories.tsx', 'src/**/*.stories.ts'],
+            // An inferred type that names a dependency's private module emits an import path consumers
+            // cannot resolve, and their types silently become `any`. Fail the build instead.
+            afterBuild: (emittedFiles) => {
+                const unresolvable = [...emittedFiles]
+                    .filter(([, content]) => content.includes("import('node_modules"))
+                    .map(([file]) => file)
+                if (unresolvable.length > 0) {
+                    throw new Error(
+                        `Declarations import from node_modules by path. Annotate the export with a public type:\n${unresolvable.join('\n')}`
+                    )
+                }
+            },
         }),
     ],
     build: {

@@ -30,6 +30,10 @@ class TestBreakdownExtractExpr(SimpleTestCase):
         expr = breakdown_extract_expr("$virt_revenue", "group", group_type_index=0)
         self.assertEqual(_chain(expr), ["group_0", "$virt_revenue"])
 
+    def test_group_breakdown_group_key_reads_the_key_column(self) -> None:
+        expr = breakdown_extract_expr("$group_key", "group", group_type_index=0)
+        self.assertEqual(_chain(expr), ["group_0", "key"])
+
     def test_group_breakdown_without_index_raises_clear_error(self) -> None:
         # A missing index must fail loudly rather than emit an unresolvable `group_None` field.
         with self.assertRaises(ValueError):

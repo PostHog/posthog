@@ -214,9 +214,22 @@ class LLMPromptListQuerySerializer(serializers.Serializer):
         default="full",
         help_text=CONTENT_MODE_HELP,
     )
+    archived = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Return archived prompts instead of active ones. "
+            "Each archived prompt appears once, at its most recent version."
+        ),
+    )
 
     def validate_label(self, value: str) -> str:
         return validate_prompt_label_name_value(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if attrs.get("archived") and attrs.get("label"):
+            raise serializers.ValidationError("Archived prompts carry no labels. Remove the label parameter.")
+        return attrs
 
 
 class LLMPromptResolveQuerySerializer(LLMPromptFetchQuerySerializer):

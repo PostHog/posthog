@@ -22,6 +22,7 @@ from django.utils.http import urlencode
 import structlog
 
 from posthog.api.email_verification import email_verification_code_verifier
+from posthog.auth import ACCOUNT_BLOCKED_LOGIN_URL, account_refused
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -136,6 +137,10 @@ def stripe_provisioning_login(request: Any) -> HttpResponseBase:
         _capture("user_inactive", user_id=user_id)
         logger.warning("stripe_provisioning.login.user_inactive", user_id=user_id)
         return HttpResponseRedirect("/?error=user_inactive")
+
+    if account_refused(request, user, call_site="stripe_deep_link", impersonated=False):
+        _capture("access_blocked", user_id=user_id)
+        return HttpResponseRedirect(ACCOUNT_BLOCKED_LOGIN_URL)
 
     # Deep-link login has no password challenge and no SSO step, so partner-asserted
     # email ownership is the only thing standing between an attacker and a session.

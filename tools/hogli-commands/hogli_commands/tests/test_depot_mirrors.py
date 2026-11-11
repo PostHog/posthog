@@ -58,12 +58,6 @@ class TestMirrorViolations:
                 "but .depot/actions/pnpm-install/ does not exist",
                 id="used-mirror-deleted",
             ),
-            pytest.param(
-                {".github/workflows/ci-backend.yml"},
-                None,
-                "without a matching update to .depot/workflows/ci-backend.yml",
-                id="canonical-workflow-only",
-            ),
         ],
     )
     def test_reports_drift(

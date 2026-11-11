@@ -13,7 +13,7 @@ from products.batch_exports.backend.hogql_source import (
     parse_hogql_select_for_batch_export,
     replace_interval_placeholders,
 )
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportHogQLModel, BatchExportModel
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,
@@ -74,7 +74,7 @@ def test_each_run_substitutes_its_own_bounds_without_mutating_the_query() -> Non
         ),
         ("not a valid query", "Failed to parse HogQL query"),
         ("SELECT event FROM events WHERE timestamp >= {unknown}", "Unknown placeholder '{unknown}'"),
-        (None, "no HogQL query was provided"),
+        (None, "requires a query"),
     ],
     ids=["missing-start", "malformed-query", "unsupported-placeholder", "missing-query"],
 )
@@ -84,7 +84,11 @@ async def test_invalid_hogql_returns_non_retryable_staging_error(hogql_query: st
         batch_export_id="00000000-0000-4000-8000-000000000001",
         data_interval_start=None,
         data_interval_end=(dt.datetime.now(dt.UTC) - dt.timedelta(hours=1)).isoformat(),
-        batch_export_model=BatchExportModel(name="hogql", schema=None, hogql_query=hogql_query),
+        batch_export_model=(
+            BatchExportHogQLModel(query=hogql_query, user_id=1, modifiers={})
+            if hogql_query is not None
+            else BatchExportModel(name="hogql", schema=None, user_id=1)
+        ),
     )
     clickhouse = MockClickHouseClient()
 
@@ -92,10 +96,13 @@ async def test_invalid_hogql_returns_non_retryable_staging_error(hogql_query: st
         "products.batch_exports.backend.temporal.pipeline.internal_stage.get_client",
         return_value=clickhouse.mock_client_cm,
     ):
-        result = await ActivityEnvironment().run(insert_into_internal_stage_activity, inputs)
-
-    assert result.error is not None
-    assert result.error.type == "UnsupportedHogQLQueryError"
-    assert expected_error in result.error.message
-    assert result.records_total is None
+        if hogql_query is None:
+            with pytest.raises(ValueError, match=expected_error):
+                await ActivityEnvironment().run(insert_into_internal_stage_activity, inputs)
+        else:
+            result = await ActivityEnvironment().run(insert_into_internal_stage_activity, inputs)
+            assert result.error is not None
+            assert result.error.type == "UnsupportedHogQLQueryError"
+            assert expected_error in result.error.message
+            assert result.records_total is None
     clickhouse.expect_query_count(0)

@@ -1,10 +1,11 @@
 import { MakeLogicType, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
 import { chunk } from 'lib/utils/arrays'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { type ErrorScope, sessionErrorsWindow, traceErrorsWindow, usableId } from './errorCorrelation'
+import { type ErrorScope, sessionErrorsWindow, traceErrorsWindow } from './errorCorrelation'
 import { tracingSpansErrorCountsCreate } from './generated/api'
 import type { TeamTracingConfigApi } from './generated/api.schemas'
 import { tracingSpansErrorCountsCreateBodySpanIdsMax } from './generated/api.zod'

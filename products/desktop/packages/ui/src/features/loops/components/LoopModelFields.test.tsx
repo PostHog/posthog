@@ -1,4 +1,4 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
@@ -50,12 +50,10 @@ vi.mock("@posthog/ui/features/settings/SettingsOptionSelect", () => ({
 function renderFields({
   model = "",
   reasoningEffort = null,
-  adapterEditable,
   onReasoningEffortChange = vi.fn(),
 }: {
   model?: string;
   reasoningEffort?: LoopSchemas.LoopReasoningEffortEnum | null;
-  adapterEditable: boolean;
   onReasoningEffortChange?: (
     effort: LoopSchemas.LoopReasoningEffortEnum | null,
   ) => void;
@@ -65,8 +63,6 @@ function renderFields({
       adapter="claude"
       model={model}
       reasoningEffort={reasoningEffort}
-      adapterEditable={adapterEditable}
-      onAdapterChange={vi.fn()}
       onModelChange={vi.fn()}
       onReasoningEffortChange={onReasoningEffortChange}
     />,
@@ -83,15 +79,13 @@ function effortOptionValues(): string[] {
 describe("LoopModelFields reasoning effort", () => {
   it.each([
     {
-      name: "waits for a pinned model in workflow mode",
-      adapterEditable: false,
+      name: "waits for a pinned model",
       model: "",
       expectedDisabled: true,
       expectedValues: ["auto"],
     },
     {
-      name: "offers the pinned model's efforts in workflow mode",
-      adapterEditable: false,
+      name: "offers the pinned model's efforts",
       model: "claude-sonnet-5",
       expectedDisabled: false,
       expectedValues: [
@@ -104,39 +98,20 @@ describe("LoopModelFields reasoning effort", () => {
         "ultracode",
       ],
     },
-    {
-      name: "offers the default model's efforts when the adapter is editable",
-      adapterEditable: true,
-      model: "",
-      expectedDisabled: false,
-      expectedValues: [
-        "auto",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-        "ultracode",
-      ],
-    },
-  ])(
-    "$name",
-    ({ adapterEditable, model, expectedDisabled, expectedValues }) => {
-      renderFields({ adapterEditable, model });
+  ])("$name", ({ model, expectedDisabled, expectedValues }) => {
+    renderFields({ model });
 
-      const select = screen.getByRole("combobox", { name: "Reasoning effort" });
-      expect(select).toHaveProperty("disabled", expectedDisabled);
-      expect(effortOptionValues()).toEqual(expectedValues);
-      expect(
-        screen.queryByText("Pick a model to set reasoning effort.") !== null,
-      ).toBe(expectedDisabled);
-    },
-  );
+    const select = screen.getByRole("combobox", { name: "Reasoning effort" });
+    expect(select).toHaveProperty("disabled", expectedDisabled);
+    expect(effortOptionValues()).toEqual(expectedValues);
+    expect(
+      screen.queryByText("Pick a model to set reasoning effort.") !== null,
+    ).toBe(expectedDisabled);
+  });
 
-  it("clears the effort when a workflow loop goes back to the default model", async () => {
+  it("clears the effort when a loop goes back to the default model", async () => {
     const onReasoningEffortChange = vi.fn();
     renderFields({
-      adapterEditable: false,
       model: "claude-sonnet-5",
       reasoningEffort: "high",
       onReasoningEffortChange,

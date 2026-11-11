@@ -87,9 +87,8 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
             "onboarding_delegation_accepted_at",
         ]
     )
-    # Sidebar seeding runs ~37 get_or_create calls (one per released product). Defer it
-    # to post-commit so the held select_for_update locks on Organization and User aren't
-    # extended by dozens of sequential DB roundtrips.
+    # Defer sidebar seeding to post-commit, so the held select_for_update locks on Organization
+    # and User aren't extended by the extra DB roundtrips it needs.
     user_id = locked_user.id
 
     def _seed_after_commit() -> None:
@@ -109,18 +108,18 @@ def set_delegated_state(*, locked_user: User, invite: OrganizationInvite, organi
 
 
 def _seed_sidebar_for_delegator(*, user_id: int, organization_id: UUID | str) -> None:
-    """Enable all released products on the delegator's sidebar for the delegated org.
+    """Star all released products on the delegator's sidebar for the delegated org.
 
     The post-delegation home page would otherwise be empty (no product intents recorded
     during a skipped onboarding). We seed against the user's current_team if it's in the
     delegated org; otherwise pick any team in the org they have access to. A failure here
     must not block the delegation itself, so we swallow exceptions after capturing them.
     """
-    # Local imports to avoid pulling Team and UserProductList (and their transitive model
-    # graph) into module-load order — onboarding_delegation is imported by Django model
+    # Local imports to avoid pulling Team and the starred products module (and their transitive
+    # model graph) into module-load order — onboarding_delegation is imported by Django model
     # modules during app loading and module-level cross-model imports here have triggered
     # apps-not-ready issues.
-    from posthog.models.file_system.user_product_list import UserProductList
+    from posthog.models.file_system.starred_products import star_released_products
     from posthog.models.team.team import Team
 
     try:
@@ -135,7 +134,7 @@ def _seed_sidebar_for_delegator(*, user_id: int, organization_id: UUID | str) ->
             team = Team.objects.filter(organization_id=organization_id).order_by("id").first()
         if team is None:
             return
-        UserProductList.enable_all_for_user(user=user, team=team)
+        star_released_products(user, team)
     except Exception as exc:  # noqa: BLE001 - sidebar seeding must never block delegation
         capture_exception(exc)
         # Pair the Sentry capture with an indexable structured log so ops can correlate

@@ -122,8 +122,10 @@ export class HogMaskerService {
          * caller persists the invocations, so if that persistence fails, the caller must
          * release the claims — otherwise a replay of the same batch sees every invocation
          * as already-masked and silently drops it.
+         *
+         * Pass the invocations that did persist to keep their claims, so a replay does not run them twice.
          */
-        release: () => Promise<void>
+        release: (persisted?: CyclotronJobInvocation[]) => Promise<void>
     }> {
         const invocationsWithMasker: GenericHogInvocationWithMasker[] = [...invocations]
         const masks: Record<string, MaskContext> = {}
@@ -199,9 +201,14 @@ export class HogMaskerService {
                 )
         )
 
-        const release = async (): Promise<void> => {
+        const release = async (persisted: CyclotronJobInvocation[] = []): Promise<void> => {
+            const kept = new Set(persisted.map((item) => (item as GenericHogInvocationWithMasker).masker))
+            const released = maskContexts.filter((masker) => !kept.has(masker))
+            if (released.length === 0) {
+                return
+            }
             const buildReleasePipeline = (pipeline: RedisClientPipeline): void => {
-                maskContexts.forEach(({ hogFunctionId, hash, increment }) => {
+                released.forEach(({ hogFunctionId, hash, increment }) => {
                     pipeline.incrby(`${REDIS_KEY_TOKENS}/${hogFunctionId}/${hash}`, -increment)
                 })
             }

@@ -1,9 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef } from "react";
 import { useAuthenticatedQuery } from "../../hooks/useAuthenticatedQuery";
+import { taskKeys } from "../tasks/taskKeys";
 import { pinnedTasksApi } from "./taskMetaApi";
 
 const PINNED_TASKS_QUERY_KEY = ["task-pins"] as const;
+const PINNED_TASK_RECORDS_QUERY_KEY = taskKeys.list({ pinned: true });
 
 export function usePinnedTasks() {
   const queryClient = useQueryClient();
@@ -16,6 +18,14 @@ export function usePinnedTasks() {
   );
 
   const pinnedSet = useMemo(() => new Set(pinnedTaskIds), [pinnedTaskIds]);
+
+  const refetchPinnedTaskRecords = useCallback(
+    () =>
+      queryClient.invalidateQueries({
+        queryKey: PINNED_TASK_RECORDS_QUERY_KEY,
+      }),
+    [queryClient],
+  );
 
   const togglePinMutation = useMutation({
     scope: { id: "task-pins" },
@@ -45,6 +55,7 @@ export function usePinnedTasks() {
         return result.isPinned ? [...filtered, taskId] : filtered;
       });
     },
+    onSettled: refetchPinnedTaskRecords,
   });
 
   const togglePinMutationRef = useRef(togglePinMutation);
@@ -103,6 +114,7 @@ export function usePinnedTasks() {
         return pinned ? rest : [...rest, ...failed];
       });
     },
+    onSettled: refetchPinnedTaskRecords,
   });
 
   const setPinnedManyMutationRef = useRef(setPinnedManyMutation);
@@ -128,8 +140,9 @@ export function usePinnedTasks() {
       queryClient.setQueryData<string[]>(pinnedQueryKey, (old) =>
         old?.filter((id) => id !== taskId),
       );
+      await refetchPinnedTaskRecords();
     },
-    [queryClient, pinnedQueryKey],
+    [queryClient, pinnedQueryKey, refetchPinnedTaskRecords],
   );
 
   const isPinned = useCallback(

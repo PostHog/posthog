@@ -6,8 +6,8 @@ import { visualizationShape } from './visualizationShape'
 
 const BAR_HEIGHTS = ['h-2/5', 'h-3/5', 'h-1/2', 'h-4/5', 'h-2/3', 'h-3/4', 'h-1/3', 'h-3/5']
 const FUNNEL_WIDTHS = ['w-full', 'w-4/5', 'w-3/5', 'w-2/5']
-export function InsightVisualizationSkeleton({ query }: { query: InsightModel['query'] }): JSX.Element {
-    const shape = visualizationShape(query)
+export function InsightVisualizationSkeleton({ query }: { query?: InsightModel['query'] }): JSX.Element {
+    const shape = query ? visualizationShape(query) : 'line'
 
     let chart: JSX.Element
     if (shape === 'number') {

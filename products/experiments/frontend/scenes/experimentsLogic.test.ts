@@ -330,6 +330,40 @@ describe('experimentsLogic', () => {
             expect(logic.values.experiments.results).toEqual([freshExperiment])
         })
 
+        it.each([
+            {
+                desc: 'a first view',
+                filters: { status: 'all' as const, page: 1, archived: false },
+                expected: { statusFilter: 'all', page: 1, hasSearch: false, archived: false },
+            },
+            {
+                desc: 'a later page of a search in the archive',
+                filters: { status: ExperimentStatus.Running, page: 2, search: 'checkout', archived: true },
+                expected: { statusFilter: ExperimentStatus.Running, page: 2, hasSearch: true, archived: true },
+            },
+        ])(
+            'reports a list view with the filters of the request that answered: $desc',
+            async ({ filters, expected }) => {
+                await expectLogic(logic, () => {
+                    logic.actions.loadExperimentsSuccess({
+                        results: [mockExperiment, mockRunningExperiment],
+                        count: 2,
+                        filters,
+                    })
+                }).toDispatchActions([
+                    logic.actionCreators.reportExperimentsListViewed({ experimentsShown: 2, ...expected }),
+                ])
+            }
+        )
+
+        it('reports no list view when the list loads behind another tab', async () => {
+            logic.actions.setExperimentsTab(ExperimentsTabs.SharedMetrics)
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperimentsSuccess({ results: [mockExperiment, mockRunningExperiment], count: 2 })
+            }).toNotHaveDispatchedActions(['reportExperimentsListViewed'])
+        })
+
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',

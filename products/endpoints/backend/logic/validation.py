@@ -54,6 +54,18 @@ def validate_data_freshness(data_freshness_seconds: int | None) -> None:
         )
 
 
+def _is_current_data_freshness(
+    data_freshness_seconds: int | None, endpoint: Endpoint | None, version_number: int | None
+) -> bool:
+    """True when the value equals what the API already reports for the version being updated."""
+    if data_freshness_seconds is None or endpoint is None:
+        return False
+    try:
+        return endpoint.get_version(version_number).data_freshness_seconds == data_freshness_seconds
+    except EndpointVersion.DoesNotExist:
+        return False
+
+
 def validate_bucket_overrides(bucket_overrides: dict[str, str] | None) -> None:
     """Raise ValidationError if any bucket override value is not in SUPPORTED_BUCKET_FUNCTIONS."""
     if not bucket_overrides:
@@ -310,7 +322,8 @@ def validate_update_request(
     version_number: int | None = None,
 ) -> None:
     """Validate an update payload against the endpoint's resulting state."""
-    validate_data_freshness(data.data_freshness_seconds)
+    if not _is_current_data_freshness(data.data_freshness_seconds, endpoint, version_number):
+        validate_data_freshness(data.data_freshness_seconds)
 
     # Determine final states after this request (for validation)
     will_be_active = data.is_active if data.is_active is not None else (endpoint.is_active if endpoint else True)

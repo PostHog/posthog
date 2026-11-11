@@ -10,10 +10,17 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import type { QuarantinedIdentifierEntryApi, SnapshotApi, ToleratedHashEntryApi } from '../generated/api.schemas'
+import type {
+    QuarantineLiftEntryApi,
+    QuarantinedIdentifierEntryApi,
+    SnapshotApi,
+    ToleratedHashEntryApi,
+} from '../generated/api.schemas'
 import { QUARANTINE_NUDGE_WINDOW_DAYS, type RecentTolerations, shouldSuggestQuarantine } from '../lib/quarantineNudge'
+import { splitRepoFullName } from '../lib/repoPaths'
 import { visualReviewPreferencesLogic } from '../scenes/visualReviewPreferencesLogic'
 import { QuarantineAction } from './QuarantineAction'
+import { QuarantineLiftOnMerge } from './QuarantineLiftOnMerge'
 import { QuarantineModal, type OnQuarantine } from './QuarantineModal'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
@@ -73,9 +80,14 @@ interface SnapshotDiffViewerProps {
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
     onQuarantine?: OnQuarantine
     onUnquarantine?: () => void
+    liftRequest?: QuarantineLiftEntryApi | null
+    liftOnMergeDisabledReason?: string | null
+    isRequestingLift?: boolean
+    isCancellingLift?: boolean
+    onRequestLiftOnMerge?: () => void
+    onCancelLiftOnMerge?: (requestId: string) => void
     commitSha?: string
     prNumber?: number | null
-    repoId?: string | null
     repoFullName?: string | null
     runType?: string
     githubRunId?: string | null
@@ -96,9 +108,14 @@ export function SnapshotDiffViewer({
     quarantineEntry,
     onQuarantine,
     onUnquarantine,
+    liftRequest,
+    liftOnMergeDisabledReason,
+    isRequestingLift,
+    isCancellingLift,
+    onRequestLiftOnMerge,
+    onCancelLiftOnMerge,
     commitSha,
     prNumber,
-    repoId,
     repoFullName,
     runType,
     githubRunId,
@@ -159,6 +176,14 @@ export function SnapshotDiffViewer({
     const hasChanges = snapshot.result === 'changed' || snapshot.result === 'new' || snapshot.result === 'removed'
     // Default-branch (tracking-only) runs are never approvable — don't offer accept/reject/tolerate.
     const needsAction = hasChanges && !isApproved && !isTolerated && !isQuarantined && !isReportingOnly
+    // A quarantined change never blocks the PR, so it needs no action. It still needs an approval
+    // before a lift on merge can name its picture, so accepting it stays available here.
+    const canAcceptQuarantined =
+        isQuarantined &&
+        (snapshot.result === 'changed' || snapshot.result === 'new') &&
+        !isApproved &&
+        !isReportingOnly &&
+        !!onApprove
 
     // A snapshot that keeps needing a toleration is flaky, and one more toleration
     // only covers this exact rendering. While the history loads, fall back to the
@@ -197,26 +222,57 @@ export function SnapshotDiffViewer({
         })
     }
 
+    // Accepting writes this picture into the baseline for every branch. On a pull request that does
+    // not touch the story, the picture is usually the flake the quarantine is hiding.
+    const openAcceptQuarantinedDialog = (): void => {
+        // The dialog stays clickable during its close transition, so a double click would approve twice.
+        let submitted = false
+        LemonDialog.open({
+            title: 'Accept a change to a quarantined snapshot?',
+            description: (
+                <div className="flex flex-col gap-2">
+                    <code className="break-all">{snapshot.identifier}</code>
+                    <p className="m-0">
+                        This snapshot is quarantined because it renders inconsistently, so its change does not block
+                        your pull request. Accept it only if your pull request changes this story. Otherwise leave it as
+                        it is: accepting it makes this picture the baseline for everyone.
+                    </p>
+                </div>
+            ),
+            primaryButton: {
+                children: 'Accept change',
+                onClick: () => {
+                    if (!submitted) {
+                        submitted = true
+                        onApprove?.()
+                    }
+                },
+                'data-attr': 'visual-review-snapshot-accept-quarantined-confirm',
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
     // Parse identifier for display (e.g., "Feature-Flags-settings--e2e-test--dark--1440x900")
     const parts = snapshot.identifier.split('--')
     const pageName = parts[0]?.replace(/-/g, ' ') || snapshot.identifier
     const variant = parts.slice(1).join(' · ')
 
     return (
-        <div>
+        <div className="@container/snapshot-review w-full min-w-0">
             {/* Title + status + actions — full width above content+sidebar */}
-            <div className="flex items-center justify-between mb-4">
-                <div className="flex items-baseline gap-2">
-                    <h3 className="text-lg font-semibold capitalize">{pageName}</h3>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <div className="flex min-w-0 flex-wrap items-baseline gap-2">
+                    <h3 className="text-lg font-semibold capitalize break-words min-w-0">{pageName}</h3>
                     {variant && (
-                        <span className="text-sm text-muted">
+                        <span className="text-sm text-muted break-all">
                             @ {variant}
                             {width && height && ` · ${width}×${height}`}
                         </span>
                     )}
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                     <SnapshotStatusIndicator
                         result={snapshot.result || 'unchanged'}
                         reviewState={snapshot.review_state}
@@ -248,17 +304,34 @@ export function SnapshotDiffViewer({
                                 size="small"
                                 onClick={onApprove}
                                 loading={isApproving}
+                                disabledReason={
+                                    snapshot.result === 'removed'
+                                        ? 'A removed snapshot has no new image to accept. Finalize the run to remove it from the baseline.'
+                                        : undefined
+                                }
                                 data-attr="visual-review-snapshot-accept"
                             >
                                 Accept change
                             </LemonButton>
                         </>
                     )}
+                    {canAcceptQuarantined && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={openAcceptQuarantinedDialog}
+                            loading={isApproving}
+                            tooltip="This change does not block the pull request because the story is quarantined. Accept it only if your pull request changes this story."
+                            data-attr="visual-review-snapshot-accept-quarantined"
+                        >
+                            Accept change
+                        </LemonButton>
+                    )}
                 </div>
             </div>
 
             {/* Content + sidebar */}
-            <div className="flex gap-4">
+            <div className="flex flex-col gap-4 @4xl/snapshot-review:flex-row">
                 <div className="flex-1 min-w-0 overflow-hidden">
                     {isQuarantined && quarantineEntry && (
                         <div className="bg-warning-highlight border border-warning rounded px-3 py-2 mb-4 text-sm text-muted-alt flex items-center gap-1.5">
@@ -302,7 +375,7 @@ export function SnapshotDiffViewer({
                 </div>
 
                 {/* Right sidebar */}
-                <div className="w-[250px] shrink-0 border-l pl-4 space-y-4">
+                <div className="w-full min-w-0 border-t pt-4 space-y-4 @4xl/snapshot-review:w-64 @4xl/snapshot-review:shrink-0 @4xl/snapshot-review:border-t-0 @4xl/snapshot-review:border-l @4xl/snapshot-review:pt-0 @4xl/snapshot-review:pl-4">
                     {/* === Diff minimap === */}
                     {snapshot.diff_artifact?.download_url && (
                         <DiffMinimap
@@ -456,9 +529,13 @@ export function SnapshotDiffViewer({
                         <h4 className="text-xs font-semibold text-muted mb-2">Identifier</h4>
                         <div className="space-y-2">
                             <div className="text-xs">
-                                {repoId && runType ? (
+                                {repoFullName && runType ? (
                                     <Link
-                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        to={urls.visualReviewSnapshotHistory(
+                                            ...splitRepoFullName(repoFullName),
+                                            runType,
+                                            snapshot.identifier
+                                        )}
                                         className="font-mono text-default break-all"
                                         title="View history"
                                     >
@@ -485,9 +562,13 @@ export function SnapshotDiffViewer({
                             {snapshot.baseline_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">Before</span>
-                                    {repoId && runType ? (
+                                    {repoFullName && runType ? (
                                         <Link
-                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            to={urls.visualReviewSnapshotHistory(
+                                                ...splitRepoFullName(repoFullName),
+                                                runType,
+                                                snapshot.identifier
+                                            )}
                                             className="font-mono"
                                             title="View history"
                                         >
@@ -503,9 +584,13 @@ export function SnapshotDiffViewer({
                             {snapshot.current_artifact?.content_hash && (
                                 <div className="flex items-center justify-between text-xs">
                                     <span className="text-muted">After</span>
-                                    {repoId && runType ? (
+                                    {repoFullName && runType ? (
                                         <Link
-                                            to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                            to={urls.visualReviewSnapshotHistory(
+                                                ...splitRepoFullName(repoFullName),
+                                                runType,
+                                                snapshot.identifier
+                                            )}
                                             className="font-mono"
                                             title="View history"
                                         >
@@ -518,10 +603,14 @@ export function SnapshotDiffViewer({
                                     )}
                                 </div>
                             )}
-                            {repoId && runType && (
+                            {repoFullName && runType && (
                                 <div className="pt-1">
                                     <Link
-                                        to={urls.visualReviewSnapshotHistory(repoId, runType, snapshot.identifier)}
+                                        to={urls.visualReviewSnapshotHistory(
+                                            ...splitRepoFullName(repoFullName),
+                                            runType,
+                                            snapshot.identifier
+                                        )}
                                         className="text-xs"
                                     >
                                         View history →
@@ -559,7 +648,11 @@ export function SnapshotDiffViewer({
 
                     {/* Quarantine */}
                     {hasChanges && !isQuarantined && onQuarantine && (
-                        <QuarantineAction identifier={snapshot.identifier} onQuarantine={onQuarantine} />
+                        <QuarantineAction
+                            identifier={snapshot.identifier}
+                            onQuarantine={onQuarantine}
+                            runType={runType}
+                        />
                     )}
                     {nudgedIdentifier && onQuarantine && (
                         <QuarantineModal
@@ -568,6 +661,7 @@ export function SnapshotDiffViewer({
                             identifier={nudgedIdentifier}
                             onQuarantine={onQuarantine}
                             initialReason="Keeps changing in unrelated PRs"
+                            runType={runType}
                         />
                     )}
                     {isQuarantined && onUnquarantine && (
@@ -595,6 +689,18 @@ export function SnapshotDiffViewer({
                                 Unquarantine
                             </LemonButton>
                         </div>
+                    )}
+                    {prNumber != null && onRequestLiftOnMerge && onCancelLiftOnMerge && (
+                        <QuarantineLiftOnMerge
+                            prNumber={prNumber}
+                            isQuarantined={isQuarantined}
+                            liftRequest={liftRequest ?? null}
+                            disabledReason={liftOnMergeDisabledReason ?? null}
+                            isRequesting={!!isRequestingLift}
+                            isCancelling={!!isCancellingLift}
+                            onRequest={onRequestLiftOnMerge}
+                            onCancel={onCancelLiftOnMerge}
+                        />
                     )}
                 </div>
             </div>

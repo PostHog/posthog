@@ -7,6 +7,8 @@ from django.conf import settings
 
 from temporalio.client import ScheduleActionStartWorkflow, ScheduleIntervalSpec, ScheduleOverlapPolicy
 
+from posthog.scheduling.jitter import deterministic_offset
+
 from products.error_tracking.backend.temporal.symbol_set_cleanup.schedule import (
     SCHEDULE_ID,
     SCHEDULE_INTERVAL,
@@ -49,7 +51,9 @@ def assert_symbol_set_cleanup_schedule(schedule) -> None:
     assert schedule.policy is not None
     assert schedule.policy.overlap == ScheduleOverlapPolicy.SKIP
     assert schedule.policy.catchup_window == SCHEDULE_INTERVAL
-    assert schedule.spec.intervals == [ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]
+    assert schedule.spec.intervals == [
+        ScheduleIntervalSpec(every=SCHEDULE_INTERVAL, offset=deterministic_offset(SCHEDULE_ID, SCHEDULE_INTERVAL))
+    ]
 
 
 class TestCreateErrorTrackingSymbolSetCleanupSchedule:

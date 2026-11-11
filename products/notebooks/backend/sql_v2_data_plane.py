@@ -13,7 +13,8 @@ and the SQL editor use), so no web worker ever waits on ClickHouse:
   background thread polls this — invisible to the user, who already waits on the
   run callback or the page response.
 
-Wired in posthog/urls.py at internal/notebooks/data_plane/query/.
+Wired in posthog/urls.py at internal/notebooks/data_plane/query/. The heartbeat a long cell
+sends while it runs lives in presentation/views/sandbox_heartbeat.py.
 """
 
 import json
@@ -85,6 +86,19 @@ def _rows_to_arrow_bytes(
     with pa.ipc.new_stream(sink, table.schema) as writer:
         writer.write_table(table)
     return sink.getvalue().to_pybytes()
+
+
+def record_sandbox_heartbeat(token: str) -> bool:
+    """Reset the watchdog clock of the run a data-plane token names; return whether the token is valid."""
+    try:
+        claims = verify_data_plane_token(token)
+    except signing.BadSignature:
+        return False
+    # A cell that computes without reading data makes no data-plane fetches, so without this
+    # its only sign of life would be the final callback, and the watchdog would fail it first.
+    if claims.run_id:
+        touch_run_progress(claims.team_id, claims.notebook_short_id, claims.run_id)
+    return True
 
 
 def _verify_request_token(request: HttpRequest) -> DataPlaneClaims | JsonResponse:

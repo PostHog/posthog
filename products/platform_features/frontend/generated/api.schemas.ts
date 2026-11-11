@@ -37,7 +37,56 @@ export const OrganizationPluginsAccessLevelEnumApi = {
     Number9: 9,
 } as const
 
-export type OrganizationApiTeamsItem = { [key: string]: unknown }
+/**
+ * Serializer for `Team` model with minimal attributes to speeed up loading and transfer times.
+ * Also used for nested serializers.
+ */
+export interface OrganizationTeamBasicApi {
+    readonly id: number
+    readonly uuid: string
+    readonly organization: string
+    /**
+     * @minimum -2147483648
+     * @maximum 2147483647
+     */
+    readonly project_id: number
+    readonly api_token: string
+    readonly name: string
+    readonly completed_snippet_onboarding: boolean
+    readonly has_completed_onboarding_for: unknown
+    readonly ingested_event: boolean
+    readonly is_demo: boolean
+    readonly timezone: string
+    readonly access_control: boolean
+    /**
+     * The project group shown in the organization project switcher, or null if it has no group.
+     * @nullable
+     */
+    readonly project_group: string | null
+}
+
+export interface OrganizationMemberNoticeActionApi {
+    /**
+     * Text on the button shown next to the notice.
+     * @maxLength 40
+     */
+    label: string
+    /**
+     * Link the button opens in a new tab. Must use http or https.
+     * @maxLength 2000
+     */
+    url: string
+}
+
+export interface OrganizationMemberNoticeApi {
+    /**
+     * HTML shown in the banner. Supports formatting tags and links (<b>, <strong>, <i>, <em>, <u>, <s>, <code>, <br>, <p>, <span>, <ul>, <ol>, <li>, <a href>). Other tags, styles and scripts are removed.
+     * @maxLength 1000
+     */
+    message: string
+    /** Optional link button shown on the right of the banner. */
+    action?: OrganizationMemberNoticeActionApi | null
+}
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
@@ -54,8 +103,13 @@ export interface OrganizationApi {
     readonly created_at: string
     readonly updated_at: string
     readonly membership_level: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at: string | null
     readonly plugins_access_level: OrganizationPluginsAccessLevelEnumApi
-    readonly teams: readonly OrganizationApiTeamsItem[]
+    readonly teams: readonly OrganizationTeamBasicApi[]
     readonly projects: readonly OrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
@@ -87,6 +141,8 @@ export interface OrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -134,6 +190,19 @@ export interface OrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning: string | null
 }
 
 export interface PaginatedOrganizationListApi {
@@ -144,8 +213,6 @@ export interface PaginatedOrganizationListApi {
     previous?: string | null
     results: OrganizationApi[]
 }
-
-export type PatchedOrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type PatchedOrganizationApiProjectsItem = { [key: string]: unknown }
 
@@ -162,8 +229,13 @@ export interface PatchedOrganizationApi {
     readonly created_at?: string
     readonly updated_at?: string
     readonly membership_level?: OrganizationMembershipLevelEnumApi
+    /**
+     * When the requesting user joined this organization. Null if the user is not a member.
+     * @nullable
+     */
+    readonly membership_joined_at?: string | null
     readonly plugins_access_level?: OrganizationPluginsAccessLevelEnumApi
-    readonly teams?: readonly PatchedOrganizationApiTeamsItem[]
+    readonly teams?: readonly OrganizationTeamBasicApi[]
     readonly projects?: readonly PatchedOrganizationApiProjectsItem[]
     /** @nullable */
     readonly available_product_features?: readonly unknown[] | null
@@ -195,6 +267,8 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     read_only_mcp_access?: boolean | null
+    /** Notice shown in a banner to every member of the organization. Set to null to remove it. */
+    member_notice?: OrganizationMemberNoticeApi | null
     readonly member_count?: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
@@ -242,6 +316,19 @@ export interface PatchedOrganizationApi {
      * @nullable
      */
     readonly uses_most_specific_access_resolution?: boolean | null
+    /**
+     * IP addresses and CIDR blocks allowed to access this organization. Empty means every IP is allowed.
+     * @maxItems 100
+     * @items.maxLength 64
+     */
+    ip_restrictions?: string[]
+    /** When False, the IP allowlist is kept but not enforced. */
+    ip_restrictions_enabled?: boolean
+    /**
+     * A warning when the current request's IP address is not in the saved allowlist.
+     * @nullable
+     */
+    readonly ip_restrictions_warning?: string | null
 }
 
 export interface OrganizationRemoveBlockedMembersResponseApi {
@@ -408,6 +495,70 @@ export interface OrganizationMemberGithubLoginApi {
      * @nullable
      */
     github_login: string | null
+}
+
+/**
+ * * `dashboard` - Dashboard
+ * * `insight` - Insight
+ * * `notebook` - Notebook
+ * * `recording` - Session recording
+ * * `subscription` - Subscription
+ * * `alert` - Alert
+ */
+export type MemberOffboardingResourceKindEnumApi =
+    (typeof MemberOffboardingResourceKindEnumApi)[keyof typeof MemberOffboardingResourceKindEnumApi]
+
+export const MemberOffboardingResourceKindEnumApi = {
+    Dashboard: 'dashboard',
+    Insight: 'insight',
+    Notebook: 'notebook',
+    Recording: 'recording',
+    Subscription: 'subscription',
+    Alert: 'alert',
+} as const
+
+export interface MemberOffboardingResourceApi {
+    /** Opaque identifier used to update this resource during offboarding. */
+    id: string
+    /** Identifier accepted by the resource’s own API. */
+    resource_id: string
+    /** The kind of public object or automated delivery.
+     *
+     * * `dashboard` - Dashboard
+     * * `insight` - Insight
+     * * `notebook` - Notebook
+     * * `recording` - Session recording
+     * * `subscription` - Subscription
+     * * `alert` - Alert */
+    kind: MemberOffboardingResourceKindEnumApi
+    /** The resource's display name. */
+    name: string
+    /** Project containing the resource. */
+    team_id: number
+    /** Name of the project containing the resource. */
+    project_name: string
+    /**
+     * When the subscription was created, if applicable.
+     * @nullable
+     */
+    created_at: string | null
+    /**
+     * Subscription delivery channel: email, slack, or teams.
+     * @nullable
+     */
+    destination_type?: string | null
+    /**
+     * Subscription recipients, Slack channels, or safe webhook host.
+     * @nullable
+     */
+    destination?: string | null
+    /** Whether all active public links require a password. */
+    password_protected: boolean
+    /**
+     * Project-scoped path to open the resource in PostHog.
+     * @nullable
+     */
+    url: string | null
 }
 
 export interface OrganizationPersonalAPIKeyOwnerApi {
@@ -764,6 +915,58 @@ export interface WelcomeResponseApi {
     is_organization_first_user: boolean
 }
 
+/**
+ * * `session` - session
+ * * `personal_api_key` - personal_api_key
+ * * `oauth` - oauth
+ * * `project_secret_key` - project_secret_key
+ * * `team_secret_token` - team_secret_token
+ * * `id_jag` - id_jag
+ * * `oidc_workload` - oidc_workload
+ * * `internal_jwt` - internal_jwt
+ * * `service_jwt` - service_jwt
+ * * `internal_api_secret` - internal_api_secret
+ * * `scim` - scim
+ * * `vercel` - vercel
+ * * `partner` - partner
+ * * `sharing_access_token` - sharing_access_token
+ * * `sharing_password` - sharing_password
+ * * `widget_token` - widget_token
+ * * `billing_service` - billing_service
+ * * `gateway_agent` - gateway_agent
+ * * `export_renderer` - export_renderer
+ * * `webhook` - webhook
+ * * `cross_region_signature` - cross_region_signature
+ * * `unattributed` - unattributed
+ */
+export type ActivityLogCredentialTypeEnumApi =
+    (typeof ActivityLogCredentialTypeEnumApi)[keyof typeof ActivityLogCredentialTypeEnumApi]
+
+export const ActivityLogCredentialTypeEnumApi = {
+    Session: 'session',
+    PersonalApiKey: 'personal_api_key',
+    Oauth: 'oauth',
+    ProjectSecretKey: 'project_secret_key',
+    TeamSecretToken: 'team_secret_token',
+    IdJag: 'id_jag',
+    OidcWorkload: 'oidc_workload',
+    InternalJwt: 'internal_jwt',
+    ServiceJwt: 'service_jwt',
+    InternalApiSecret: 'internal_api_secret',
+    Scim: 'scim',
+    Vercel: 'vercel',
+    Partner: 'partner',
+    SharingAccessToken: 'sharing_access_token',
+    SharingPassword: 'sharing_password',
+    WidgetToken: 'widget_token',
+    BillingService: 'billing_service',
+    GatewayAgent: 'gateway_agent',
+    ExportRenderer: 'export_renderer',
+    Webhook: 'webhook',
+    CrossRegionSignature: 'cross_region_signature',
+    Unattributed: 'unattributed',
+} as const
+
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
@@ -788,6 +991,36 @@ export interface ActivityLogApi {
     client?: string | null
     /** @nullable */
     ip_address?: string | null
+    /** Kind of credential that authenticated the request that made the change. 'unattributed' means the request recorded no credential. Null for changes made outside a request, such as background jobs, and for entries recorded before PostHog stored the credential.
+     *
+     * * `session` - session
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `project_secret_key` - project_secret_key
+     * * `team_secret_token` - team_secret_token
+     * * `id_jag` - id_jag
+     * * `oidc_workload` - oidc_workload
+     * * `internal_jwt` - internal_jwt
+     * * `service_jwt` - service_jwt
+     * * `internal_api_secret` - internal_api_secret
+     * * `scim` - scim
+     * * `vercel` - vercel
+     * * `partner` - partner
+     * * `sharing_access_token` - sharing_access_token
+     * * `sharing_password` - sharing_password
+     * * `widget_token` - widget_token
+     * * `billing_service` - billing_service
+     * * `gateway_agent` - gateway_agent
+     * * `export_renderer` - export_renderer
+     * * `webhook` - webhook
+     * * `cross_region_signature` - cross_region_signature
+     * * `unattributed` - unattributed */
+    readonly credential_type: ActivityLogCredentialTypeEnumApi | null
+    /**
+     * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
+     * @nullable
+     */
+    readonly credential_id: string | null
     /** @maxLength 79 */
     activity: string
     /**
@@ -1034,6 +1267,7 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1280,6 +1514,10 @@ export type RolesRoleMembershipsListParams = {
 
 export type ActivityLogListParams = {
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
@@ -1307,6 +1545,8 @@ export type ActivityLogListParams = {
      * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
      *
      * * `Cohort` - Cohort
+     * * `CrossProjectDashboard` - CrossProjectDashboard
+     * * `DevGatewayToken` - DevGatewayToken
      * * `FeatureFlag` - FeatureFlag
      * * `Person` - Person
      * * `Group` - Group
@@ -1332,6 +1572,7 @@ export type ActivityLogListParams = {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -1342,6 +1583,7 @@ export type ActivityLogListParams = {
      * * `LegalDocument` - LegalDocument
      * * `Organization` - Organization
      * * `OrganizationDomain` - OrganizationDomain
+     * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
      * * `IdentityProviderConfig` - IdentityProviderConfig
      * * `OrganizationMembership` - OrganizationMembership
      * * `Role` - Role
@@ -1357,8 +1599,11 @@ export type ActivityLogListParams = {
      * * `PersonalAPIKey` - PersonalAPIKey
      * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
      * * `OAuthApplication` - OAuthApplication
+     * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+     * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
      * * `User` - User
      * * `Action` - Action
+     * * `AccountView` - AccountView
      * * `AlertConfiguration` - AlertConfiguration
      * * `Threshold` - Threshold
      * * `AlertSubscription` - AlertSubscription
@@ -1368,30 +1613,43 @@ export type ActivityLogListParams = {
      * * `EvaluationDirectory` - EvaluationDirectory
      * * `LLMPrompt` - LLMPrompt
      * * `LLMPromptLabel` - LLMPromptLabel
+     * * `LLMSkill` - LLMSkill
      * * `LLMTrace` - LLMTrace
      * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
      * * `LogsAlertConfiguration` - LogsAlertConfiguration
+     * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
      * * `LogsExclusionRule` - LogsExclusionRule
      * * `LogsRetentionRule` - LogsRetentionRule
      * * `TracesRetentionRule` - TracesRetentionRule
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
+     * * `KnowledgeSource` - KnowledgeSource
+     * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalSourceConfig` - SignalSourceConfig
      * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `DataQualityCheck` - DataQualityCheck
      * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+     * * `WarehouseSuggestion` - WarehouseSuggestion
+     * * `AccessControl` - AccessControl
+     * * `DataWarehouseTable` - DataWarehouseTable
+     * * `DataWarehouseJoin` - DataWarehouseJoin
      * * `Billing` - Billing
      * * `Loop` - Loop
      * * `StamphogRepoConfig` - StamphogRepoConfig
+     * * `ReviewRepository` - ReviewRepository
+     * * `ReviewProjectSettings` - ReviewProjectSettings
+     * * `ReviewInstallationClaim` - ReviewInstallationClaim
      * @minLength 1
      */
     scope?: ActivityLogListScope
@@ -1409,6 +1667,8 @@ export type ActivityLogListScope = (typeof ActivityLogListScope)[keyof typeof Ac
 
 export const ActivityLogListScope = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
+    DevGatewayToken: 'DevGatewayToken',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1434,6 +1694,7 @@ export const ActivityLogListScope = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1444,6 +1705,7 @@ export const ActivityLogListScope = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1459,8 +1721,11 @@ export const ActivityLogListScope = {
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
+    WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1470,34 +1735,49 @@ export const ActivityLogListScope = {
     EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
+    LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
+    AccessControl: 'AccessControl',
+    DataWarehouseTable: 'DataWarehouseTable',
+    DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 /**
  * * `Cohort` - Cohort
+ * * `CrossProjectDashboard` - CrossProjectDashboard
+ * * `DevGatewayToken` - DevGatewayToken
  * * `FeatureFlag` - FeatureFlag
  * * `Person` - Person
  * * `Group` - Group
@@ -1523,6 +1803,7 @@ export const ActivityLogListScope = {
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
  * * `ReplayScanner` - ReplayScanner
+ * * `ReplayObservation` - ReplayObservation
  * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
@@ -1533,6 +1814,7 @@ export const ActivityLogListScope = {
  * * `LegalDocument` - LegalDocument
  * * `Organization` - Organization
  * * `OrganizationDomain` - OrganizationDomain
+ * * `OrganizationIPRestrictions` - OrganizationIPRestrictions
  * * `IdentityProviderConfig` - IdentityProviderConfig
  * * `OrganizationMembership` - OrganizationMembership
  * * `Role` - Role
@@ -1548,8 +1830,11 @@ export const ActivityLogListScope = {
  * * `PersonalAPIKey` - PersonalAPIKey
  * * `ProjectSecretAPIKey` - ProjectSecretAPIKey
  * * `OAuthApplication` - OAuthApplication
+ * * `WorkloadTrustPolicy` - WorkloadTrustPolicy
+ * * `WorkloadTrustPolicyRequest` - WorkloadTrustPolicyRequest
  * * `User` - User
  * * `Action` - Action
+ * * `AccountView` - AccountView
  * * `AlertConfiguration` - AlertConfiguration
  * * `Threshold` - Threshold
  * * `AlertSubscription` - AlertSubscription
@@ -1559,35 +1844,50 @@ export const ActivityLogListScope = {
  * * `EvaluationDirectory` - EvaluationDirectory
  * * `LLMPrompt` - LLMPrompt
  * * `LLMPromptLabel` - LLMPromptLabel
+ * * `LLMSkill` - LLMSkill
  * * `LLMTrace` - LLMTrace
  * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
  * * `LogsAlertConfiguration` - LogsAlertConfiguration
+ * * `PlatformAlertConfiguration` - PlatformAlertConfiguration
  * * `LogsExclusionRule` - LogsExclusionRule
  * * `LogsRetentionRule` - LogsRetentionRule
  * * `TracesRetentionRule` - TracesRetentionRule
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `TicketMacro` - TicketMacro
+ * * `KnowledgeSource` - KnowledgeSource
+ * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalSourceConfig` - SignalSourceConfig
  * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
  * * `DataQualityCheck` - DataQualityCheck
  * * `DataQualityCheckSchedule` - DataQualityCheckSchedule
+ * * `WarehouseSuggestion` - WarehouseSuggestion
+ * * `AccessControl` - AccessControl
+ * * `DataWarehouseTable` - DataWarehouseTable
+ * * `DataWarehouseJoin` - DataWarehouseJoin
  * * `Billing` - Billing
  * * `Loop` - Loop
  * * `StamphogRepoConfig` - StamphogRepoConfig
+ * * `ReviewRepository` - ReviewRepository
+ * * `ReviewProjectSettings` - ReviewProjectSettings
+ * * `ReviewInstallationClaim` - ReviewInstallationClaim
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
 
 export const ActivityLogListScopesItem = {
     Cohort: 'Cohort',
+    CrossProjectDashboard: 'CrossProjectDashboard',
+    DevGatewayToken: 'DevGatewayToken',
     FeatureFlag: 'FeatureFlag',
     Person: 'Person',
     Group: 'Group',
@@ -1613,6 +1913,7 @@ export const ActivityLogListScopesItem = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1623,6 +1924,7 @@ export const ActivityLogListScopesItem = {
     LegalDocument: 'LegalDocument',
     Organization: 'Organization',
     OrganizationDomain: 'OrganizationDomain',
+    OrganizationIPRestrictions: 'OrganizationIPRestrictions',
     IdentityProviderConfig: 'IdentityProviderConfig',
     OrganizationMembership: 'OrganizationMembership',
     Role: 'Role',
@@ -1638,8 +1940,11 @@ export const ActivityLogListScopesItem = {
     PersonalAPIKey: 'PersonalAPIKey',
     ProjectSecretAPIKey: 'ProjectSecretAPIKey',
     OAuthApplication: 'OAuthApplication',
+    WorkloadTrustPolicy: 'WorkloadTrustPolicy',
+    WorkloadTrustPolicyRequest: 'WorkloadTrustPolicyRequest',
     User: 'User',
     Action: 'Action',
+    AccountView: 'AccountView',
     AlertConfiguration: 'AlertConfiguration',
     Threshold: 'Threshold',
     AlertSubscription: 'AlertSubscription',
@@ -1649,30 +1954,43 @@ export const ActivityLogListScopesItem = {
     EvaluationDirectory: 'EvaluationDirectory',
     LLMPrompt: 'LLMPrompt',
     LLMPromptLabel: 'LLMPromptLabel',
+    LLMSkill: 'LLMSkill',
     LLMTrace: 'LLMTrace',
     AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
     LogsAlertConfiguration: 'LogsAlertConfiguration',
+    PlatformAlertConfiguration: 'PlatformAlertConfiguration',
     LogsExclusionRule: 'LogsExclusionRule',
     LogsRetentionRule: 'LogsRetentionRule',
     TracesRetentionRule: 'TracesRetentionRule',
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
+    KnowledgeSource: 'KnowledgeSource',
+    KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalSourceConfig: 'SignalSourceConfig',
     SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
     DataQualityCheck: 'DataQualityCheck',
     DataQualityCheckSchedule: 'DataQualityCheckSchedule',
+    WarehouseSuggestion: 'WarehouseSuggestion',
+    AccessControl: 'AccessControl',
+    DataWarehouseTable: 'DataWarehouseTable',
+    DataWarehouseJoin: 'DataWarehouseJoin',
     Billing: 'Billing',
     Loop: 'Loop',
     StamphogRepoConfig: 'StamphogRepoConfig',
+    ReviewRepository: 'ReviewRepository',
+    ReviewProjectSettings: 'ReviewProjectSettings',
+    ReviewInstallationClaim: 'ReviewInstallationClaim',
 } as const
 
 export type AdvancedActivityLogsListParams = {
@@ -1684,6 +2002,10 @@ export type AdvancedActivityLogsListParams = {
      * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[]
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
     /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */
@@ -1855,7 +2177,7 @@ export type CommentsListParams = {
      */
     source_comment?: string
     /**
-     * Owning task for task, task_artifact, task_preview, task_browser, and desktop_canvas comment scopes.
+     * Owning task for task, task_artifact, task_preview, task_browser, and canvas comment scopes.
      */
     task_id?: string
 }

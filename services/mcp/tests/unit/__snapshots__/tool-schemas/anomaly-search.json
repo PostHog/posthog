@@ -1,0 +1,48 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dashboard_id": {
+            "description": "Only the series of the insights on this dashboard, by numeric id.",
+            "type": "number"
+        },
+        "date_from": {
+            "default": "-7d",
+            "description": "Earliest bucket start in the range. A relative date such as `-7d` or `-24h`, or an ISO 8601 date.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Latest bucket start in the range. A relative date or an ISO 8601 date. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "group_by": {
+            "default": "series",
+            "description": "`series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.\n\n* `series` - Series\n* `insight` - Insight",
+            "enum": ["series", "insight"],
+            "type": "string"
+        },
+        "insight_id": {
+            "description": "Only the series of this insight, by numeric id.",
+            "type": "number"
+        },
+        "interval": {
+            "description": "Only series with this interval.\n\n* `hour` - Hour\n* `day` - Day\n* `week` - Week\n* `month` - Month",
+            "enum": ["hour", "day", "week", "month"],
+            "type": "string"
+        },
+        "limit": {
+            "default": 25,
+            "description": "The most rows to return.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "only_flagged": {
+            "default": true,
+            "description": "Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.",
+            "type": "boolean"
+        }
+    },
+    "type": "object"
+}

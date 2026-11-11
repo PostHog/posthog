@@ -2,7 +2,7 @@ import { getColorVar } from 'lib/colors'
 
 import { flattenSeriesRows } from './metricsReduce'
 import { thresholdColor } from './metricsThresholds'
-import { formatMetricValue } from './metricsUnits'
+import { metricValuesFormatter } from './metricsUnits'
 import type { MetricsPanelProps } from './registry'
 import { resolveReducer } from './registry'
 
@@ -66,6 +66,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
                 const value = row.values[reducer] ?? null
                 const unit = row.series.unit ?? undefined
                 const { min, max } = gaugeBounds(value ?? 0, display)
+                const formatValue = metricValuesFormatter(unit, [value ?? 0, min, max])
                 const fraction = value === null ? 0 : Math.min(Math.max((value - min) / (max - min), 0), 1)
                 const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
                 const name =
@@ -107,7 +108,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
                                 fontWeight="600"
                                 fill="currentColor"
                             >
-                                {value === null ? '—' : formatMetricValue(value, unit)}
+                                {value === null ? '—' : formatValue(value)}
                             </text>
                             <text
                                 x={cx}
@@ -116,7 +117,7 @@ export function GaugePanel({ series, display, fallbackName }: MetricsPanelProps)
                                 fontSize="9"
                                 fill="var(--color-graph-axis-label)"
                             >
-                                {formatMetricValue(min, unit)} – {formatMetricValue(max, unit)}
+                                {formatValue(min)} – {formatValue(max)}
                             </text>
                         </svg>
                         <span className="text-xs text-secondary max-w-[120px] truncate">{name}</span>

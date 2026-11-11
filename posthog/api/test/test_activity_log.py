@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from typing import Any, Optional
 from uuid import uuid4
@@ -6,7 +7,9 @@ import time_machine
 from posthog.test.base import APIBaseTest, QueryMatchingTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -14,6 +17,7 @@ from rest_framework import status
 
 from posthog.api.advanced_activity_logs import ActivityLogSerializer
 from posthog.api.my_notifications import MyNotificationsSerializer
+from posthog.auth import JwtAuthentication
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
@@ -22,9 +26,14 @@ from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.session.activity import session_public_id
+from posthog.test.authentication_checks import covers_authentication
 from posthog.test.insight_queries import default_pageview_query
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.tasks.csv_exporter import add_query_params
 
 
 def _feature_flag_json_payload(key: str) -> dict:
@@ -203,6 +212,20 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
         assert res.status_code == status.HTTP_200_OK
         assert len(res.json()["results"]) == 39
 
+    def test_list_query_count_does_not_grow_with_page_size(self) -> None:
+        def query_count(page_size: int) -> int:
+            with CaptureQueriesContext(connection) as ctx:
+                res = self.client.get(f"/api/projects/{self.team.id}/activity_log?page_size={page_size}")
+            assert res.status_code == status.HTTP_200_OK
+            assert len(res.json()["results"]) == page_size
+            return len(ctx)
+
+        query_count(1)
+        few = query_count(2)
+        many = query_count(8)
+
+        assert few == many, f"listing 8 entries cost {many} queries vs {few} for 2, so something N+1s"
+
     def test_can_list_all_activity_filtered_by_scope(self) -> None:
         res = self.client.get(f"/api/projects/{self.team.id}/activity_log?scope=FeatureFlag")
         assert res.status_code == status.HTTP_200_OK
@@ -211,6 +234,303 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
 
 class TestActivityLogAuditLogsGate(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf&include_values=true",),
+        ]
+    )
+    def test_legacy_destination_values_are_masked(self, endpoint: str) -> None:
+        detail = {
+            "name": "Example destination",
+            "changes": [
+                {
+                    "type": "HogFunction",
+                    "field": field,
+                    "action": "changed",
+                    "before": "example-private-before",
+                    "after": "example-private-after",
+                }
+                for field in ("inputs", "mappings", "draft", "encrypted_inputs", "draft_encrypted_inputs", "transpiled")
+            ]
+            + [
+                {"type": "HogFunction", "field": "name", "action": "changed", "before": "Old name", "after": "New name"}
+            ],
+        }
+        entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFunction",
+            activity="updated",
+            item_id="example-function",
+            detail=detail,
+        )
+        flow_entry = ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="HogFlow",
+            activity="updated",
+            item_id="example-flow",
+            detail={
+                "name": "Example workflow",
+                "changes": [
+                    {
+                        "type": "HogFlow",
+                        "field": "actions",
+                        "action": "changed",
+                        "before": [{"config": {"inputs": {"token": {"value": "example-private-flow"}}}}],
+                        "after": [],
+                    }
+                ],
+            },
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert str(entry.id) in body
+        assert str(flow_entry.id) in body
+        assert "example-private" not in body
+        assert "masked" in body
+        assert "New name" in body
+        entry.refresh_from_db()
+        assert entry.detail == detail
+
+    def _log_group_property_changes_with_restricted_plan(self, level: OrganizationMembership.Level) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        plan = PropertyDefinition.objects.create(
+            team=self.team, name="plan", type=PropertyDefinition.Type.GROUP, group_type_index=0
+        )
+        PropertyAccessControl.objects.create(
+            team=self.team, property_definition=plan, access_level=PropertyAccessLevel.NONE.value
+        )
+        for name, before, after in (
+            ("plan", "example-plan-before", "example-plan-after"),
+            ("industry", "example-industry-before", "example-industry-after"),
+        ):
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Group",
+                activity="update_property",
+                item_id="1",
+                detail={
+                    "name": name,
+                    "changes": [{"type": "Group", "action": "changed", "before": before, "after": after}],
+                },
+            )
+        ActivityLog.objects.create(
+            team_id=self.team.id,
+            organization_id=self.organization.id,
+            user=self.user,
+            scope="FeatureFlag",
+            activity="updated",
+            item_id="2",
+            detail={
+                "name": "plan",
+                "changes": [
+                    {
+                        "type": "FeatureFlag",
+                        "field": "key",
+                        "action": "changed",
+                        "before": "old-key",
+                        "after": "new-key",
+                    }
+                ],
+            },
+        )
+
+    @parameterized.expand(
+        [
+            (f"{endpoint}_{name}", endpoint, level, hidden)
+            for endpoint in ("activity_log/", "advanced_activity_logs/", "advanced_activity_logs/?is_csv_export=1")
+            for name, level, hidden in (
+                ("member", OrganizationMembership.Level.MEMBER, True),
+                ("admin", OrganizationMembership.Level.ADMIN, False),
+            )
+        ]
+    )
+    def test_group_property_values_follow_property_access_control(
+        self, _name: str, endpoint: str, level: OrganizationMembership.Level, hidden: bool
+    ) -> None:
+        self._log_group_property_changes_with_restricted_plan(level)
+
+        from products.access_control.backend.facade import api as access_control_api
+
+        with patch.object(
+            access_control_api,
+            "get_restricted_group_property_names_by_type_index",
+            wraps=access_control_api.get_restricted_group_property_names_by_type_index,
+        ) as load_restrictions:
+            response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert load_restrictions.called is hidden
+        body = response.content.decode()
+        assert ("example-plan-before" in body) is not hidden
+        assert ("example-plan-after" in body) is not hidden
+        assert "example-industry-before" in body
+        assert "example-industry-after" in body
+        assert "old-key" in body
+        assert "new-key" in body
+
+    @parameterized.expand(
+        [
+            (f"{filter_kind}_{name}", filter_kind, level, hidden)
+            for filter_kind in ("search_text", "exact", "contains")
+            for name, level, hidden in (
+                ("member", OrganizationMembership.Level.MEMBER, True),
+                ("admin", OrganizationMembership.Level.ADMIN, False),
+            )
+        ]
+    )
+    def test_value_filters_skip_group_entries_with_hidden_property_values(
+        self, _name: str, filter_kind: str, level: OrganizationMembership.Level, hidden: bool
+    ) -> None:
+        self._log_group_property_changes_with_restricted_plan(level)
+
+        for value, scope, name, expected in (
+            ("example-plan-after", "Group", "plan", not hidden),
+            ("example-industry-after", "Group", "industry", True),
+            ("new-key", "FeatureFlag", "plan", True),
+        ):
+            query = (
+                {"search_text": value}
+                if filter_kind == "search_text"
+                else {"detail_filters": json.dumps({"changes[].after": {"operation": filter_kind, "value": value}})}
+            )
+            response = self.client.get(f"/api/projects/{self.team.id}/advanced_activity_logs/", query)
+
+            assert response.status_code == status.HTTP_200_OK, response.content
+            matches = {(result["scope"], result["detail"]["name"]) for result in response.json()["results"]}
+            assert ((scope, name) in matches) is expected, (value, matches)
+
+    # (label, property name, group type index logged on the entry, whether a member sees its values)
+    _GROUP_TYPE_ENTRIES: tuple[tuple[str, str, Optional[int], bool], ...] = (
+        ("plan-type-0", "plan", 0, False),
+        ("plan-type-1", "plan", 1, True),
+        ("plan-without-type", "plan", None, False),
+        ("customer-type-1", "customer", 1, False),
+        ("customer-type-0", "customer", 0, True),
+        ("customer-ssn-type-1", "customer.ssn", 1, False),
+        ("customer-tier-type-1", "customer.tier", 1, True),
+        ("industry-without-type", "industry", None, True),
+    )
+
+    def _log_group_changes_with_rules_per_group_type(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        for restricted_name, restricted_group_type_index in (("plan", 0), ("customer.ssn", 1)):
+            PropertyAccessControl.objects.create(
+                team=self.team,
+                property_definition=PropertyDefinition.objects.create(
+                    team=self.team,
+                    name=restricted_name,
+                    type=PropertyDefinition.Type.GROUP,
+                    group_type_index=restricted_group_type_index,
+                ),
+                access_level=PropertyAccessLevel.NONE.value,
+            )
+        for label, name, group_type_index, _visible in self._GROUP_TYPE_ENTRIES:
+            detail: dict[str, Any] = {
+                "name": name,
+                "changes": [
+                    {
+                        "type": "Group",
+                        "action": "changed",
+                        "before": f"example-{label}-before",
+                        "after": f"example-{label}-after",
+                    }
+                ],
+            }
+            if group_type_index is not None:
+                detail["context"] = {"group_type_index": group_type_index}
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Group",
+                activity="update_property",
+                item_id=label,
+                detail=detail,
+            )
+
+    @parameterized.expand(
+        [
+            ("activity_log", "activity_log/"),
+            ("advanced_activity_logs", "advanced_activity_logs/"),
+            ("advanced_activity_logs_csv", "advanced_activity_logs/?is_csv_export=1"),
+        ]
+    )
+    def test_group_property_values_match_rules_by_group_type_and_path(self, _name: str, path: str) -> None:
+        self._log_group_changes_with_rules_per_group_type()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{path}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        for label, _entry_name, _group_type_index, visible in self._GROUP_TYPE_ENTRIES:
+            assert (f"example-{label}-before" in body) is visible, label
+            assert (f"example-{label}-after" in body) is visible, label
+
+    def test_value_filters_match_rules_by_group_type_and_path(self) -> None:
+        self._log_group_changes_with_rules_per_group_type()
+
+        for label, _name, _group_type_index, visible in self._GROUP_TYPE_ENTRIES:
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/advanced_activity_logs/", {"search_text": f"example-{label}-after"}
+            )
+
+            assert response.status_code == status.HTTP_200_OK, response.content
+            assert ({result["item_id"] for result in response.json()["results"]} == {label}) is visible, label
+
+    @parameterized.expand(
+        [
+            ("activity_log/",),
+            ("advanced_activity_logs/",),
+            ("advanced_activity_logs/?is_csv_export=1",),
+            ("advanced_activity_logs/?schema=ocsf",),
+        ]
+    )
+    def test_only_allowlisted_credential_ids_reach_the_endpoint(self, endpoint: str) -> None:
+        for credential_type, credential_id, impersonated_by_id in (
+            ("personal_api_key", "example-key-id", None),
+            ("service_jwt", "example-internal-audience", 424242),
+        ):
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                organization_id=self.organization.id,
+                user=self.user,
+                scope="Experiment",
+                activity="created",
+                credential_type=credential_type,
+                credential_id=credential_id,
+                impersonated_by_id=impersonated_by_id,
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/{endpoint}")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        body = response.content.decode()
+        assert "personal_api_key" in body
+        assert "example-key-id" in body
+        assert "example-internal-audience" not in body
+        assert "impersonated_by_id" not in body
+        assert "424242" not in body
+
     @parameterized.expand([("activity_log",), ("advanced_activity_logs",)])
     def test_endpoint_blocked_on_cloud_without_audit_logs_feature(self, endpoint: str) -> None:
         self.organization.available_product_features = []
@@ -343,6 +663,34 @@ class TestOrganizationAdvancedActivityLogsViewSet(APIBaseTest):
         assert any(row["scope"] == "Organization" for row in results)
         # Cross-org row does NOT appear
         assert "flag-outside" not in item_ids
+
+    @parameterized.expand(
+        [
+            ("project_activity_log", "projects", "activity_log"),
+            ("project_advanced_activity_logs", "projects", "advanced_activity_logs"),
+            ("organization_advanced_activity_logs", "organizations", "advanced_activity_logs"),
+        ]
+    )
+    def test_legacy_loop_rows_are_hidden(self, _name: str, parent: str, endpoint: str) -> None:
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id="loop-1",
+            scope="Loop",
+            activity="updated",
+            detail=Detail(name="seed"),
+            force_save=True,
+        )
+        parent_id = self.team.id if parent == "projects" else self.organization.id
+
+        res = self.client.get(f"/api/{parent}/{parent_id}/{endpoint}/")
+
+        assert res.status_code == status.HTTP_200_OK
+        item_ids = {row["item_id"] for row in res.json()["results"]}
+        assert "flag-1" in item_ids
+        assert "loop-1" not in item_ids
 
     def test_invalid_filter_is_rejected(self) -> None:
         # Wiring guard: the viewset must run AdvancedActivityLogFiltersSerializer on the query params.
@@ -517,6 +865,7 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert session_key is not None
         assert (log.credential_type, log.credential_id) == ("session", str(session_public_id(session_key)))
 
+    @covers_authentication(JwtAuthentication)
     def test_internal_jwt_write_is_attributed_to_the_token_user(self) -> None:
         token = encode_jwt({"id": self.user.id}, timedelta(minutes=15), PosthogJwtAudience.IMPERSONATED_USER)
 
@@ -587,9 +936,58 @@ class TestActivityLogBearerAuthAttribution(APIBaseTest):
         assert exported_asset.source_credential_id == str(token.id)
 
 
+class TestAdvancedActivityLogExportPath(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        for item_id, user, activity in (
+            ("flag-created", self.user, "created"),
+            ("flag-updated", self.other_user, "updated"),
+            ("flag-deleted", None, "deleted"),
+        ):
+            log_activity(
+                organization_id=self.organization.id,
+                team_id=self.team.id,
+                user=user,
+                was_impersonated=False,
+                item_id=item_id,
+                scope="FeatureFlag",
+                activity=activity,
+                detail=Detail(name=item_id),
+                force_save=True,
+            )
+
+    @parameterized.expand(
+        [
+            ("multiple_users", "users", lambda self: [str(self.user.uuid), str(self.other_user.uuid)]),
+            ("multiple_activities", "activities", lambda _self: ["created", "updated"]),
+            ("explicit_false", "is_system", lambda _self: False),
+        ]
+    )
+    @patch("posthog.api.advanced_activity_logs.viewset.exporter.export_asset.delay")
+    def test_export_path_keeps_every_filter_value(
+        self, _name: str, filter_key: str, value: Any, _mock_exporter_task: Any
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/advanced_activity_logs/export/",
+            {"format": "csv", "filters": {filter_key: value(self)}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        exported_asset = ExportedAsset.objects.get(id=response.json()["id"])
+        assert exported_asset.export_context is not None
+        export_path = exported_asset.export_context["path"]
+
+        # The exporter rewrites the stored path and replays it against the list endpoint, so a
+        # filter must survive both the stored encoding and that rewrite.
+        replay = self.client.get(add_query_params(export_path, {"limit": "100", "is_csv_export": "1"}))
+
+        assert replay.status_code == status.HTTP_200_OK
+        assert {row["item_id"] for row in replay.json()["results"]} == {"flag-created", "flag-updated"}
+
+
 class TestActivityLogSerializerFields(SimpleTestCase):
-    @parameterized.expand([("advanced", ActivityLogSerializer), ("my_notifications", MyNotificationsSerializer)])
-    def test_credential_fields_are_not_serialized(self, _name: str, serializer_class: type) -> None:
+    def test_credential_fields_are_not_serialized_in_notifications(self) -> None:
         log = ActivityLog(
             scope="Experiment",
             activity="created",
@@ -598,6 +996,39 @@ class TestActivityLogSerializerFields(SimpleTestCase):
             impersonated_by_id=1,
         )
 
-        data = serializer_class(log).data
+        data = MyNotificationsSerializer(log).data
 
         assert {"credential_type", "credential_id", "impersonated_by_id"}.isdisjoint(data)
+
+    @parameterized.expand(
+        [
+            ("session", "session", "session-public-id", False, None, "session-public-id"),
+            ("personal_api_key", "personal_api_key", "key-id", False, None, "key-id"),
+            ("project_secret_key", "project_secret_key", "key-id", False, None, "key-id"),
+            ("oauth_hides_the_application", "oauth", "application-id", False, None, None),
+            ("service_jwt_hides_the_audience", "service_jwt", "internal-service", False, None, None),
+            ("impersonated_session_hides_the_staff_session", "session", "session-public-id", True, 1, None),
+        ]
+    )
+    def test_advanced_serializer_shows_credential_id_only_for_allowlisted_types(
+        self,
+        _name: str,
+        credential_type: str,
+        credential_id: str,
+        was_impersonated: bool,
+        impersonated_by_id: Optional[int],
+        expected_credential_id: Optional[str],
+    ) -> None:
+        log = ActivityLog(
+            scope="Experiment",
+            activity="created",
+            was_impersonated=was_impersonated,
+            credential_type=credential_type,
+            credential_id=credential_id,
+            impersonated_by_id=impersonated_by_id,
+        )
+
+        data = ActivityLogSerializer(log).data
+
+        assert (data["credential_type"], data["credential_id"]) == (credential_type, expected_credential_id)
+        assert "impersonated_by_id" not in data

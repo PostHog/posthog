@@ -4,10 +4,15 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/logic backend/management backend/temporal -v --tb=short"
     },
     "dependencies": {
-        "@posthog/products-mcp-store": "workspace:*"
+        "@posthog/products-mcp-store": "workspace:*",
+        "@posthog/quill": "workspace:*",
+        "kea-disposables": "catalog:",
+        "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "kea-test-utils": "catalog:"
+        "@testing-library/react": "^14.3.1",
+        "kea-test-utils": "catalog:",
+        "tailwindcss": "4.3.0"
     },
     "peerDependencies": {
         "@posthog/icons": "catalog:",

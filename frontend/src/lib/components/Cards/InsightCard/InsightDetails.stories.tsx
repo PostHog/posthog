@@ -152,6 +152,7 @@ export const DashboardFilterOverrides: Story = {
                 },
             ],
             breakdown_filter: { breakdown: '$os', breakdown_type: 'event' },
+            compareFilter: { compare: true, compare_to: '-1m' },
         },
     },
 }

@@ -5,7 +5,7 @@ from products.workflows.backend.utils.email_sending_tiers import (
     resolve_team_email_sending_tier,
 )
 
-# Kept in sync with _FIXED_TEMPLATE_IDS["function_email"] in products/workflows/backend/api/hog_flow.py.
+# Kept in sync with _FIXED_TEMPLATE_IDS["function_email"] in products/workflows/backend/presentation/views/hog_flow.py.
 _EMAIL_TEMPLATE_ID = "template-email"
 
 

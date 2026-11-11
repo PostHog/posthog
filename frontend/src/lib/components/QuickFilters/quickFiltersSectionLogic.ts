@@ -9,16 +9,26 @@ import { PropertyOperator, QuickFilterOption } from '~/types'
 
 import type { QuickFilter } from '../../../types'
 import { QuickFiltersEvents } from './consts'
+import { resolveQuickFilterOption } from './quickFilterOptions'
 
 const QUICK_FILTERS_URL_PARAM = 'quick_filters'
 
 const PAIR_SEPARATOR = ':'
 const ENTRY_SEPARATOR = ','
 
+// Auto-discovered option ids are property values, which can contain ':' and ','
 function serializeQuickFilters(selectedFilters: Record<string, SelectedQuickFilter>): string {
     return Object.entries(selectedFilters)
-        .map(([filterId, filter]) => `${filterId}${PAIR_SEPARATOR}${filter.optionId}`)
+        .map(([filterId, filter]) => `${filterId}${PAIR_SEPARATOR}${encodeURIComponent(filter.optionId)}`)
         .join(ENTRY_SEPARATOR)
+}
+
+function decodeOptionId(encodedOptionId: string): string | null {
+    try {
+        return decodeURIComponent(encodedOptionId)
+    } catch {
+        return null
+    }
 }
 
 function deserializeQuickFilters(param: string): Record<string, string> {
@@ -33,7 +43,7 @@ function deserializeQuickFilters(param: string): Record<string, string> {
             continue
         }
         const filterId = entry.substring(0, separatorIndex)
-        const optionId = entry.substring(separatorIndex + PAIR_SEPARATOR.length)
+        const optionId = decodeOptionId(entry.substring(separatorIndex + PAIR_SEPARATOR.length))
         if (filterId && optionId) {
             result[filterId] = optionId
         }
@@ -206,8 +216,11 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
                 return
             }
 
-            const updatedOption = filter.options.find((o) => o.id === currentSelection.optionId)
-            if (updatedOption) {
+            const updatedOption = resolveQuickFilterOption(filter, currentSelection.optionId)
+            // A discovered value belongs to one property, so it no longer applies after the property changes
+            const selectionStillMatches =
+                filter.type !== 'auto-discovery' || currentSelection.propertyName === filter.property_name
+            if (updatedOption && selectionStillMatches) {
                 actions.setQuickFilterValue(filter.id, filter.property_name, updatedOption)
             } else {
                 actions.clearQuickFilter(filter.id)
@@ -218,8 +231,9 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             posthog.capture(QuickFiltersEvents.QuickFilterSelected, {
                 name: filter?.name,
                 property_name: filter?.property_name,
-                label: option.label,
-                value: option.value,
+                filter_type: filter?.type,
+                // Auto-discovered values are raw event data, which can hold personal data, so only send author-written options
+                ...(filter?.type === 'manual-options' && { label: option.label, value: option.value }),
                 context: props.context,
             })
             actions.quickFiltersChanged()
@@ -244,7 +258,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
                     return
                 }
 
-                const option = filter.options.find((o) => o.id === optionId)
+                const option = resolveQuickFilterOption(filter, optionId)
                 if (!option) {
                     return
                 }

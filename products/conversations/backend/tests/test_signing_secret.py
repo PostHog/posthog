@@ -2,11 +2,14 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import OperationalError
+from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache
+from posthog.test.api_keys import create_project_secret_api_key
 
 from products.conversations.backend.models import SigningSecret
 
@@ -33,6 +36,90 @@ class TestSigningSecret(BaseTest):
         row = SigningSecret.objects.for_team(self.team.id).get()
         self.assertEqual(row.secret, self.team.secret_api_token)
         self.assertEqual(SigningSecret.objects.for_team(self.team.id).count(), 1)
+        # Legacy grace lives in the backup column; a mirroring row never carries a grace copy.
+        self.assertIsNone(row.previous_secret)
+
+    def test_legacy_rotation_clears_grace_for_a_stale_mirror(self):
+        # A stale mirror holds a retired key; promoting it into the grace copy would
+        # resurrect a credential the staleness guard already excluded.
+        self.team.secret_api_token = "phs_current_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team,
+            defaults={
+                "secret": "a_retired_secret",
+                "previous_secret": "an_even_older_secret",
+                "previous_secret_rotated_at": timezone.now(),
+            },
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.secret, self.team.secret_api_token)
+        self.assertIsNone(row.previous_secret)
+        self.assertIsNone(row.previous_secret_rotated_at)
+
+    def test_backup_deletion_revokes_the_grace_copy(self):
+        # Deleting the legacy backup is an explicit revocation; the same credential must
+        # not keep verifying through the signing secret's grace copy.
+        self.team.secret_api_token = "phs_current_token"
+        self.team.secret_api_token_backup = "phs_decoupled_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team,
+            defaults={
+                "secret": "an_independent_secret",
+                "rotated_independently": True,
+                "previous_secret": "phs_decoupled_token",
+                "previous_secret_rotated_at": timezone.now(),
+            },
+        )
+
+        self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertIsNone(row.previous_secret)
+        self.assertIsNone(row.previous_secret_rotated_at)
+
+    def test_second_legacy_rotation_revokes_the_grace_copy(self):
+        # Revoking a leaked key by rotating the legacy token twice retires it everywhere
+        # else; the independent row's grace copy must die with it.
+        self.team.secret_api_token = "phs_leaked_token"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team,
+            defaults={
+                "secret": "an_independent_secret",
+                "rotated_independently": True,
+                "previous_secret": "phs_leaked_token",
+                "previous_secret_rotated_at": timezone.now(),
+            },
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.previous_secret, "phs_leaked_token")
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        row.refresh_from_db()
+        self.assertIsNone(row.previous_secret)
+        self.assertIsNone(row.previous_secret_rotated_at)
+        self.assertEqual(row.secret, "an_independent_secret")
+
+    def test_legacy_rotation_does_not_clobber_an_independent_secret(self):
+        # A legacy rotation syncing over an independent secret silently breaks verification.
+        self.team.secret_api_token = "phs_previous_secret"
+        self.team.save()
+        SigningSecret.objects.for_team(self.team.id).update_or_create(
+            team=self.team, defaults={"secret": "an_independent_secret", "rotated_independently": True}
+        )
+
+        self.team.rotate_secret_token_and_save(user=self.user, is_impersonated_session=False)
+
+        row = SigningSecret.objects.for_team(self.team.id).get()
+        self.assertEqual(row.secret, "an_independent_secret")
 
     def test_failed_signing_secret_write_rolls_the_rotation_back(self):
         # The two stores must never diverge: if the signing-secret copy fails, the
@@ -42,6 +129,11 @@ class TestSigningSecret(BaseTest):
         self.team.save()
         SigningSecret.objects.for_team(self.team.id).update_or_create(
             team=self.team, defaults={"secret": "phs_previous_secret"}
+        )
+        # A migrated PSAK row (#63111) for the backup the rotation was about to retire
+        # must survive the rollback along with the backup token itself.
+        backup_row, _ = create_project_secret_api_key(
+            self.team, label="Migrated legacy key (backup)", value="phs_expired_backup"
         )
 
         with patch.object(SigningSecret.objects, "for_team", side_effect=OperationalError("connection lost")):
@@ -58,6 +150,31 @@ class TestSigningSecret(BaseTest):
         assert cached is not None
         self.assertEqual(cached.secret_api_token, "phs_previous_secret")
         self.assertEqual(cached.secret_api_token_backup, "phs_expired_backup")
+        # The rollback also discarded the mirror row minted for the new token.
+        mirror_rows = list(ProjectSecretAPIKey.objects.filter(team_id=self.team.id).values_list("pk", flat=True))
+        self.assertEqual(mirror_rows, [backup_row.pk])
+
+    def test_failed_backup_cleanup_rolls_the_deletion_back(self):
+        self.team.secret_api_token = "phs_current_primary_value"
+        self.team.secret_api_token_backup = "phs_backup_pending_deletion"
+        self.team.save()
+        backup_row, _ = create_project_secret_api_key(
+            self.team, label="Migrated legacy key (backup)", value="phs_backup_pending_deletion"
+        )
+
+        with patch(
+            "posthog.models.team.team.delete_project_secret_api_keys_for_token",
+            side_effect=OperationalError("connection lost"),
+        ):
+            with self.assertRaises(OperationalError):
+                self.team.delete_secret_token_backup_and_save(user=self.user, is_impersonated_session=False)
+
+        # The rollback must restore the instance and the cache, so a retry actually retries.
+        self.assertEqual(self.team.secret_api_token_backup, "phs_backup_pending_deletion")
+        cached = get_team_in_cache(self.team.api_token)
+        assert cached is not None
+        self.assertEqual(cached.secret_api_token_backup, "phs_backup_pending_deletion")
+        self.assertTrue(ProjectSecretAPIKey.objects.filter(pk=backup_row.pk).exists())
 
     def test_child_environment_keeps_its_own_team_on_save(self):
         # Environment-scoped by design: a canonicalizing save() (RootTeamMixin) would rewrite

@@ -18,10 +18,12 @@ import { LogsAppliedFilters, LogsFilterGroup, LogsFilterSearch, LogsQueryControl
 export const LogsQueryBar = ({
     showSavedViewsButton = false,
     showFullScreenButton = false,
+    autoFocusSearch = true,
     scope,
 }: {
     showSavedViewsButton?: boolean
     showFullScreenButton?: boolean
+    autoFocusSearch?: boolean
     scope?: LogsViewerScope
 }): JSX.Element => {
     const { id } = useValues(logsViewerFiltersLogic)
@@ -32,12 +34,12 @@ export const LogsQueryBar = ({
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
                         <div className="flex-1 min-w-[300px]">
-                            <LogsFilterSearch />
+                            <LogsFilterSearch autoFocus={autoFocusSearch} />
                         </div>
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <div className="flex shrink-0 gap-1.5">
+                    <div className="flex gap-1.5 min-w-0">
                         <LogsQueryControls />
                         {showFullScreenButton && <LogsFullScreenButton id={id} scope={scope} />}
                     </div>

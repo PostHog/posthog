@@ -102,21 +102,15 @@ class TestImpersonationOAuthRevocation(BaseTest):
 
 
 class TestImpersonationOAuthTokenIssuance(APIBaseTest):
-    """Code-exchange flow: tokens minted from an impersonation-tagged grant must be
-    short-lived and refresh-less, so they expire at the impersonation idle timeout
-    even when the staff user never explicitly logs out. The 30min cap + refresh
-    suppression key off the grant's `impersonated_by_id` alone, which is set during
-    `/oauth/authorize` for both read-only and read-write impersonation — so this
-    test implicitly covers both modes."""
-
     @parameterized.expand(
         [
-            ("third_party", False),
-            ("first_party", True),
+            ("third_party", False, True),
+            ("first_party", True, True),
+            ("ordinary", False, False),
         ]
     )
-    def test_code_exchange_caps_expiry_and_suppresses_refresh_for_impersonation_grants(
-        self, _name: str, is_first_party: bool
+    def test_code_exchange_inherits_grant_impersonation_tag(
+        self, _name: str, is_first_party: bool, impersonated: bool
     ) -> None:
         admin = User.objects.create_user(email="admin@posthog.com", password="x", first_name="A")
         admin.is_staff = True
@@ -153,7 +147,7 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
             scope="feature_flag:read",
             scoped_organizations=[str(self.organization.id)],
             scoped_teams=[],
-            impersonated_by=admin,
+            impersonated_by=admin if impersonated else None,
         )
 
         response = self.client.post(
@@ -166,6 +160,8 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
                     "redirect_uri": "https://example.com/callback",
                     "code_verifier": verifier,
                     "code": grant.code,
+                    "impersonated_by_id": self.user.pk,
+                    "_posthog_impersonator_id": self.user.pk,
                 }
             ),
             content_type="application/x-www-form-urlencoded",
@@ -175,12 +171,16 @@ class TestImpersonationOAuthTokenIssuance(APIBaseTest):
         body = response.json()
 
         self.assertIn("access_token", body)
-        self.assertNotIn("refresh_token", body)
-        self.assertEqual(body["expires_in"], settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS)
+        if impersonated:
+            self.assertNotIn("refresh_token", body)
+            self.assertEqual(body["expires_in"], settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS)
+        else:
+            self.assertIn("refresh_token", body)
+            self.assertGreater(body["expires_in"], settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS)
 
         access_token = OAuthAccessToken.objects.get(token=body["access_token"])
-        self.assertEqual(access_token.impersonated_by_id, admin.pk)
-        self.assertFalse(OAuthRefreshToken.objects.filter(application=app, user=self.user).exists())
+        self.assertEqual(access_token.impersonated_by_id, admin.pk if impersonated else None)
+        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, user=self.user).exists(), not impersonated)
 
 
 class TestImpersonatorIdResolution(BaseTest):

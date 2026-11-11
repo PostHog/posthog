@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 import { promisify } from 'node:util'
-import { gzip } from 'zlib'
+import { gzip, gzipSync } from 'zlib'
 
 import { PipelineResultType } from '~/ingestion/framework/results'
 
@@ -10,6 +10,8 @@ import {
     createParseMessageStep,
     decompressMessageValue,
     observeClockSkew,
+    splitByDecodedBytes,
+    statedDecodedBytes,
 } from './parse-message-step'
 import { SessionReplayHeaders } from './pipeline-types'
 
@@ -210,6 +212,110 @@ describe('createParseMessageStep', () => {
                 details: {},
             })
         }
+    })
+
+    describe('message limits', () => {
+        const limits = { maxWindowIdBytes: 8, maxEventsPerMessage: 2 }
+        const event = { type: 2, timestamp: fixedTimeMs }
+
+        beforeEach(() => {
+            jest.useFakeTimers({ now: fixedTime })
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it.each([
+            [
+                'the window ID',
+                'w'.repeat(9),
+                [event],
+                'message_window_id_too_long',
+                { sessionId: 'session-1', windowIdBytes: 9, events: 1 },
+            ],
+            [
+                'the window ID in bytes',
+                'é'.repeat(5),
+                [event],
+                'message_window_id_too_long',
+                { sessionId: 'session-1', windowIdBytes: 10, events: 1 },
+            ],
+            [
+                'the event count',
+                'w',
+                [event, event, event],
+                'message_too_many_events',
+                { sessionId: 'session-1', windowIdBytes: 1, events: 3 },
+            ],
+        ] as const)(
+            'drops a message past the limit on %s when enforced',
+            async (_, windowId, items, reason, details) => {
+                const payload = createSnapshotPayload({
+                    sessionId: 'session-1',
+                    distinctId: 'user-123',
+                    windowId,
+                    snapshotItems: [...items],
+                })
+
+                const result = await createParseMessageStep({ ...limits, enforce: true })(createInput(0, 1, payload))
+
+                expect(result).toMatchObject({
+                    type: PipelineResultType.DROP,
+                    reason,
+                    warnings: [{ type: reason, details }],
+                })
+            }
+        )
+
+        it.each([
+            ['past a limit, not enforced', 'w'.repeat(9), false, ['message_window_id_too_long']],
+            ['at the limits, enforced', 'w'.repeat(8), true, []],
+        ])('keeps a message %s', async (_, windowId, enforce, counted) => {
+            const overLimitSpy = jest
+                .spyOn(SessionRecordingIngesterMetrics, 'incrementMessagesOverLimit')
+                .mockImplementation()
+            const payload = createSnapshotPayload({
+                sessionId: 'session-1',
+                distinctId: 'user-123',
+                windowId,
+                snapshotItems: [event, event],
+            })
+
+            const result = await createParseMessageStep({ ...limits, enforce })(createInput(0, 1, payload))
+
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(overLimitSpy.mock.calls.map(([limit]) => limit)).toEqual(counted)
+        })
+    })
+
+    describe('splitByDecodedBytes', () => {
+        const raw = (bytes: number): Message => ({ value: Buffer.alloc(bytes) }) as Message
+        const lz4Stating = (bytes: number): Message => {
+            const value = Buffer.alloc(8)
+            value.writeUInt32LE(bytes, 0)
+            return { value, headers: [{ 'content-encoding': 'lz4' }] } as unknown as Message
+        }
+
+        it.each([
+            ['keeps one part when off', [raw(10), raw(10)], 0, [2]],
+            ['keeps messages that fit together', [raw(10), raw(10)], 20, [2]],
+            ['starts a new part past the limit', [raw(10), raw(10), raw(1)], 15, [1, 2]],
+            ['gives a message over the limit its own part', [raw(1), raw(30), raw(1)], 10, [1, 1, 1]],
+            ['counts the stated lz4 size', [lz4Stating(1000), lz4Stating(1000)], 1500, [1, 1]],
+            ['counts the bytes when a stated size is past the cap', [lz4Stating(2 ** 31), raw(4)], 20, [2]],
+        ] as const)('%s', (_, messages, maxBytes, sizes) => {
+            const parts = splitByDecodedBytes([...messages], maxBytes)
+
+            expect(parts.map((part) => part.length)).toEqual(sizes)
+            expect(parts.flat()).toEqual(messages)
+        })
+
+        it('counts the stated gzip size', () => {
+            const gzipped = gzipSync(Buffer.alloc(1000))
+
+            expect(statedDecodedBytes({ value: gzipped } as Message)).toBe(1000)
+        })
     })
 
     it('should handle gzipped messages', async () => {

@@ -9,7 +9,9 @@ export function AdminLoginButtons({
     ticketContext: ImpersonationTicketContext | null
     adminLoginUrls: AdminLoginUrl[]
 }): JSX.Element {
-    const disabledReason = !ticketContext?.email ? 'This ticket has no associated email' : undefined
+    const disabledReason = adminLoginUrls.length === 0 ? 'This ticket has no associated email' : undefined
+    const loginTarget =
+        ticketContext?.verifiedDistinctId && ticketContext.isEmailUnverified ? 'verified account' : ticketContext?.email
 
     // Region is ambiguous when we couldn't infer it, so we offer one button per
     // region and label each so staff know which admin page they're opening.
@@ -30,7 +32,7 @@ export function AdminLoginButtons({
                         tooltip="This currently redirects to the admin login page, but in future will log you in directly."
                         onClick={() => window.open(url, '_blank')}
                     >
-                        Login as {ticketContext?.email}
+                        Login as {loginTarget}
                         {showRegionLabel ? ` (${region})` : ''}
                     </LemonButton>
                 ))

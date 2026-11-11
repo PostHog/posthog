@@ -81,7 +81,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ast.Alias(alias="t_0", expr=t0_expr),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-            where=ast.And(exprs=self.global_event_filters),
+            where=ast.And(exprs=[*self.global_event_filters, *self._cohort_breakdown_filters()]),
             group_by=[ast.Field(chain=["actor_id"])],
             having=ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["t_0"]), right=ast.Constant(value=None)
@@ -148,7 +148,11 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                     ),
                 ),
             ),
-            where=ast.And(exprs=[*self.global_event_filters, parse_expr("timestamp >= t_0")]),
+            # With group aggregation the join above is on the group, so return events need the cohort
+            # filter too, the same as calendar mode.
+            where=ast.And(
+                exprs=[*self.global_event_filters, *self._cohort_breakdown_filters(), parse_expr("timestamp >= t_0")]
+            ),
             group_by=[ast.Field(chain=["actors_with_t0", "actor_id"]), ast.Field(chain=["actors_with_t0", "t_0"])],
             having=self._cell_selection_having(start_interval_index_filter, selected_breakdown_value),
         )
@@ -165,8 +169,9 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         # Breakdowns are rejected upstream by DisallowBreakdownsWithDataWarehouse24HourWindows: apply_breakdown
         # references events / person columns, which aren't in scope in this query shape. Group aggregation is
         # rejected by DisallowGroupAggregationWithDataWarehouse24HourWindows: these scans identify actors by each
-        # entity's aggregation_target_field, which has no group counterpart to join against. Global property
-        # filters, test-account filters, and sampling are rejected by DisallowUnsupportedDataWarehouseSettings.
+        # entity's aggregation_target_field, which has no group counterpart to join against. DisallowUnsupportedDataWarehouseSettings
+        # rejects sampling. It rejects global property filters and test-account filters unless every warehouse entity
+        # reads flag calls. Each scan applies those filters itself.
         first_event_cte = self._build_data_warehouse_first_event_cte()
         return_scan = self._build_return_scan()
 
@@ -265,6 +270,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             select_from=ast.JoinExpr(table=ast.Field(chain=[return_table_name])),
             where=ast.And(
                 exprs=[
+                    *self.runner.global_property_filters,
                     self.entity_expr_with_props(self.return_event),
                     self.events_timestamp_filter(field=return_ts_field),
                 ]
@@ -278,7 +284,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         assert start_table_name
         actor_id_expr = self.coerce_actor_id_expr(self.entity_actor_id_expr(self.start_event))
 
-        where: ast.Expr | None
+        where_exprs = list(self.runner.global_property_filters)
         having: ast.Expr | None
         if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
             # The anchor must see the actor's true-earliest row, so the start table is scanned unwindowed; an
@@ -292,7 +298,8 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # An events-typed start still gets the entity matcher as WHERE: both anchor variants condition on the
             # entity, so rows outside it never feed the aggregates, and without the pre-filter this scan reads the
             # team's entire events table.
-            where = None if start_is_dwh else self.entity_expr_no_props(self.start_event)
+            if not start_is_dwh:
+                where_exprs.append(self.entity_expr_no_props(self.start_event))
             having = ast.CompareOperation(
                 op=ast.CompareOperationOp.NotEq, left=ast.Field(chain=["t_0"]), right=ast.Constant(value=None)
             )
@@ -300,8 +307,8 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             # Recurring: t_0 is the earliest qualifying start row inside the analysis window. The WHERE restricts the
             # group to qualifying rows so min() over a non-empty set is the cohorting timestamp (no HAVING needed).
             t0_expr = ast.Call(name="min", args=[start_ts_field])
-            where = ast.And(
-                exprs=[
+            where_exprs.extend(
+                [
                     self.entity_expr_with_props(self.start_event),
                     self.events_timestamp_filter(field=start_ts_field),
                 ]
@@ -314,7 +321,7 @@ class RetentionRollingIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 ast.Alias(alias="t_0", expr=t0_expr),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=[start_table_name])),
-            where=where,
+            where=ast.And(exprs=where_exprs) if where_exprs else None,
             group_by=[ast.Field(chain=["actor_id"])],
             having=having,
         )

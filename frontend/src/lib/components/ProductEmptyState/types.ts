@@ -144,13 +144,21 @@ export interface ProductEmptyStateConfig {
     PrimaryAction?: ComponentType
     /** Product-specific installation options below the primary setup action. */
     SetupActions?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
+    FooterActions?: ComponentType<{ children: ReactNode }>
+    /**
+     * A card that frames the call to action (the terminal card or primary action), passed as
+     * `children`, together with the product's other install routes. The card labels its own
+     * content, so the hint does not render when it is set.
+     */
+    SetupCard?: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean; children: ReactNode }>
     docsUrl?: string
     /** Target of the small "Or configure manually" link; falls back to `docsUrl` */
     manualSetupUrl?: string
-    /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview */
-    previewLabel: string
+    /** Rendered as "<previewLabel>" with a pulsing live dot, above the preview. Omit for a preview that labels itself. */
+    previewLabel?: string
+    previewClassName?: string
     /** Self-animating signature preview populated with realistic fake data */
-    Preview: ComponentType<{ mode: ProductEmptyStateMode }>
+    Preview: ComponentType<{ mode: ProductEmptyStateMode; preview: boolean }>
     /** Product-specific live status line (e.g. a "listening for events" indicator), rendered under the command block */
     statusIndicator?: ReactNode
     /**
@@ -222,4 +230,4 @@ export interface SceneProductEmptyState {
  * `tab` route param the gate covers, including `undefined` for the URL that carries no tab
  * segment - `/workflows` and `/workflows/workflows` are the same tab.
  */
-export type GatedScene = string | { scene: string; tabs: (string | undefined)[] }
+export type GatedScene = string | { scene: string; tabs: (string | undefined)[]; tabSource?: 'path' | 'search' }

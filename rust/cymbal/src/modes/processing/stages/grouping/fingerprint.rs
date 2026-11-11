@@ -111,6 +111,7 @@ async fn select_automatic_fingerprint(
     legacy_list: Option<&ExceptionList>,
     ctx: &GroupingStage,
 ) -> Result<(FingerprintVersion, Fingerprint), UnhandledError> {
+    let lib = input.properties().get("$lib").and_then(Value::as_str);
     let fingerprints = FingerprintVersion::all()
         .iter()
         .filter_map(|version| {
@@ -119,7 +120,7 @@ async fn select_automatic_fingerprint(
             } else {
                 input.exception_list()
             };
-            Some((*version, version.compute(list)))
+            Some((*version, version.compute_for_lib(list, lib)))
         })
         .collect::<Vec<_>>();
     let newest = fingerprints

@@ -12,6 +12,7 @@ from django.conf import settings
 import aiohttp.client_exceptions
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_random_exponential
 
+from posthog.clickhouse.events_json import EVENTS_JSON_INSERT_SETTINGS
 from posthog.models.raw_sessions.sessions_v2 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL
 from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseError
 from posthog.temporal.tests.utils.datetimes import date_range
@@ -185,16 +186,21 @@ async def mirror_events_into_native_json_table(client: ClickHouseClient, uuids: 
         client,
         f"""
     INSERT INTO sharded_events_json (
-        uuid, event, timestamp, _timestamp, person_id, team_id, properties, temporary_properties,
-        elements_chain, distinct_id, inserted_at, created_at, person_properties
+        uuid, event, timestamp, _timestamp, person_id, team_id,
+        properties, temporary_properties, properties_null_keys, temporary_properties_null_keys,
+        elements_chain, distinct_id, inserted_at, created_at, person_properties, person_properties_null_keys
     )
     SELECT
         uuid, event, timestamp, _timestamp, person_id, team_id,
-        JSONCleanPostHogEventProperties(if(empty(properties), '{{}}', properties)),
-        JSONCleanPostHogTemporaryProperties(if(empty(properties), '{{}}', properties)),
-        elements_chain, distinct_id, inserted_at, created_at, if(empty(person_properties), '{{}}', person_properties)
-    FROM sharded_events
-    WHERE uuid IN ({uuid_list})
+        cleaned.properties, cleaned.temporary_properties, cleaned.properties_null_keys, cleaned.temporary_properties_null_keys,
+        elements_chain, distinct_id, inserted_at, created_at, cleaned.person_properties, cleaned.person_properties_null_keys
+    FROM
+    (
+        SELECT *, JSONCleanPostHogEvent(properties, person_properties) AS cleaned
+        FROM sharded_events
+        WHERE uuid IN ({uuid_list})
+    )
+    SETTINGS {EVENTS_JSON_INSERT_SETTINGS}
     """,
     )
 

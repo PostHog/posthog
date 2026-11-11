@@ -32,6 +32,7 @@ from products.wizard.backend.logic.workers.config import (
 )
 from products.wizard.backend.logic.workers.contracts import RepositoryPullRequest
 from products.wizard.backend.logic.workers.errors import InvalidWizardProgramCommandError, InvalidWizardVersionError
+from products.wizard.backend.logic.workers.repository_publisher import RepositoryPublishingError
 from products.wizard.backend.logic.workers.service import (
     GitRepositoryCloneRequest,
     GitRepositoryHandoffRequest,
@@ -48,6 +49,7 @@ from products.wizard.backend.logic.workers.service import (
     prepare_local_wizard,
     provision_wizard_worker,
 )
+from products.wizard.backend.logic.workers.wizard_error_output import WizardErrorLine
 from products.wizard.backend.observability.tracing import wizard_span
 
 
@@ -208,7 +210,9 @@ def test_clone_repository_uses_integration_token(
 
     assert root_path == "/tmp/workspace/repos/posthog/posthog"
     get_sandbox_class.return_value.get_by_id.assert_called_once_with(request.sandbox_id)
-    sandbox.clone_repository.assert_called_once_with(request.repository, github_token="github-secret", shallow=True)
+    sandbox.clone_repository.assert_called_once_with(
+        request.repository, github_token="github-secret", shallow=True, branch=None
+    )
     sanitize_command = sandbox.execute.call_args.args[0]
     assert "github-secret" not in sanitize_command
     assert "https://github.com/PostHog/PostHog.git" in sanitize_command
@@ -450,7 +454,7 @@ def test_execute_wizard_surfaces_wizard_error_code(get_sandbox_class: MagicMock)
     with pytest.raises(WizardWorkerExecutionError) as error:
         execute_wizard(request)
 
-    assert error.value.wizard_error_code == "PHW_DETECT_NO_POSTHOG_SDK"
+    assert error.value.wizard_error == WizardErrorLine(code="PHW_DETECT_NO_POSTHOG_SDK", message="Missing SDK")
 
 
 @patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
@@ -470,6 +474,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
         workspace_path="/tmp/workspace/repos/posthog/posthog",
         github_integration_id=17,
         repository="PostHog/PostHog",
+        base_branch="release/next",
     )
     sandbox = get_sandbox_class.return_value.get_by_id.return_value
     sandbox.execute.side_effect = (
@@ -509,6 +514,7 @@ def test_git_repository_handoff_captures_diff_and_publishes_pull_request(
         integration_id=request.github_integration_id,
         repository=request.repository,
         head_branch=branch,
+        base_branch="release/next",
         title="Instrument application with PostHog",
         body="# Setup report\n\nAll done.",
         source="wizard",
@@ -552,6 +558,36 @@ def test_git_repository_handoff_uses_generic_body_when_handoff_is_unavailable(
         "This pull request contains changes created by Wizard, PostHog's setup agent."
     )
     handoff_body_fallback.assert_called_once_with(request.team_id, request.run_id)
+
+
+@pytest.mark.parametrize("retryable", [True, False])
+@patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")
+@patch("products.wizard.backend.logic.workers.service.create_signed_commit")
+@patch("products.wizard.backend.logic.workers.service.get_sandbox_class")
+def test_git_repository_handoff_keeps_publishing_failures_retryable_only_when_transient(
+    get_sandbox_class: MagicMock,
+    create_signed_commit: MagicMock,
+    _stage_publishable_changes: MagicMock,
+    retryable: bool,
+) -> None:
+    request = GitRepositoryHandoffRequest(
+        team_id=7,
+        run_id=uuid4(),
+        sandbox_id="worker-id",
+        workspace_path="/tmp/workspace/repos/posthog/posthog",
+        github_integration_id=17,
+        repository="PostHog/PostHog",
+    )
+    get_sandbox_class.return_value.get_by_id.return_value.execute.return_value = _execution_result(
+        stdout="diff --git a/a b/a\n"
+    )
+    create_signed_commit.side_effect = RepositoryPublishingError("GitHub failed.", retryable=retryable)
+
+    with pytest.raises(WizardWorkerExecutionError) as error:
+        create_git_repository_handoff(request)
+
+    assert error.value.stage == "publishing"
+    assert error.value.retryable is retryable
 
 
 @patch("products.wizard.backend.logic.workers.service.stage_publishable_changes")

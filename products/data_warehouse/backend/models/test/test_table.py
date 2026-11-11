@@ -629,6 +629,47 @@ class TestTable(BaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            ("history_table", {"history_table": True}, {"id", "_ph_deleted", "valid_from", "valid_to"}),
+            (
+                "consolidated_table_whose_source_has_validity_columns",
+                {},
+                {
+                    "id",
+                    "_ph_deleted",
+                    "valid_from",
+                    "valid_to",
+                    "_ph_cdc_op",
+                    "_ph_cdc_seq",
+                    "_ph_cdc_timestamp",
+                    "_ph_deleted_at",
+                },
+            ),
+        ]
+    )
+    def test_history_table_hides_capture_bookkeeping_columns(
+        self, _name: str, options: dict, expected_visible: set[str]
+    ):
+        capture_columns = ["_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted", "_ph_deleted_at"]
+        table = DataWarehouseTable.objects.create(
+            name="orders",
+            url_pattern="https://bucket.s3.amazonaws.com/orders",
+            format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+            team=self.team,
+            options=options,
+            columns={
+                name: {"clickhouse": "String", "hogql": "StringDatabaseField"}
+                for name in ["id", *capture_columns, "valid_from", "valid_to"]
+            },
+        )
+
+        fields = table.hogql_definition().fields
+        assert {name for name, field in fields.items() if not field.hidden} == expected_visible
+        assert {column["name"] for column in table.get_user_facing_columns()} == expected_visible
+        # A hidden column must still resolve, so a query saved before it was hidden keeps running.
+        assert set(capture_columns) <= set(fields)
+
     def test_hogql_definition_new_style(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         table = DataWarehouseTable.objects.create(
@@ -931,7 +972,7 @@ class TestTable(BaseTest):
             (
                 "Cannot extract table structure from CSV format file, because there are no files with "
                 "provided path in S3 or all files are empty",
-                "doesn't exist in the bucket",
+                "No files match your Files URL pattern",
             ),
             ("Cannot extract table structure: the file is empty", "contains no data"),
         ]
@@ -956,7 +997,33 @@ class TestTable(BaseTest):
             with pytest.raises(Exception, match=expected):
                 table._validate_csv_double_quotes_setting()
 
-    def test_validate_csv_double_quotes_reraises_a_non_parse_error(self):
+    @parameterized.expand(
+        [
+            ("rfc_4180_parses", [None], True),
+            ("literal_quotes_parses", ["parse_error", None], False),
+            ("neither_parses", ["parse_error", "parse_error"], None),
+        ]
+    )
+    def test_detect_csv_double_quotes_setting(self, _name, outcomes, expected):
+        from clickhouse_driver.errors import ServerException
+
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="test_csv",
+            url_pattern="https://example.com/test.csv",
+            credential=credential,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=self.team,
+        )
+        side_effect = [
+            ServerException("Expected end of line", code=117) if outcome == "parse_error" else outcome
+            for outcome in outcomes
+        ]
+
+        with patch("products.warehouse_sources.backend.models.table.sync_execute", side_effect=side_effect):
+            assert table.detect_csv_double_quotes_setting() is expected
+
+    def test_validate_csv_double_quotes_hides_the_raw_error_for_a_non_parse_failure(self):
         from clickhouse_driver.errors import ServerException
 
         credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
@@ -971,10 +1038,18 @@ class TestTable(BaseTest):
 
         with patch(
             "products.warehouse_sources.backend.models.table.sync_execute",
-            side_effect=ServerException("Access Denied", code=499),
+            side_effect=ServerException(
+                "S3 error occurred. (DB::Exception: Failed to get object info: No response body.. "
+                "HTTP response code: 403: while reading 'exports/test.csv')",
+                code=499,
+            ),
         ):
-            with pytest.raises(ServerException):
+            with pytest.raises(Exception) as exc_info:
                 table._validate_csv_double_quotes_setting()
+
+        assert not isinstance(exc_info.value, ServerException)
+        assert "s3:GetObject" in str(exc_info.value)
+        assert "exports/test.csv" not in str(exc_info.value)
 
     @parameterized.expand(
         [
@@ -1049,7 +1124,7 @@ class TestTable(BaseTest):
         assert definition.top_level_settings is not None
         assert definition.top_level_settings.format_csv_allow_double_quotes is True
 
-    def test_hogql_definition_sets_false_for_csv_with_none(self):
+    def test_hogql_definition_sends_no_quote_setting_for_csv_with_none(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
         with patch("products.warehouse_sources.backend.models.table.sync_execute", return_value=[]):
             table = DataWarehouseTable.objects.create(
@@ -1060,13 +1135,11 @@ class TestTable(BaseTest):
                 columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
                 credential=credential,
             )
-        # Simulate detection having returned None (both failed)
         table.options.pop("csv_allow_double_quotes", None)
         table.save_base(raw=True)
 
         definition = table.hogql_definition()
-        assert definition.top_level_settings is not None
-        assert definition.top_level_settings.format_csv_allow_double_quotes is False
+        assert definition.top_level_settings is None
 
     def test_hogql_definition_reads_a_json_column_as_the_json_type(self):
         credential = DataWarehouseCredential.objects.create(access_key="test", access_secret="test", team=self.team)
@@ -1190,7 +1263,13 @@ class TestTable(BaseTest):
                 "empty_csv",
                 "Cannot extract table structure from CSV format file, because there are no files with provided path in S3 or all files are empty",
                 499,
-                "The provided file doesn't exist in the bucket",
+                "No files match your Files URL pattern",
+            ),
+            (
+                "empty_csv_with_names",
+                "Cannot extract table structure from CSVWithNames format file, because there are no files with provided path in S3 or all files are empty",
+                499,
+                "No files match your Files URL pattern",
             ),
             (
                 "corrupted_parquet_thrift",

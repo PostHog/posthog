@@ -14,16 +14,16 @@ import {
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { applyDataVisualizationQueryUpdate } from '~/queries/nodes/DataVisualization/queryUpdateUtils'
 import { sqlVisualizationDisabledReason } from '~/queries/nodes/DataVisualization/sqlVisualizationSupport'
-import { AnyResponseType, DataVisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
+import { AnyResponseType, VisualizationNode, HogQLVariable } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
 let uniqueNode = 0
 
 interface DashboardSqlVisualizationLogicProps {
-    query: DataVisualizationNode
+    query: VisualizationNode
     cachedResults: AnyResponseType
     variablesOverride?: Record<string, HogQLVariable> | null
-    persistQuery: (query: DataVisualizationNode) => void
+    persistQuery: (query: VisualizationNode) => void
     children: ReactNode
 }
 
@@ -117,7 +117,7 @@ function DashboardSqlChartTypeControl({
 }
 
 interface DashboardSqlVisualizationProps {
-    query: DataVisualizationNode
+    query: VisualizationNode
     cachedResults: AnyResponseType
     variablesOverride?: Record<string, HogQLVariable> | null
 }
@@ -137,8 +137,7 @@ export function DashboardSqlChartType({
     saving?: boolean
 }): JSX.Element {
     const persistQuery = useCallback(
-        (nextQuery: DataVisualizationNode): void =>
-            persistChartType(nextQuery.display ?? ChartDisplayType.ActionsTable),
+        (nextQuery: VisualizationNode): void => persistChartType(nextQuery.display ?? ChartDisplayType.ActionsTable),
         [persistChartType]
     )
 
@@ -161,7 +160,7 @@ export function DashboardSqlDisplayOptions({
     persistDisplayOptions,
     disabled,
 }: DashboardSqlVisualizationProps & {
-    persistDisplayOptions: (query: DataVisualizationNode) => void
+    persistDisplayOptions: (query: VisualizationNode) => void
     disabled?: boolean
 }): JSX.Element {
     const inertProps = disabled ? { inert: '' } : {}

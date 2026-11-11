@@ -1,0 +1,72 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "adopt_generation_id": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Use this completed generation's governing source for the whole saved rubric. Omit to keep its source."
+        },
+        "criteria": {
+            "description": "Complete set of criteria to save.",
+            "items": {
+                "properties": {
+                    "applicability": {
+                        "description": "When this criterion applies or cannot be assessed.",
+                        "maxLength": 1000,
+                        "type": "string"
+                    },
+                    "description": {
+                        "description": "What this criterion measures.",
+                        "maxLength": 1000,
+                        "type": "string"
+                    },
+                    "enabled": {
+                        "description": "Whether future evaluations should use this criterion.",
+                        "type": "boolean"
+                    },
+                    "id": {
+                        "description": "Stable criterion identifier.",
+                        "maxLength": 80,
+                        "pattern": "^[a-z][a-z0-9_-]{0,79}$",
+                        "type": "string"
+                    },
+                    "pass_condition": {
+                        "description": "The evidence needed to pass this criterion.",
+                        "maxLength": 2000,
+                        "type": "string"
+                    },
+                    "source": {
+                        "description": "Shared default or scout-specific criterion.\n\n* `default` - Default\n* `custom` - Custom",
+                        "enum": ["default", "custom"],
+                        "type": "string"
+                    },
+                    "title": {
+                        "description": "Short name for the criterion.",
+                        "maxLength": 120,
+                        "type": "string"
+                    }
+                },
+                "required": ["id", "title", "description", "pass_condition", "applicability", "enabled", "source"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        },
+        "revision": {
+            "description": "Revision read by the editor; stale saves return 409.",
+            "minimum": 0,
+            "type": "number"
+        }
+    },
+    "required": ["id", "revision", "criteria"],
+    "type": "object"
+}

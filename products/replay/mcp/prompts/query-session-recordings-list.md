@@ -61,6 +61,8 @@ Do not use property filters for time-based filtering. Use the `date_from`/`date_
 
 Use `limit` to control page size and `after` (from the previous response's `next_cursor`) for cursor-based pagination.
 
+Each response has `has_next` and `next_cursor`. To get the next page, send the same query again with `after` set to `next_cursor`. When `has_next` is `false`, the response is the last page and `next_cursor` is `null`.
+
 # Response shape
 
 Each recording in results contains:
@@ -153,5 +155,5 @@ When you have known `$session_id` values (e.g., from `$exception` events or othe
 - Default time range is last 3 days. Adjust based on the user's needs.
 - Deep-link to a specific recording as `{posthog_base_url}/replay/{id}`, never `/replay/home?sessionRecordingId={id}`.
 - For detailed analysis of a single recording, use `session-recording-get` with the recording's `id`.
-- For an AI summary of what happened in a recording, read `vision-observations-list` for an existing one, or generate one with `vision-scanners-inline-scan-create` using `scanner_type: "summarizer"` and a `prompt` (the investigating-replay skill carries the exact config the Summarize button uses).
+- For an AI summary of what happened in a recording, read `vision-observations-list` for an existing one, or generate one with `vision-scanners-inline-scan` using `scanner_type: "summarizer"` and a `prompt` (the investigating-replay skill carries the exact config the Summarize button uses).
 - **If no recordings are found** or the user asks why recordings aren't being captured, diagnose with `execute-sql`: query `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate`, and `$sdk_debug_recording_script_not_loaded` from recent events (no `$session_id` filter needed for project-wide issues). Common causes: sampling excluded sessions, recording disabled in project settings, ad blocker blocked the recorder script, or SDK misconfigured.

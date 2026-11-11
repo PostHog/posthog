@@ -1,3 +1,5 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { matchesFlagDefinition } from './flagGating'
 import { SETTINGS_MAP } from './SettingsMap'
 import { buildSettingsSearchIndex, createSettingsSearchFuse, searchSettingsIndex } from './settingsSearch'
@@ -120,5 +122,40 @@ describe('settingsSearch', () => {
         const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
 
         expect(searchSettingsIndex(fuse, term)[0]?.settingId).toBe('variables')
+    })
+    // The today-rail-nav redesign renames some sections by keeping their id and gating two copies on
+    // the flag and its negation. Both copies visible at once would render the section twice.
+    test.each([
+        ['on', { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }],
+        ['off', {}],
+    ])('shows each section once with today-rail-nav %s', (_state, flags) => {
+        const allOtherFlags = Object.fromEntries(
+            Object.values(FEATURE_FLAGS)
+                .filter((flag) => flag !== FEATURE_FLAGS.TODAY_RAIL_NAV)
+                .map((flag) => [flag, true])
+        )
+        const visibleIds = SETTINGS_MAP.filter((section) =>
+            matchesFlagDefinition(section.flag, { ...allOtherFlags, ...flags })
+        ).map((section) => section.id)
+
+        expect(visibleIds.length).toBe(new Set(visibleIds).size)
+    })
+
+    test.each([
+        ['model preferences', 'task-agent-my-preference'],
+        ['subscriptions', 'ai-subscription-codex'],
+        ['personalization', 'task-agent-my-instructions'],
+        ['plan & usage', 'ai-usage-spend'],
+        ['worktrees', 'task-agent-other-settings'],
+        ['self-driving', 'task-agent-other-settings'],
+    ])('finds a setting by its PostHog Desktop name "%s" with today-rail-nav on', (term, expectedSettingId) => {
+        const flags = {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.POSTHOG_CODE_CODEX_OWN_SUBSCRIPTION_CLOUD]: true,
+        }
+        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, flags)
+        const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+
+        expect(searchSettingsIndex(fuse, term).map((entry) => entry.settingId)).toContain(expectedSettingId)
     })
 })

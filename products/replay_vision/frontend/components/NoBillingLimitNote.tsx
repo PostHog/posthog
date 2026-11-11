@@ -22,7 +22,11 @@ export function NoBillingLimitNote({ projectedCredits }: Props): JSX.Element {
             {/* One colour throughout, so the link is underlined instead of accented to stay discoverable. */}
             <div className="text-danger">
                 No billing limit set. Spend is uncapped.{' '}
-                <Link className="text-danger underline" to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
+                <Link
+                    data-attr="vision-open-billing-no-limit"
+                    className="text-danger underline"
+                    to={urls.organizationBilling([ProductKey.REPLAY_VISION])}
+                >
                     Set a billing limit
                 </Link>{' '}
                 to control costs.

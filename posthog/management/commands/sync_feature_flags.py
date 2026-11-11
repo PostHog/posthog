@@ -29,6 +29,7 @@ INACTIVE_FLAGS = [
     "webhooks-denylist",
     "insight-horizontal-controls",
     "flagged-feature-indicator",
+    "today-rail-nav",
 ]
 
 FRONTEND_FEATURE_FLAGS_PATH = Path("frontend/src/lib/constants.tsx")

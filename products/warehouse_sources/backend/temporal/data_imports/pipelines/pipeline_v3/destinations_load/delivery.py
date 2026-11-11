@@ -20,6 +20,7 @@ from collections.abc import Iterable
 import structlog
 from asgiref.sync import async_to_sync
 
+from products.warehouse_sources.backend.destination_health import record_delivery_failure, record_delivery_success
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataDestination
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -29,8 +30,14 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.contr
     DestinationRunContext,
 )
 from products.warehouse_sources.backend.temporal.data_imports.destinations.registry import resolve_destination_writer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.builtin_writers import (
     ensure_builtin_destination_writers_registered,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.errors import (
+    DestinationConfigurationError,
+    DestinationDeliveryError,
+    is_configuration_failure_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.parquet_source import (
     aiter_record_batches,
@@ -42,19 +49,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.messages import ExportSignalMessage
 
 logger = structlog.get_logger(__name__)
-
-
-class DestinationDeliveryError(Exception):
-    """One destination could not take the batch, so the batch is not done.
-
-    Carries the destination's name so a single job's `latest_error` still says which
-    destination stopped the sync.
-    """
-
-    def __init__(self, destination_name: str, cause: Exception) -> None:
-        self.destination_name = destination_name
-        self.cause = cause
-        super().__init__(f"{destination_name}: {cause}")
 
 
 def external_destinations_for(export_signal: ExportSignalMessage) -> list[ExternalDataDestination]:
@@ -150,7 +144,10 @@ def _run_context(export_signal: ExportSignalMessage, destination: ExternalDataDe
         # them all into a single table.
         table_name=destination_table_name(export_signal, config),
         sync_type=export_signal.sync_type,
-        primary_keys=tuple(export_signal.primary_keys or ()),
+        # The staged batch carries normalized column names, but the keys arrive as the source
+        # named them (`AdId`), so a merge on the raw names references a column no table has.
+        # The delta writer normalizes its keys the same way.
+        primary_keys=tuple(normalize_column_name(key) for key in export_signal.primary_keys or ()),
         config=config,
         integration_id=destination.integration_id,
     )
@@ -299,8 +296,12 @@ def deliver_batch_to_destinations(
                 error=str(e),
                 msg=f"Failed writing to {destination.name} ({run_ctx.table_name}): {e}",
             )
+            record_delivery_failure(destination, e)
+            if isinstance(e, DestinationConfigurationError):
+                raise
             raise DestinationDeliveryError(destination.name, e) from e
 
+        record_delivery_success(destination)
         rows_written = outcome.rows_written if outcome else 0
         duration_seconds = round(time.monotonic() - started_at, 3)
         logger.info(
@@ -328,9 +329,20 @@ async def _write(
     return await writer.write_batch(aiter_record_batches(export_signal.s3_path), batch_ctx)
 
 
-def abort_destinations(export_signal: ExportSignalMessage) -> None:
-    """Let each writer drop what a run that will not finish left staged."""
+def abort_destinations(export_signal: ExportSignalMessage, failure_reason: str = "") -> None:
+    """Let each writer drop what a run that will not finish left staged.
+
+    A destination that failed the run with a configuration error is skipped. The same settings
+    refuse the abort's connection too, so a try costs connection attempts and drops nothing.
+    """
     for destination in external_destinations_for(export_signal):
+        if failure_reason and is_configuration_failure_of(failure_reason, destination.name):
+            logger.info(
+                "destination_abort_skipped_configuration_error",
+                destination_name=destination.name,
+                destination_type=destination.type,
+            )
+            continue
         run_ctx = _run_context(export_signal, destination)
         try:
             ensure_builtin_destination_writers_registered()

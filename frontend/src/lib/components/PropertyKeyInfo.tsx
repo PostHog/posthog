@@ -7,6 +7,9 @@ import React, { useState } from 'react'
 import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 
 import { Logomark } from 'lib/brand'
+import { LazyFeatureFlagPopoverInfo } from 'lib/components/DefinitionPopover/LazyFeatureFlagPopoverInfo'
+import { featureFlagKeyFromProperty } from 'lib/components/DefinitionPopover/utils'
+import { FlagCalledMoveNotice } from 'lib/components/FlagCalledMoveNotice/FlagCalledMoveNotice'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { pluralize } from 'lib/utils/strings'
 import { surveyQuestionLabelsLogic } from 'scenes/surveys/surveyQuestionLabelsLogic'
@@ -58,6 +61,8 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
     const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
+    const flagKey = featureFlagKeyFromProperty(value)
+
     const recognizedSource: PropertySourceId | null =
         getExternalPropertySource(value)?.id ?? (coreDefinition || value.startsWith('$') ? 'posthog' : null)
 
@@ -91,6 +96,7 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                             <LemonDivider className="my-3" />
                             <div>
                                 {coreDefinition.description ? <p>{coreDefinition.description}</p> : null}
+                                <FlagCalledMoveNotice name={value} groupType={type} className="mb-2" />
                                 {coreDefinition.examples ? (
                                     <p>
                                         <i>
@@ -104,6 +110,13 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                         </>
                     ) : null}
 
+                    {flagKey && (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <LazyFeatureFlagPopoverInfo flagKey={flagKey} />
+                        </>
+                    )}
+
                     {!coreDefinition.virtual && (
                         <>
                             <LemonDivider className="my-3" />
@@ -115,6 +128,10 @@ const PropertyKeyInfoBase = React.forwardRef<HTMLSpanElement, PropertyKeyInfoPro
                 </div>
             }
             visible={popoverVisible}
+            // React bubbles a click in the portaled overlay to the onClick of any element that wraps this component
+            onClickInside={(e) => e.stopPropagation()}
+            onMouseEnterInside={() => setPopoverVisible(true)}
+            onMouseLeaveInside={() => setPopoverVisible(false)}
             showArrow
             placement="right"
         >

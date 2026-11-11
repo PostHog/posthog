@@ -112,5 +112,9 @@ class TestExtractQuestion(SimpleTestCase):
         # The API accepts an unbounded description, and a note over MAX_NOTE_CONTENT_LENGTH is
         # rejected by leave_note — which the best-effort boundary would swallow, silently dropping
         # the question. Truncating keeps the note.
-        content = _build_note_content(report=SignalReport(title="Checkout errors spiked"), question="why? " * 20_000)
+        content = _build_note_content(
+            report=SignalReport(title="Checkout errors spiked"),
+            actor="Ada (ada@example.com)",
+            question="why? " * 20_000,
+        )
         self.assertLessEqual(len(content), MAX_NOTE_CONTENT_LENGTH)

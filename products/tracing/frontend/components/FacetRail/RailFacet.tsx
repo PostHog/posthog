@@ -1,19 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { customFacetsLogic } from 'lib/components/FacetRail/customFacetsLogic'
+import { Facet, FacetOption } from 'lib/components/FacetRail/Facet'
+import { mergeSelectedIntoOptions } from 'lib/components/FacetRail/facetGroups'
+
 import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLogic'
 
-import { customFacetsLogic } from './customFacetsLogic'
-import { Facet } from './Facet'
 import { facetRailLogic } from './facetRailLogic'
-import {
-    FacetConfig,
-    FacetOption,
-    customFacetIdentity,
-    facetSelection,
-    facetValueGroup,
-    mergeSelectedIntoOptions,
-} from './facets'
+import { FacetConfig, customFacetIdentity, facetSelection, facetValueGroup } from './facets'
 import { facetValuesLogic } from './facetValuesLogic'
 
 export interface RailFacetProps {
@@ -33,11 +28,11 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
     const { facetValues, facetValuesLoading, fetchFailed, facetSearch, collapsed } = useValues(
         facetValuesLogic(logicProps)
     )
-    const { setFacetSearch } = useActions(facetValuesLogic(logicProps))
+    const { setFacetSearch, retryFacetValues } = useActions(facetValuesLogic(logicProps))
     const { serviceNames, filters } = useValues(tracingFiltersLogic({ id }))
     const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
-    const { removeCustomFacet } = useActions(customFacetsLogic)
-    const { entriesLoading } = useValues(customFacetsLogic)
+    const { removeCustomFacet } = useActions(customFacetsLogic({ product: 'tracing' }))
+    const { entriesLoading } = useValues(customFacetsLogic({ product: 'tracing' }))
     const removeDisabledReason = entriesLoading ? 'Custom facets are updating' : undefined
 
     if (hidden) {
@@ -74,11 +69,14 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
                 selected={selected}
                 excluded={excluded}
                 onToggle={onToggle}
+                dataAttrPrefix="tracing-facet"
+                zeroCountReason="No matching spans for the current filters"
                 loading={facetValuesLoading}
                 collapsed={collapsed}
                 onToggleCollapsed={onToggleCollapsed}
                 dimZeroCounts
                 error={fetchFailed}
+                onRetry={retryFacetValues}
                 onRemove={onRemove}
                 removeDisabledReason={removeDisabledReason}
             />
@@ -95,6 +93,8 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
             selected={selected}
             excluded={excluded}
             onToggle={onToggle}
+            dataAttrPrefix="tracing-facet"
+            zeroCountReason="No matching spans for the current filters"
             loading={facetValuesLoading}
             emptyLabel={facet.emptyLabel}
             searchValue={search}
@@ -104,6 +104,7 @@ export function RailFacet({ facet, id = TRACING_SCENE_VIEWER_ID, hidden }: RailF
             onToggleCollapsed={onToggleCollapsed}
             maxHeight={facet.maxHeight}
             error={fetchFailed}
+            onRetry={retryFacetValues}
             onRemove={onRemove}
             removeDisabledReason={removeDisabledReason}
         />

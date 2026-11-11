@@ -37,6 +37,7 @@ export const manifest: ProductManifest = {
                 'var(--color-product-managed-migrations-dark)',
             ],
             href: urls.managedMigration(),
+            searchKeywords: ['historical import', 'backfill'],
             sceneKey: 'ManagedMigration',
             sceneKeys: ['ManagedMigration', 'ManagedMigrationNew'],
         },

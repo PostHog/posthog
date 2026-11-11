@@ -1,7 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { sanitizeString } from '~/common/utils/db/utils'
+import { asPostgresParameterText, sanitizeString } from '~/common/utils/db/utils'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
@@ -123,8 +123,8 @@ function validateGroupSet(preparedEvent: PreIngestionEvent): PipelineWarning | n
         details: {
             eventUuid: preparedEvent.eventUuid,
             distinctId: preparedEvent.distinctId,
-            groupType: String(groupType),
-            groupKey: sanitizeString(String(groupKey)),
+            groupType: asPostgresParameterText(groupType),
+            groupKey: sanitizeString(asPostgresParameterText(groupKey)),
             receivedType: Array.isArray(groupPropertiesToSet) ? 'array' : typeof groupPropertiesToSet,
         },
         // No `key`: the limiter's bucket map never evicts, so a client-supplied
@@ -152,7 +152,7 @@ async function upsertGroup(
             teamId,
             projectId,
             groupTypeIndex,
-            sanitizeString(groupKey.toString()),
+            sanitizeString(asPostgresParameterText(groupKey)),
             groupPropertiesToSet || {},
             timestamp
         )

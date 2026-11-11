@@ -56,7 +56,7 @@ _AGGREGATE_SELECT = f"""
         {_job_name_expr("job_name")} AS job_group,
         count() AS job_count,
         uniq(job_name) AS shard_count,
-        uniq(run_id) AS runs_in,
+        uniq(tuple(ci_engine, run_id)) AS runs_in,
         quantileIf(0.5)(queue_seconds, {_QUEUED_JOB_CONDITION}) AS queue_p50_seconds,
         quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
         quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
@@ -99,7 +99,7 @@ def query_job_aggregates(
     # recognisable while its original attempt is still in the scan: a re-run a day or more after the
     # original push would otherwise pull the copy inside the window, drop the original below a tight
     # floor, and count the copy as an execution. So take the wide floor, same as the cost surfaces.
-    cost_source = curated.job_cost_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
 
@@ -120,7 +120,7 @@ def query_job_aggregates(
             template.replace("__COST_SOURCE__", cost_source)
             .replace("__COST_RUN_SCOPE__", cost_run_scope_filter_clause(run_scope))
             .replace("__RUNS_RUN_SCOPE__", run_scope_filter_clause(run_scope))
-            .replace("__RUNS_SOURCE__", curated.run_source())
+            .replace("__RUNS_SOURCE__", curated.run_source(since=date_from))
             .replace("__DATE_TO__", date_to_clause)
             .replace("__RUNS_DATE_TO__", runs_date_to_clause)
             .replace("__BRANCH__", branch_clause)

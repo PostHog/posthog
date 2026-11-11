@@ -29,7 +29,7 @@ interface Harness {
     heartbeat: jest.Mock<void, []>
 }
 
-function build(overrides: { isStopping?: () => boolean; delayMs?: number } = {}): Harness {
+function build(overrides: { isStopping?: () => boolean; delayMs?: number; releaseGroupSize?: number } = {}): Harness {
     const produce = jest.fn(() => Promise.resolve())
     const storeOffsets = jest.fn()
     const heartbeat = jest.fn()
@@ -40,6 +40,7 @@ function build(overrides: { isStopping?: () => boolean; delayMs?: number } = {})
         heartbeatIntervalMs: 10_000,
         isStopping: overrides.isStopping,
         storeOffsets,
+        releaseGroupSize: overrides.releaseGroupSize,
     })
     return { consumer, produce, storeOffsets, heartbeat }
 }
@@ -51,8 +52,14 @@ describe('RetryDelayConsumer', () => {
         jest.useRealTimers()
     })
 
-    it.each([0, -1, Number.NaN])('refuses an invalid delay of %p', (delayMs) => {
-        expect(() => build({ delayMs })).toThrow('positive delay')
+    it.each([
+        [{ delayMs: 0 }, 'positive delay'],
+        [{ delayMs: -1 }, 'positive delay'],
+        [{ delayMs: Number.NaN }, 'positive delay'],
+        [{ releaseGroupSize: 0 }, 'positive whole release group size'],
+        [{ releaseGroupSize: 1.5 }, 'positive whole release group size'],
+    ])('refuses invalid options %p', (overrides, error) => {
+        expect(() => build(overrides)).toThrow(error)
     })
 
     it('does nothing for an empty batch', async () => {
@@ -130,8 +137,32 @@ describe('RetryDelayConsumer', () => {
         expect(harness.storeOffsets).not.toHaveBeenCalled()
     })
 
-    it('stops publishing the batch after the first frontier failure', async () => {
-        const harness = build()
+    it('publishes each release group concurrently and starts the next group after it settles', async () => {
+        const harness = build({ releaseGroupSize: 2 })
+        const acknowledgements: (() => void)[] = []
+        harness.produce.mockImplementation(() => new Promise<void>((resolve) => acknowledgements.push(resolve)))
+        const messages = [
+            message(NOW_MS - DELAY_MS, { offset: 1 }),
+            message(NOW_MS - DELAY_MS, { offset: 2 }),
+            message(NOW_MS - DELAY_MS, { offset: 3 }),
+        ]
+
+        const handled = harness.consumer.handleBatch(messages)
+        await jest.advanceTimersByTimeAsync(0)
+        expect(harness.produce).toHaveBeenCalledTimes(2)
+
+        acknowledgements.splice(0).forEach((acknowledge) => acknowledge())
+        await jest.advanceTimersByTimeAsync(0)
+        expect(harness.produce).toHaveBeenCalledTimes(3)
+        expect(harness.storeOffsets).not.toHaveBeenCalled()
+
+        acknowledgements.splice(0).forEach((acknowledge) => acknowledge())
+        await handled
+        expect(harness.storeOffsets).toHaveBeenCalledWith(messages)
+    })
+
+    it('stops publishing the batch after the release group with the first frontier failure', async () => {
+        const harness = build({ releaseGroupSize: 2 })
         harness.produce.mockResolvedValueOnce().mockRejectedValueOnce(new Error('broker unavailable'))
         const messages = [
             message(NOW_MS - DELAY_MS, { offset: 1 }),

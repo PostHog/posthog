@@ -14,19 +14,65 @@ import type {
     PaginatedWizardRunListApi,
     PaginatedWizardSessionDTOListApi,
     PatchedWizardRunStatusUpdateRequestApi,
+    RecordWizardScanRequestApi,
     UpdateWizardRunTaskListApi,
     UpsertWizardSessionRequestApi,
+    WizardInstallStartApi,
+    WizardInstallStartRequestApi,
+    WizardInstallStatusApi,
     WizardRegistryListParams,
     WizardRunApi,
     WizardRunCreateRequestApi,
     WizardRunTaskListApi,
     WizardRunsArtifactsListParams,
     WizardRunsListParams,
+    WizardScanResultApi,
     WizardSessionDTOApi,
     WizardSessionsLatestRetrieveParams,
     WizardSessionsListParams,
     WizardSessionsStreamRetrieveParams,
+    WizardToolCatalogApi,
 } from './api.schemas'
+
+export const getWizardInstallsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/installs/`
+}
+
+/**
+ * Start the setup agent in the cloud on a GitHub repository of this project. It adds PostHog to the code and opens a pull request. Each user can have one setup run active per project at a time.
+ * @summary Start a setup run
+ */
+export const wizardInstallsCreate = async (
+    projectId: string,
+    wizardInstallStartRequestApi: WizardInstallStartRequestApi,
+    options?: RequestInit
+): Promise<WizardInstallStartApi> => {
+    return apiMutator<WizardInstallStartApi>(getWizardInstallsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(wizardInstallStartRequestApi),
+    })
+}
+
+export const getWizardInstallsRetrieveUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/wizard/installs/${runId}/`
+}
+
+/**
+ * Get the status of a cloud setup run, its task list, the pull request link once it exists, and a next step to relay to the user.
+ * @summary Get a setup run's status
+ */
+export const wizardInstallsRetrieve = async (
+    projectId: string,
+    runId: string,
+    options?: RequestInit
+): Promise<WizardInstallStatusApi> => {
+    return apiMutator<WizardInstallStatusApi>(getWizardInstallsRetrieveUrl(projectId, runId), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getWizardRegistryListUrl = (projectId: string, params?: WizardRegistryListParams) => {
     const normalizedParams = new URLSearchParams()
@@ -262,6 +308,26 @@ export const wizardRunsTasksUpdate = async (
     })
 }
 
+export const getWizardScansCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/wizard/scans/`
+}
+
+/**
+ * @summary Record the tools a wizard scan found in a codebase
+ */
+export const wizardScansCreate = async (
+    projectId: string,
+    recordWizardScanRequestApi: RecordWizardScanRequestApi,
+    options?: RequestInit
+): Promise<WizardScanResultApi> => {
+    return apiMutator<WizardScanResultApi>(getWizardScansCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(recordWizardScanRequestApi),
+    })
+}
+
 export const getWizardSessionsListUrl = (projectId: string, params?: WizardSessionsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -387,6 +453,21 @@ export const wizardSessionsStreamRetrieve = async (
     options?: RequestInit
 ): Promise<string> => {
     return apiMutator<string>(getWizardSessionsStreamRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getWizardToolCatalogListUrl = () => {
+    return `/api/wizard/tool_catalog/`
+}
+
+/**
+ * Every tool the wizard can detect in a codebase, with the signals that identify it.
+ * @summary Get the wizard tool catalog
+ */
+export const wizardToolCatalogList = async (options?: RequestInit): Promise<WizardToolCatalogApi> => {
+    return apiMutator<WizardToolCatalogApi>(getWizardToolCatalogListUrl(), {
         ...options,
         method: 'GET',
     })

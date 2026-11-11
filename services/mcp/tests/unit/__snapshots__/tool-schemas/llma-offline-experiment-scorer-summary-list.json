@@ -1,0 +1,34 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "cursor": {
+            "description": "Continuation cursor returned by the previous page.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "Experiment UUID.",
+            "type": "string"
+        },
+        "limit": {
+            "default": 20,
+            "description": "Page size, from 1 to 100. Defaults to 20.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "scorer_definition_id": {
+            "description": "Restrict results to this scorer definition.",
+            "type": "string"
+        },
+        "scorer_version_ids": {
+            "description": "Comma-separated list of at most 20 distinct scorer-version UUIDs.",
+            "maxLength": 739,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

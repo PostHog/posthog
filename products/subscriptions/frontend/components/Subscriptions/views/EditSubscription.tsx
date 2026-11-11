@@ -29,12 +29,12 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 import { AvailableFeature, DashboardType, InsightShortId, SubscriptionResourceTypes } from '~/types'
 
@@ -239,6 +239,7 @@ export function EditSubscription({
         insightShortId,
         dashboardId,
         dashboardName: dashboard?.name,
+        dashboardTiles: dashboard?.tiles,
     }
     const logic = subscriptionLogic(logicProps)
     const subscriptionslogic = subscriptionsLogic({
@@ -246,13 +247,15 @@ export function EditSubscription({
         dashboardId,
     })
 
-    const { meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { members, meFirstMembers, membersLoading } = useValues(membersLogic)
+    const { ensureAllMembersLoaded } = useActions(membersLogic)
     const {
         subscription,
         subscriptionLoading,
         subscriptionErrors,
         isSubscriptionSubmitting,
         subscriptionChanged,
+        hasUnavailableInsights,
         lastDelivery,
         lastDeliveryLoadFailed,
         lastDeliveryLoading,
@@ -316,7 +319,7 @@ export function EditSubscription({
     let saveDisabledReason: string | undefined = undefined
     if (aiGate.submitBlocked) {
         saveDisabledReason = AI_NOT_ALLOWED_REASON
-    } else if (!subscriptionChanged) {
+    } else if (!subscriptionChanged && !hasUnavailableInsights) {
         saveDisabledReason = 'No changes to save'
     }
 
@@ -498,6 +501,11 @@ export function EditSubscription({
                                             data-attr="subscribed-emails"
                                             options={usersLemonSelectOptions(meFirstMembers.map((x) => x.user))}
                                             loading={membersLoading}
+                                            onFocus={() => {
+                                                if (!members) {
+                                                    ensureAllMembersLoaded()
+                                                }
+                                            }}
                                             placeholder="Enter an email address"
                                         />
                                     )}

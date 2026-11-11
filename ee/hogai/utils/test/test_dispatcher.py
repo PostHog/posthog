@@ -7,6 +7,8 @@ Tests the dispatcher logic that emits actions to LangGraph custom stream.
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall
@@ -359,7 +361,7 @@ class TestCreateDispatcherFromConfig(BaseTest):
             self.assertEqual(len(dispatcher._node_path), 3)
 
 
-class TestDispatcherIntegration(BaseTest):
+class TestDispatcherIntegration(SimpleTestCase):
     """Integration tests for dispatcher usage patterns."""
 
     def test_dispatcher_in_node_context(self):

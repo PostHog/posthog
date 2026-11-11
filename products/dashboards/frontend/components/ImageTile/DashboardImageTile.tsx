@@ -107,7 +107,7 @@ function DashboardImageTileInternal(
                         </button>
                     )}
                 </div>
-                {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
+                {(canEnterEditModeFromEdge || showResizeHandles) && onEnterEditModeFromEdge && (
                     <EditModeEdgeOverlay onEnterEditMode={onEnterEditModeFromEdge} />
                 )}
                 {showResizeHandles && <DashboardResizeHandles />}

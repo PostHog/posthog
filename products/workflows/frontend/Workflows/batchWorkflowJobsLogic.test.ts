@@ -17,16 +17,18 @@ const WORKFLOW_ID = 'wf-batch-1'
 describe('batchWorkflowJobsLogic', () => {
     let logic: ReturnType<typeof batchWorkflowJobsLogic.build>
     let getCalls: number
+    let getStatus: number
     let cancelResponse: HogFlowBatchJobCancelResponseApi
 
     beforeEach(() => {
         getCalls = 0
+        getStatus = 200
         cancelResponse = { status: 'cancelled', marked: 1, remaining: 0, done: true }
         useMocks({
             get: {
                 '/api/environments/:team_id/hog_flows/:id/batch_jobs/': () => {
                     getCalls += 1
-                    return [200, []]
+                    return getStatus === 200 ? [200, []] : [getStatus, { detail: 'error' }]
                 },
             },
             post: {
@@ -82,6 +84,22 @@ describe('batchWorkflowJobsLogic', () => {
         router.actions.push(urls.workflow(WORKFLOW_ID, 'invocations'))
         await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsSuccess'])
         expect(getCalls).toBe(2)
+    })
+
+    it('flags a failed load until a retry succeeds', async () => {
+        getStatus = 500
+        router.actions.push(urls.workflow(WORKFLOW_ID, 'overview'))
+        await expectLogic(logic).toDispatchActions(['loadBatchWorkflowJobsFailure']).toMatchValues({
+            batchWorkflowJobs: null,
+            batchWorkflowJobsFailed: true,
+        })
+
+        getStatus = 200
+        await expectLogic(logic, () => {
+            logic.actions.loadBatchWorkflowJobs()
+        })
+            .toDispatchActions(['loadBatchWorkflowJobsSuccess'])
+            .toMatchValues({ batchWorkflowJobs: [], batchWorkflowJobsFailed: false })
     })
 
     // The cancel endpoint returns `done: true` with a non-cancelled status when a completion won the

@@ -139,6 +139,7 @@ export function HogFunctionIcon({
     className?: string
 }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
+    const [failedSrc, setFailedSrc] = useState<string>()
     const { ref: inViewRef, inView } = useInView()
 
     return (
@@ -156,7 +157,7 @@ export function HogFunctionIcon({
         >
             {!inView && !loaded ? (
                 <div className="w-full h-full" />
-            ) : src ? (
+            ) : src && src !== failedSrc ? (
                 <>
                     <img
                         className={clsx(
@@ -166,6 +167,7 @@ export function HogFunctionIcon({
                         src={src}
                         alt="Hog function icon"
                         onLoad={() => setLoaded(true)}
+                        onError={() => setFailedSrc(src)}
                     />
                     {!loaded && <LemonSkeleton className="absolute w-full h-full" />}
                 </>

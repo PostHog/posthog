@@ -1,6 +1,6 @@
 version: 1
 owners:
-    - team-context-mcp
+    - team-context-and-mcp
 rules:
     - match:
           - '/api/generated.ts'

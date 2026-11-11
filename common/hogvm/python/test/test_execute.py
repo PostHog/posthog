@@ -113,8 +113,10 @@ class TestBytecodeExecute:
         assert self._run("toString('string')") == "string"
         assert self._run("toInt('1')") == 1
         assert self._run("toInt('bla')") is None
+        assert self._run("toInt(null)") is None
         assert self._run("toFloat('1.2')") == 1.2
         assert self._run("toFloat('bla')") is None
+        assert self._run("toFloat(null)") is None
         assert self._run("toUUID('asd')") == "asd"
         assert self._run("1 == null") is False
         assert self._run("1 != null") is True

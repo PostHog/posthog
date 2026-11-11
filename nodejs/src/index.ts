@@ -6,6 +6,11 @@ import { initTracing } from '~/common/tracing/otel'
 import { initSuperProperties } from '~/common/utils/posthog'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { PluginServer } from '~/server'
+import {
+    AiResearchV4ImageFetchRetryServer,
+    AiResearchV4ImageFetchServer,
+} from '~/servers/ai-research-v4-image-fetch-server'
+import { AiResearchV4ParquetSinkServer } from '~/servers/ai-research-v4-parquet-sink-server'
 import { NodeServer } from '~/servers/base-server'
 import { ErrorTrackingServer } from '~/servers/error-tracking-server'
 import { IngestionApiServer } from '~/servers/ingestion-api-server'
@@ -20,6 +25,7 @@ import { IngestionSessionReplayMlMirrorServer } from '~/servers/ingestion-sessio
 import { IngestionSessionReplayMlParquetSinkServer } from '~/servers/ingestion-session-replay-ml-parquet-sink-server'
 import { IngestionSessionReplayServer } from '~/servers/ingestion-session-replay-server'
 import { IngestionTracesServer } from '~/servers/ingestion-traces-server'
+import { PushApiServer } from '~/servers/push-api-server'
 import { RecordingApiServer } from '~/servers/recording-api-server'
 
 function createServer(): NodeServer {
@@ -56,6 +62,15 @@ function createServer(): NodeServer {
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
             return new IngestionSessionReplayMlImageFetchRetryServer()
 
+        case PluginServerMode.ai_research_v4_image_fetch:
+            return new AiResearchV4ImageFetchServer()
+
+        case PluginServerMode.ai_research_v4_image_fetch_retry:
+            return new AiResearchV4ImageFetchRetryServer()
+
+        case PluginServerMode.ai_research_v4_parquet_sink:
+            return new AiResearchV4ParquetSinkServer()
+
         case PluginServerMode.recording_api:
             return new RecordingApiServer()
 
@@ -70,6 +85,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.ingestion_traces:
             return new IngestionTracesServer()
+
+        case PluginServerMode.push_api:
+            return new PushApiServer()
 
         default:
             // CDP modes, evaluation scheduler, local dev (null), local-cdp

@@ -29,6 +29,7 @@ class _RecordingBackend:
 
     def __init__(self):
         self.web_url = "https://pen-test.boxes.example.dev"
+        self.web_port = 8000
         self.files: dict[str, str] = {}
 
     def write_file(self, remote_path, content) -> None:

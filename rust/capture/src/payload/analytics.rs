@@ -134,7 +134,6 @@ pub async fn handle_event_payload(
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
         ai_max_event_bytes: state.ai_max_event_bytes,
-        ai_lane_predicate: state.ai_lane_predicate,
         sdk_attribution,
     };
     debug_or_info!(chatty_debug_enabled, context=?context, event_count=?events.len(), "processing complete");

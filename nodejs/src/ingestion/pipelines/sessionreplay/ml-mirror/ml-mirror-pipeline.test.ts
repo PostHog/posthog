@@ -158,6 +158,7 @@ describe('ml-mirror-pipeline', () => {
                 properties: {
                     $session_id: sessionId,
                     $window_id: 'window-1',
+                    $snapshot_source: 'web',
                     $snapshot_items: [
                         {
                             type: 3,
@@ -234,7 +235,12 @@ describe('ml-mirror-pipeline', () => {
             distinct_id: 'user-123',
             data: JSON.stringify({
                 event: '$snapshot_items',
-                properties: { $session_id: sessionId, $window_id: 'window-1', $snapshot_items: [snapshot] },
+                properties: {
+                    $session_id: sessionId,
+                    $window_id: 'window-1',
+                    $snapshot_source: 'web',
+                    $snapshot_items: [snapshot],
+                },
             }),
         })
         return {

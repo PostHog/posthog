@@ -440,6 +440,10 @@ export interface CohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
@@ -509,20 +513,206 @@ export interface PatchedCohortApi {
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
+    /**
+     * Person UUIDs to add to a new static cohort.
+     * @maxItems 1000
+     */
     _create_static_person_ids?: string[]
 }
 
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
+}
+
 export interface PatchedAddPersonsToStaticCohortRequestApi {
-    /** List of person UUIDs to add to the cohort */
+    /**
+     * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+     * @maxItems 1000
+     */
     person_ids?: string[]
+}
+
+export interface CohortUsedInWorkflowApi {
+    /** Workflow ID (UUID) */
+    id: string
+    /** Workflow display name */
+    name: string
+    /** Workflow status. Always 'active', because only active workflows rely on the cohort */
+    status: string
+}
+
+export interface CohortUsedInWorkflowsBlockApi {
+    /** Active workflows relying on this cohort that the caller can view, capped at 100 results */
+    results: CohortUsedInWorkflowApi[]
+    /** Total number of active workflows relying on this cohort, including ones the caller cannot view */
+    total: number
+    /** Number of relying workflows the caller cannot view. They count toward total but are never listed */
+    hidden: number
+    /** True when some relying workflows are not listed in results */
+    has_more: boolean
+}
+
+export interface CohortCalculationHistoryApi {
+    readonly id: string
+    /** Cohort filters/properties at time of calculation */
+    filters: unknown
+    /**
+     * Number of people in cohort
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    /** When calculation started */
+    started_at?: string
+    /**
+     * When calculation finished
+     * @nullable
+     */
+    finished_at?: string | null
+    /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
+    queries?: unknown
+    /**
+     * Error message if calculation failed
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Calculate duration in seconds if both start and end times are available
+     * @nullable
+     */
+    readonly duration_seconds: number | null
+    /** Check if calculation is completed (successfully or with error) */
+    readonly is_completed: boolean
+    /** Check if calculation completed successfully */
+    readonly is_successful: boolean
+    /**
+     * Get total query duration across all queries
+     * @nullable
+     */
+    readonly total_query_ms: number | null
+    /**
+     * Get total memory usage across all queries
+     * @nullable
+     */
+    readonly total_memory_mb: number | null
+    /**
+     * Get total rows read across all queries
+     * @nullable
+     */
+    readonly total_read_rows: number | null
+    /**
+     * Get total rows written across all queries
+     * @nullable
+     */
+    readonly total_written_rows: number | null
+    /**
+     * Get the main query (first query in the array)
+     * @nullable
+     */
+    readonly main_query: string | null
+}
+
+export interface CohortCalculationHistoryResponseApi {
+    /** Calculation runs on this page, newest first. */
+    results: CohortCalculationHistoryApi[]
+    /** Number of calculation runs recorded for the cohort. */
+    count: number
+    /**
+     * Query string for the next page, such as `?limit=100&offset=100`, or null.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * Query string for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+}
+
+export interface SerializedMatchedRecordingEventApi {
+    /** UUID of the matched event. */
+    uuid: string
+    /** When the matched event happened. */
+    timestamp: string
+    /** ID of the browser window the event was captured in. */
+    window_id: string
+}
+
+export interface SerializedMatchedRecordingApi {
+    /** ID of the session recording. */
+    session_id: string
+    /** Events of the recording that matched the query. */
+    events: SerializedMatchedRecordingEventApi[]
 }
 
 /**
  * The actor's properties.
  */
 export type SerializedPersonActorApiProperties = { [key: string]: unknown }
-
-export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
 
 export interface SerializedPersonActorApi {
     /** The person's UUID, or the group's key. */
@@ -535,7 +725,7 @@ export interface SerializedPersonActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -554,11 +744,8 @@ export interface SerializedPersonActorApi {
      * @nullable
      */
     last_seen_at: string | null
-    /**
-     * Whether the person has been identified.
-     * @nullable
-     */
-    is_identified: boolean | null
+    /** Whether the person has been identified. */
+    is_identified: boolean
 }
 
 export interface CohortPersonsResponseApi {
@@ -584,13 +771,17 @@ export interface CohortUsedInFlagApi {
      * @nullable
      */
     name: string | null
+    /** True when the flag is archived. Every flag that is not archived prevents the cohort from being deleted, enabled or not */
+    archived: boolean
 }
 
 export interface CohortUsedInFlagsBlockApi {
     /** Feature flags referencing this cohort, capped at 100 results */
     results: CohortUsedInFlagApi[]
-    /** Total number of feature flags referencing this cohort, before truncation */
+    /** Total number of feature flags referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of flags that are not archived and that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more feature flags exist beyond the truncation cap */
     has_more: boolean
 }
@@ -607,8 +798,10 @@ export interface CohortUsedInInsightApi {
 export interface CohortUsedInInsightsBlockApi {
     /** Insights referencing this cohort, capped at 100 results */
     results: CohortUsedInInsightApi[]
-    /** Total number of insights referencing this cohort, before truncation */
+    /** Total number of insights referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of insights referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more insights exist beyond the truncation cap */
     has_more: boolean
 }
@@ -623,9 +816,27 @@ export interface CohortUsedInCohortApi {
 export interface CohortUsedInCohortsBlockApi {
     /** Cohorts that include this cohort as a criterion, capped at 100 results */
     results: CohortUsedInCohortApi[]
-    /** Total number of cohorts referencing this cohort, before truncation */
+    /** Total number of cohorts referencing this cohort that the caller can view, before truncation */
     total: number
+    /** Number of cohorts referencing this cohort that the caller cannot view. They prevent the cohort from being deleted but never appear in results or total */
+    hidden: number
     /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInEnvironmentApi {
+    /** Environment (team) database ID */
+    id: number
+    /** Environment display name */
+    name: string
+}
+
+export interface CohortUsedInEnvironmentsBlockApi {
+    /** Environments that use this cohort in 'Filter out internal and test users', capped at 100 results */
+    results: CohortUsedInEnvironmentApi[]
+    /** Total number of environments using this cohort in their test account filters, before truncation */
+    total: number
+    /** True when more environments exist beyond the truncation cap */
     has_more: boolean
 }
 
@@ -636,6 +847,10 @@ export interface CohortUsedInResponseApi {
     insights: CohortUsedInInsightsBlockApi
     /** Other cohorts that include this cohort as a criterion, with truncation metadata */
     cohorts: CohortUsedInCohortsBlockApi
+    /** Environments across the project that use this cohort in 'Filter out internal and test users', with truncation metadata */
+    test_account_filters: CohortUsedInEnvironmentsBlockApi
+    /** Active workflows that trigger on this cohort or branch on its membership. While any exist, the cohort cannot be deleted or edited in a way that stops it updating in real time. */
+    workflows: CohortUsedInWorkflowsBlockApi
 }
 
 export type CohortsStaffListParams = {
@@ -653,6 +868,10 @@ export type CohortsListParams = {
      */
     basic?: boolean
     /**
+     * Optional. Return only cohorts created by the user with this id.
+     */
+    created_by_id?: number
+    /**
      * Set true to exclude behavioral (event-based) cohorts, which can't be used in feature flags or batch workflow audiences.
      */
     hide_behavioral_cohorts?: boolean
@@ -668,6 +887,44 @@ export type CohortsListParams = {
      * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
      */
     search?: string
+    /**
+     * Optional. `static` returns only static cohorts, `dynamic` only dynamic ones.
+     */
+    type?: CohortsListType
+}
+
+export type CohortsListType = (typeof CohortsListType)[keyof typeof CohortsListType]
+
+export const CohortsListType = {
+    Dynamic: 'dynamic',
+    Static: 'static',
+} as const
+
+export type CohortsActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
+export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type CohortsPersonsRetrieveParams = {

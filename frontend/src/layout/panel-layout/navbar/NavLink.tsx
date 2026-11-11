@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { ProductTag } from 'lib/components/ProductTag/ProductTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
@@ -17,7 +16,6 @@ interface NavLinkProps {
     'data-attr'?: string
     onClick?: (e: React.MouseEvent) => void
     sideAction?: React.ReactNode
-    tag?: 'alpha' | 'beta' | 'new'
 }
 
 export function NavLink({
@@ -28,7 +26,6 @@ export function NavLink({
     'data-attr': dataAttr,
     onClick,
     sideAction,
-    tag,
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
 
@@ -82,7 +79,6 @@ export function NavLink({
                         {label}
                     </span>
                 )}
-                {!isCollapsed && tag && <ProductTag tag={tag} className="relative top-[-1px]" />}
             </Link>
             {hasSideActionRight && sideAction}
         </ButtonGroupPrimitive>

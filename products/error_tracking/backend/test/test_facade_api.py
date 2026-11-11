@@ -3,18 +3,24 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.test import override_settings
+from django.conf import settings
+from django.db import DataError
+from django.test import SimpleTestCase, override_settings
 from django.utils.timezone import now
 
 import requests
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from posthog.integrations import SOURCE_MARKER_CONFIG_KEY, IntegrationManager
 from posthog.models import Team
+from posthog.models.event_filter_config import EventFilterPipelineOverride
+from posthog.models.event_ingestion_restriction_config import IngestionPipeline
 from posthog.models.integration import GitLabIntegrationError, Integration
 
-from products.access_control.backend.models.role import Role
+from products.access_control.backend.facade.testing import add_role_member, create_role
 from products.error_tracking.backend.facade import api, contracts
+from products.error_tracking.backend.logic import _symbol_set_counts_queryset
 from products.error_tracking.backend.models import (
     ErrorTrackingExternalReference,
     ErrorTrackingIssue,
@@ -126,7 +132,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         attachment_url = mock_create_issue.call_args.args[0]
         assert mock_create_issue.call_args.args[1]["title"] == "Checkout TypeError"
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/fingerprint/fp%2Fwith%23chars")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/fingerprint/fp%2Fwith%23chars")
         assert reference.external_id == "LIN-1"
         assert reference.title == "Checkout TypeError"
 
@@ -155,7 +161,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         )
 
         attachment_url = mock_create_issue.call_args.args[0]
-        assert attachment_url.endswith(f"/project/{self.team.id}/error_tracking/{issue.id}")
+        assert attachment_url.endswith(f"/project/{self.team.id}/error-tracking/{issue.id}")
 
     @override_settings(ATLASSIAN_APP_CLIENT_ID="atlassian-client-id", ATLASSIAN_APP_CLIENT_SECRET="atlassian-secret")
     @patch("products.error_tracking.backend.logic.external_references.JiraIntegration.create_issue")
@@ -205,7 +211,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         mock_create_issue.assert_not_called()
         linked_issue_id, attachment_url = mock_create_attachment.call_args.args
         assert linked_issue_id == "ENG-42"
-        assert f"/project/{self.team.id}/error_tracking/" in attachment_url
+        assert f"/project/{self.team.id}/error-tracking/" in attachment_url
         assert reference.external_url == "https://linear.app/acme/issue/ENG-42"
         assert reference.external_id == "ENG-42"
         assert reference.title == "Checkout TypeError"
@@ -252,6 +258,33 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             )
 
         assert not ErrorTrackingExternalReference.objects.exists()
+
+    @parameterized.expand(
+        [
+            ("unsupported_kind", "slack", {}, "Provider not supported"),
+            ("source_row", "github", {SOURCE_MARKER_CONFIG_KEY: "Github"}, "Integration does not belong to this team."),
+            ("other_auth_type", "github", None, "Integration does not belong to this team."),
+        ]
+    )
+    def test_link_external_reference_integration_lookup_errors(self, _name, kind, config, expected_message):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        if config is None:
+            integration, _ = IntegrationManager.github.token.upsert(
+                self.team.id, "token-row", config={}, sensitive_config={"access_token": "token"}
+            )
+        else:
+            integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+
+        with self.assertRaises(api.ExternalReferenceValidationError) as raised:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                external_context={"key": "ENG-1"},
+                distinct_id=self.user.id,
+            )
+
+        assert str(raised.exception) == expected_message
 
     @parameterized.expand(
         [
@@ -314,6 +347,156 @@ class TestErrorTrackingFacadeAPI(BaseTest):
                 external_context=external_context,
                 distinct_id=self.user.id,
             )
+
+    @parameterized.expand(
+        [
+            ("padded_id_is_trimmed", " 42 ", "42"),
+            ("blank_is_dropped", "   ", None),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
+    def test_create_external_reference_normalizes_assignee(self, _name, assignee, expected_assignee, mock_create_issue):
+        mock_create_issue.return_value = {"issue_id": 7}
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITLAB.value,
+            config={"hostname": "https://gitlab.example.com", "project_id": 1},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            config={"title": "Checkout TypeError", "body": "", "assignee": assignee},
+            distinct_id=self.user.id,
+        )
+
+        assert mock_create_issue.call_args.args[0].get("assignee") == expected_assignee
+
+    @parameterized.expand(
+        [
+            ("username_instead_of_id", "alice"),
+            ("non_string", 42),
+            ("non_ascii_digit", "\u00b2"),
+            ("too_long", "9" * 5000),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
+    def test_create_external_reference_rejects_invalid_gitlab_assignee(self, _name, assignee, mock_create_issue):
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITLAB.value,
+            config={"hostname": "https://gitlab.example.com", "project_id": 1},
+            sensitive_config={"access_token": "access-token"},
+        )
+
+        with self.assertRaises(api.ExternalReferenceValidationError):
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                config={"title": "Checkout TypeError", "body": "", "assignee": assignee},
+                distinct_id=self.user.id,
+            )
+        mock_create_issue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("not_assignable", "octocat", {"success": True, "assignable": False}, False),
+            ("assignable", "octocat", {"success": True, "assignable": True}, True),
+            ("managed_user_login", "mona_octo", {"success": True, "assignable": True}, True),
+            ("check_failed", "octocat", {"success": False, "error": "network"}, False),
+        ]
+    )
+    @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.is_assignable")
+    def test_create_external_reference_checks_github_assignee(
+        self, _name, login, assignable_result, creates_issue, mock_is_assignable, mock_create_issue
+    ):
+        mock_is_assignable.return_value = assignable_result
+        mock_create_issue.return_value = {"number": 7, "repository": "posthog"}
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.GITHUB.value,
+            config={"account": {"name": "acme"}},
+            sensitive_config={"access_token": "access-token"},
+        )
+        config = {"repository": "posthog", "title": "Checkout TypeError", "body": "", "assignee": login}
+
+        if creates_issue:
+            api.create_external_reference(
+                team_id=self.team.id,
+                issue_id=issue.id,
+                integration_id=integration.id,
+                config=config,
+                distinct_id=self.user.id,
+            )
+        else:
+            with self.assertRaises(api.ExternalReferenceValidationError):
+                api.create_external_reference(
+                    team_id=self.team.id,
+                    issue_id=issue.id,
+                    integration_id=integration.id,
+                    config=config,
+                    distinct_id=self.user.id,
+                )
+
+        mock_is_assignable.assert_called_once_with("posthog", login)
+        assert mock_create_issue.called is creates_issue
+
+    @parameterized.expand(
+        [
+            ("github_empty_body", "github", "", "{link}"),
+            ("github_whitespace_body", "github", " \n ", "{link}"),
+            ("github_user_text", "github", "Seen at checkout\n", "Seen at checkout\n\n{link}"),
+            ("github_already_linked", "github", "Details: {url}", "Details: {url}"),
+            ("gitlab_empty_body", "gitlab", "", "{link}"),
+        ]
+    )
+    @override_settings(SITE_URL="https://app.example.com")
+    @patch("products.error_tracking.backend.logic.external_references.GitLabIntegration.create_issue")
+    @patch("products.error_tracking.backend.logic.external_references.GitHubIntegration.create_issue")
+    def test_create_external_reference_always_links_back_to_posthog_issue(
+        self, _name, kind, body, expected_body, mock_github_create_issue, mock_gitlab_create_issue
+    ):
+        mock_github_create_issue.return_value = {"number": 7, "repository": "posthog"}
+        mock_gitlab_create_issue.return_value = {"issue_id": 7}
+        issue = self._create_issue(team=self.team, name="Checkout TypeError")
+        url = f"https://app.example.com/project/{self.team.id}/error-tracking/fingerprint/fp-{issue.id}"
+        if kind == "github":
+            integration = Integration.objects.create(
+                team=self.team,
+                kind=Integration.IntegrationKind.GITHUB.value,
+                config={"account": {"name": "acme"}},
+                sensitive_config={"access_token": "access-token"},
+            )
+            config = {"repository": "posthog", "title": "Checkout TypeError", "body": body.format(url=url)}
+            mock_create_issue = mock_github_create_issue
+        else:
+            integration = Integration.objects.create(
+                team=self.team,
+                kind=Integration.IntegrationKind.GITLAB.value,
+                config={"hostname": "https://gitlab.example.com", "project_id": 1},
+                sensitive_config={"access_token": "access-token"},
+            )
+            config = {"title": "Checkout TypeError", "body": body.format(url=url)}
+            mock_create_issue = mock_gitlab_create_issue
+
+        api.create_external_reference(
+            team_id=self.team.id,
+            issue_id=issue.id,
+            integration_id=integration.id,
+            config=config,
+            distinct_id=self.user.id,
+        )
+
+        assert mock_create_issue.call_args.args[0]["body"] == expected_body.format(
+            url=url, link=f"**PostHog issue:** {url}"
+        )
 
     def test_search_external_issues_requires_repository_for_github(self):
         integration = Integration.objects.create(
@@ -470,14 +653,14 @@ class TestErrorTrackingFacadeAPI(BaseTest):
             assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, user=self.user)
             expected_user_id = self.user.id
         else:
-            role = Role.objects.create(name=f"Role for {assignment_kind}", organization=self.organization)
+            role_id = create_role(organization_id=self.organization.id, name=f"Role for {assignment_kind}")
             if assignment_kind == "role_assignment_with_member":
-                role.members.add(self.user)
+                add_role_member(role_id=role_id, user_id=self.user.id)
                 expected_role_member_user_ids = [self.user.id]
 
-            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role=role)
+            assignment = ErrorTrackingIssueAssignment.objects.create(issue=issue, team=self.team, role_id=role_id)
             expected_user_id = None
-            expected_role_id = role.id
+            expected_role_id = role_id
 
         result = api.get_issue_assignment_for_notification(assignment_id=assignment.id)
 
@@ -516,6 +699,26 @@ class TestErrorTrackingFacadeAPI(BaseTest):
 
         assert api.get_settings(other_team.id).project_rate_limit_value is None
 
+    @parameterized.expand([("project", False), ("environment", True)])
+    def test_exception_ingestion_switch_writes_the_environment_pipeline_override(self, _name, via_environment):
+        team_id = self.team.id
+        if via_environment:
+            team_id = Team.objects.create(
+                organization=self.organization, project=self.project, parent_team=self.team, name="Environment"
+            ).id
+        assert api.get_settings(team_id).ingestion_enabled is True
+
+        for enabled in (False, True):
+            assert api.update_settings(team_id, {"ingestion_enabled": enabled}).ingestion_enabled is enabled
+            overrides = EventFilterPipelineOverride.objects.unscoped().values_list(
+                "team_id", "pipeline", "drop_all_events"
+            )
+            assert list(overrides) == [(team_id, IngestionPipeline.ERRORTRACKING, not enabled)]
+
+        with self.assertRaises(DataError):
+            api.update_settings(team_id, {"ingestion_enabled": False, "project_rate_limit_value": 2**31})
+        assert api.get_settings(team_id).ingestion_enabled is True
+
     def test_spike_detection_config_get_and_update(self):
         config = api.get_spike_detection_config(self.team.id)
         assert isinstance(config, contracts.ErrorTrackingSpikeDetectionConfig)
@@ -525,3 +728,36 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert updated.multiplier == 9
         assert updated.threshold == 50
         assert api.get_spike_detection_config(self.team.id) == updated
+
+
+class TestUsageReportCountsDatabase(SimpleTestCase):
+    @parameterized.expand([("all", False), ("resolved_only", True)])
+    def test_reads_from_replica_when_configured(self, _name: str, resolved_only: bool) -> None:
+        with patch.dict(settings.DATABASES, {"replica": settings.DATABASES["default"]}):
+            queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
+
+        assert queryset.db == "replica"
+
+    @parameterized.expand([("all", False), ("resolved_only", True)])
+    def test_falls_back_to_default_without_replica(self, _name: str, resolved_only: bool) -> None:
+        with patch.dict(settings.DATABASES):
+            settings.DATABASES.pop("replica", None)
+            queryset = _symbol_set_counts_queryset(resolved_only=resolved_only)
+
+        assert queryset.db == "default"
+
+    def test_issue_counts_read_from_replica_when_configured(self) -> None:
+        with (
+            patch.dict(settings.DATABASES, {"replica": settings.DATABASES["default"]}),
+            patch.object(ErrorTrackingIssue.objects, "using") as using,
+        ):
+            api.get_issue_counts_by_team()
+
+        using.assert_called_once_with("replica")
+
+    def test_issue_counts_fall_back_to_default_without_replica(self) -> None:
+        with patch.dict(settings.DATABASES), patch.object(ErrorTrackingIssue.objects, "using") as using:
+            settings.DATABASES.pop("replica", None)
+            api.get_issue_counts_by_team()
+
+        using.assert_called_once_with("default")

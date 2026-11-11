@@ -16,6 +16,7 @@ from django.db import transaction
 
 import structlog
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models.integration import GitHubIntegration
 
 from products.signals.backend.models import SignalReport, SignalReportAssignment, SignalTeamConfig
@@ -101,7 +102,9 @@ def apply_pull_request_label(*, team_id: int, report_id: str, pr_url: str) -> st
 
     log = logger.bind(team_id=team_id, report_id=report_id, repository=parsed.repository, pr_number=parsed.number)
     try:
-        github = GitHubIntegration.first_for_team_repository(team_id, parsed.repository)
+        github = GitHubIntegration.first_for_team_repository(
+            team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.BATCH
+        )
     except Exception:
         log.exception("signals.pull_request_label.integration_lookup_failed")
         return None

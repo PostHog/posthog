@@ -143,7 +143,7 @@ class QueryPlannerNode(TaxonomyUpdateDispatcherNodeMixin, AssistantNode):
         dynamic_retrieve_entity_properties, dynamic_retrieve_entity_property_values = self._get_dynamic_entity_tools()
 
         return MaxChatOpenAI(
-            model="o4-mini",
+            model="gpt-5.6-terra",
             use_responses_api=True,
             streaming=False,
             reasoning={

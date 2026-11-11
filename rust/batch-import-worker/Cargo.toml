@@ -52,6 +52,7 @@ moka = { workspace = true }
 posthog-rs = { workspace = true }
 
 [dev-dependencies]
+common-dns = { path = "../common/dns", features = ["test-util"] }
 httpmock = { workspace = true }
 flate2 = { workspace = true }
 mockito = { workspace = true }

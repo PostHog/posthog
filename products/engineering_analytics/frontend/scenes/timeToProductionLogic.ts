@@ -6,7 +6,7 @@ import { ApiConfig } from 'lib/api'
 import { engineeringAnalyticsRepoOverview } from '../generated/api'
 import type { RepoOverviewApi } from '../generated/api.schemas'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
-import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
+import { awaitsRepoForward, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
@@ -92,6 +92,8 @@ export const timeToProductionLogic = kea<timeToProductionLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadTiming()
+        if (!awaitsRepoForward()) {
+            actions.loadTiming()
+        }
     }),
 ])

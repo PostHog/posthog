@@ -7,7 +7,14 @@ import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { ExportType } from '~/exporter/types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataNode,
+    LifecycleQuery,
+    NodeKind,
+    ResultCustomizationBy,
+    TrendsQuery,
+    TrendsQueryResponse,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
@@ -93,6 +100,19 @@ describe('trendsDataLogic', () => {
             })
         })
 
+        describe('actionNames', () => {
+            it('for a response that names its action series', async () => {
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess({
+                        results: trendResult.result,
+                        action_names: { '7': 'Signed up' },
+                    } as TrendsQueryResponse)
+                }).toMatchValues({
+                    actionNames: { '7': 'Signed up' },
+                })
+            })
+        })
+
         describe('indexedResults', () => {
             it('for standard trend', async () => {
                 const insight: Partial<InsightModel> = {
@@ -103,6 +123,28 @@ describe('trendsDataLogic', () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     indexedResults: [{ ...trendResult.result[0], id: 0, seriesIndex: 0, colorIndex: 0 }],
+                })
+            })
+
+            it('leaves the previous period out of a proportion bar saved with compare on', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { display: ChartDisplayType.ActionsProportionBar },
+                    compareFilter: { compare: true },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: [
+                        { ...trendResult.result[0], compare: true, compare_label: 'current' },
+                        { ...trendResult.result[0], compare: true, compare_label: 'previous' },
+                    ],
+                }
+
+                await expectLogic(logic, () => {
+                    insightVizDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [expect.objectContaining({ compare_label: 'current' })],
                 })
             })
 
@@ -371,8 +413,8 @@ describe('trendsDataLogic', () => {
 
             const indexedResults = logic.values.indexedResults
             const [currentRow, previousRow] = indexedResults
-            expect(getTrendResultCustomizationKey(ResultCustomizationBy.Value, currentRow)).toBe(
-                getTrendResultCustomizationKey(ResultCustomizationBy.Value, previousRow)
+            expect(getTrendResultCustomizationKey(ResultCustomizationBy.Value, currentRow, query)).toBe(
+                getTrendResultCustomizationKey(ResultCustomizationBy.Value, previousRow, query)
             )
 
             await expectLogic(logic, () => {
@@ -435,7 +477,7 @@ describe('trendsDataLogic', () => {
 
             const indexedResults = logic.values.indexedResults
             const { resultCustomizationBy } = logic.values
-            const key0 = getTrendResultCustomizationKey(resultCustomizationBy, indexedResults[0])
+            const key0 = getTrendResultCustomizationKey(resultCustomizationBy, indexedResults[0], query)
 
             await expectLogic(logic, () => {
                 insightVizDataLogic.findMounted(insightProps)?.actions.updateInsightFilter({

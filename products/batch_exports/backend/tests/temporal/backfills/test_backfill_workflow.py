@@ -13,19 +13,18 @@ import temporalio.common
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.temporal.tests.utils.models import (
-    acreate_batch_export,
-    adelete_batch_export,
-    afetch_batch_export,
-    afetch_batch_export_backfills,
-)
-
 from products.batch_exports.backend.models.batch_export import BatchExportBackfill
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
 )
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events
+from products.batch_exports.backend.tests.temporal.utils.models import (
+    acreate_batch_export,
+    adelete_batch_export,
+    afetch_batch_export,
+    afetch_batch_export_backfills,
+)
 from products.batch_exports.backend.tests.temporal.utils.s3 import create_test_client, delete_all_from_s3
 
 from .conftest import assert_backfill_details_in_workflow_events, wait_for_workflows

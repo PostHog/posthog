@@ -8,6 +8,7 @@ import {
 import {
   type CanvasActionDefinition,
   type CanvasActionResult,
+  type CanvasAvailability,
   type CanvasConnectorCallResult,
   type CanvasCreator,
   type CanvasDraft,
@@ -15,6 +16,8 @@ import {
   type CanvasSourceProject,
   type CanvasStateEntry,
   type CanvasStateScope,
+  type CanvasToolDefinition,
+  type CanvasToolResult,
   type CanvasVersion,
   type CanvasView,
   canvasSourceProjectSchema,
@@ -38,6 +41,10 @@ import {
   type ProjectApiClient,
   ProjectApiError,
 } from "./projectApiClient";
+
+// Outlasts the backend's MCP call timeout, so a stalled write still reaches the
+// viewer as the backend's "the change can still apply" answer.
+const CANVAS_TOOL_TIMEOUT_MS = 60_000;
 
 // A canvas as the PostHog canvases API returns it.
 interface ApiCanvas {
@@ -189,11 +196,24 @@ export class DashboardsService {
     return rows.map(toRecord);
   }
 
+  // Null for both "no such canvas here" (404) and "its space is not shared with
+  // you" (403): neither is an error the caller can retry, and `availability`
+  // names which one it was for the surface that has to explain it.
   async get(id: string): Promise<DashboardRecord | null> {
     const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
-    if (res.status === 404) return null;
+    if (res.status === 404 || res.status === 403) return null;
     if (!res.ok) throw new Error(`Failed to load canvas (${res.status})`);
     return toRecord((await res.json()) as ApiCanvas);
+  }
+
+  // Why a canvas would not open. Read on the dead-end path only, so it costs a
+  // request nobody makes while canvases are opening normally.
+  async availability(id: string): Promise<CanvasAvailability> {
+    const res = await this.api.fetch(`canvases/${encodeURIComponent(id)}/`);
+    if (res.ok) return "ok";
+    if (res.status === 403) return "no_access";
+    if (res.status === 404) return "missing";
+    throw new Error(`Failed to load canvas (${res.status})`);
   }
 
   // Everything needed to open a canvas, in one round trip: the record, the
@@ -526,6 +546,44 @@ export class DashboardsService {
       );
     }
     return { verb: body.verb ?? input.verb, result: body.result ?? {} };
+  }
+
+  // The PostHog MCP tools a canvas may declare, from the action registry.
+  async listTools(): Promise<CanvasToolDefinition[]> {
+    const body = await this.api.json<{ tools?: CanvasToolDefinition[] }>(
+      `canvases/actions/`,
+      "list canvas tools",
+    );
+    return body.tools ?? [];
+  }
+
+  // Run one declared PostHog MCP tool as the viewer.
+  async invokeTool(input: {
+    id: string;
+    tool: string;
+    arguments: Record<string, unknown>;
+  }): Promise<CanvasToolResult> {
+    const res = await this.api.fetch(
+      `canvases/${encodeURIComponent(input.id)}/tools/invoke/`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: input.tool, arguments: input.arguments }),
+        signal: AbortSignal.timeout(CANVAS_TOOL_TIMEOUT_MS),
+      },
+    );
+    const body = (await res.json().catch(() => ({}))) as {
+      detail?: string;
+      tool?: string;
+      result?: Record<string, unknown>;
+    };
+    if (!res.ok) {
+      throw new ProjectApiError(
+        body.detail ?? `Failed to run canvas tool (${res.status})`,
+        res.status,
+      );
+    }
+    return { tool: body.tool ?? input.tool, result: body.result ?? {} };
   }
 
   // Call one declared connector tool as the viewer.

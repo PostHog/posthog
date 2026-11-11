@@ -9,6 +9,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
+from ee.hogai.utils.types.base import ApprovalPayload
 
 
 class AssistantSSESerializer:
@@ -22,6 +23,8 @@ class AssistantSSESerializer:
             return self._serialize_status(cast(AssistantGenerationStatusEvent, event_data))
         elif event_type == AssistantEventType.UPDATE:
             return self._serialize_update(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
+        elif event_type == AssistantEventType.APPROVAL:
+            return self._serialize_approval(cast(ApprovalPayload, event_data))
         else:
             raise ValueError(f"Unknown event type: {event_type}")
 
@@ -38,6 +41,11 @@ class AssistantSSESerializer:
     def _serialize_update(self, update: AssistantUpdateEvent | SubagentUpdateEvent) -> str:
         output = f"event: {AssistantEventType.UPDATE}\n"
         output += f"data: {update.model_dump_json(exclude_none=True)}\n\n"
+        return output
+
+    def _serialize_approval(self, approval: ApprovalPayload) -> str:
+        output = f"event: {AssistantEventType.APPROVAL}\n"
+        output += f"data: {approval.model_dump_json(exclude_none=True)}\n\n"
         return output
 
     # `_serialize_conversation` needs to be async, as some serialization CAN involve sneaky sync ORM queries. We can't guarantee it won't.

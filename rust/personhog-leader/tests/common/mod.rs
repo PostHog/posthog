@@ -11,18 +11,28 @@ use std::time::Duration;
 use dashmap::DashMap;
 
 use async_trait::async_trait;
+use common_ingestion_warnings::throttle::WarningThrottle;
+use common_ingestion_warnings::{observe_delivery, KafkaRowWarningEmitter};
 use common_kafka::config::KafkaConfig;
-use common_kafka::kafka_producer::{create_kafka_producer, KafkaContext};
+use common_kafka::kafka_producer::{
+    create_kafka_producer, create_threaded_kafka_producer_no_ping, KafkaContext,
+};
 use health::HealthRegistry;
 use personhog_coordination::authority::AuthorityClock;
+use personhog_coordination::changelog::LiveChangelog;
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::AssignmentStrategy;
+use personhog_coordination::types::{ChangelogConfig, ChangelogTarget};
+use personhog_leader::coordination::{Capture, ChangelogCaptures};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
+use rdkafka::consumer::BaseConsumer;
+use rdkafka::error::KafkaError;
+use rdkafka::message::BorrowedMessage;
 use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 use rdkafka::types::RDKafkaErrorCode;
@@ -30,9 +40,7 @@ use rdkafka::ClientConfig;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_common::partitioning::partition_for_person;
-use personhog_leader::cache::{
-    approx_person_bytes, CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey,
-};
+use personhog_leader::cache::{CachedPerson, DirtyIndex, PartitionedCache, PersonCacheKey};
 use personhog_leader::coordination::LeaderHandoffHandler;
 use personhog_leader::inflight::InflightTracker;
 use personhog_leader::pg::{LifecycleTables, PgFallback};
@@ -49,11 +57,55 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, Server};
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
-pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
+// Not `localhost`: it also resolves to `::1`, where the broker refuses, and readers fail on that.
+pub const KAFKA_BOOTSTRAP: &str = "127.0.0.1:9092";
+
+/// A second broker; only the e2e gate job starts one, so cross-cluster cases run only when it is set.
+pub fn secondary_kafka_bootstrap() -> Option<String> {
+    std::env::var("PERSONHOG_TEST_SECONDARY_KAFKA")
+        .ok()
+        .filter(|hosts| !hosts.is_empty())
+}
+
 pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/posthog_persons";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 4;
+
+/// librdkafka reports a refused broker address and then reconnects on
+/// its own, for example when `localhost` resolves to `::1` first. A
+/// reader that treats the report as final fails on a broker about to
+/// answer, or counts a partition as drained that is not.
+pub fn is_transient_broker_error(error: &KafkaError) -> bool {
+    matches!(
+        error,
+        KafkaError::MessageConsumption(
+            RDKafkaErrorCode::BrokerTransportFailure | RDKafkaErrorCode::AllBrokersDown
+        )
+    )
+}
+
+/// One record from `consumer`, riding out transient broker errors until
+/// `wait` has passed. Panics on any other error and at the deadline.
+pub fn poll_record<'a>(
+    consumer: &'a BaseConsumer,
+    wait: Duration,
+    what: &str,
+) -> BorrowedMessage<'a> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match consumer.poll(Duration::from_millis(200)) {
+            Some(Ok(message)) => return message,
+            Some(Err(error)) if is_transient_broker_error(&error) => {}
+            Some(Err(error)) => panic!("kafka error reading {what}: {error}"),
+            None => {}
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no message received from {what} within {wait:?}"
+        );
+    }
+}
 
 /// Find a person_id whose key hashes to `partition`, so a test can aim a
 /// request at a specific partition while satisfying the leader's partition
@@ -117,6 +169,8 @@ pub fn start_coordinator(
             handoff_deadline: Duration::from_secs(86_400),
             warming_deadline: Duration::from_secs(86_400),
             max_txn_ops: 128,
+            migration_pre_flip_deadline: Duration::from_secs(86_400),
+            migration_debounce_interval: Duration::from_millis(10),
         },
         strategy,
         None,
@@ -203,8 +257,16 @@ pub const CHANGELOG_TOPIC: &str = "personhog_updates";
 pub struct LeaderPodHandles {
     pub cache: Arc<PartitionedCache>,
     pub leader_addr: SocketAddr,
-    /// Kept alive so the topic outlives the test that reads it.
-    pub topic: TestTopic,
+}
+
+/// Seeds `config/changelog` with a topic of this test's own; pods read it from there.
+pub async fn seed_test_changelog(store: &PersonhogStore) -> TestTopic {
+    let topic = owned_broker_topic(NUM_PARTITIONS as i32).await;
+    assert!(store
+        .seed_changelog_config(&topic.topic, NUM_PARTITIONS, "personhog-writer")
+        .await
+        .unwrap());
+    topic
 }
 
 /// Kafka config pointing at local kafka for e2e tests. Used for both the
@@ -240,17 +302,14 @@ pub fn test_kafka_config() -> KafkaConfig {
 /// with real local Kafka, `KAFKA_BOOTSTRAP`.
 pub fn test_warming_config(
     pod_name: &str,
-    topic: &str,
     kafka_bootstrap: &str,
 ) -> personhog_leader::warming::WarmingConfig {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = kafka_bootstrap.to_string();
     personhog_leader::warming::WarmingConfig {
         kafka,
-        topic: topic.to_string(),
         pod_name: pod_name.to_string(),
         writer_consumer_group: "personhog-writer".to_string(),
-        lookback_offsets: 0,
         committed_offsets_timeout: Duration::from_secs(5),
         fetch_watermarks_timeout: Duration::from_secs(5),
         recv_timeout: Duration::from_secs(10),
@@ -264,13 +323,12 @@ pub fn test_warming_config(
 
 /// Recovery pointed at the given broker. A short receive timeout keeps
 /// tests that exercise failed recoveries fast.
-pub fn test_recovery(topic: &str, kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
+pub fn test_recovery(kafka_bootstrap: &str) -> Arc<ChangelogRecovery> {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = kafka_bootstrap.to_string();
     Arc::new(
         ChangelogRecovery::new(RecoveryConfig {
             kafka,
-            topic: topic.to_string(),
             pod_name: "test-pod".to_string(),
             recv_timeout: Duration::from_secs(2),
             pool_size: 2,
@@ -281,6 +339,10 @@ pub fn test_recovery(topic: &str, kafka_bootstrap: &str) -> Arc<ChangelogRecover
 
 /// Create a producer against local Kafka for e2e tests.
 pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
+    create_kafka_producer_on(KAFKA_BOOTSTRAP).await
+}
+
+pub async fn create_kafka_producer_on(bootstrap: &str) -> FutureProducer<KafkaContext> {
     let registry = HealthRegistry::new("test");
     let handle = registry
         .register("kafka".to_string(), Duration::from_secs(30))
@@ -290,7 +352,7 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         kafka_producer_queue_mib: 50,
         kafka_message_timeout_ms: 5000,
         kafka_compression_codec: "none".to_string(),
-        kafka_hosts: KAFKA_BOOTSTRAP.to_string(),
+        kafka_hosts: bootstrap.to_string(),
         kafka_tls: false,
         kafka_producer_queue_messages: 1000,
         kafka_client_rack: String::new(),
@@ -311,16 +373,35 @@ pub async fn create_local_kafka_producer() -> FutureProducer<KafkaContext> {
         .expect("failed to connect to local Kafka")
 }
 
+/// A warnings producer against local Kafka, for tests that read warnings back.
+pub async fn local_warnings_producer(topic: &str, throttle: WarningThrottle) -> WarningsProducer {
+    let registry = HealthRegistry::new("test");
+    let handle = registry
+        .register("ingestion-warnings".to_string(), Duration::from_secs(30))
+        .await;
+    let config = KafkaConfig {
+        kafka_hosts: KAFKA_BOOTSTRAP.to_string(),
+        kafka_producer_linger_ms: 0,
+        ..Default::default()
+    };
+    let producer = create_threaded_kafka_producer_no_ping(&config, handle, observe_delivery)
+        .expect("failed to create the warnings producer");
+    WarningsProducer::new(Arc::new(KafkaRowWarningEmitter::with_throttle(
+        producer, topic, throttle,
+    )))
+}
+
 /// One test's changelog topic: two tests acquiring the same partition
 /// of a shared one would fence each other.
 pub struct TestTopic {
     pub topic: String,
+    bootstrap: String,
 }
 
 impl TestTopic {
     /// The shape `MockCluster` offered, so call sites keep working.
     pub fn bootstrap_servers(&self) -> String {
-        KAFKA_BOOTSTRAP.to_string()
+        self.bootstrap.clone()
     }
 }
 
@@ -330,12 +411,13 @@ impl TestTopic {
 impl Drop for TestTopic {
     fn drop(&mut self) {
         let topic = self.topic.clone();
+        let bootstrap = self.bootstrap.clone();
         let cleanup = std::thread::spawn(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect("cleanup runtime");
-            runtime.block_on(delete_broker_topic(&topic));
+            runtime.block_on(delete_broker_topic_on(&bootstrap, &topic));
         });
         drop(cleanup.join());
     }
@@ -344,8 +426,12 @@ impl Drop for TestTopic {
 /// Best effort: a leftover topic costs the next run partitions, not
 /// correctness, and a failing test has already said what went wrong.
 pub async fn delete_broker_topic(topic: &str) {
+    delete_broker_topic_on(KAFKA_BOOTSTRAP, topic).await;
+}
+
+pub async fn delete_broker_topic_on(bootstrap: &str, topic: &str) {
     let Ok(admin) = ClientConfig::new()
-        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("bootstrap.servers", bootstrap)
         .create::<AdminClient<DefaultClientContext>>()
     else {
         return;
@@ -378,25 +464,27 @@ pub async fn create_mock_kafka_with_partitions(
 
 /// A changelog topic and a producer for it, with `NUM_PARTITIONS`
 /// partitions so warming can fetch every partition's watermarks.
-pub async fn create_test_kafka() -> (TestTopic, FutureProducer<KafkaContext>) {
+pub async fn create_test_kafka() -> TestTopic {
     create_test_kafka_with_partitions(NUM_PARTITIONS as i32).await
 }
 
 /// `create_test_kafka` with a partition count the caller pins.
-pub async fn create_test_kafka_with_partitions(
-    partitions: i32,
-) -> (TestTopic, FutureProducer<KafkaContext>) {
-    let topic = unique_topic();
-    create_broker_topic(&topic, partitions).await;
-    let producer = create_local_kafka_producer().await;
-    (TestTopic { topic }, producer)
+pub async fn create_test_kafka_with_partitions(partitions: i32) -> TestTopic {
+    owned_broker_topic(partitions).await
 }
 
 /// A topic of this test's own, deleted when the handle drops.
 pub async fn owned_broker_topic(partitions: i32) -> TestTopic {
+    owned_broker_topic_on(KAFKA_BOOTSTRAP, partitions).await
+}
+
+pub async fn owned_broker_topic_on(bootstrap: &str, partitions: i32) -> TestTopic {
     let topic = unique_topic();
-    create_broker_topic(&topic, partitions).await;
-    TestTopic { topic }
+    create_broker_topic_on(bootstrap, &topic, partitions).await;
+    TestTopic {
+        topic,
+        bootstrap: bootstrap.to_string(),
+    }
 }
 
 /// A topic name no other test shares.
@@ -407,8 +495,12 @@ pub fn unique_topic() -> String {
 /// Auto-creation would use the broker's default partition count, which
 /// is not the one routing and warming expect.
 pub async fn create_broker_topic(topic: &str, partitions: i32) {
+    create_broker_topic_on(KAFKA_BOOTSTRAP, topic, partitions).await;
+}
+
+pub async fn create_broker_topic_on(bootstrap: &str, topic: &str, partitions: i32) {
     let admin: AdminClient<DefaultClientContext> = ClientConfig::new()
-        .set("bootstrap.servers", KAFKA_BOOTSTRAP)
+        .set("bootstrap.servers", bootstrap)
         .create()
         .expect("admin client");
     let new_topic = NewTopic::new(topic, partitions, TopicReplication::Fixed(1));
@@ -431,12 +523,18 @@ pub async fn fenced_producers_acquired(
     topic: &str,
     partitions: i32,
 ) -> Arc<personhog_leader::fencing::FencedChangelogProducers> {
-    let fenced = Arc::new(fenced_producers_for(topic));
+    let fenced = Arc::new(test_fenced_producers());
+    let target = ChangelogTarget {
+        cluster: None,
+        topic: topic.to_string(),
+        partitions: partitions as u32,
+    };
     let acquires = (0..partitions as u32).map(|partition| {
         let fenced = Arc::clone(&fenced);
+        let target = target.clone();
         async move {
             fenced
-                .acquire(partition)
+                .acquire(partition, &target)
                 .await
                 .expect("acquiring the changelog fence")
         }
@@ -454,7 +552,12 @@ pub async fn start_leader_pod(
     cancel: CancellationToken,
 ) -> LeaderPodHandles {
     let cache = Arc::new(PartitionedCache::new(cache_capacity));
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let topic = store
+        .get_changelog_config()
+        .await
+        .unwrap()
+        .expect("seed config/changelog before starting a pod")
+        .topic;
 
     // Pod with real handoff handler. Warming consumer reads from the same
     // mock broker the producer is publishing to so the topic actually
@@ -469,8 +572,8 @@ pub async fn start_leader_pod(
     // while production drops them.
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
     // Recovery must read the broker the service produces to.
-    let recovery = test_recovery(&mock_cluster.topic, &mock_cluster.bootstrap_servers());
-    let warming = test_warming_config(name, &mock_cluster.topic, &mock_cluster.bootstrap_servers());
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    let warming = test_warming_config(name, KAFKA_BOOTSTRAP);
     let pools = Arc::new(WarmClientPools::new(
         &warming.kafka,
         name,
@@ -481,7 +584,9 @@ pub async fn start_leader_pod(
     // cannot gate anything. Left unacquired, because warming is what
     // takes each partition's epoch here, as it does in production.
     let authority = Arc::new(AuthorityClock::unclaimed());
-    let fenced = Arc::new(fenced_producers_for(&mock_cluster.topic));
+    let fenced = Arc::new(test_fenced_producers());
+    let changelog = live_changelog(&topic);
+    let captures: ChangelogCaptures = Arc::new(DashMap::new());
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -489,7 +594,8 @@ pub async fn start_leader_pod(
         warming,
         Arc::new(dashmap::DashMap::new()),
         None,
-        NUM_PARTITIONS,
+        changelog.clone(),
+        Arc::clone(&captures),
         pools,
         Arc::clone(&fenced),
         Arc::clone(&authority),
@@ -517,11 +623,11 @@ pub async fn start_leader_pod(
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
-        NUM_PARTITIONS,
+        captures,
         Arc::clone(&dirty_index),
         recovery,
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(dashmap::DashMap::new()),
         Arc::clone(&fenced),
         Arc::clone(&authority),
@@ -544,11 +650,7 @@ pub async fn start_leader_pod(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    LeaderPodHandles {
-        cache,
-        leader_addr,
-        topic: mock_cluster,
-    }
+    LeaderPodHandles { cache, leader_addr }
 }
 
 pub async fn start_leader_pod_with_lease_ttl(
@@ -559,7 +661,12 @@ pub async fn start_leader_pod_with_lease_ttl(
     cancel: CancellationToken,
 ) -> LeaderPodHandles {
     let cache = Arc::new(PartitionedCache::new(cache_capacity));
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let topic = store
+        .get_changelog_config()
+        .await
+        .unwrap()
+        .expect("seed config/changelog before starting a pod")
+        .topic;
 
     let heartbeat_secs = (lease_ttl as u64 / 3).max(1);
     let inflight = Arc::new(InflightTracker::new());
@@ -569,8 +676,8 @@ pub async fn start_leader_pod_with_lease_ttl(
     // service never reads, and the floors survive a handoff in tests
     // while production drops them.
     let emitted_versions = Arc::new(personhog_leader::emitted::EmittedVersions::new(1_000_000));
-    let recovery = test_recovery(&mock_cluster.topic, &mock_cluster.bootstrap_servers());
-    let warming = test_warming_config(name, &mock_cluster.topic, &mock_cluster.bootstrap_servers());
+    let recovery = test_recovery(KAFKA_BOOTSTRAP);
+    let warming = test_warming_config(name, KAFKA_BOOTSTRAP);
     let pools = Arc::new(WarmClientPools::new(
         &warming.kafka,
         name,
@@ -581,7 +688,9 @@ pub async fn start_leader_pod_with_lease_ttl(
     // cannot gate anything. Left unacquired, because warming is what
     // takes each partition's epoch here, as it does in production.
     let authority = Arc::new(AuthorityClock::unclaimed());
-    let fenced = Arc::new(fenced_producers_for(&mock_cluster.topic));
+    let fenced = Arc::new(test_fenced_producers());
+    let changelog = live_changelog(&topic);
+    let captures: ChangelogCaptures = Arc::new(DashMap::new());
     let handler = LeaderHandoffHandler::new(
         Arc::clone(&cache),
         Arc::clone(&inflight),
@@ -589,7 +698,8 @@ pub async fn start_leader_pod_with_lease_ttl(
         warming,
         Arc::new(dashmap::DashMap::new()),
         None,
-        NUM_PARTITIONS,
+        changelog.clone(),
+        Arc::clone(&captures),
         pools,
         Arc::clone(&fenced),
         Arc::clone(&authority),
@@ -618,11 +728,11 @@ pub async fn start_leader_pod_with_lease_ttl(
         None,
         Arc::new(DashMap::new()),
         Arc::clone(&inflight),
-        NUM_PARTITIONS,
+        captures,
         Arc::clone(&dirty_index),
         recovery,
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(dashmap::DashMap::new()),
         Arc::clone(&fenced),
         Arc::clone(&authority),
@@ -645,11 +755,7 @@ pub async fn start_leader_pod_with_lease_ttl(
 
     tokio::time::sleep(Duration::from_millis(10)).await;
 
-    LeaderPodHandles {
-        cache,
-        leader_addr,
-        topic: mock_cluster,
-    }
+    LeaderPodHandles { cache, leader_addr }
 }
 
 // ── Helpers ─────────────────────────────────────────────────
@@ -691,7 +797,6 @@ pub fn test_cached_person() -> CachedPerson {
         is_identified: false,
         is_deleted: false,
         last_seen_at: None,
-        approx_bytes: approx_person_bytes(64),
     }
 }
 
@@ -708,7 +813,7 @@ pub async fn start_leader_with_pg_fallback(
     cancel: CancellationToken,
 ) -> (SocketAddr, Arc<PartitionedCache>, TestTopic) {
     let cache = Arc::new(PartitionedCache::new(1 << 20));
-    let (mock_cluster, kafka_producer) = create_test_kafka().await;
+    let mock_cluster = create_test_kafka().await;
     let pool = create_persons_pool().await;
 
     let service = PersonHogLeaderService::new(
@@ -720,11 +825,11 @@ pub async fn start_leader_with_pg_fallback(
         }),
         Arc::new(DashMap::new()),
         Arc::new(InflightTracker::new()),
-        NUM_PARTITIONS,
+        served_captures(&mock_cluster.topic, NUM_PARTITIONS),
         Arc::new(DirtyIndex::new(1_000_000)),
-        test_recovery(&mock_cluster.topic, &mock_cluster.bootstrap_servers()),
+        test_recovery(&mock_cluster.bootstrap_servers()),
         PropertySizeLimits::new(655360, 524288),
-        WarningsProducer::new(kafka_producer, "clickhouse_ingestion_warnings".to_string()),
+        WarningsProducer::disabled(),
         Arc::new(dashmap::DashMap::new()),
         fenced_producers_acquired(&mock_cluster.topic, NUM_PARTITIONS as i32).await,
         live_authority(),
@@ -761,13 +866,12 @@ pub const BROKER_TXN_TIMEOUT: Duration = Duration::from_secs(30);
 /// fencing on, its entire fenced write arm — the version settlement, the
 /// cache eviction, the four-way error mapping — is unreachable from any
 /// test.
-pub fn fenced_producers_for(topic: &str) -> personhog_leader::fencing::FencedChangelogProducers {
+pub fn test_fenced_producers() -> personhog_leader::fencing::FencedChangelogProducers {
     let mut kafka = test_kafka_config();
     kafka.kafka_hosts = KAFKA_BOOTSTRAP.to_string();
     personhog_leader::fencing::FencedChangelogProducers::new(
         personhog_leader::fencing::FencedProducerConfig {
             kafka,
-            topic: topic.to_string(),
             init_timeout: Duration::from_secs(10),
             commit_timeout: Duration::from_secs(10),
             broker_txn_timeout: BROKER_TXN_TIMEOUT,
@@ -844,8 +948,7 @@ fn handoff_handler_with(
     inflight: Arc<personhog_leader::inflight::InflightTracker>,
     authority: Arc<AuthorityClock>,
 ) -> personhog_leader::coordination::LeaderHandoffHandler {
-    let mut warming = test_warming_config("test", topic, KAFKA_BOOTSTRAP);
-    warming.topic = topic.to_string();
+    let warming = test_warming_config("test", KAFKA_BOOTSTRAP);
     personhog_leader::coordination::LeaderHandoffHandler::new(
         Arc::new(PartitionedCache::new(1 << 20)),
         inflight,
@@ -853,7 +956,8 @@ fn handoff_handler_with(
         warming,
         Arc::new(dashmap::DashMap::new()),
         None,
-        NUM_PARTITIONS,
+        live_changelog(topic),
+        Arc::new(DashMap::new()),
         Arc::new(personhog_leader::warming::WarmClientPools::new(
             &test_kafka_config(),
             "test",
@@ -879,4 +983,33 @@ pub fn live_authority() -> Arc<AuthorityClock> {
     let clock = Arc::new(AuthorityClock::unclaimed());
     clock.begin_session(Duration::from_secs(3600), std::time::Instant::now());
     clock
+}
+
+pub fn live_changelog(topic: &str) -> LiveChangelog {
+    LiveChangelog::new(ChangelogConfig::new(topic, NUM_PARTITIONS))
+}
+
+pub fn target(topic: &str) -> ChangelogTarget {
+    ChangelogTarget {
+        cluster: None,
+        topic: topic.to_string(),
+        partitions: NUM_PARTITIONS,
+    }
+}
+
+/// Every partition captured on `topic`, as a pod that serves them all holds it.
+pub fn served_captures(topic: &str, partitions: u32) -> ChangelogCaptures {
+    let config = ChangelogConfig::new(topic, partitions);
+    Arc::new(
+        (0..partitions)
+            .map(|partition| {
+                let capture = Capture {
+                    cluster: None,
+                    topic: Arc::from(topic),
+                    config: config.clone(),
+                };
+                (partition, capture)
+            })
+            .collect(),
+    )
 }

@@ -53,7 +53,7 @@ describe('buildNotificationSourcePath', () => {
                 source_id: '99',
             })
         )
-        expect(result).toBe('/feature_flags/99')
+        expect(result).toBe('/feature-flags/99')
     })
 
     it('builds path from source_type and source_id for insight', () => {
@@ -73,7 +73,7 @@ describe('buildNotificationSourcePath', () => {
                 source_id: 'issue-uuid',
             })
         )
-        expect(result).toBe('/error_tracking/issue-uuid')
+        expect(result).toBe('/error-tracking/issue-uuid')
     })
 
     it('builds path from source_type and source_id for ticket', () => {

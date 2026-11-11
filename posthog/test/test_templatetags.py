@@ -4,12 +4,12 @@ from uuid import UUID
 from unittest.mock import patch
 
 from django.template import Context, Template
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase
 
 from posthog.templatetags.posthog_filters import compact_number
 
 
-class TestTemplateTags(TestCase):
+class TestTemplateTags(SimpleTestCase):
     def test_compact_number(self):
         self.assertEqual(compact_number(5001), "5K")
         self.assertEqual(compact_number(5312), "5.31K")

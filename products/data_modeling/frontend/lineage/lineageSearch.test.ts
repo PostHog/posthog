@@ -6,6 +6,7 @@ import {
     edgesWithinNodes,
     matchNodesByName,
     nodeIdsForLineageSearch,
+    orderedNodesForLineageSearch,
     parseLineageSearch,
     traverseLineage,
 } from './lineageSearch'
@@ -45,9 +46,46 @@ describe('lineageSearch', () => {
         expect(traverseLineage('orders', maps, 'both').has('sessions')).toBe(false)
     })
 
+    it('walks a broad cyclic graph without visiting nodes twice', () => {
+        const branches = Array.from({ length: 100 }, (_, index) => node(`branch-${index}`, `branch-${index}`))
+        const nodes = [node('root', 'root'), ...branches, node('terminal', 'terminal')]
+        const edges = [
+            ...branches.flatMap((branch) => [edge('root', branch.id), edge(branch.id, 'terminal')]),
+            edge('terminal', 'root'),
+        ]
+
+        const reached = traverseLineage('root', buildAdjacencyMaps(edges), 'downstream')
+        expect(reached).toEqual(new Set(nodes.map(({ id }) => id)))
+
+        const ordered = orderedNodesForLineageSearch(nodes, edges, parseLineageSearch('root+'))
+        expect(ordered).toHaveLength(nodes.length)
+        expect(ordered?.[0].id).toEqual('root')
+        expect(ordered?.at(-1)?.id).toEqual('terminal')
+    })
+
     it('anchors on the exact name over a longer one that contains it', () => {
         const nodes = [node('1', 'orders_daily'), node('2', 'orders'), node('3', 'stripe_orders_raw')]
         expect(matchNodesByName(nodes, 'orders')[0].name).toEqual('orders')
+    })
+
+    describe('orderedNodesForLineageSearch', () => {
+        it('orders the anchor first, then models by distance and name', () => {
+            const nodes = [node('root', 'root'), node('zeta', 'zeta'), node('alpha', 'alpha'), node('leaf', 'leaf')]
+            const edges = [edge('root', 'zeta'), edge('root', 'alpha'), edge('alpha', 'leaf')]
+
+            expect(
+                orderedNodesForLineageSearch(nodes, edges, parseLineageSearch('root+'))?.map(({ name }) => name)
+            ).toEqual(['root', 'alpha', 'zeta', 'leaf'])
+        })
+
+        it('keeps bidirectional walks from reaching siblings', () => {
+            const nodes = ['events', 'orders', 'sessions'].map((name) => node(name, name))
+            const edges = [edge('events', 'orders'), edge('events', 'sessions')]
+
+            expect(
+                orderedNodesForLineageSearch(nodes, edges, parseLineageSearch('+orders+'))?.map(({ name }) => name)
+            ).toEqual(['orders', 'events'])
+        })
     })
 
     describe('nodeIdsForLineageSearch', () => {

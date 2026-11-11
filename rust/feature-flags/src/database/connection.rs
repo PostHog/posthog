@@ -28,6 +28,12 @@ impl TrackedConnection {
             labels,
         }
     }
+
+    /// Close on drop instead of returning to the pool: sqlx's return-to-pool path pings
+    /// with no deadline, so abandoning a stalled connection would hold the pool slot.
+    pub fn close_on_drop(&mut self) {
+        self.conn.close_on_drop();
+    }
 }
 
 impl Deref for TrackedConnection {

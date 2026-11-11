@@ -26,6 +26,7 @@ import {
     TableHeader,
     TableRow,
 } from './table'
+import { TableColumnResizer } from './table-column-resizer'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './tooltip'
 
 const meta = {
@@ -620,6 +621,142 @@ export const RowActions: Story = {
 // Empty state: TableEmpty renders the full-span cell for you (no manual colSpan,
 // no height juggling) and centers its content. Give the Table a height (here a
 // fixed `h-80`) and the empty cell fills the body.
+// A link in a cell is a small link Button, so every table's links share a height and hover.
+function CellLink({
+    href,
+    variant = 'link-foreground',
+    children,
+}: {
+    href: string
+    variant?: 'link-foreground' | 'link-muted'
+    children: React.ReactNode
+}): React.ReactElement {
+    return (
+        <Button
+            variant={variant}
+            size="sm"
+            nativeButton={false}
+            // A story has no router; a plain anchor stands in for the host router's Link.
+            // eslint-disable-next-line react/forbid-elements
+            render={<a href={href} />}
+            left
+            className="max-w-full shrink"
+        >
+            <span className="truncate">{children}</span>
+        </Button>
+    )
+}
+
+// The record's name is a `link-foreground`; a secondary link, like its email, is a `link-muted`.
+export const WithLinks: Story = {
+    render: () => (
+        <Table className="max-w-2xl rounded-md border border-(--border)">
+            <TableHeader>
+                <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Role</TableHead>
+                </TableRow>
+            </TableHeader>
+            <TableBody>
+                {manyRows.slice(0, 6).map((row) => (
+                    <TableRow key={row.id}>
+                        <TableCell>
+                            <CellLink href={`#user-${row.id}`}>{row.name}</CellLink>
+                        </TableCell>
+                        <TableCell>
+                            <CellLink href={`mailto:${row.email}`} variant="link-muted">
+                                {row.email}
+                            </CellLink>
+                        </TableCell>
+                        <TableCell>{row.role}</TableCell>
+                    </TableRow>
+                ))}
+            </TableBody>
+        </Table>
+    ),
+} satisfies Story
+
+// A name too long for its column truncates inside the link, with the Button still at its small size.
+export const WithTruncatedLinks: Story = {
+    render: () => (
+        <Card size="sm" flush className="max-w-xl">
+            <CardContent>
+                <Table size="sm" fullWidth>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead className="max-w-56">Title</TableHead>
+                            <TableHead>Owner</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {[
+                            'Revenue overview',
+                            'Weekly activation funnel broken down by plan, region and signup source',
+                            'Q4 experiment plan and the follow-up questions from the last review meeting',
+                        ].map((title, index) => (
+                            <TableRow key={title}>
+                                <TableCell className="max-w-56">
+                                    <CellLink href={`#report-${index}`}>{title}</CellLink>
+                                </TableCell>
+                                <TableCell>{manyRows[index].name}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+            </CardContent>
+        </Card>
+    ),
+} satisfies Story
+
+// Hover the header to see the column edges, and a header cell to see its handle. Drag it, focus it and use the arrow
+// keys, or double click it to reset. Only the dragged column changes.
+export const ResizableColumns: Story = {
+    render: function Render() {
+        const [nameWidth, setNameWidth] = React.useState(200)
+        const [emailWidth, setEmailWidth] = React.useState(260)
+        const roleWidth = 160
+        return (
+            <Table columnWidths={[nameWidth, emailWidth, roleWidth]} className="rounded-md border border-(--border)">
+                <TableHeader>
+                    <TableRow>
+                        <TableHead>
+                            Name
+                            <TableColumnResizer
+                                value={nameWidth}
+                                onValueCommitted={setNameWidth}
+                                onReset={() => setNameWidth(200)}
+                                min={100}
+                                aria-label="Resize Name column"
+                            />
+                        </TableHead>
+                        <TableHead>
+                            Email
+                            <TableColumnResizer
+                                value={emailWidth}
+                                onValueCommitted={setEmailWidth}
+                                onReset={() => setEmailWidth(260)}
+                                min={100}
+                                aria-label="Resize Email column"
+                            />
+                        </TableHead>
+                        <TableHead>Role</TableHead>
+                    </TableRow>
+                </TableHeader>
+                <TableBody>
+                    {manyRows.slice(0, 6).map((row) => (
+                        <TableRow key={row.id}>
+                            <TableCell>{row.name}</TableCell>
+                            <TableCell>{row.email}</TableCell>
+                            <TableCell>{row.role}</TableCell>
+                        </TableRow>
+                    ))}
+                </TableBody>
+            </Table>
+        )
+    },
+} satisfies Story
+
 export const EmptyState: Story = {
     render: () => (
         <Table fullWidth className="h-80 rounded-md border border-(--border)">

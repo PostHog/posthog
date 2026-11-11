@@ -1,6 +1,8 @@
 import type { ListenerDefinitions } from 'kea'
 
+import { withCommentContexts } from '../utils/commentContext'
 import type { runInteractionLogicType } from './runInteractionLogic'
+import { taskCommentContextsLogic } from './taskCommentContextsLogic'
 import { TaskDraftPersistence, type TaskDraftState, taskDraftStorageKey } from './taskDraftPersistence'
 
 export function taskDraftState(logic: runInteractionLogicType): TaskDraftState {
@@ -12,12 +14,19 @@ export function taskDraftState(logic: runInteractionLogicType): TaskDraftState {
     }
 }
 
+function savedTaskDraftState(logic: runInteractionLogicType): TaskDraftState {
+    const state = taskDraftState(logic)
+    const taskId = logic.props.taskId
+    const contexts = taskId ? (taskCommentContextsLogic.findMounted({ taskId })?.values.commentContexts ?? []) : []
+    return contexts.length > 0 && state.draft ? { ...state, draft: withCommentContexts(contexts, state.draft) } : state
+}
+
 export function taskDraftListeners(logic: runInteractionLogicType): ListenerDefinitions<runInteractionLogicType> {
     const { actions, cache } = logic
     const save = (): void => {
         if (!cache.restoringTaskDraft) {
             const persistence: TaskDraftPersistence | undefined = cache.taskDraftPersistence
-            persistence?.save(taskDraftState(logic))
+            persistence?.save(savedTaskDraftState(logic))
         }
     }
 
@@ -69,7 +78,7 @@ export function taskDraftListeners(logic: runInteractionLogicType): ListenerDefi
         },
         finishTaskDraftDelivery: (): void => {
             const persistence: TaskDraftPersistence | undefined = cache.taskDraftPersistence
-            persistence?.finishDelivery(taskDraftState(logic))
+            persistence?.finishDelivery(savedTaskDraftState(logic))
         },
         setComposerFormValue: save,
         setComposerFormValues: save,

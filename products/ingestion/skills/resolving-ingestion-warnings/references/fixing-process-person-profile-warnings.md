@@ -12,6 +12,10 @@ All three are silent from the SDK's side. The first quietly opts you back **into
 
 Check the third before diagnosing a payload: if `event_dropped_person_processing_disabled` is the type, no SDK change will bring the events back, because the drop is the configured outcome of the project's person processing opt-out.
 
+On the capture v1 endpoints (`/i/v1/analytics/events`, `/i/v1/ai/events`), the flag is the `process_person_profile` event option, and SDKs move the legacy property into it.
+PostHog converts common forms of the option (`"false"`, `"no"`, `0`), so `invalid_process_person_profile` does not fire for it. A value PostHog can't read drops the event with `invalid_options` instead.
+Some SDKs convert the property themselves before sending and silently drop forms they don't recognize, such as `"no"`, which leaves person processing on. Send a real boolean.
+
 ## Diagnose
 
 1. Query the warnings with `posthog:execute-sql`: `SELECT timestamp, details FROM system.ingestion_warnings WHERE type IN ('invalid_process_person_profile', 'invalid_event_when_process_person_profile_is_false', 'event_dropped_person_processing_disabled') AND timestamp > now() - INTERVAL 7 DAY ORDER BY timestamp DESC LIMIT 20` (narrow to a single `type` to isolate one variant). For the non-boolean variant, the `details` JSON shows the exact value received — its type names the bug (`"false"` = stringified config/env value, `0` = numeric flag). For the dropped variant, the `details` show which identity event was dropped and for which distinct IDs.

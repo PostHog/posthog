@@ -1,15 +1,23 @@
 import { S3Client } from '@aws-sdk/client-s3'
+import { Message } from 'node-rdkafka'
 
 import { KAFKA_SESSION_REPLAY_IMAGE_SCRUB } from '~/common/config/kafka-topics'
 import { KafkaConsumer, KafkaConsumerConfig } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { SessionReplayProducerName } from '~/ingestion/pipelines/sessionreplay/config'
+import { parseImageRef } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/content-ref'
 import { KafkaDeadLetterSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/dead-letter-sink'
 import { ImageBatcher } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-batcher'
 import { ImageShardStore } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/image-shard-store'
 import { ScrubClient } from '~/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub/scrub-client'
 import { MlKeyManager } from '~/ingestion/pipelines/sessionreplay/ml-mirror/keys/runtime'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
+import {
+    CaptureWatermark,
+    CapturedData,
+    capturedRecords,
+    releasingOffsetStore,
+} from '~/ingestion/pipelines/sessionreplay/shared/capture-watermark'
 import { INGESTION_SESSIONREPLAY_ML_IMAGE_SCRUB_PRODUCER } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
 import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 
@@ -65,6 +73,12 @@ export function buildImageScrubConsumerConfig(config: IngestionSessionReplayMlMi
         // the bound cannot drift away from the design that needs it.
         fetchBatchSize: boundedImageScrubBatchSize(config),
     }
+}
+
+/** URL images reach the scrub topic in fetch order, not capture order, so they keep a watermark apart from inline images. */
+export function scrubbedImageData(message: Pick<Message, 'key'>): CapturedData | undefined {
+    const source = parseImageRef(message.key?.toString('utf8') ?? '')?.source
+    return source === undefined ? undefined : source === 'url' ? 'url_images' : 'inline_images'
 }
 
 export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerServer {
@@ -123,9 +137,10 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             'fetch.message.max.bytes': maximumRecordBytes,
             'max.partition.fetch.bytes': maximumRecordBytes,
         })
+        const watermark = new CaptureWatermark('image_scrub')
         const batcher = new ImageBatcher(
             store,
-            consumer,
+            releasingOffsetStore(consumer, watermark),
             scrubClient,
             {
                 flushIntervalMs: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS,
@@ -138,10 +153,17 @@ export class IngestionSessionReplayMlImageScrubServer extends MlMirrorConsumerSe
             this.keyManager
         )
         await scrubClient.waitUntilReachable()
-        await consumer.connect((messages) => {
-            const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
-            return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
-        })
+        await consumer.connect(
+            (messages) => {
+                watermark.hold(capturedRecords(messages, scrubbedImageData))
+                const heartbeat = setInterval(() => consumer.heartbeat(), BATCH_HEARTBEAT_INTERVAL_MS)
+                return batcher.handleBatch(messages, Date.now()).finally(() => clearInterval(heartbeat))
+            },
+            (partitions) => {
+                watermark.forget(partitions)
+                return Promise.resolve()
+            }
+        )
 
         this.lifecycle.services.push({
             id: 'session-replay-ml-image-scrub',

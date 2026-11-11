@@ -90,3 +90,34 @@ def _channel_privacy_from_slack(
     if "is_private" not in channel:
         return ConversationType.UNKNOWN
     return ConversationType.PRIVATE_CHANNEL if channel["is_private"] else ConversationType.PUBLIC_CHANNEL
+
+
+def channel_is_ext_shared(slack: SlackIntegration, channel: str) -> bool:
+    """Whether the channel is a Slack Connect channel.
+
+    Unlike events, interactivity payloads carry no ``is_ext_shared_channel`` on the
+    envelope, so this costs a ``conversations.info`` round trip. Fails closed: an
+    unreadable channel is treated as externally shared, which at worst asks the user
+    to approve a channel that did not need it.
+    """
+    return channel_ext_shared_state(slack, channel) is not False
+
+
+def channel_ext_shared_state(slack: SlackIntegration, channel: str) -> bool | None:
+    """Like ``channel_is_ext_shared``, but ``None`` when Slack could not say.
+
+    For a caller that can wait and ask again, a failed lookup is not the same as a shared
+    channel.
+    """
+    # A DM with the app is never a Slack Connect channel. The lookup below also cannot answer
+    # for a `D…` id because the app does not request `im:read`, so without this check every DM
+    # reads as shared and is sent to an approval it can never get.
+    if channel.startswith("D"):
+        return False
+    try:
+        info = slack.client.conversations_info(channel=channel)
+        conversation: dict[str, Any] = info.get("channel") or {}
+        return bool(conversation.get("is_ext_shared") or conversation.get("is_pending_ext_shared"))
+    except Exception:
+        logger.warning("slack_app_channel_info_failed", channel=channel)
+        return None

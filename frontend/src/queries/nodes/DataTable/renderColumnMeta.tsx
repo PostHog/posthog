@@ -4,20 +4,15 @@ import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { isDataTableNode, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     DataTableNode,
-    DataVisualizationNode,
+    VisualizationNode,
     EventsQuery,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import {
-    isDataTableNode,
-    isGroupsQuery,
-    isHogQLQuery,
-    isMarketingAnalyticsTableQuery,
-    trimQuotes,
-} from '~/queries/utils'
+import { isGroupsQuery, isMarketingAnalyticsTableQuery, trimQuotes } from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -28,7 +23,7 @@ export interface ColumnMeta {
     onResizeEnd?: () => void
 }
 
-export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode>(
+export function renderColumnMeta<T extends VisualizationNode | DataTableNode>(
     key: string,
     query: T,
     context?: QueryContext<T>

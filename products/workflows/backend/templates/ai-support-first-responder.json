@@ -1,0 +1,190 @@
+{
+    "id": "01a12fb6-3cfe-0000-5d45-25a5b3a944e0",
+    "name": "AI support first responder",
+    "description": "When a support ticket comes in, an AI agent reads it alongside the customer's PostHog data, sets a priority, drafts a reply, and posts it to Slack.",
+    "version": 1,
+    "created_at": "2026-10-12T00:00:00Z",
+    "created_by": null,
+    "updated_at": "2026-10-12T00:00:00Z",
+    "trigger": {
+        "type": "event",
+        "filters": {
+            "source": "events",
+            "actions": [],
+            "events": [
+                {
+                    "id": "$conversation_ticket_created",
+                    "name": "$conversation_ticket_created",
+                    "type": "events",
+                    "order": 0
+                }
+            ]
+        }
+    },
+    "trigger_masking": {
+        "hash": "{event.properties.ticket_id}",
+        "ttl": 86400,
+        "threshold": null
+    },
+    "conversion": {
+        "filters": [],
+        "window_minutes": null
+    },
+    "exit_condition": "exit_only_at_end",
+    "edges": [
+        {
+            "from": "trigger_node",
+            "to": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
+            "to": "action_function_97425ff1-96f5-4569-b2b1-8814063e0283",
+            "type": "continue"
+        },
+        {
+            "from": "action_function_97425ff1-96f5-4569-b2b1-8814063e0283",
+            "to": "exit_node",
+            "type": "continue"
+        }
+    ],
+    "actions": [
+        {
+            "id": "trigger_node",
+            "name": "Support ticket is created",
+            "description": "A customer has created a new support ticket.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "trigger",
+            "output_variable": null,
+            "config": {
+                "type": "event",
+                "filters": {
+                    "source": "events",
+                    "actions": [],
+                    "events": [
+                        {
+                            "id": "$conversation_ticket_created",
+                            "name": "$conversation_ticket_created",
+                            "type": "events",
+                            "order": 0
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "id": "action_function_545f4bda-3275-4917-ae4f-a4cdfe002727",
+            "name": "Triage the ticket",
+            "description": "An AI agent investigates the ticket and drafts a reply.",
+            "on_error": "abort",
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": [
+                {
+                    "key": "task_final_message",
+                    "result_path": "final_message"
+                }
+            ],
+            "config": {
+                "template_id": "template-posthog-create-task",
+                "inputs": {
+                    "prompt": {
+                        "value": "A customer just opened a support ticket. Read the ticket using the `ticket_id` property of the triggering event.\n\nThen look up this customer in PostHog: their recent activity, errors, and session recordings around the time of the ticket.\n\nReply with:\n1. A one-line summary of the problem.\n2. A priority (urgent, high, normal, or low) and the reason for it.\n3. Anything in their data that explains the problem, with links.\n4. A draft reply to the customer.\n\nDo not reply to the customer or change anything. A person reviews your draft before it is sent."
+                    },
+                    "title": {
+                        "value": "Support ticket triage"
+                    },
+                    "posthog_mcp_scopes": {
+                        "value": "read_only"
+                    },
+                    "reply_in_slack_thread": {
+                        "value": false
+                    },
+                    "non_failure_status_codes": {
+                        "value": [409]
+                    }
+                }
+            }
+        },
+        {
+            "id": "action_function_97425ff1-96f5-4569-b2b1-8814063e0283",
+            "name": "Post to Slack",
+            "description": "Connect your support channel to see the triage and the draft reply.",
+            "on_error": null,
+            "created_at": 1791763200000,
+            "updated_at": 1791763200000,
+            "filters": null,
+            "type": "function",
+            "output_variable": null,
+            "config": {
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {
+                        "templating": "hog"
+                    },
+                    "channel": {
+                        "templating": "hog"
+                    },
+                    "icon_emoji": {
+                        "value": ":hedgehog:",
+                        "templating": "hog"
+                    },
+                    "username": {
+                        "value": "PostHog",
+                        "templating": "hog"
+                    },
+                    "blocks": {
+                        "value": [
+                            {
+                                "type": "section",
+                                "text": {
+                                    "type": "mrkdwn",
+                                    "text": ":ticket: *New ticket triaged by AI*"
+                                }
+                            },
+                            {
+                                "type": "markdown",
+                                "text": "{variables.task_final_message}"
+                            }
+                        ],
+                        "templating": "hog"
+                    },
+                    "text": {
+                        "value": ":ticket: *New ticket triaged by AI*\n\n{variables.task_final_message}",
+                        "templating": "hog"
+                    }
+                }
+            }
+        },
+        {
+            "id": "exit_node",
+            "name": "Exit",
+            "description": "User moved through the workflow without errors.",
+            "on_error": null,
+            "created_at": 0,
+            "updated_at": 0,
+            "filters": null,
+            "type": "exit",
+            "config": {
+                "reason": "Default exit"
+            },
+            "output_variable": null
+        }
+    ],
+    "abort_action": null,
+    "variables": [
+        {
+            "key": "task_final_message",
+            "type": "string",
+            "default": ""
+        }
+    ],
+    "billable_action_types": ["function"],
+    "tags": ["ai", "support", "support ticket", "slack"],
+    "scope": "global"
+}

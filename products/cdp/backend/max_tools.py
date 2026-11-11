@@ -9,8 +9,6 @@ from pydantic import BaseModel, Field
 from posthog.hogql import errors as hogql_errors
 from posthog.hogql.parser import parse_program
 
-from posthog.cdp.validation import compile_hog
-
 from products.cdp.backend.prompts import (
     DESTINATION_LIMITATIONS_MESSAGE,
     HOG_EXAMPLE_MESSAGE,
@@ -25,6 +23,7 @@ from products.cdp.backend.prompts import (
     TRANSFORMATION_STRUCTURE_MESSAGE,
     render_filters_system_prompt,
 )
+from products.cdp.backend.validation import compile_hog
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.llm import MaxChatOpenAI

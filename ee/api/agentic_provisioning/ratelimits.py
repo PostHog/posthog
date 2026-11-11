@@ -15,9 +15,7 @@ Charging happens two ways, mirroring where the partner becomes known:
   those refuse spends no partner quota.
 - ``charge="manual"``: the handler calls ``self.charge_rate_limit(...)`` once
   it has resolved its partner (the token endpoint decodes a grant first,
-  account_requests must clear the capability check before spending quota), or
-  a flow outside any view (the bundled account-request wizard block) calls
-  :func:`charge_partner_by_name`.
+  account_requests must clear the capability check before spending quota).
 
 A charge is refunded in ``handle_exception`` when the request provably did no
 work (the error code is in the declaration's ``refund_on``), so a partner
@@ -79,10 +77,9 @@ FLAT_MULTIPLIERS: dict[PartnerTier, int] = dict.fromkeys(TIER_MULTIPLIERS, 1)
 
 # Error codes whose requests provably did no work: rejections raised before the
 # endpoint writes anything or calls out. Any invalid_* code counts as no-work too
-# (see _did_no_work), so validation codes need no entry here. Codes like
-# github_unavailable are deliberately absent because the outbound call already
-# happened, and so is not_found: the endpoints that raise it do so only after
-# resolving the resource, so refunding it would make repeated probes free. An
+# (see _did_no_work), so validation codes need no entry here. not_found is
+# deliberately absent: the endpoints that raise it do so only after resolving
+# the resource, so refunding it would make repeated probes free. An
 # endpoint that rejects before resolving anything can name its own code in
 # refund_on.
 DID_NO_WORK_CODES: frozenset[str] = frozenset(
@@ -91,9 +88,7 @@ DID_NO_WORK_CODES: frozenset[str] = frozenset(
         "unauthorized",
         "no_team",
         "team_not_found",
-        "grant_not_found",
         "deep_links_not_enabled",
-        "wizard_unavailable",
     }
 )
 
@@ -317,25 +312,6 @@ def charge_partner(
         )
 
     DECISIONS_COUNTER.labels(endpoint=declaration.endpoint, tier=tier, outcome="allowed").inc()
-
-
-def charge_partner_by_name(
-    endpoint: str, partner: OAuthApplication, *, request: Request | None = None, resource_id: str = ""
-) -> None:
-    """Charge by registry name, for flows that run outside any view dispatch
-    (the bundled account-request wizard block)."""
-    declaration = _REGISTRY.get(endpoint)
-    if declaration is None:
-        # Declarations register when the view modules import. Web processes load
-        # them through the URLconf; anything else (a test importing accounts.py
-        # directly) gets them here. Function-local to break the views->ratelimits
-        # import cycle.
-        from ee.api.agentic_provisioning import views  # noqa: F401, PLC0415
-
-        declaration = _REGISTRY.get(endpoint)
-    if declaration is None:
-        raise ImproperlyConfigured(f"No rate limit declared for endpoint {endpoint!r}")
-    charge_partner(declaration, partner, request=request, resource_id=resource_id)
 
 
 def _did_no_work(error_code: str, refund_on: frozenset[str]) -> bool:

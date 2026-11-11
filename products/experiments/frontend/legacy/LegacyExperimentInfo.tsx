@@ -1,83 +1,28 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
-import { IconRefresh, IconWarning } from '@posthog/icons'
-import { LemonButton, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
+import { IconWarning } from '@posthog/icons'
+import { LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { dayjs } from 'lib/dayjs'
-import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
+import { ExperimentStatsMethod } from '~/types'
 
 import { StatusTag } from 'products/experiments/frontend/components/StatusTag'
 import { CONCLUSION_DISPLAY_CONFIG } from 'products/experiments/frontend/constants'
 import { getExperimentStatus, isExperimentPaused } from 'products/experiments/frontend/experimentStatus'
-import { LegacyExperimentDates, legacyExperimentLogic } from 'products/experiments/frontend/legacy'
 import { isSingleVariantShipped, getShippedVariantKey } from 'products/experiments/frontend/scenes/experimentsLogic'
-/**
- * @deprecated
- * This component supports legacy experiment metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery).
- * Frozen copy for legacy experiments - do not modify.
- */
-export const LegacyExperimentLastRefresh = ({
-    isRefreshing,
-    lastRefresh,
-    onClick,
-}: {
-    isRefreshing: boolean
-    lastRefresh: string | undefined
-    onClick: () => void
-}): JSX.Element => {
-    usePeriodicRerender(15000) // Re-render every 15 seconds for up-to-date last refresh time
 
-    return (
-        <div className="flex flex-col">
-            <Label intent="menu">Last refreshed</Label>
-            <div className="inline-flex deprecated-space-x-2">
-                <span
-                    className={`${
-                        lastRefresh
-                            ? dayjs().diff(dayjs(lastRefresh), 'hours') > 12
-                                ? 'text-danger'
-                                : dayjs().diff(dayjs(lastRefresh), 'hours') > 6
-                                  ? 'text-warning'
-                                  : ''
-                            : ''
-                    }`}
-                >
-                    {isRefreshing ? 'Loading…' : lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-                </span>
-                <LemonButton
-                    type="secondary"
-                    size="xsmall"
-                    onClick={onClick}
-                    data-attr="refresh-experiment"
-                    icon={<IconRefresh />}
-                    tooltip="Refresh experiment results"
-                />
-            </div>
-        </div>
-    )
-}
+import { LegacyExperimentDates } from './LegacyExperimentDates'
 
-/**
- * @deprecated use the new Info component instead
- */
 export function LegacyExperimentInfo(): JSX.Element | null {
-    const {
-        experiment,
-        legacyPrimaryMetricsResults,
-        legacySecondaryMetricsResults,
-        primaryMetricsResultsLoading,
-        secondaryMetricsResultsLoading,
-    } = useValues(legacyExperimentLogic)
-    const { refreshExperimentResults } = useActions(legacyExperimentLogic)
+    const { experiment } = useValues(experimentLogic)
 
     const { created_by } = experiment
 
@@ -86,11 +31,6 @@ export function LegacyExperimentInfo(): JSX.Element | null {
     if (!experiment.feature_flag) {
         return null
     }
-
-    // Get the last refresh timestamp from either legacy or new results format
-    // Check both primary and secondary metrics for the most recent timestamp
-    const lastRefresh =
-        legacyPrimaryMetricsResults?.[0]?.last_refresh || legacySecondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
     const isPaused = isExperimentPaused(experiment)
@@ -161,13 +101,6 @@ export function LegacyExperimentInfo(): JSX.Element | null {
 
                 <div className="flex flex-col">
                     <div className="inline-flex deprecated-space-x-8">
-                        {status !== ExperimentStatus.Draft && (
-                            <LegacyExperimentLastRefresh
-                                isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
-                                lastRefresh={lastRefresh}
-                                onClick={() => refreshExperimentResults(true, 'manual')}
-                            />
-                        )}
                         <LegacyExperimentDates />
                         <div className="flex flex-col">
                             <Label intent="menu">Created by</Label>

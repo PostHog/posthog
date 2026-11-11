@@ -15,7 +15,7 @@ const PA_NOTIFICATION_LIST_LIMIT = 500
 const PA_NOTIFICATION_SUB_TEMPLATE_IDS: HogFunctionSubTemplateIdType[] = ['pa-rageclick']
 
 function getPANotificationFilterGroups(): CyclotronJobFiltersType[] {
-    return PA_NOTIFICATION_SUB_TEMPLATE_IDS.map(getFiltersFromSubTemplateId).filter(
+    return PA_NOTIFICATION_SUB_TEMPLATE_IDS.map((id) => getFiltersFromSubTemplateId(id)).filter(
         (filters): filters is CyclotronJobFiltersType => !!filters
     )
 }

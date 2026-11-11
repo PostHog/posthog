@@ -1,5 +1,5 @@
 REDIS_TTL_SECONDS: int = 12 * 60 * 60  # 12h
-SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:all_accounts"
+SALESFORCE_ACCOUNTS_CACHE_KEY: str = "salesforce-enrichment:global:accounts"
 SALESFORCE_ORG_MAPPINGS_CACHE_KEY: str = "salesforce-enrichment:global:org_mappings"
 SALESFORCE_STRIPE_ENRICHMENT_WATERMARK_KEY: str = "salesforce-enrichment:stripe:last_watermark"
 ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE: str = "OrgMappingsCacheMissing"
@@ -12,7 +12,7 @@ SALESFORCE_UPDATE_BATCH_SIZE: int = 200  # Max records per sObject Collections A
 DEFAULT_CHUNK_SIZE: int = 5000
 
 # Harmonic GraphQL query for company enrichment
-HARMONIC_COMPANY_ENRICHMENT_QUERY = """
+_HARMONIC_ENRICHMENT_QUERY_HEAD = """
 mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
     enrichCompanyByIdentifiers(identifiers: $identifiers) {
         companyFound
@@ -110,10 +110,35 @@ mutation($identifiers: CompanyEnrichmentIdentifiersInput!) {
                 displayValue
                 dateAdded
             }
-        }
+"""
+_HARMONIC_ENRICHMENT_QUERY_TAIL = """        }
     }
 }
 """
+HARMONIC_COMPANY_ENRICHMENT_QUERY = _HARMONIC_ENRICHMENT_QUERY_HEAD + _HARMONIC_ENRICHMENT_QUERY_TAIL
+
+# The Salesforce Account job also writes the company's LinkedIn page. It has its own query so that the payload the
+# other callers of the client fetch, and archive, does not include it.
+HARMONIC_ACCOUNT_ENRICHMENT_QUERY = (
+    _HARMONIC_ENRICHMENT_QUERY_HEAD
+    + """            socials {
+                linkedin {
+                    url
+                }
+            }
+"""
+    + _HARMONIC_ENRICHMENT_QUERY_TAIL
+)
+
+# Canonical Account fields that the Harmonic enrichment writes only when they hold no value. The job reads their
+# current values immediately before it writes.
+ACCOUNT_FILL_FIELDS: tuple[str, ...] = (
+    "Industry",
+    "NumberOfEmployees",
+    "Company_LinkedIn__c",
+    "LinkedIn_Engineer_Count__c",
+    "LinkedIn_Rolecount__c",
+)
 
 # Salesforce query for accounts with websites
 SALESFORCE_ACCOUNTS_QUERY = """
@@ -149,11 +174,15 @@ POSTHOG_USAGE_FIELD_MAPPINGS = {
     "events_30d_momentum": "posthog_events_30d_momentum__c",
 }
 
+# Both momentum fields are Number(7, 2) in Salesforce, which rejects the whole record for a value above
+# 99,999.99. Momentum is a percentage change, so growth from a nearly empty previous period exceeds it.
+SALESFORCE_MOMENTUM_MAX = 99_999.99
+
 STRIPE_ENRICHMENT_PAGE_SIZE: int = 5_000
 
 
+# Account.Name is not mapped, because the billing customer's name is the organization's name and not the company's.
 STRIPE_ENRICHMENT_FIELD_MAPPINGS: dict[str, str] = {
-    "billing_customer_name": "Name",
     "stripe_customer_id": "Stripe_id__c",
     "address_city": "BillingCity",
     "address_state": "BillingState",

@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { RepoEntityHeader } from '../components/EntityHeader'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatAxisMinutes, hasEnoughRunActivity } from '../components/RunActivityChart'
 import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
@@ -34,7 +33,9 @@ export function RepoOverviewScene(): JSX.Element {
         activityTruncated,
         repoActivityLoading,
         repoActivityFailed,
-        attentionPrs,
+        attention,
+        attentionFailed,
+        attentionLoading,
         jobsAvailable,
         overviewDefaultBranch,
         notConnected,
@@ -43,17 +44,11 @@ export function RepoOverviewScene(): JSX.Element {
         prPreviewCount,
         workflowPreviewCount,
     } = useValues(repoOverviewLogic)
-    const {
-        pullRequestsLoading,
-        pullRequestsStatus,
-        workflowHealth,
-        workflowHealthLoadError,
-        workflowHealthLoading,
-        sourceId,
-        activeSource,
-    } = useValues(engineeringAnalyticsLogic)
-    const { loadPullRequests, loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
-    const { loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } = useActions(repoOverviewLogic)
+    const { workflowHealth, workflowHealthLoadError, workflowHealthLoading, sourceId, scopeRepo, activeSource } =
+        useValues(engineeringAnalyticsLogic)
+    const { loadWorkflowHealth } = useActions(engineeringAnalyticsLogic)
+    const { loadAttention, loadOverview, loadRepoActivity, showMorePrs, showMoreWorkflows } =
+        useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
 
     // Window/source changes reload the overview, activity, and workflow health (the date-scoped
@@ -63,9 +58,9 @@ export function RepoOverviewScene(): JSX.Element {
 
     // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
     // to the dedicated full table. Workflows are ranked by cost (or run count) to pick the top few; the
-    // table then displays them merge-queue-first. attentionPrs is already ordered failing-first.
-    const shownPrs = attentionPrs.slice(0, prPreviewCount)
-    const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
+    // table then displays them merge-queue-first. The server already orders them failing-first.
+    const shownPrs = attention.rows.slice(0, prPreviewCount)
+    const canShowMorePrs = shownPrs.length < attention.rows.length && prPreviewCount < HUB_PREVIEW_MAX
     // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
     const rankedWorkflows = jobsAvailable
         ? [...workflowHealth].sort((a, b) => (b.estimatedCostUsd ?? -1) - (a.estimatedCostUsd ?? -1))
@@ -95,8 +90,6 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
-
             {/* The PR backlog below the panel is current-state, not windowed. */}
             <ScopePanel busy={hubReloading}>
                 {/* The windowed headline metrics: each card compares this window against the previous
@@ -106,7 +99,7 @@ export function RepoOverviewScene(): JSX.Element {
                     <div className="@container">
                         <div className="grid grid-cols-1 gap-2 @min-[36rem]:grid-cols-2">
                             <WindowComparisonCard
-                                title="CI pass rate"
+                                title="CI pass rate, all branches"
                                 value={overview?.success_rate}
                                 previousValue={overview?.success_rate_prev}
                                 formatValue={(value) => percent(value, 1)}
@@ -114,7 +107,7 @@ export function RepoOverviewScene(): JSX.Element {
                                 deltaUnit="pt"
                                 deltaPrecision={1}
                                 loading={overviewPending}
-                                tooltip="Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded."
+                                tooltip={`Runs on every branch, including pull requests, not only ${overviewDefaultBranch}. Share of successful runs among runs that succeeded, failed, timed out, failed to start, or became stale. Skipped, canceled, neutral, and action-required runs are excluded.`}
                                 emptyText="No CI runs reached a pass-or-fail result in the window."
                             />
 
@@ -144,6 +137,19 @@ export function RepoOverviewScene(): JSX.Element {
                                           : 'No costable jobs in the window.'
                                 }
                                 tooltip="Estimated CI cost of every run in the window, divided by the pull requests merged in it. Includes runs on the default branch and on pull requests that never merged. Per-workflow spend is in Workflows below."
+                            />
+
+                            <WindowComparisonCard
+                                title="Reverts among merged PRs"
+                                value={overview?.revert_share}
+                                previousValue={overview?.revert_share_prev}
+                                formatValue={(value) => percent(value, 1)}
+                                goodWhenDown
+                                deltaUnit="pt"
+                                deltaPrecision={1}
+                                loading={overviewPending}
+                                tooltip="Pull requests merged in the window whose title says they revert another change, as a share of all merged pull requests. Counts the revert when it merges, not the change it undid. Bots included."
+                                emptyText="Nothing merged in the window."
                             />
                         </div>
                     </div>
@@ -233,7 +239,11 @@ export function RepoOverviewScene(): JSX.Element {
                                         to={
                                             // A bare link would reset the shared window / run scope / repo (the filters
                                             // logic re-hydrates from the URL on every route), so carry it, plus the source.
-                                            withScope(urls.engineeringAnalyticsWorkflows(), searchParams, sourceId)
+                                            withScope(
+                                                urls.engineeringAnalyticsWorkflows(scopeRepo),
+                                                searchParams,
+                                                sourceId
+                                            )
                                         }
                                     >
                                         View all →
@@ -250,13 +260,13 @@ export function RepoOverviewScene(): JSX.Element {
                 title="Pull requests needing attention"
                 note="Current open backlog. Not affected by the date range."
             >
-                {pullRequestsStatus === 'error' ? (
-                    <CIAnalyticsLoadError onRetry={loadPullRequests} loading={pullRequestsLoading} />
+                {attentionFailed ? (
+                    <CIAnalyticsLoadError onRetry={loadAttention} loading={attentionLoading} />
                 ) : (
                     <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                         <PullRequestTable
                             rows={shownPrs}
-                            loading={pullRequestsLoading}
+                            loading={attentionLoading}
                             sourceId={sourceId}
                             embedded
                             pageSize={HUB_PREVIEW_MAX}
@@ -265,8 +275,8 @@ export function RepoOverviewScene(): JSX.Element {
                         />
                         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
                             <span>
-                                Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing
-                                attention
+                                Showing <span translate="no">{shownPrs.length}</span> of{' '}
+                                <span translate="no">{humanFriendlyNumber(attention.total)}</span> needing attention
                             </span>
                             <div className="flex items-center gap-3">
                                 {canShowMorePrs && (
@@ -274,7 +284,9 @@ export function RepoOverviewScene(): JSX.Element {
                                         Show more
                                     </LemonButton>
                                 )}
-                                <Link to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                <Link
+                                    to={withCurrentScope(urls.engineeringAnalyticsPullRequestList(scopeRepo), sourceId)}
+                                >
                                     View all →
                                 </Link>
                             </div>

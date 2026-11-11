@@ -167,7 +167,7 @@ def validate_threshold_configuration(
     threshold_type: str,
     threshold_percentage: Decimal | None,
     threshold_value: Decimal | None,
-    minimum_value: Decimal,
+    minimum_value: Decimal = Decimal("0"),
 ) -> dict[str, str]:
     """Threshold policy shared by model validation and the DRF serializer."""
     errors: dict[str, str] = {}

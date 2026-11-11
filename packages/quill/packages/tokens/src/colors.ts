@@ -108,14 +108,19 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
             'text-subtle-foreground',
         ],
 
-        // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
-        // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
-        // dark hsl(240 8% 8%), in OKLCH. Hue stays theme-derived; chroma is
-        // near-zero so the hue offset is imperceptible.
-        chrome: [surface(0.923, 1.67, 'light'), surface(0.187, 1.1, 'dark'), 'bg-chrome'],
+        // Chrome — UI furniture surface (toolbars, menubars, nav). Light matches
+        // PostHog app's --color-bg-surface-tertiary, hsl(77 13% 89%), in OKLCH.
+        // Dark sits a step above `background` instead of on it, so the chrome
+        // and the content stay apart as they do in light mode, where chrome
+        // sits a step below. Hue stays theme-derived; chroma is near-zero so
+        // the hue offset is imperceptible.
+        chrome: [surface(0.923, 1.67, 'light'), surface(0.225, 1.1, 'dark'), 'bg-chrome'],
 
         // ── Brand (driven by --primary-light / --primary-dark) ─
         primary: ['var(--primary-light)', 'var(--primary-dark)', 'bg-primary'],
+        // Brand text on an inverted surface, such as a tooltip on `--foreground`. It takes the other mode's brand,
+        // so a dark tooltip in light mode gets the yellow, and a light tooltip in dark mode gets the orange.
+        'primary-on-foreground': ['var(--primary-dark)', 'var(--primary-light)', 'text-primary-on-foreground'],
         'primary-foreground': [oklch(1, 0, 0), oklch(0.13, 0.028, 262), 'text-primary-foreground'],
 
         // ── Status (independent of theme hue) ─────────
@@ -224,6 +229,7 @@ const THEME_DERIVED_TOKENS: ReadonlySet<string> = new Set([
     'muted',
     'chrome',
     'primary',
+    'primary-on-foreground',
     'border',
     'input',
     // Transitive: reference var(--foreground) / var(--muted) — must also live
@@ -265,11 +271,81 @@ function assertThemeDerivedSyncedWithColors(colors: Record<string, ColorTuple>):
 
 assertThemeDerivedSyncedWithColors(semanticColors)
 
+function resolveDarkSelectors(raw?: string | string[]): string[] {
+    const defaults = ['.dark', '[theme="dark"]', '[data-theme="dark"]']
+    return raw === undefined ? defaults : typeof raw === 'string' ? [raw] : raw
+}
+
 /** Normalize darkSelector option into a single CSS selector string. */
 function resolveDarkSelector(raw?: string | string[]): string {
-    const defaults = ['.dark', '[theme="dark"]', '[data-theme="dark"]']
-    const selectors = raw === undefined ? defaults : typeof raw === 'string' ? [raw] : raw
+    const selectors = resolveDarkSelectors(raw)
     return selectors.length === 1 ? selectors[0] : `:is(${selectors.join(', ')})`
+}
+
+/**
+ * Join selectors into a flat selector list for the color-system rules.
+ *
+ * Do not wrap these rules in `:is()`. Many of them end in `*`, so the browser
+ * tests them against every element on every style recalc. Chrome cannot use
+ * its rule buckets or its ancestor filter for arguments inside `:is()`, so a
+ * wrapped rule does a full ancestor walk per element even when nothing
+ * matches. Every selector in each list has the same specificity, so the
+ * cascade is the same as with `:is()`.
+ */
+function selectorList(selectors: string[]): string {
+    return selectors.join(',\n')
+}
+
+/**
+ * Compound two selectors that must match the same element, such as a scope
+ * and a dark selector. A type selector (`html.dark`) is only valid at the
+ * start of a compound, so it goes first. A flat selector list drops the whole
+ * rule when one entry is invalid, unlike `:is()`, which skips the bad entry.
+ */
+function sameElement(base: string, dark: string): string {
+    return /^[a-zA-Z*]/.test(dark) ? `${dark}${base}` : `${base}${dark}`
+}
+
+/** Expand a selector pattern once for each dark selector. */
+function forEachDark(darkSelectors: string[], pattern: (dark: string) => string[]): string[] {
+    return darkSelectors.flatMap(pattern)
+}
+
+const INVERTED_SURFACE = '[data-quill-inverted]'
+
+type ModeVars = { staticVars: Record<string, string>; dynamicVars: Record<string, string> }
+
+/** Generate the rules that give an inverted surface subtree the other mode's tokens */
+function generateInvertedSurfaceCSS(
+    darkSelectors: string[],
+    light: ModeVars,
+    dark: ModeVars,
+    dataViz: { light: string; dark: string }
+): string {
+    const inLightMode = selectorList([INVERTED_SURFACE, `${INVERTED_SURFACE} *`])
+    const inDarkMode = selectorList(
+        forEachDark(darkSelectors, (d) => [
+            `${d} ${INVERTED_SURFACE}`,
+            sameElement(INVERTED_SURFACE, d),
+            `${d} ${INVERTED_SURFACE} *`,
+            `${sameElement(INVERTED_SURFACE, d)} *`,
+        ])
+    )
+
+    return `${inLightMode} {
+  color-scheme: dark;
+${cssVarsFlat(dark.staticVars)}
+${cssVarsFlat(dark.dynamicVars)}
+${dataViz.dark}
+}
+
+${inDarkMode} {
+  color-scheme: light;
+${cssVarsFlat(light.staticVars)}
+${cssVarsFlat(light.dynamicVars)}
+${dataViz.light}
+}
+`
 }
 
 /** Generate color-system.css (:root light + .dark overrides) */
@@ -278,7 +354,7 @@ export function generateColorSystemCSS(
     opts: Pick<StylesConfig, 'scope' | 'darkSelector'> = {}
 ): string {
     const { scope } = opts
-    const darkSelector = resolveDarkSelector(opts.darkSelector)
+    const darkSelectors = resolveDarkSelectors(opts.darkSelector)
 
     const themeKnobs = (indent = '  '): string =>
         [
@@ -291,7 +367,7 @@ export function generateColorSystemCSS(
         ].join('\n')
 
     // Split colors into static (safe on :root) vs theme-derived (need * for local overrides)
-    const partition = (i: number): { staticVars: Record<string, string>; dynamicVars: Record<string, string> } => {
+    const partition = (i: number): ModeVars => {
         const staticVars: Record<string, string> = {}
         const dynamicVars: Record<string, string> = {}
         for (const [k, v] of Object.entries(semanticColors)) {
@@ -310,16 +386,27 @@ export function generateColorSystemCSS(
     // Data-viz tokens (categorical palette + graph chrome) are static like the
     // semantic static vars — they live with them on :root / the scope selector.
     const dataViz = generateDataVizVars()
+    const invertedSurface = generateInvertedSurfaceCSS(darkSelectors, light, dark, dataViz)
 
     // ── Scoped mode ─────────────────────────────────────
     // All vars gated behind the scope selector to avoid clashing
     // with the consumer's existing CSS custom properties.
     if (scope) {
-        const scopeSel = `:is(${scope}, ${scope} *)`
+        const scopeSel = selectorList([scope, `${scope} *`, INVERTED_SURFACE, `${INVERTED_SURFACE} *`])
         // Handle both ancestor-dark (`.dark [data-quill]`) and same-element
         // dark (`[data-quill].dark`) so dark mode works regardless of where
         // the dark selector lives relative to the scope element.
-        const darkScopeSel = `:is(${darkSelector} ${scope}, ${scope}${darkSelector}, ${darkSelector} ${scope} *, ${scope}${darkSelector} *)`
+        const darkScopeSel = selectorList(
+            forEachDark(darkSelectors, (d) => [
+                `${d} ${scope}`,
+                sameElement(scope, d),
+                `${d} ${scope} *`,
+                `${sameElement(scope, d)} *`,
+            ])
+        )
+        const darkScopeRootSel = selectorList(
+            forEachDark(darkSelectors, (d) => [`${d} ${scope}`, sameElement(scope, d)])
+        )
 
         return `/* Auto-generated by @posthog/quill-tokens — do not edit manually */
 
@@ -337,7 +424,7 @@ ${scope} {
   color-scheme: light;
 }
 
-:is(${darkSelector} ${scope}, ${scope}${darkSelector}) {
+${darkScopeRootSel} {
   color-scheme: dark;
 }
 
@@ -360,7 +447,8 @@ ${cssVarsFlat(dark.staticVars)}
 ${cssVarsFlat(dark.dynamicVars)}
 ${dataViz.dark}
 }
-`
+
+${invertedSurface}`
     }
 
     // ── Unscoped mode (default) ─────────────────────────
@@ -370,7 +458,7 @@ ${dataViz.dark}
   color-scheme: light;
 }
 
-${darkSelector} {
+${selectorList(darkSelectors)} {
   color-scheme: dark;
 }
 
@@ -387,7 +475,7 @@ ${cssVarsFlat(light.staticVars)}
 ${dataViz.light}
 }
 
-${darkSelector} {
+${selectorList(darkSelectors)} {
 ${cssVarsFlat(dark.staticVars)}
 ${dataViz.dark}
 }
@@ -401,10 +489,11 @@ ${dataViz.dark}
 ${cssVarsFlat(light.dynamicVars)}
 }
 
-:is(${darkSelector}, ${darkSelector} *) {
+${selectorList(forEachDark(darkSelectors, (d) => [d, `${d} *`]))} {
 ${cssVarsFlat(dark.dynamicVars)}
 }
-`
+
+${invertedSurface}`
 }
 
 /** Generate Tailwind v4 @theme color mappings (--color-* → var(--*)) */

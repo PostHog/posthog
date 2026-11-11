@@ -4,8 +4,8 @@ import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal'
-import { REFRESH_INTERVAL_OPTIONS, businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
+import { CreateKnowledgeSourceModal } from '../components/CreateKnowledgeSourceModal/CreateKnowledgeSourceModal'
+import { REFRESH_INTERVAL_OPTIONS, businessKnowledgeLogic } from '../scenes/sources/businessKnowledgeLogic'
 
 /**
  * "Add source" for the business knowledge empty state. The scene normally renders

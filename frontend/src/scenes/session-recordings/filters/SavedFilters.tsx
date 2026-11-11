@@ -120,9 +120,9 @@ export function countColumn(): LemonTableColumn<SessionRecordingPlaylistType, 'r
 }
 
 export function SavedFilters({
-    setFilters,
+    applyFilters,
 }: {
-    setFilters: (filters: Partial<RecordingUniversalFilters>) => void
+    applyFilters: (filters: Partial<RecordingUniversalFilters>) => void
 }): JSX.Element {
     const { filters, savedFilters, paginationSavedFilters, savedFiltersLoading } = useValues(
         sessionRecordingSavedFiltersLogic
@@ -153,6 +153,7 @@ export function SavedFilters({
                 return (
                     <>
                         <div
+                            data-attr="filters-saved-filter-apply"
                             onClick={() => {
                                 if (!filter) {
                                     return
@@ -161,7 +162,7 @@ export function SavedFilters({
                                 if (!universalFilters) {
                                     return
                                 }
-                                setFilters(stripSessionIds(universalFilters))
+                                applyFilters(stripSessionIds(universalFilters))
                                 setActiveFilterTab('filters')
                                 setAppliedSavedFilter(filter)
                             }}
@@ -184,6 +185,7 @@ export function SavedFilters({
             render: function Render(_, playlist) {
                 return (
                     <LemonButton
+                        data-attr="filters-saved-filter-copy-link"
                         onClick={() => {
                             const combinedURL = urls.absolute(
                                 combineUrl(urls.replay(ReplayTabs.Home), { savedFilterId: playlist.short_id }).url
@@ -208,6 +210,7 @@ export function SavedFilters({
                         minAccessLevel={AccessControlLevel.Editor}
                     >
                         <LemonButton
+                            data-attr="filters-saved-filter-delete"
                             status="danger"
                             onClick={() => {
                                 deletePlaylist(playlist)

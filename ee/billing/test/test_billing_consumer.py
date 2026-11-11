@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
 from posthog.models import Organization, User
@@ -11,7 +13,7 @@ from ee.billing.queue.BillingConsumer import POSTHOG_SELF_TEAM_ID, BillingConsum
 CONSUMER = "ee.billing.queue.BillingConsumer"
 
 
-class TestBillingConsumerUsageSpike(BaseTest):
+class TestBillingConsumerUsageSpike(SimpleTestCase):
     def _build_consumer(self) -> BillingConsumer:
         with patch("ee.sqs.SQSConsumer.boto3"):
             return BillingConsumer(queue_url="http://example/queue", region_name="us-east-1")

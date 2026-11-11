@@ -10,6 +10,8 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.response import Response
 
+from posthog.models.organization import OrganizationMembership
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobEngine, DataWarehouseSavedQuery
@@ -22,8 +24,25 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 
+_MW = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+
 
 class TestDataWarehouseAPI(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("data_status", "managed-warehouse-data-status/"),
+            ("source_schemas", "managed-warehouse-source-schemas/?source_id=00000000-0000-0000-0000-000000000000"),
+        ]
+    )
+    def test_overview_endpoints_require_a_managed_warehouse_flag(self, _name: str, path: str) -> None:
+        with patch(
+            "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse.is_enabled",
+            return_value=False,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/{path}")
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
     @parameterized.expand(
         [
             ("onboarded", True, True),
@@ -57,6 +76,63 @@ class TestDataWarehouseAPI(APIBaseTest):
             ensure_tables.assert_called_once_with(self.team.id, self.organization.id)
         else:
             ensure_tables.assert_not_called()
+
+    @parameterized.expand([("trino", "trino"), ("duckdb", "duckdb")])
+    def test_warehouse_status_presents_the_connection_for_the_variant(self, _name: str, variant: str) -> None:
+        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+        pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
+        trino_status = {
+            "state": "ready",
+            "ready_at": "2026-09-01T12:00:00Z",
+            "connection": {
+                "host": "my-warehouse.dw.example.com",
+                "port": 443,
+                "catalog": "org_my_warehouse",
+                "username": "root",
+            },
+        }
+        with (
+            patch(f"{views}.status_for", return_value=Response({"state": "ready", "connection": pgwire}, status=200)),
+            patch(f"{views}.team_backfill_state", return_value={"has_backfill": True, "table_suffix": "prod"}),
+            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": True, "schema_name": "prod"}),
+            patch(f"{views}.ensure_direct_connection_tables"),
+            patch(f"{views}.data_ops_variant", return_value=variant),
+            patch(f"{views}.trino_status_for", return_value=trino_status) as mock_trino_status,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        if variant == "trino":
+            self.assertIsNone(body["connection"])
+            self.assertEqual(body["trino"], trino_status)
+            mock_trino_status.assert_called_once_with(self.organization.id)
+        else:
+            self.assertEqual(body["connection"], pgwire)
+            self.assertIsNone(body["trino"])
+            mock_trino_status.assert_not_called()
+
+    def test_warehouse_status_skips_the_trino_read_until_the_warehouse_is_ready(self) -> None:
+        views = "products.data_warehouse.backend.presentation.views.data_warehouse.managed_warehouse"
+        pgwire = {"host": "my-warehouse.dw.example.com", "port": 5432, "database": "ducklake", "username": "root"}
+        with (
+            patch(
+                f"{views}.status_for",
+                return_value=Response({"state": "provisioning", "connection": pgwire}, status=200),
+            ),
+            patch(f"{views}.team_backfill_state", return_value={"has_backfill": False, "table_suffix": None}),
+            patch(f"{views}.team_onboarding_state", return_value={"team_onboarded": False, "schema_name": None}),
+            patch(f"{views}.ensure_direct_connection_tables"),
+            patch(f"{views}.data_ops_variant", return_value="trino"),
+            patch(f"{views}.trino_status_for") as mock_trino_status,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/warehouse_status/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        body = response.json()
+        self.assertIsNone(body["connection"])
+        self.assertIsNone(body["trino"])
+        mock_trino_status.assert_not_called()
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.execute_hogql_query")
     def test_property_values_returns_results_with_cache_control(self, mock_execute_hogql_query):
@@ -247,6 +323,113 @@ class TestDataWarehouseAPI(APIBaseTest):
         self.assertEqual(syncs[0]["status"], expected_status)
         self.assertEqual(syncs[0]["name"], "charges")
         self.assertEqual(syncs[0]["error"], "it broke")
+        # The source scene keys on a prefixed id, so a bare UUID renders a broken page.
+        self.assertEqual(syncs[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
+
+    def test_data_health_issues_reports_the_sync_type(self) -> None:
+        # A webhook table is pushed to, never pulled, so a caller about scheduled imports needs
+        # to tell it apart rather than calling it stopped.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="hook-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        ExternalDataSchema.objects.create(
+            name="messages",
+            team=self.team,
+            source=source,
+            should_sync=True,
+            status=ExternalDataSchema.Status.FAILED,
+            sync_type=ExternalDataSchema.SyncType.WEBHOOK,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        syncs = [issue for issue in results if issue["type"] == "external_data_sync"]
+        self.assertEqual(len(syncs), 1)
+        self.assertEqual(syncs[0]["sync_type"], "webhook")
+
+    def test_completed_activity_filters_by_kind(self) -> None:
+        # Without a kind filter a team with many failing views fills every page with them, and a
+        # caller that only wants imports sees none of its own runs.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+
+        both = self.client.get(f"{endpoint}?outcome=failed&kind=all").json()["results"]
+        imports = self.client.get(f"{endpoint}?outcome=failed&kind=import").json()["results"]
+        models = self.client.get(f"{endpoint}?outcome=failed&kind=model").json()["results"]
+
+        self.assertTrue(all(row["type"] != "Materialized view" for row in imports))
+        self.assertTrue(all(row["type"] == "Materialized view" for row in models))
+        self.assertEqual(len(both), len(imports) + len(models))
+
+    def test_completed_activity_all_outcome_returns_both(self) -> None:
+        # The ETL runs list shows every sync, not only the failures, so a caller needs one
+        # request that spans both rather than two it has to merge.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="both-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=5, status="Completed"
+        )
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=0, status="Failed"
+        )
+
+        statuses = {row["status"] for row in self.client.get(f"{endpoint}?outcome=all").json()["results"]}
+
+        self.assertIn("Completed", statuses)
+        self.assertIn("Failed", statuses)
+
+    def test_completed_activity_reports_the_source_id(self) -> None:
+        # Without this the runs list cannot link a run back to its source.
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        source = ExternalDataSource.objects.create(
+            source_id="link-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+        )
+        schema = ExternalDataSchema.objects.create(name="charges", team=self.team, source=source)
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk, schema=schema, team=self.team, rows_synced=5, status="Completed"
+        )
+
+        results = self.client.get(f"{endpoint}?outcome=completed&kind=import").json()["results"]
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["source_id"], str(source.id))
+
+    def test_completed_activity_rejects_an_unknown_kind(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/completed_activity"
+        response = self.client.get(f"{endpoint}?kind=nonsense")
+        self.assertEqual(response.status_code, 400)
+
+    def test_data_health_issues_links_a_failed_source_with_a_prefixed_id(self) -> None:
+        endpoint = f"/api/projects/{self.team.id}/data_warehouse/data_health_issues"
+        source = ExternalDataSource.objects.create(
+            source_id="broken-id",
+            connection_id="conn-id",
+            destination_id="dest-id",
+            team=self.team,
+            source_type="Stripe",
+            status=ExternalDataSource.Status.ERROR,
+        )
+
+        results = self.client.get(endpoint).json()["results"]
+
+        sources = [issue for issue in results if issue["type"] == "source"]
+        self.assertEqual(len(sources), 1)
+        self.assertEqual(sources[0]["url"], f"/data-warehouse/sources/managed-{source.id}")
 
     def test_data_health_issues_ignores_a_sync_that_is_switched_off(self) -> None:
         # A table the user turned off is not a problem to report, however it last ended.
@@ -347,7 +530,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now(),
         )
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(11):
             response = self.client.get(f"{endpoint}?days=1")
             data = response.json()
 
@@ -383,7 +566,7 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now() - timedelta(days=10),
         )
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(11):
             response = self.client.get(f"{endpoint}?days=30")
             data = response.json()
 
@@ -489,7 +672,7 @@ class TestDataWarehouseAPI(APIBaseTest):
         )
         DataModelingJob.objects.filter(pk=modeling_job.pk).update(created_at=today_start + timedelta(hours=4))
 
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(11):
             response = self.client.get(f"{endpoint}?days=7")
             data = response.json()
 
@@ -535,6 +718,27 @@ class TestDataWarehouseAPI(APIBaseTest):
         types = [activity["type"] for activity in data["results"]]
         self.assertIn("Stripe", types)
         self.assertIn("Materialized view", types)
+
+    def test_activity_uses_pipeline_id_for_schema_less_jobs(self):
+        source = ExternalDataSource.objects.create(
+            source_id="test-id", connection_id="conn-id", destination_id="dest-id", team=self.team, source_type="Stripe"
+        )
+        running_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.RUNNING
+        )
+        completed_job = ExternalDataJob.objects.create(
+            pipeline=source, schema=None, team=self.team, status=ExternalDataJob.Status.COMPLETED
+        )
+
+        running_response = self.client.get(f"/api/projects/{self.team.id}/data_warehouse/running_activity?kind=import")
+        completed_response = self.client.get(
+            f"/api/projects/{self.team.id}/data_warehouse/completed_activity?kind=import"
+        )
+
+        self.assertEqual(running_response.json()["results"][0]["id"], str(running_job.id))
+        self.assertEqual(running_response.json()["results"][0]["source_id"], str(source.id))
+        self.assertEqual(completed_response.json()["results"][0]["id"], str(completed_job.id))
+        self.assertEqual(completed_response.json()["results"][0]["source_id"], str(source.id))
 
     def test_completed_activity_returns_only_completed_jobs(self):
         """Test completed_activity endpoint returns only jobs with status 'Completed'"""
@@ -892,6 +1096,73 @@ class TestDataHealthIssuesPersonalAPIKey(APIBaseTest):
         value = self.create_personal_api_key_with_scopes(scopes)
         response = self._get(value)
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+
+class TestHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
+    """GET and POST /hoglake_credentials share one route, and DRF gives the POST the GET's
+    action kwargs. The viewset's dangerously_get_required_scopes splits them, so a read-only
+    key can list but not mint a credential."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+    def _call(self, method: str, value: str):
+        return getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/data_warehouse/hoglake_credentials/",
+            {"name": "laptop", "scope": "read"},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @patch(f"{_MW}.list_hoglake_credentials", return_value=Response({"hoglake_credentials": []}))
+    @patch(f"{_MW}.create_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_read_key_lists_but_cannot_create(self, create, list_):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+
+        assert self._call("get", value).status_code == status.HTTP_200_OK
+        assert self._call("post", value).status_code == status.HTTP_403_FORBIDDEN
+        create.assert_not_called()
+
+    @patch(f"{_MW}.create_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_write_key_creates(self, create):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+
+        assert self._call("post", value).status_code == status.HTTP_201_CREATED
+        create.assert_called_once()
+
+
+class TestMyHoglakeCredentialsPersonalAPIKeyScopes(APIBaseTest):
+    """GET and POST /my_hoglake_credentials share one route, like /hoglake_credentials."""
+
+    CONFIG_AUTO_LOGIN = False
+
+    def _call(self, method: str, value: str):
+        return getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/data_warehouse/my_hoglake_credentials/",
+            {"name": "laptop", "scope": "read", "team_ids": [self.team.id]},
+            content_type="application/json",
+            headers={"authorization": f"Bearer {value}"},
+        )
+
+    @patch(f"{_MW}.list_my_hoglake_credentials", return_value=Response({"hoglake_credentials": []}))
+    @patch(f"{_MW}.create_my_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_read_key_lists_but_cannot_create(self, create, list_):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:read"])
+
+        assert self._call("get", value).status_code == status.HTTP_200_OK
+        assert self._call("post", value).status_code == status.HTTP_403_FORBIDDEN
+        create.assert_not_called()
+
+    @patch(f"{_MW}.create_my_hoglake_credential", return_value=Response({"client_id": "hlc_0"}, status=201))
+    def test_write_key_creates(self, create):
+        value = self.create_personal_api_key_with_scopes(["warehouse_view:write"])
+
+        assert self._call("post", value).status_code == status.HTTP_201_CREATED
+        create.assert_called_once()
 
 
 class TestDataHealthIssuesReadsTheNewestRun(APIBaseTest):

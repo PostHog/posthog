@@ -30,3 +30,35 @@ export const GroupsUpdatePropertyCreateBody = /* @__PURE__ */ zod.object({
         .union([zod.string(), zod.number(), zod.boolean(), zod.looseObject({}), zod.array(zod.unknown())])
         .describe('Value to set. Any JSON value other than null.'),
 })
+
+export const GroupsTypesCreateDetailDashboardUpdateBody = /* @__PURE__ */ zod.object({
+    group_type_index: zod.number().describe('Index of the group type that gets the detail dashboard.'),
+})
+
+export const GroupsTypesSetDefaultColumnsUpdateBody = /* @__PURE__ */ zod.object({
+    group_type_index: zod.number().describe('Index of the group type to update.'),
+    default_columns: zod
+        .array(zod.string())
+        .describe('Columns that the groups list of this group type shows by default.'),
+})
+
+export const groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax = 400
+
+export const groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax = 400
+
+export const GroupsTypesUpdateMetadataPartialUpdateBodyItem = /* @__PURE__ */ zod.object({
+    group_type_index: zod.number().describe('Index of the group type to update.'),
+    name_singular: zod
+        .string()
+        .max(groupsTypesUpdateMetadataPartialUpdateBodyNameSingularMax)
+        .nullish()
+        .describe('Singular display name of the group type.'),
+    name_plural: zod
+        .string()
+        .max(groupsTypesUpdateMetadataPartialUpdateBodyNamePluralMax)
+        .nullish()
+        .describe('Plural display name of the group type.'),
+})
+export const GroupsTypesUpdateMetadataPartialUpdateBody = /* @__PURE__ */ zod.array(
+    GroupsTypesUpdateMetadataPartialUpdateBodyItem
+)

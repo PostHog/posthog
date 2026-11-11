@@ -41,7 +41,7 @@ OpenTelemetry log entries. One row per log line. Backed by ClickHouse `logs_dist
 - **Unset `trace_id` is `'AAAAAAAAAAAAAAAAAAAAAA=='`** (16 zero bytes encoded), not the hex zero-padded form. Use `trace_id != 'AAAAAAAAAAAAAAAAAAAAAA=='` to find logs with trace context. Or use the explicit decode: `tryBase64Decode(trace_id) != unhex('00000000000000000000000000000000')`.
 - **Use `hex(tryBase64Decode(trace_id))` to display trace_ids in hex** for human-readable output.
 - **Prefer `severity_text` over `severity_number` / `level`** for human-readable filters.
-- Cross-signal joins by `trace_id` work against `posthog.trace_spans` (both store base64) and `posthog.metrics` _once exemplar extraction is wired up in ingestion_ — see the metrics reference for the current state.
+- Cross-signal joins by `trace_id` work against `posthog.trace_spans` (both store base64) and `posthog.metrics` on points that carry an exemplar (filter `trace_id != ''`) — see the metrics reference.
 - User HogQL queries on `logs` are capped at 50 GB read per query.
 
 ## `log_attributes`
@@ -112,7 +112,7 @@ Alerts that monitor log volume and notify users when thresholds are breached. Us
 | `state`                  | varchar(20)       | NOT NULL | Current alert state (see State Values below)                        |
 | `evaluation_periods`     | integer           | NOT NULL | Number of periods in the evaluation window (M in N-of-M)            |
 | `datapoints_to_alarm`    | integer           | NOT NULL | Breaches needed to fire (N in N-of-M)                               |
-| `cooldown_minutes`       | integer           | NOT NULL | Minutes to wait after firing before re-evaluating                   |
+| `cooldown_minutes`       | integer           | NOT NULL | Minimum minutes between notifications (fire or resolve)             |
 | `snooze_until`           | timestamp with tz | NULL     | Snooze expiry (UTC)                                                 |
 | `next_check_at`          | timestamp with tz | NULL     | When the next evaluation is scheduled                               |
 | `last_notified_at`       | timestamp with tz | NULL     | When subscribers were last notified                                 |

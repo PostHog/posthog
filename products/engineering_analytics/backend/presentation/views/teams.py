@@ -15,6 +15,7 @@ from products.engineering_analytics.backend.presentation.serializers.teams impor
 )
 from products.engineering_analytics.backend.presentation.views._base import (
     _DATE_TO,
+    _REPO,
     _SOURCE_ID,
     EngineeringAnalyticsViewSetBase,
     _bad_request,
@@ -64,6 +65,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 "read a single team's rollup.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: TeamCIHealthListSerializer,
@@ -96,10 +98,11 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 limit=_optional_int_param(request, "limit"),
                 owner_team=request.query_params.get("owner_team") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, source_id, or repo")
         return Response(TeamCIHealthListSerializer(instance=result).data)
 
     @extend_schema(
@@ -131,6 +134,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 description="Maximum number of per-test signal rows to return (1-100). Defaults to 25.",
             ),
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: TeamCIActivitySerializer,
@@ -155,10 +159,11 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_to=request.query_params.get("date_to") or None,
                 test_limit=_optional_int_param(request, "test_limit"),
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, or source_id")
+            return _bad_request(exc, fallback="Invalid owner_team, date, test_limit, source_id, or repo")
         return Response(TeamCIActivitySerializer(instance=result).data)
 
     @extend_schema(
@@ -183,6 +188,7 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
             ),
             _DATE_TO,
             _SOURCE_ID,
+            _REPO,
         ],
         responses={
             200: TeamMergeTrendSerializer,
@@ -207,8 +213,9 @@ class TeamActionsMixin(EngineeringAnalyticsViewSetBase):
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 source_id=request.query_params.get("source_id") or None,
+                repo=request.query_params.get("repo") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
-            return _bad_request(exc, fallback="Invalid owner_team, date, or source_id")
+            return _bad_request(exc, fallback="Invalid owner_team, date, source_id, or repo")
         return Response(TeamMergeTrendSerializer(instance=result).data)

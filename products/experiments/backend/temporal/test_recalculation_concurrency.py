@@ -13,13 +13,14 @@ from django.utils import timezone
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
+from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
+from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import (
     Experiment,
     ExperimentMetricResult,
     ExperimentMetricsRecalculation,
 )
 from products.experiments.backend.recalculation import request_recalculation
-from products.experiments.backend.temporal.recalculation_logic import _store_result
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -37,7 +38,17 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
         feature_flag=FeatureFlag.objects.create(team=team, key="concurrent-recalculation"),
         start_date=query_from,
         end_date=query_to,
+        metrics=[
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "purchase"},
+            }
+        ],
     )
+    calculation_config = get_metric_calculation_config(experiment, "m1")
+    assert calculation_config is not None
     stale = ExperimentMetricsRecalculation.objects.for_team(team.id).create(
         team=team,
         experiment=experiment,
@@ -58,16 +69,13 @@ def test_superseded_result_cannot_overwrite_a_replacement_during_commit(
             with team_scope(team.id, canonical=True), connection.cursor() as cursor:
                 cursor.execute("SELECT pg_backend_pid()")
                 worker_pid.put(cursor.fetchone()[0])
-                _store_result(
-                    recalculation_id=str(stale.id),
-                    experiment_id=experiment.id,
-                    metric_uuid="m1",
-                    query_to=query_to,
-                    recalc_fp="stale",
+                MetricResultStore(experiment_id=experiment.id).record_run_failure(
+                    str(stale.id),
+                    calculation_config,
+                    window=query_to,
                     query_from=query_from,
-                    status=ExperimentMetricResult.Status.FAILED,
-                    result=None,
                     error_message="abandoned calculation failed",
+                    query_id=None,
                 )
         finally:
             connections.close_all()

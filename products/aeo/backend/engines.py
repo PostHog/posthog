@@ -13,6 +13,8 @@ joined back to the prompt via `aeo_prompt_id` / `aeo_run_id`.
 
 from __future__ import annotations
 
+import time
+import threading
 from dataclasses import field
 from typing import Any, Protocol
 from urllib.parse import urlparse
@@ -97,12 +99,68 @@ class CitationEngine(Protocol):
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck: ...
 
 
-def _session() -> requests.Session:
+class _ThreadSessions:
+    """One requests.Session per thread. A run calls engines from a thread pool, and
+    requests does not document Session as safe to share across threads."""
+
+    def __init__(self, *, trust_env: bool) -> None:
+        self._local = threading.local()
+        self._trust_env = trust_env
+
+    def get(self) -> requests.Session:
+        session: requests.Session | None = getattr(self._local, "session", None)
+        if session is None:
+            session = requests.Session()
+            session.trust_env = self._trust_env
+            self._local.session = session
+        return session
+
+
+def _gateway_sessions() -> _ThreadSessions:
     # trust_env=False keeps in-cluster gateway calls off any egress proxy, and
-    # the session reuses connections across a run's many sequential calls.
-    session = requests.Session()
-    session.trust_env = False
-    return session
+    # each thread's session reuses connections across its calls.
+    return _ThreadSessions(trust_env=False)
+
+
+# Throttling and transient upstream errors. A full run sends many calls in parallel, so
+# these get a short bounded retry instead of becoming a failed check straight away.
+RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
+GATEWAY_MAX_ATTEMPTS = 3
+GATEWAY_RETRY_BASE_SECONDS = 5
+GATEWAY_RETRY_MAX_SECONDS = 60
+
+
+def _retry_delay_seconds(response: requests.Response, attempt: int) -> float:
+    retry_after = response.headers.get("Retry-After", "")
+    if retry_after.isdigit():
+        return min(float(retry_after), GATEWAY_RETRY_MAX_SECONDS)
+    return min(GATEWAY_RETRY_BASE_SECONDS * 2**attempt, GATEWAY_RETRY_MAX_SECONDS)
+
+
+class _SharedBackoff:
+    """A pause every worker thread honours before its next gateway request. One throttled
+    response pauses the whole run, so the other workers stop adding load while it backs off."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._resume_at = 0.0
+
+    def pause(self, seconds: float) -> None:
+        with self._lock:
+            # A shorter pause from another worker must not cut a longer one short.
+            self._resume_at = max(self._resume_at, time.monotonic() + seconds)
+
+    def wait(self) -> None:
+        # Another worker can extend the pause during the sleep, so read the deadline again after each one.
+        while True:
+            with self._lock:
+                remaining = self._resume_at - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(remaining)
+
+
+GATEWAY_BACKOFF = _SharedBackoff()
 
 
 def gateway_post_json(
@@ -112,10 +170,17 @@ def gateway_post_json(
     payload: dict[str, Any],
     timeout: int = GATEWAY_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    """POST and decode JSON; raises requests.RequestException on any failure."""
-    response = session.post(url, headers=headers, json=payload, timeout=timeout)
-    response.raise_for_status()
-    return response.json()
+    """POST and decode JSON, retrying throttled and transient errors a bounded number of
+    times; raises requests.RequestException once the attempts run out or on any other failure."""
+    for attempt in range(GATEWAY_MAX_ATTEMPTS):
+        GATEWAY_BACKOFF.wait()
+        response = session.post(url, headers=headers, json=payload, timeout=timeout)
+        if response.status_code in RETRYABLE_STATUS_CODES and attempt < GATEWAY_MAX_ATTEMPTS - 1:
+            GATEWAY_BACKOFF.pause(_retry_delay_seconds(response, attempt))
+            continue
+        response.raise_for_status()
+        return response.json()
+    raise AssertionError("unreachable: the last attempt returns or raises")
 
 
 def _dedupe_urls(urls: list[str]) -> list[str]:
@@ -245,13 +310,19 @@ def parse_exa_citations(body: dict[str, Any]) -> ParsedAnswer:
     )
 
 
+def is_target_host(host: str, target_domains: list[str]) -> bool:
+    """True when the host is one of the target domains or a subdomain of it."""
+    host = host.lower()
+    return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
+
+
 def is_target_url(url: str, target_domains: list[str]) -> bool:
     """True when the URL's host is one of the target domains or a subdomain of it."""
     try:
-        host = (urlparse(url).hostname or "").lower()
+        host = urlparse(url).hostname or ""
     except ValueError:
         return False
-    return any(host == domain or host.endswith(f".{domain}") for domain in (d.lower() for d in target_domains))
+    return is_target_host(host, target_domains)
 
 
 def target_position(cited_urls: list[str], target_domains: list[str]) -> int | None:
@@ -343,7 +414,7 @@ class ClaudeWebSearchEngine:
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
         self._gateway = gateway
-        self._session = _session()
+        self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         payload = {
@@ -355,6 +426,11 @@ class ClaudeWebSearchEngine:
                     "type": ANTHROPIC_WEB_SEARCH_TOOL_TYPE,
                     "name": "web_search",
                     "max_uses": MAX_WEB_SEARCHES_PER_PROMPT,
+                    # This tool version runs searches from code execution by default. Claude then reads
+                    # the results through encrypted stdout, and the answer text carries no citations.
+                    # Direct calls attach web_search_result_location citations, and they keep the tool
+                    # eligible for zero data retention.
+                    "allowed_callers": ["direct"],
                 }
             ],
         }
@@ -364,7 +440,9 @@ class ClaudeWebSearchEngine:
             **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
-            body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/messages", headers, payload)
+            body = gateway_post_json(
+                self._sessions.get(), self._gateway.url.rstrip("/") + "/messages", headers, payload
+            )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
         parsed = parse_anthropic_citations(body)
@@ -392,7 +470,7 @@ class OpenAIWebSearchEngine:
         if gateway is None:
             raise ValueError("AI gateway is not configured (AI_GATEWAY_URL / AI_GATEWAY_API_KEY)")
         self._gateway = gateway
-        self._session = _session()
+        self._sessions = _gateway_sessions()
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         payload = {
@@ -406,7 +484,9 @@ class OpenAIWebSearchEngine:
             **(ai_gateway_headers(trace_id=trace_id, properties=custom_properties) or {}),
         }
         try:
-            body = gateway_post_json(self._session, self._gateway.url.rstrip("/") + "/responses", headers, payload)
+            body = gateway_post_json(
+                self._sessions.get(), self._gateway.url.rstrip("/") + "/responses", headers, payload
+            )
         except requests.RequestException as e:
             return CitationCheck(engine=self.name, model=self.model, trace_id=trace_id, error=_request_error(e))
         if (error := openai_response_error(body)) is not None:
@@ -435,13 +515,13 @@ class ExaAnswerEngine:
     model = "exa-answer"
 
     def __init__(self) -> None:
-        self._session = requests.Session()
+        self._sessions = _ThreadSessions(trust_env=True)
 
     def run(self, prompt: str, *, trace_id: str, custom_properties: dict[str, str]) -> CitationCheck:
         headers = {"x-api-key": settings.EXA_API_KEY}
         try:
             body = gateway_post_json(
-                self._session,
+                self._sessions.get(),
                 EXA_ANSWER_URL,
                 headers,
                 {"query": prompt, "text": False},

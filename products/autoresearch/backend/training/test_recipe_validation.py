@@ -8,6 +8,7 @@ from posthog.hogql.parser import parse_select
 from products.autoresearch.backend.dataset.labeling import build_training_features_sql
 from products.autoresearch.backend.training.recipe_validation import (
     RecipeValidationError,
+    feature_sql_hints,
     validate_feature_sql,
     validate_recipe,
     validate_unique_distinct_ids,
@@ -17,6 +18,34 @@ ANCHORED = "SELECT a.person_id AS distinct_id, count() AS c FROM {anchors} a GRO
 
 
 class TestRecipeValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "left_join_persons",
+                "SELECT a.person_id AS distinct_id, p.created_at AS created FROM {anchors} a "
+                "LEFT JOIN persons p ON p.id = a.person_id",
+                ["persons"],
+            ),
+            (
+                "unfiltered_raw_persons_subquery",
+                "SELECT a.person_id AS distinct_id, p.c AS created FROM {anchors} a LEFT JOIN "
+                "(SELECT id, argMax(created_at, version) AS c FROM raw_persons GROUP BY id) p ON p.id = a.person_id",
+                ["raw_persons"],
+            ),
+            (
+                "raw_persons_filtered_to_the_anchors",
+                "SELECT a.person_id AS distinct_id, p.c AS created FROM {anchors} a LEFT JOIN "
+                "(SELECT id, argMax(created_at, version) AS c FROM raw_persons "
+                "WHERE id IN (SELECT person_id FROM {anchors}) GROUP BY id) p ON p.id = a.person_id",
+                [],
+            ),
+            ("no_person_table", ANCHORED, []),
+        ]
+    )
+    def test_hints_flag_person_tables_read_without_an_anchor_filter(self, _name, sql, tables):
+        hints = feature_sql_hints(sql)
+        assert [hint.split(" ")[2] for hint in hints] == tables
+
     @parameterized.expand(
         [
             ("absent", "SELECT person_id AS distinct_id, count() AS c FROM events GROUP BY person_id"),

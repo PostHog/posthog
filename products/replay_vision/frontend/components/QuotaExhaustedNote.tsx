@@ -20,7 +20,11 @@ export function QuotaExhaustedNote({ onFreePlan }: Props): JSX.Element {
     return (
         <div className="text-xs text-danger">
             {status}{' '}
-            <Link className="text-danger underline" to={urls.organizationBilling([ProductKey.REPLAY_VISION])}>
+            <Link
+                data-attr="vision-open-billing-quota-exhausted"
+                className="text-danger underline"
+                to={urls.organizationBilling([ProductKey.REPLAY_VISION])}
+            >
                 {linkText}
             </Link>{' '}
             {suffix}

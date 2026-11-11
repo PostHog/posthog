@@ -34,7 +34,7 @@ _HOGQL_SUBJECT = "The SQL insight value"
 # Any-row alerts fail loud past this many rows: silently truncating could skip the breaching row
 # (a false negative), which is worse than asking the user to add a LIMIT or aggregate the query.
 # Deliberately conservative to start — easy to raise if users ask for more. Mirrored in the
-# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (frontend/src/lib/components/Alerts/alertFormLogic.ts);
+# frontend preview as ``HOGQL_ANY_ROW_MAX_ROWS`` (products/alerts/frontend/logic/hogqlAlertPreview.ts);
 # keep the two in sync.
 ANY_ROW_MAX_ROWS = 50
 # last_row reads the tail, so a result truncated at HogQL's hard cap can't be trusted (the real
@@ -89,6 +89,7 @@ def _calculate_rows_and_columns(
     *,
     user: Any,
     execution_mode: ExecutionMode,
+    cache_age_seconds: int | None = None,
     evaluation: HogQLAlertEvaluation,
 ) -> _FetchedRows:
     """Run a SQL insight — the fetch-and-validate prologue shared by the threshold and detector
@@ -101,6 +102,7 @@ def _calculate_rows_and_columns(
         insight,
         team=team,
         execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
         user=user,
         analytics_props={"source": EventSource.ALERT},
         limit_context=LimitContext.SQL_ALERT,
@@ -175,7 +177,7 @@ class HogQLExtractor:
 
     PREVIEW MIRROR CONTRACT: the configure-time preview re-implements this extractor's decision
     rules in TypeScript (``deriveHogQLAlertPreview`` in
-    frontend/src/lib/components/Alerts/alertFormLogic.ts) so the modal can preview instantly from
+    products/alerts/frontend/logic/hogqlAlertPreview.ts) so the modal can preview instantly from
     the already-loaded result. The mirror is advisory only — this extractor is the sole authority
     at evaluation time — but if you change any of these rules, update the mirror to match:
       1. value-column resolution: explicit ``column`` -> single column -> single numeric column
@@ -192,7 +194,12 @@ class HogQLExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         # ``query`` is unused (Protocol signature): the extractor recomputes via the insight.
         condition = AlertCondition.model_validate(alert.condition)
@@ -204,6 +211,7 @@ class HogQLExtractor:
             alert.team,
             user=alert.created_by,
             execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
             evaluation=evaluation,
         )
         rows = fetched.rows
@@ -278,6 +286,7 @@ def extract_hogql_detector_series(
     detector_config: dict[str, Any],
     *,
     execution_mode: ExecutionMode,
+    cache_age_seconds: int | None = None,
     user: Any = None,
 ) -> ExtractionResult:
     """Extract SQL history for checks and simulation. Invalid limits disable checks; short uncapped
@@ -303,6 +312,7 @@ def extract_hogql_detector_series(
         team,
         user=user,
         execution_mode=execution_mode,
+        cache_age_seconds=cache_age_seconds,
         evaluation=config.evaluation,
     )
     rows = fetched.rows
@@ -373,14 +383,25 @@ class HogQLDetectorExtractor:
     """
 
     def extract(
-        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+        self,
+        alert: AlertConfiguration,
+        insight: Insight,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
     ) -> ExtractionResult:
         detector_config = alert.detector_config
         if not detector_config:
             raise ValueError("HogQLDetectorExtractor requires detector_config — dispatcher invariant violated")
         config = hogql_config_or_default(alert.config)
         return extract_hogql_detector_series(
-            insight, alert.team, config, detector_config, execution_mode=execution_mode, user=alert.created_by
+            insight,
+            alert.team,
+            config,
+            detector_config,
+            execution_mode=execution_mode,
+            cache_age_seconds=cache_age_seconds,
+            user=alert.created_by,
         )
 
     def simulate(self, insight: Insight, query: object, ctx: SimulationContext) -> tuple[ExtractionResult, str | None]:

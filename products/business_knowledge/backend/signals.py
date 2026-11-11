@@ -1,4 +1,4 @@
-"""Activity-log hook for KnowledgeSource create/update/delete."""
+"""Activity-log hooks for business knowledge sources and libraries."""
 
 import dataclasses
 from typing import Any
@@ -16,7 +16,7 @@ from posthog.models.activity_logging.model_activity import get_current_trigger
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from .models import KnowledgeSource
+from .models import KnowledgeLibrary, KnowledgeSource
 
 logger = structlog.get_logger(__name__)
 
@@ -70,5 +70,50 @@ def handle_knowledge_source_change(
             # Job-driven saves stash a Trigger so a user-less row still names the job.
             trigger=get_current_trigger(),
             context=context,
+        ),
+    )
+
+
+@dataclasses.dataclass(frozen=True)
+class KnowledgeLibraryContext(ActivityContextBase):
+    team_id: int
+    name: str
+
+
+@mutable_receiver(model_activity_signal, sender=KnowledgeLibrary)
+def handle_knowledge_library_change(
+    sender: type[KnowledgeLibrary],
+    scope: ActivityScope,
+    before_update: KnowledgeLibrary | None,
+    after_update: KnowledgeLibrary | None,
+    activity: str,
+    user: User | None,
+    was_impersonated: bool = False,
+    **kwargs: Any,
+) -> None:
+    instance: KnowledgeLibrary | None = after_update or before_update
+    if instance is None:
+        return
+
+    if activity == "created":
+        detail_name = f"Library '{instance.name}' added"
+    elif activity == "deleted":
+        detail_name = f"Library '{instance.name}' deleted"
+    else:
+        detail_name = f"Library '{instance.name}' updated"
+
+    log_activity(
+        organization_id=None,
+        team_id=instance.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=instance.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            trigger=get_current_trigger(),
+            context=KnowledgeLibraryContext(team_id=instance.team_id, name=instance.name),
         ),
     )

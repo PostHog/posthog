@@ -44,7 +44,7 @@ class SessionsTimelineQueryRunner(AnalyticsQueryRunner[SessionsTimelineQueryResp
 
     @cached_property
     def _use_new_events_schema(self) -> bool:
-        return use_new_events_schema(self.team.pk)
+        return use_new_events_schema(self.team.pk, self.modifiers)
 
     def _get_events_subquery(self) -> ast.SelectQuery:
         after = relative_date_parse(self.query.after or "-24h", self.team.timezone_info)

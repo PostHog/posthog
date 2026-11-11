@@ -58,6 +58,7 @@ function OtherWatchersDisplay({
                     {count} other {varyingText} watched this recording.
                 </span>
                 <LemonButton
+                    data-attr="player-overview-watchers-toggle"
                     size="small"
                     icon={<IconChevronDown className={isExpanded ? 'rotate-180' : ''} />}
                     onClick={toggleExpanded}

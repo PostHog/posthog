@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "comment_id": {
+            "description": "Comment id whose truncated body should continue. Use with content_offset.",
+            "type": "string"
+        },
+        "content_offset": {
+            "default": 0,
+            "description": "Byte offset returned as content_next_offset for the selected comment.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "cursor": {
+            "description": "Opaque cursor returned by the previous page.",
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "ID of the canvas the thread is on.",
+            "type": "string"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of comments in the thread to return.",
+            "maximum": 100,
+            "minimum": 1,
+            "type": "number"
+        },
+        "root_comment_id": {
+            "description": "Root comment id from canvas-comments-list.",
+            "type": "string"
+        }
+    },
+    "required": ["id", "root_comment_id"],
+    "type": "object"
+}

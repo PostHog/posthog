@@ -61,6 +61,7 @@ import {
   useSpacePresence,
 } from "@posthog/ui/features/canvas/hooks/useRecentSpaceTasks";
 import { useRecentWorkItems } from "@posthog/ui/features/canvas/hooks/useRecentWorkItems";
+import { useTaskSources } from "@posthog/ui/features/canvas/hooks/useTaskSources";
 import { useIsChannelUnread } from "@posthog/ui/features/canvas/hooks/useUnreadChannels";
 import { useUnreadSessionCount } from "@posthog/ui/features/canvas/hooks/useUnreadSessionCount";
 import { useWorkSectionLayout } from "@posthog/ui/features/canvas/hooks/useWorkSectionLayout";
@@ -280,7 +281,14 @@ export function WorkColumn() {
   const columnRef = useRef<HTMLDivElement | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
 
-  const { items, isLoading } = useRecentWorkItems();
+  const filters = useSidebarStore((state) => state.channelItemFilters);
+  const pickedSources = useSidebarStore(
+    (state) => state.pickedChannelItemSources,
+  );
+  const { items, isLoading } = useRecentWorkItems({
+    sources: filters.sources,
+  });
+  const taskSources = useTaskSources();
   const { channels } = useChannels();
   const currentChannelId = useCurrentChannelStore((s) => s.currentChannelId);
   const isChannelUnread = useIsChannelUnread();
@@ -296,7 +304,6 @@ export function WorkColumn() {
     : null;
 
   const needle = query.trim().toLowerCase();
-  const filters = useSidebarStore((state) => state.channelItemFilters);
   const setFilters = useSidebarStore((state) => state.setChannelItemFilters);
   const sort = useSidebarStore((state) => state.channelItemSort);
   const setSort = useSidebarStore((state) => state.setChannelItemSort);
@@ -314,9 +321,20 @@ export function WorkColumn() {
   const { data: currentUser } = useCurrentUser({ client });
   const meUuid = currentUser?.uuid ?? null;
   const me = useMemo(() => ({ uuid: meUuid }), [meUuid]);
+  // The server returns only the selected sources, so the menu also offers the sources of the
+  // user's other tasks and every source they picked before. Otherwise a hidden source could
+  // never be turned back on.
   const sources = useMemo(
-    () => channelItemSources(items.map((entry) => entry.item)),
-    [items],
+    () =>
+      Array.from(
+        new Set([
+          ...channelItemSources(items.map((entry) => entry.item)),
+          ...taskSources,
+          ...filters.sources,
+          ...pickedSources,
+        ]),
+      ).sort(),
+    [items, taskSources, filters.sources, pickedSources],
   );
   const dayStart = useLocalDayStart();
   const pinnedItems = useMemo(

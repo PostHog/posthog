@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.facade.models import (
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.temporal.data_imports.settings import import_data_activity_sync
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tls import TLSOptions
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
     ImportDataActivityInputs,
 )
@@ -69,7 +70,7 @@ def _setup(
         status=ExternalDataJob.Status.RUNNING,
         rows_synced=0,
         workflow_id="some_workflow_id",
-        pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        pipeline_version=ExternalDataJob.PipelineVersion.V3,
     )
 
     return ImportDataActivityInputs(team_id=team.pk, schema_id=schema.pk, source_id=source.pk, run_id=str(job.pk))
@@ -78,20 +79,26 @@ def _setup(
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "rebuild_trigger",
+    "rebuild_trigger,expected_ceiling",
     [
-        {"reset_pipeline": True},
-        {
-            "delta_revive_required": {
-                "reason": "hollow",
-                "missing_path": "p",
-                "detected_at": "2026-01-01T00:00:00+00:00",
-            }
-        },
+        ({}, 100),
+        ({"reset_pipeline": True}, None),
+        (
+            {
+                "delta_revive_required": {
+                    "reason": "hollow",
+                    "missing_path": "p",
+                    "detected_at": "2026-01-01T00:00:00+00:00",
+                }
+            },
+            None,
+        ),
     ],
-    ids=["reset", "corrupt_delta_revive"],
+    ids=["no_rebuild", "reset", "corrupt_delta_revive"],
 )
-async def test_table_rebuild_drops_the_xmin_cursor(activity_environment, team, rebuild_trigger, **kwargs):
+async def test_table_rebuild_drops_the_xmin_cursor(
+    activity_environment, team, rebuild_trigger, expected_ceiling, **kwargs
+):
     # Both triggers delete the Delta table before the read. Keeping the cursor makes that read the
     # window since the last run, and the overwrite collapses the table to that slice.
     activity_inputs = await _setup(
@@ -117,8 +124,8 @@ async def test_table_rebuild_drops_the_xmin_cursor(activity_environment, team, r
 
     called_with = mock_postgres_source.call_args.kwargs
     assert called_with["is_xmin"] is True
-    assert called_with["xmin_last_value"] is None
-    assert called_with["xmin_num_wraparound"] is None
+    stored = called_with["xmin_cursor"].load()
+    assert (stored.ceiling_xid if stored is not None else None) == expected_ceiling
 
 
 @pytest.mark.django_db(transaction=True)
@@ -165,14 +172,14 @@ async def test_job_inputs_with_whitespace(activity_environment, team, **kwargs):
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 
@@ -221,14 +228,14 @@ async def test_postgres_source_without_ssh_tunnel(activity_environment, team, **
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 
@@ -289,14 +296,14 @@ async def test_postgres_source_with_ssh_tunnel_disabled(activity_environment, te
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 
@@ -372,14 +379,14 @@ async def test_postgres_source_with_ssh_tunnel_enabled(activity_environment, tea
             chunk_size_override=None,
             team_id=team.id,
             require_ssl=True,
+            tls=TLSOptions(),
             is_initial_sync=True,
             enabled_columns=None,
             row_filters=[],
             is_xmin=False,
-            xmin_last_value=None,
-            xmin_num_wraparound=None,
-            byte_bounded_extraction=False,
+            xmin_cursor=None,
             activity_attempt=1,
+            worker_deaths=0,
             resumable_source_manager=mock.ANY,
         )
 

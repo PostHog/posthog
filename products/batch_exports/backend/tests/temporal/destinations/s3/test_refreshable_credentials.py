@@ -4,13 +4,17 @@ import collections.abc
 
 import pytest
 
+from django.test import override_settings
+
 import aioboto3
 from aiobotocore.credentials import AioRefreshableCredentials
 from botocore.credentials import ReadOnlyCredentials
 
 from products.batch_exports.backend.service import AWSCredentials
 from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
+    ExternalRoleArnNotConfiguredError,
     RefreshCoroutine,
+    get_credentials_using_user_aws_role,
     get_refreshable_session,
 )
 
@@ -75,3 +79,17 @@ async def test_get_refreshable_session_does_not_refresh_valid_credentials():
     assert frozen.access_key == "initial-key"
     assert frozen.secret_key == "initial-secret"
     assert frozen.token == "initial-token"
+
+
+async def test_get_credentials_using_user_aws_role_without_external_role_configured():
+    # An unconfigured external role previously reached AWS first, surfacing as a cryptic
+    # botocore ParamValidationError about the role ARN's length instead of this environment's
+    # actual, fixable problem.
+    with override_settings(BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN=""):
+        with pytest.raises(ExternalRoleArnNotConfiguredError):
+            await get_credentials_using_user_aws_role(
+                "arn:aws:iam::123456789012:role/customer-role",
+                "posthog-external-id",
+                session_name="test",
+                policy_statements=[],
+            )

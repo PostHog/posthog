@@ -249,9 +249,10 @@ impl SourcePair {
     /// In symbol-set mode no hash is set and the upload layer hashes the raw payload, matching
     /// the hashes the server already stores for previous uploads.
     pub fn into_upload(mut self, release_mode: ReleaseMode) -> Result<SymbolSetUpload> {
-        let chunk_id = self.get_chunk_id().ok_or_else(|| {
+        let injected_chunk_id = self.get_chunk_id();
+        let chunk_id = injected_chunk_id.clone().or_else(|| self.get_debug_id()).ok_or_else(|| {
             anyhow!(
-                "Chunk ID not found in {}. Run 'sourcemap inject' before 'sourcemap upload', or use 'sourcemap process' to do both.",
+                "Chunk ID or debug ID not found in {}. Run 'sourcemap inject' before 'sourcemap upload', enable native debug IDs in the bundler, or use 'sourcemap process' to do both.",
                 self.source.inner.path.display()
             )
         })?;
@@ -261,13 +262,18 @@ impl SourcePair {
 
         let content_hash = match release_mode {
             ReleaseMode::Event => {
-                // Read the variant before the removal, which erases the evidence.
-                let snippet_variant: &[u8] = if self.source.has_release_snippet(&chunk_id) {
-                    b"with-release"
+                let identity_variant: &[u8] = if injected_chunk_id.is_some() {
+                    // Read the variant before the removal, which erases the evidence.
+                    let snippet_variant: &[u8] = if self.source.has_release_snippet(&chunk_id) {
+                        b"with-release"
+                    } else {
+                        b"chunk-id-only"
+                    };
+                    self.remove_chunk_id(chunk_id.clone())?;
+                    snippet_variant
                 } else {
-                    b"chunk-id-only"
+                    b"native-debug-id"
                 };
-                self.remove_chunk_id(chunk_id.clone())?;
                 without_file_path_in_file_field(&mut self.sourcemap.inner.content);
                 let pristine_map = serde_json::to_string(&self.sourcemap.inner.content)?;
                 let pristine_source = without_file_paths(&self.source.inner.content);
@@ -278,7 +284,7 @@ impl SourcePair {
                     b"\0".as_slice(),
                     pristine_map.as_bytes(),
                     b"\0".as_slice(),
-                    snippet_variant,
+                    identity_variant,
                 ]))
             }
             ReleaseMode::SymbolSet => None,

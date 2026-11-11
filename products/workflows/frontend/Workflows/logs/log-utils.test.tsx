@@ -30,4 +30,23 @@ describe('renderWorkflowLogMessage', () => {
         expect(link?.getAttribute('target')).toBe('_blank')
         expect(link?.textContent).toContain('View task')
     })
+
+    it.each([
+        ['$feature_flag_called', '$feature_flag_called'],
+        ['$pageview', null],
+    ])(
+        'names the event in the link of an [Event:...] token for %s only when it is a flag call',
+        (eventName, linkedName) => {
+            const { container } = render(
+                renderWorkflowLogMessage(
+                    workflow,
+                    `Workflow woken by [Event:018f0000-0000-7000-8000-000000000002|${eventName}|2026-08-24T00:00:00.000Z]`
+                )
+            )
+
+            const href = container.querySelector('a')?.getAttribute('href') ?? ''
+            expect(href).toContain('/events/018f0000-0000-7000-8000-000000000002/')
+            expect(new URL(href, 'http://localhost').searchParams.get('event')).toBe(linkedName)
+        }
+    )
 })

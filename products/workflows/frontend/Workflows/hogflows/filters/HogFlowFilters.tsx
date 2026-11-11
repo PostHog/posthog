@@ -4,14 +4,15 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AllowedProperties, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { isOperatorSemver } from 'lib/utils/operators'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { cdpFiltersToSeries, seriesToCdpFilters } from 'scenes/hog-functions/filters/cdpFilterSeries'
+import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 
 import { groupsModel } from '~/models/groupsModel'
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
-import { FilterType, PropertyDefinition, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, ChartDisplayCategory, PropertyDefinition, PropertyOperator } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
 import { HogFlowAction } from '../types'
@@ -50,6 +51,7 @@ export type HogFlowFiltersProps = {
     // has no such key, so a group-based wait could never be woken and would only ever time out.
     // Used by wait conditions to keep them constrained to matcher-observable signals.
     excludeGroupProperties?: boolean
+    includeCohorts?: boolean
     // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
     // as suggestions and resolve their distinct values.
     schemaColumns?: DatabaseSchemaField[]
@@ -88,7 +90,7 @@ export function HogFlowEventFilters({
     }
 
     // WorkflowVariables comes first so its dedicated tab renders first in the category list.
-    // ActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
+    // SeriesActionFilter does not pipe `taxonomicFilterOptionsFromProp`, so the All/Suggestions tab
     // does not aggregate variables here — variable surfacing in All/Suggestions only kicks in
     // for the property-level filter (HogFlowPropertyFilters below).
     const propertyTaxonomicGroupTypes = [
@@ -105,12 +107,10 @@ export function HogFlowEventFilters({
     }
 
     return (
-        <ActionFilter
-            filters={filters ?? {}}
-            setFilters={(filters: FilterType): void => {
-                // TODO: Improve the types here...
-                setFilters(filters as HogFlowAction['filters'])
-            }}
+        <SeriesActionFilter
+            series={cdpFiltersToSeries(filters)}
+            onChange={(series) => setFilters(seriesToCdpFilters(series))}
+            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
             typeKey={typeKey ?? 'hogflow-filters'}
             mathAvailability={MathAvailability.None}
             hideRename
@@ -123,6 +123,7 @@ export function HogFlowEventFilters({
                 type: 'secondary',
             }}
             buttonCopy={buttonCopy ?? 'Add filter'}
+            includeHiddenEvents
             allowNonCapturedEvents
             hogQLGlobals={sampleGlobals}
             operatorAllowlist={WORKFLOW_OPERATOR_ALLOWLIST}
@@ -135,6 +136,7 @@ export function HogFlowPropertyFilters({
     filters,
     setFilters,
     excludeGroupProperties,
+    includeCohorts,
     schemaColumns,
     dataWarehouseTableName,
     taxonomicGroupTypes,
@@ -153,6 +155,7 @@ export function HogFlowPropertyFilters({
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { workflow } = useValues(workflowLogic)
+    const cohortConditionsEnabled = useFeatureFlag('WORKFLOWS_COHORT_CONDITIONS')
     // Surface workflow variables in the All/Suggestions tab so a user searching by variable key
     // sees a match alongside event/person properties. The dedicated tab still works without this.
     const taxonomicFilterOptionsFromProp = {
@@ -165,7 +168,7 @@ export function HogFlowPropertyFilters({
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
-            onChange={(properties: FilterType['properties']): void => {
+            onChange={(properties: AnyPropertyFilter[]): void => {
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
@@ -187,6 +190,7 @@ export function HogFlowPropertyFilters({
                           TaxonomicFilterGroupType.EventProperties,
                           TaxonomicFilterGroupType.EventFeatureFlags,
                           TaxonomicFilterGroupType.PersonProperties,
+                          ...(includeCohorts && cohortConditionsEnabled ? [TaxonomicFilterGroupType.Cohorts] : []),
                           ...(excludeGroupProperties ? [] : groupsTaxonomicTypes),
                           TaxonomicFilterGroupType.HogQLExpression,
                           TaxonomicFilterGroupType.EventMetadata,

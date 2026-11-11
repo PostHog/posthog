@@ -8,6 +8,7 @@ use crate::flags::config_v2;
 use crate::flags::feature_flag_list::UndecodableDocument;
 use crate::flags::flag_models::FlagFilters;
 use crate::metrics::consts::FLAG_V2_PARSE_COUNTER;
+use crate::utils::python_truthiness::is_falsy;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ConfigFormat {
@@ -24,12 +25,6 @@ impl ConfigFormat {
             _ => Self::Unsupported,
         }
     }
-}
-
-fn config_format(version: Option<&Value>) -> ConfigFormat {
-    version.map_or(ConfigFormat::V1, |value| {
-        ConfigFormat::from_number(value.as_f64())
-    })
 }
 
 struct FilterDocument<const BUILD_DOCUMENT: bool> {
@@ -62,9 +57,7 @@ impl<'de, const BUILD_DOCUMENT: bool> Deserialize<'de> for FilterDocument<BUILD_
                         if BUILD_DOCUMENT {
                             let mut version =
                                 serde_json::from_str(raw.get()).unwrap_or(Value::Null);
-                            // Keep is_v1's Value-based check consistent with raw-token
-                            // dispatch. serialize_filters also writes this normalized
-                            // discriminator back to the cache.
+                            // serialize_filters writes this normalized value back to the cache.
                             if format == ConfigFormat::V1 && version.as_f64() != Some(1.0) {
                                 version = serde_json::json!(1.0);
                             }
@@ -87,7 +80,7 @@ impl<'de, const BUILD_DOCUMENT: bool> Deserialize<'de> for FilterDocument<BUILD_
 
 impl FlagFilters {
     pub(crate) fn is_v1(&self) -> bool {
-        self.non_v1.is_none() && config_format(self.extra.get("version")) == ConfigFormat::V1
+        self.non_v1.is_none()
     }
 
     pub(crate) fn require_v1(&self) -> Result<(), FlagError> {
@@ -153,7 +146,7 @@ pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, Filt
             .and_then(|document| serde_json::from_value(Value::Object(document)))
             .map_err(|error| FilterDecodeError {
                 error,
-                document: UndecodableDocument::UnreadableV1Object,
+                document: classify_undecodable_v1(&raw),
             })
     } else {
         let parsed_v2 = (format == ConfigFormat::V2).then(|| {
@@ -180,6 +173,47 @@ pub(crate) fn decode_raw_filters(raw: Box<RawValue>) -> Result<FlagFilters, Filt
     }
 }
 
+fn classify_undecodable_v1(raw: &RawValue) -> UndecodableDocument {
+    // This read fails on a number that serde cannot represent, or on nesting deeper than
+    // serde's recursion limit. Python's JSON reader accepts both, so the document counts
+    // as one that Python's builder can read.
+    let Ok(document) = serde_json::from_str::<Value>(raw.get()) else {
+        return UndecodableDocument::UnreadableV1Object;
+    };
+    if python_reads_conditions(&document) {
+        UndecodableDocument::UnreadableV1Object
+    } else {
+        UndecodableDocument::MalformedV1Groups
+    }
+}
+
+/// Python's builder reads only the conditions of a v1 document, as `references()` in
+/// `products/feature_flags/backend/facade/references.py` does. It iterates `groups or []`
+/// and each group's `properties or []`, and calls `.get` on every element. Returns false
+/// where that read raises.
+fn python_reads_conditions(document: &Value) -> bool {
+    let Some(groups) = python_list(document.get("groups")) else {
+        return false;
+    };
+    groups.iter().all(|group| {
+        group
+            .as_object()
+            .and_then(|group| python_list(group.get("properties")))
+            .is_some_and(|properties| properties.iter().all(Value::is_object))
+    })
+}
+
+/// The elements Python iterates in `value or []`. Returns `None` for a truthy value that is
+/// not an array, because Python either cannot iterate it or yields elements that are not
+/// objects.
+fn python_list(value: Option<&Value>) -> Option<&[Value]> {
+    match value {
+        Some(Value::Array(items)) => Some(items),
+        Some(value) if !is_falsy(value) => None,
+        _ => Some(&[]),
+    }
+}
+
 pub(crate) fn deserialize_filters<'de, D>(deserializer: D) -> Result<FlagFilters, D::Error>
 where
     D: Deserializer<'de>,
@@ -188,18 +222,14 @@ where
         .map_err(serde::de::Error::custom)
 }
 
-/// Derived serialization adds v1 fields to opaque documents. Stored JSON must use
-/// the retained raw document, or the passthrough map for manually constructed filters.
+/// Derived serialization adds v1 fields to opaque documents, so those keep their raw JSON.
 pub(crate) fn serialize_filters<S>(filters: &FlagFilters, serializer: S) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    if let Some(config) = &filters.non_v1 {
-        config.document.serialize(serializer)
-    } else if filters.is_v1() {
-        filters.serialize(serializer)
-    } else {
-        filters.extra.serialize(serializer)
+    match &filters.non_v1 {
+        Some(config) => config.document.serialize(serializer),
+        None => filters.serialize(serializer),
     }
 }
 

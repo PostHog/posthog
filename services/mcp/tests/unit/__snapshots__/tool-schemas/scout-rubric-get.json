@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "fields": {
+            "description": "Optional subset of response fields to return, each a dot-path from the allowlist. Omit to return all fields. Request only the fields your task needs to keep responses small.",
+            "items": {
+                "enum": [
+                    "config_id",
+                    "skill_name",
+                    "revision",
+                    "criteria",
+                    "generation",
+                    "reference_context",
+                    "reference_generation_id",
+                    "generation.id",
+                    "generation.status",
+                    "generation.error",
+                    "generation.summary",
+                    "generation.suggestions",
+                    "generation.reference_context",
+                    "generation.reference_context.instructions",
+                    "generation.reference_context.report_disposition_instructions",
+                    "generation.reference_context.reference_texts",
+                    "reference_context.instructions",
+                    "reference_context.report_disposition_instructions",
+                    "reference_context.reference_texts"
+                ],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "id": {
+            "description": "A UUID string identifying this Signal scout config.",
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

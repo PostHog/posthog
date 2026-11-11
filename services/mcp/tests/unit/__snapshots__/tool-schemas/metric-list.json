@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "definition_kind": {
+            "description": "Only metrics with this query node kind.",
+            "type": "string"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -8,6 +12,14 @@
         "offset": {
             "description": "The initial index from which to return the results.",
             "type": "number"
+        },
+        "search": {
+            "description": "A search term.",
+            "type": "string"
+        },
+        "status": {
+            "description": "Only metrics with this review status.",
+            "type": "string"
         }
     },
     "type": "object"

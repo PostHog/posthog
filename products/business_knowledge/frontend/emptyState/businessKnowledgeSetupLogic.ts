@@ -4,7 +4,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { businessKnowledgeSourcesList } from '../generated/api'
-import { businessKnowledgeLogic } from '../scenes/businessKnowledgeLogic'
+import { businessKnowledgeLogic } from '../scenes/sources/businessKnowledgeLogic'
 
 /**
  * Setup detection for the business knowledge empty state. Creation-first: one

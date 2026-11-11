@@ -13,8 +13,9 @@
  *  1. Never upscale. Enlarging pixels adds nothing and softens the edges detection depends on.
  *  2. Bound the work by the tensor, not by the frame. A budget on frame area does not bound the
  *     tensor once a collapsed axis is padded up to the encoder's stride.
- *  3. Store small. The final consumer identifies what kind of site a session is on, so it needs
- *     scene structure and not legibility. Text being unreadable in the artifact is the point.
+ *  3. Store the size the operator chose. SCRUB_STORED_MAX_SIDE sets it; unset, the default detector
+ *     sizes allow about 161 px on the long side. Rule 4, not a small size, keeps what was not
+ *     redacted unreadable.
  *  4. Keep the ratio. Every detector must see a subject at least `ratio` times larger than the
  *     stored image keeps it, so anything still readable was large enough to have been found.
  */
@@ -54,6 +55,8 @@ export interface PlanLimits {
     storedPixels: number
     /** The longest side YuNet reads a frame or tile at. */
     faceInputSide: number
+    /** Longest side the stored image may have, or 0 for no bound beyond the area budget. */
+    storedMaxSide: number
     /** Stride the text encoder needs its input to be a multiple of. */
     stride: number
     /** Margin over the measured floors. 1 means exactly what the measurement supports. */
@@ -66,14 +69,15 @@ const atLeastOne = (n: number): number => Math.max(1, Math.floor(n))
  *  disagree, which is how a legal stored size produced an illegal frame size. */
 const MIN_FRAME_PIXELS = 96 * 96
 
-/** The face detector's input size and tiling rule, owned here because the plan has to model them. yunet.ts imports
- *  these rather than declaring its own, so the model and the plan cannot disagree. */
-export const FACE_INPUT_SIDE = 640
+/** The face detector's tiling rule and smallest input size, owned here because the plan has to model them. yunet.ts
+ *  reads its input size from `limitsFromEnv()` rather than declaring its own, so the model and the plan cannot disagree. */
+export const DEFAULT_FACE_INPUT_SIDE = 640
 export const FACE_TILE_ABOVE = 3
 export const FACE_TILE_ASPECT = 6
 
 /**
- * Most inferences one image may spend on faces.
+ * Most windows one image may spend on faces, per pass: an input side above 640 also runs a 640 pass,
+ * so the inference count is up to twice this.
  *
  * Tiling covers a long frame with overlapping windows, and the count grows with the aspect ratio,
  * which the frame's AREA budget does not bound: a 400000x4 source plans a 280149x2 frame and asks for
@@ -214,7 +218,12 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
     const weakest = Math.min(textScale, faceScale, 1)
 
     const ratio = bindingRatio() * limits.safetyFactor
-    const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels)))
+    // A frame past the tiling aspect is a banner or a strip: capping its long side would crush the short one to a
+    // pixel or two, so it keeps the stored size the defaults give it.
+    const long = Math.max(frame.width, frame.height)
+    const capsSide = limits.storedMaxSide > 0 && long / Math.min(frame.width, frame.height) <= limits.faceTileAbove
+    const sideScale = capsSide ? limits.storedMaxSide / long : 1
+    const stored = applyScale(frame, Math.min(1, weakest / ratio, scaleToArea(frame, limits.storedPixels), sideScale))
     // zxing's cost grows with the pixels it reads and no model fixes its input, so it gets exactly the ratio. That is
     // measured against the stored axes as kept, because flooring an axis to a whole pixel keeps more than was asked.
     const keptScale = Math.max(stored.width / frame.width, stored.height / frame.height)
@@ -235,13 +244,32 @@ export function planScales(source: Dims, limits: PlanLimits): ScalePlan {
  * to see enough to keep the ratio, and the frame has to carry enough for the detectors. Exposing the
  * others as independent knobs is what let a pair of individually-reasonable settings combine into a
  * pipeline that under-redacted.
+ *
+ * `SCRUB_STORED_MAX_SIDE` sets the stored size by its long side. The face detector's input and the
+ * text canvas then grow to `side x ratio`, because at their defaults the face input caps every
+ * stored image at about 161 px whatever the area budget allows.
  */
 export function limitsFromEnv(): PlanLimits {
-    const storedPixels = numFromEnv('SCRUB_OUT_MAX_PIXELS', 50_000, 16 * 16, LIMIT_INPUT_PIXELS)
+    const storedMaxSide = numFromEnv('SCRUB_STORED_MAX_SIDE', 0, 0, 1024)
+    if (storedMaxSide > 0 && storedMaxSide < 16) {
+        throw new Error(`SCRUB_STORED_MAX_SIDE must be 0 or in [16, 1024], got ${storedMaxSide}`)
+    }
     const safetyFactor = numFromEnv('SCRUB_SAFETY_FACTOR', 1.3, 1, 4)
+    const ratio = bindingRatio() * safetyFactor
+    const stride = 32
+    const faceInputSide =
+        storedMaxSide > 0
+            ? Math.max(DEFAULT_FACE_INPUT_SIDE, upToStride(Math.ceil(storedMaxSide * ratio), stride))
+            : DEFAULT_FACE_INPUT_SIDE
+    const storedPixels = numFromEnv(
+        'SCRUB_OUT_MAX_PIXELS',
+        storedMaxSide > 0 ? storedMaxSide * storedMaxSide : 50_000,
+        16 * 16,
+        LIMIT_INPUT_PIXELS
+    )
     // The frame has to carry the ratio for the tightest subject, with the margin, or no detector can
     // satisfy it however the later stages are sized.
-    const needed = storedPixels * (bindingRatio() * safetyFactor) ** 2
+    const needed = storedPixels * ratio ** 2
     return {
         // Clamped at BOTH ends: numFromEnv validates a default as strictly as an override, so a
         // legal storedPixels must never derive an illegal framePixels and hand the operator a refusal
@@ -253,12 +281,18 @@ export function limitsFromEnv(): PlanLimits {
             MIN_FRAME_PIXELS,
             LIMIT_INPUT_PIXELS
         ),
-        textCanvasPixels: numFromEnv('DET_CANVAS_PIXELS', 736 * 736, 256 * 256, 4096 * 4096),
+        textCanvasPixels: numFromEnv(
+            'DET_CANVAS_PIXELS',
+            Math.min(4096 * 4096, Math.max(736 * 736, faceInputSide * faceInputSide)),
+            256 * 256,
+            4096 * 4096
+        ),
         storedPixels,
-        faceInputSide: FACE_INPUT_SIDE,
+        faceInputSide,
+        storedMaxSide,
         faceTileAbove: FACE_TILE_ABOVE,
         faceTileAspect: FACE_TILE_ASPECT,
-        stride: 32,
+        stride,
         safetyFactor,
     }
 }

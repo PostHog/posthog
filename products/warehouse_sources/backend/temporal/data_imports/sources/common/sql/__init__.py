@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     RowFilter,
+    RowFilterColumn,
     RowFilterValidationError,
     ValidatedRowFilter,
     classify_column_type,
@@ -77,6 +78,7 @@ __all__ = [
     "InvalidIdentifierError",
     "ParamStyle",
     "RowFilter",
+    "RowFilterColumn",
     "RowFilterValidationError",
     "SafeSQL",
     "SelectQueryBuilder",

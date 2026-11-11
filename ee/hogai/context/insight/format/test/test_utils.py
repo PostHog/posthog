@@ -1,6 +1,6 @@
 from datetime import date
 
-from posthog.test.base import BaseTest
+from django.test import SimpleTestCase
 
 from ..utils import (
     format_date,
@@ -12,7 +12,7 @@ from ..utils import (
 )
 
 
-class TestFormatUtils(BaseTest):
+class TestFormatUtils(SimpleTestCase):
     def test_format_number(self):
         self.assertEqual(format_number(1), "1")
         self.assertEqual(format_number(1.0), "1")

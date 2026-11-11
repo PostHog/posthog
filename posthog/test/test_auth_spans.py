@@ -5,6 +5,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
+from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -116,3 +117,25 @@ class TestAuthSpans(BaseTest):
         assert len(db_lookup) == 1
         assert db_lookup[0].attributes["auth.hash_mode_used"] == "sha256"
         assert db_lookup[0].attributes["auth.modes_tried"] == 1
+
+    @parameterized.expand(
+        [
+            ("prefixed_key", "phx_" + "a" * 47, 3),
+            ("short_prefixed_key", "phx_" + "a" * 32, 3),
+            ("unprefixed_legacy_key", "a" * 43, 3),
+            ("project_token", "phc_" + "a" * 43, 1),
+            ("wrong_length_unprefixed", "a" * 44, 1),
+            ("jwt_like", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl", 1),
+        ]
+    )
+    def test_unknown_key_only_pays_for_pbkdf2_when_it_looks_like_a_personal_api_key(
+        self, _name, token, expected_modes_tried
+    ):
+        request = self.factory.get("/api/users/@me/", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        with self.assertRaises(AuthenticationFailed):
+            PersonalAPIKeyAuthentication().authenticate(request)
+
+        db_lookup = self._spans_named("posthog.auth.personal_api_key.db_lookup")
+        assert len(db_lookup) == 1
+        assert db_lookup[0].attributes["auth.modes_tried"] == expected_modes_tried

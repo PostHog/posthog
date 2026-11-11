@@ -5,6 +5,8 @@ import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
+import hooks_sessionRecordingGet from '@/tools/replay/sessionRecordingGetHooks'
+import { withToolHooks } from '@/tools/tool-hooks'
 import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -32,6 +34,38 @@ const sessionRecordingBulkDelete = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/bulk_delete/`,
             body,
+        })
+        return result
+    },
+})
+
+const SessionRecordingConsoleLogsListSchema = () => {
+    const SessionRecordingsConsoleLogsRetrieveParams = orvalSchemas.SessionRecordingsConsoleLogsRetrieveParams()
+    const SessionRecordingsConsoleLogsRetrieveQueryParams =
+        orvalSchemas.SessionRecordingsConsoleLogsRetrieveQueryParams()
+    return SessionRecordingsConsoleLogsRetrieveParams.omit({ project_id: true }).extend(
+        SessionRecordingsConsoleLogsRetrieveQueryParams.shape
+    )
+}
+
+const sessionRecordingConsoleLogsList = (): ToolBase<
+    ReturnType<typeof SessionRecordingConsoleLogsListSchema>,
+    Schemas.SessionRecordingConsoleLogsResponse
+> => ({
+    name: 'session-recording-console-logs-list',
+    schema: SessionRecordingConsoleLogsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SessionRecordingConsoleLogsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SessionRecordingConsoleLogsResponse>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/console_logs/`,
+            query: {
+                after: params.after,
+                before: params.before,
+                level: params.level,
+                limit: params.limit,
+                offset: params.offset,
+            },
         })
         return result
     },
@@ -67,15 +101,18 @@ const sessionRecordingGet = (): ToolBase<
     withUiApp('session-recording', {
         name: 'session-recording-get',
         schema: SessionRecordingGetSchema(),
-        handler: async (context: Context, params: z.infer<ReturnType<typeof SessionRecordingGetSchema>>) => {
-            const projectId = await context.stateManager.getProjectId()
-            const result = await context.api.request<Schemas.SessionRecording>({
-                method: 'GET',
-                path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
-            })
-            const filtered = omitResponseFields(result, ['person.properties']) as typeof result
-            return await withPostHogUrl(context, filtered, `/replay/${filtered.id}`)
-        },
+        handler: withToolHooks(
+            hooks_sessionRecordingGet,
+            async (context: Context, params: z.infer<ReturnType<typeof SessionRecordingGetSchema>>) => {
+                const projectId = await context.stateManager.getProjectId()
+                const result = await context.api.request<Schemas.SessionRecording>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/${encodeURIComponent(String(params.id))}/`,
+                })
+                const filtered = omitResponseFields(result, ['person.properties']) as typeof result
+                return await withPostHogUrl(context, filtered, `/replay/${filtered.id}`)
+            }
+        ),
     })
 
 const SessionRecordingPlaylistCreateSchema = () => {
@@ -657,6 +694,7 @@ const AssistantRecordingsQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-bulk-delete': sessionRecordingBulkDelete,
+    'session-recording-console-logs-list': sessionRecordingConsoleLogsList,
     'session-recording-delete': sessionRecordingDelete,
     'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,

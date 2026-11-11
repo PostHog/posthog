@@ -1,43 +1,65 @@
-from unittest.mock import MagicMock, patch
+from dataclasses import replace
+
+import pytest
+import time_machine
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallation
-from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    DEFAULT_SANDBOX_WORKING_DIR,
-    SNAPSHOT_KIND_DIRECTORY,
-)
+from posthog.egress.limiter.policies import Priority
+from posthog.models import Integration, Organization, Team
+from posthog.models.github_integration_base import GitHubIntegrationError
+from posthog.models.integration import GitHubIntegration
+from posthog.models.user import User
+from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
+
+from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
+from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
+from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
+from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
 from products.tasks.backend.models import Task
+from products.tasks.backend.redis import get_tasks_cache
 from products.tasks.backend.temporal.process_task.utils import (
     POSTHOG_MCP_DESCRIPTION,
+    PUSH_SANDBOX_GITHUB_PERMISSIONS,
+    READONLY_SANDBOX_GITHUB_PERMISSIONS,
     GitHubCredentialSource,
     McpServerConfig,
+    PrAuthorshipMode,
     RunState,
     build_imported_mcp_server_configs,
     build_sandbox_environment_variables,
     get_git_identity_env_vars,
     get_github_credential_source,
+    get_github_token,
     get_imported_mcp_server_configs,
     get_models_for_runtime_adapter,
+    get_pr_authorship_mode,
     get_relayed_mcp_server_names,
     get_sandbox_github_token,
     get_sandbox_ph_mcp_configs,
     get_supported_reasoning_efforts,
     get_task_run_actor_user,
     get_task_run_credential_user,
+    get_user_github_integration,
     get_user_mcp_server_configs,
+    include_personal_mcp_for_task,
     is_bot_authorship_fallback,
     is_caller_token_run,
     loop_mcp_installation_allowlist,
+    mcp_exclude_tools_for_task,
     mcp_exclude_tools_from_state,
     mcp_exec_skills_env_vars,
     parse_run_state,
+    resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
     upgrade_run_to_user_authorship,
 )
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 
 class TestRuntimeModelCapabilities(SimpleTestCase):
@@ -53,17 +75,17 @@ class TestRuntimeModelCapabilities(SimpleTestCase):
         assert "moonshotai/kimi-k3" in get_models_for_runtime_adapter("claude")
         assert get_supported_reasoning_efforts("claude", "moonshotai/kimi-k3") == ()
 
-    def test_fable_models_support_all_public_reasoning_efforts(self) -> None:
-        for model in ("claude-fable-5", "claude-fable-5-1"):
-            assert model in get_models_for_runtime_adapter("claude")
-            assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
-                "low",
-                "medium",
-                "high",
-                "xhigh",
-                "max",
-                "ultracode",
-            )
+    @parameterized.expand([("claude-fable-5",), ("claude-fable-5-1",), ("claude-fable-5-2",)])
+    def test_fable_models_support_all_public_reasoning_efforts(self, model: str) -> None:
+        assert model in get_models_for_runtime_adapter("claude")
+        assert tuple(effort.value for effort in get_supported_reasoning_efforts("claude", model)) == (
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+            "ultracode",
+        )
 
 
 class TestRunStateModelAccess(SimpleTestCase):
@@ -120,33 +142,16 @@ class TestRunStateResumeCompatibility(SimpleTestCase):
         self.assertEqual(parsed.same_run_resume_idle, expected_idle)
 
 
-class TestRunStateSnapshotPaths(TestCase):
+class TestRunStateSnapshotPaths(SimpleTestCase):
     @parameterized.expand(
         [
-            (
-                "new_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
-                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-            ),
-            (
-                "stored_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                DEFAULT_SANDBOX_WORKING_DIR,
-            ),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, DEFAULT_SANDBOX_WORKING_DIR),
             # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
             # to the default: the snapshot's content layout only fits the path it was captured
             # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
-            (
-                "legacy_tmp_directory_snapshot",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                None,
-            ),
-            (
-                "unsupported_directory_snapshot_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
-                None,
-            ),
-            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, None),
+            ("unsupported_path", {"snapshot_mount_path": "/tmp/agent-env"}, None),
+            ("no_path", {}, None),
         ]
     )
     def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
@@ -154,19 +159,9 @@ class TestRunStateSnapshotPaths(TestCase):
 
     @parameterized.expand(
         [
-            (
-                "directory_workspace_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
-                True,
-            ),
-            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
-            (
-                "directory_legacy_tmp_path",
-                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
-                False,
-            ),
-            ("filesystem", {"snapshot_kind": "filesystem"}, True),
-            ("no_kind", {}, True),
+            ("workspace_path", {"snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR}, True),
+            ("legacy_tmp_path", {"snapshot_mount_path": "/tmp"}, False),
+            ("no_path", {}, False),
         ]
     )
     def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
@@ -178,30 +173,25 @@ class TestRunStateSnapshotPaths(TestCase):
                 "directory_full_triple",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
                 },
             ),
             (
-                "filesystem_no_mount_path",
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
-            ),
-            (
-                "legacy_no_kind",
+                "legacy_no_mount_path",
                 {"snapshot_external_id": "im-old"},
-                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+                {},
             ),
             (
                 "unusable_directory",
                 {
                     "snapshot_external_id": "im-dir",
-                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_kind": RESUME_SNAPSHOT_KIND,
                     "snapshot_mount_path": "/tmp",
                 },
                 {},
@@ -228,16 +218,15 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("https://app.posthog.com", "https://mcp.posthog.com/mcp"),
-            ("https://us.posthog.com", "https://mcp.posthog.com/mcp"),
-            ("https://eu.posthog.com", "https://mcp-eu.posthog.com/mcp"),
-            ("https://app.dev.posthog.dev", "https://mcp.dev.posthog.dev/mcp"),
+            ("https://mcp.eu.posthog.com/mcp", "https://mcp.eu.posthog.com/mcp"),
+            ("http://localhost:8787/mcp", "http://host.docker.internal:8787/mcp"),
+            ("http://127.0.0.1:8787/mcp", "http://host.docker.internal:8787/mcp"),
         ]
     )
-    def test_derives_mcp_config_from_site_url(self, site_url: str, expected_mcp_url: str) -> None:
+    def test_uses_the_mcp_server_url_setting(self, mcp_server_url: str, expected_mcp_url: str) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
+            mock_settings.MCP_SERVER_URL = mcp_server_url
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert configs == [
                 McpServerConfig(
@@ -252,7 +241,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_explicit_sandbox_mcp_url_takes_precedence(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = "https://custom-mcp.example.com/mcp"
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert configs == [
                 McpServerConfig(
@@ -267,13 +256,13 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_full_scopes_preset(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes="full")
             assert configs == [
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
@@ -282,7 +271,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_custom_scopes_with_write(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "feature_flag:write"]
             )
@@ -290,7 +279,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=self._expected_headers(read_only=False),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
@@ -299,7 +288,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_custom_scopes_read_only(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, scopes=["feature_flag:read", "insight:read"]
             )
@@ -307,52 +296,28 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=self._expected_headers(read_only=True),
                     description=POSTHOG_MCP_DESCRIPTION,
                 )
             ]
 
-    @parameterized.expand(
-        [("https://custom.example.com",)],
-    )
-    def test_returns_empty_list_for_unknown_hosts(self, site_url: str) -> None:
+    def test_empty_scopes_omit_posthog_mcp(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
-            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
+            mock_settings.SANDBOX_MCP_URL = "https://mcp.example.com/mcp"
+            mock_settings.MCP_SERVER_URL = "https://fallback.example.com/mcp"
+            assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, scopes=[]) == []
 
-    @parameterized.expand(
-        [
-            ("http://localhost:8000",),
-            ("http://127.0.0.1:8001",),
-        ]
-    )
-    def test_localhost_site_url_uses_host_docker_internal_mcp(self, site_url: str) -> None:
+    def test_returns_empty_list_when_no_mcp_server_url(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = site_url
-            configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
-            assert configs == [
-                McpServerConfig(
-                    type="http",
-                    name="posthog",
-                    url="http://host.docker.internal:8787/mcp",
-                    headers=self._expected_headers(),
-                    description=POSTHOG_MCP_DESCRIPTION,
-                )
-            ]
-
-    def test_returns_empty_list_when_no_site_url(self) -> None:
-        with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
-            mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = ""
+            mock_settings.MCP_SERVER_URL = ""
             assert get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID) == []
 
     def test_task_id_adds_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, task_id="task-uuid-123")
             assert configs[0].headers == [
                 *self._expected_headers(),
@@ -362,7 +327,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_origin_product_adds_task_origin_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID, origin_product="signals_scout")
             assert configs[0].headers == [
                 *self._expected_headers(),
@@ -372,7 +337,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_no_task_id_omits_attribution_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)
             assert all(h["name"] != "X-PostHog-Task-Id" for h in configs[0].headers)
 
@@ -382,7 +347,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
         # for "insights" or "feature flags" concludes it has no PostHog tools.
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             description = get_sandbox_ph_mcp_configs(self.TOKEN, self.PROJECT_ID)[0].description or ""
 
         for capability in ("insight", "dashboard", "feature flag", "experiment", "error", "sql"):
@@ -417,7 +382,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     ) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN,
                 self.PROJECT_ID,
@@ -429,7 +394,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
                 McpServerConfig(
                     type="http",
                     name="posthog",
-                    url="https://mcp.posthog.com/mcp",
+                    url="https://mcp.us.posthog.com/mcp",
                     headers=[
                         *self._expected_headers(consumer=expected_consumer),
                         *([{"name": "X-PostHog-Task-Origin", "value": origin_product}] if origin_product else []),
@@ -441,7 +406,7 @@ class TestGetSandboxMcpConfigs(SimpleTestCase):
     def test_exclude_tools_header(self) -> None:
         with patch("products.tasks.backend.temporal.process_task.utils.settings") as mock_settings:
             mock_settings.SANDBOX_MCP_URL = None
-            mock_settings.SITE_URL = "https://app.posthog.com"
+            mock_settings.MCP_SERVER_URL = "https://mcp.us.posthog.com/mcp"
             configs = get_sandbox_ph_mcp_configs(
                 self.TOKEN, self.PROJECT_ID, exclude_tools=["docs-search", "DOCS-SEARCH", "not a tool"]
             )
@@ -466,8 +431,52 @@ class TestMcpExcludeTools(SimpleTestCase):
         assert mcp_exclude_tools_from_state({"mcp_exclude_tools": "docs-search"}) == []
         assert mcp_exclude_tools_from_state(None) == []
 
+    @parameterized.expand(
+        [
+            ("no_profile", None, ["docs-search"], ["docs-search"]),
+            ("profile_only", ("user-get",), None, ["user-get"]),
+            ("profile_and_run", ("user-get",), ["docs-search", "user-get"], ["user-get", "docs-search"]),
+            ("profile_hides_nothing", (), ["docs-search"], ["docs-search"]),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_adds_the_run_to_the_profile(
+        self, _name: str, profile_tools: tuple[str, ...] | None, run_tools: list[str] | None, expected: list[str]
+    ) -> None:
+        task = MagicMock()
+        task.stored_profile = (
+            None if profile_tools is None else replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        )
+        state = None if run_tools is None else {"mcp_exclude_tools": run_tools}
+        assert mcp_exclude_tools_for_task(task, state) == expected
 
-class TestMcpServerConfigToDict(TestCase):
+    @parameterized.expand(
+        [
+            ("profile_and_run_fill_the_cap", 31, 1, False),
+            ("run_overflows_the_cap", 31, 2, True),
+            ("run_alone_overflows_the_cap", 0, 34, True),
+        ]
+    )
+    def test_mcp_exclude_tools_for_task_refuses_a_run_past_the_cap(
+        self, _name: str, profile_count: int, run_count: int, refused: bool
+    ) -> None:
+        profile_tools = tuple(f"profile-{i}" for i in range(profile_count))
+        run_tools = [f"run-{i}" for i in range(run_count)]
+        task = MagicMock()
+        task.stored_profile = replace(BUSINESS_KNOWLEDGE, mcp_exclude_tools=profile_tools)
+        labels = {"profile": BUSINESS_KNOWLEDGE.key}
+        before = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+
+        if refused:
+            with pytest.raises(ProcessTaskFatalError):
+                mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools})
+        else:
+            assert mcp_exclude_tools_for_task(task, {"mcp_exclude_tools": run_tools}) == [*profile_tools, *run_tools]
+
+        after = REGISTRY.get_sample_value("posthog_tasks_mcp_exclude_tools_over_cap_total", labels) or 0
+        assert after - before == (1 if refused else 0)
+
+
+class TestMcpServerConfigToDict(SimpleTestCase):
     def test_description_is_serialized_for_the_sandbox(self) -> None:
         # The agent server drops keys the schema doesn't declare, so an unserialized
         # description never reaches the agent's tool search.
@@ -510,7 +519,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     CREDENTIAL_OWNER_ID = 99
     API_BASE = "https://us.posthog.com"
 
-    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.get_installations_for_sandbox"
+    MOCK_FACADE = "products.tasks.backend.temporal.process_task.utils.resolve_installations_for_sandbox"
     MOCK_API_URL = "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url"
 
     def _make_installation(self, **kwargs) -> ActiveInstallation:
@@ -528,14 +537,42 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             {"name": "x-posthog-mcp-consumer", "value": consumer},
         ]
 
+    @parameterized.expand(
+        [
+            ("no_profile", None, None, True),
+            ("account_audit", "account_audit", None, False),
+            ("profile_without_store_servers", None, BUSINESS_KNOWLEDGE, False),
+            (
+                "profile_agent",
+                None,
+                replace(BUSINESS_KNOWLEDGE, key="test.support", mcp_store_servers=True, mcp_agent="support"),
+                True,
+            ),
+        ]
+    )
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
-    def test_builds_configs_from_facade_results(self, mock_facade, mock_api_url) -> None:
+    def test_builds_configs_from_facade_results(
+        self,
+        _name: str,
+        origin_product: str | None,
+        profile: TaskProfile | None,
+        mounts_store: bool,
+        mock_facade,
+        mock_api_url,
+    ) -> None:
         mock_api_url.return_value = self.API_BASE
         installation = self._make_installation()
-        mock_facade.return_value = [installation]
+        mock_facade.return_value = SandboxInstallations(mounted=(installation,))
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(
+            self.TOKEN, self.TEAM_ID, self.USER_ID, origin_product=origin_product, profile=profile
+        ).configs
+
+        if not mounts_store:
+            assert configs == []
+            mock_facade.assert_not_called()
+            return
 
         mock_facade.assert_called_once_with(
             self.TEAM_ID,
@@ -546,6 +583,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=profile is not None,
+            profile_agent_key=profile.mcp_agent if profile is not None else None,
         )
         assert configs == [
             McpServerConfig(
@@ -562,11 +601,11 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         # Connectors are mounted unconnected, so the agent's tool search matches them on this
         # description; without it "Linear" is only findable by literally searching "linear".
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(description="Manage Linear issues, projects, and workflows.")
-        ]
+        mock_facade.return_value = SandboxInstallations(
+            mounted=(self._make_installation(description="Manage Linear issues, projects, and workflows."),)
+        )
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs
 
         assert configs[0].description == "Manage Linear issues, projects, and workflows."
 
@@ -580,7 +619,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         # the member path (and only there), so this layer must hand it over untouched, an empty
         # selection included.
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = []
+        mock_facade.return_value = SandboxInstallations(mounted=())
 
         get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, allowed_installation_ids=allowed)
 
@@ -623,7 +662,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         mock_api_url,
     ) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [self._make_installation()]
+        mock_facade.return_value = SandboxInstallations(mounted=(self._make_installation(),))
 
         configs = get_user_mcp_server_configs(
             self.TOKEN,
@@ -632,7 +671,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             interaction_origin=interaction_origin,
             slack_reply_context=slack_reply_context,
             origin_product=origin_product,
-        )
+        ).configs
 
         assert configs[0].headers == self._expected_user_headers(consumer=expected_consumer)
 
@@ -642,15 +681,17 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         self, mock_facade, mock_api_url
     ) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(
-                id="shared-id",
-                name="Shared",
-                proxy_path="/api/mcp_store/gateway/servers/server-id/proxy/",
-                scope="shared",
-                proxy_token="agent-token",
-            ),
-        ]
+        mock_facade.return_value = SandboxInstallations(
+            mounted=(
+                self._make_installation(
+                    id="shared-id",
+                    name="Shared",
+                    proxy_path="/api/mcp_store/gateway/servers/server-id/proxy/",
+                    scope="shared",
+                    proxy_token="agent-token",
+                ),
+            )
+        )
 
         configs = get_user_mcp_server_configs(
             self.TOKEN,
@@ -660,7 +701,7 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             task_agent_key="support",
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_gateway_server_ids=["server-1"],
-        )
+        ).configs
 
         # The credential owner is forwarded separately from the acting user: the sandbox acts
         # as `user_id`, but it may only mount the grants belonging to the owner. The per-scout
@@ -674,6 +715,8 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=self.CREDENTIAL_OWNER_ID,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=["server-1"],
+            has_profile=False,
+            profile_agent_key=None,
         )
         assert configs == [
             McpServerConfig(
@@ -688,12 +731,25 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
         ]
         assert all(header["name"] != "X-PostHog-Task-Id" for header in configs[0].headers)
 
+    @parameterized.expand(
+        [
+            ("internal", True, None, False),
+            ("user_created", False, None, True),
+            ("profile_without_personal_mcp", False, BUSINESS_KNOWLEDGE, False),
+        ]
+    )
+    def test_include_personal_mcp_for_task(
+        self, _name: str, internal: bool, profile: TaskProfile | None, expected: bool
+    ) -> None:
+        task = MagicMock(internal=internal, stored_profile=profile)
+        assert include_personal_mcp_for_task(task) is expected
+
     @parameterized.expand([(True,), (False,)])
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_include_personal_is_forwarded_to_facade(self, include_personal: bool, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = []
+        mock_facade.return_value = SandboxInstallations(mounted=())
 
         get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID, include_personal=include_personal)
 
@@ -706,23 +762,25 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
             credential_owner_id=None,
             allowed_installation_ids=None,
             allowed_gateway_server_ids=None,
+            has_profile=False,
+            profile_agent_key=None,
         )
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_returns_empty_when_no_installations(self, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = []
+        mock_facade.return_value = SandboxInstallations(mounted=())
 
-        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID) == []
+        assert get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs == []
 
     @patch(MOCK_API_URL)
     @patch(MOCK_FACADE)
     def test_strips_trailing_slash_from_api_url(self, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = "https://us.posthog.com/"
-        mock_facade.return_value = [self._make_installation()]
+        mock_facade.return_value = SandboxInstallations(mounted=(self._make_installation(),))
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs
 
         assert configs[0].url.startswith("https://us.posthog.com/api/")
 
@@ -730,16 +788,18 @@ class TestFetchUserMcpServerConfigs(SimpleTestCase):
     @patch(MOCK_FACADE)
     def test_multiple_installations(self, mock_facade, mock_api_url) -> None:
         mock_api_url.return_value = self.API_BASE
-        mock_facade.return_value = [
-            self._make_installation(
-                id="abc-1", name="Linear", proxy_path="/api/environments/42/mcp_server_installations/abc-1/proxy/"
-            ),
-            self._make_installation(
-                id="abc-2", name="Notion", proxy_path="/api/environments/42/mcp_server_installations/abc-2/proxy/"
-            ),
-        ]
+        mock_facade.return_value = SandboxInstallations(
+            mounted=(
+                self._make_installation(
+                    id="abc-1", name="Linear", proxy_path="/api/environments/42/mcp_server_installations/abc-1/proxy/"
+                ),
+                self._make_installation(
+                    id="abc-2", name="Notion", proxy_path="/api/environments/42/mcp_server_installations/abc-2/proxy/"
+                ),
+            )
+        )
 
-        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID)
+        configs = get_user_mcp_server_configs(self.TOKEN, self.TEAM_ID, self.USER_ID).configs
 
         assert len(configs) == 2
         assert configs[0].name == "Linear"
@@ -751,6 +811,7 @@ class TestGetGitIdentityEnvVars(TestCase):
     def _make_task(origin_product: str, user: object | None = None) -> MagicMock:
         task = MagicMock(spec=Task)
         task.origin_product = origin_product
+        task.stored_profile = None
         task.created_by = user
         return task
 
@@ -774,9 +835,10 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_EMAIL": "jane@example.com",
         }
 
-    def test_user_created_with_explicit_bot_mode_returns_empty(self) -> None:
+    @parameterized.expand([(Task.OriginProduct.USER_CREATED,), (Task.OriginProduct.POSTHOG_AI,)])
+    def test_user_authorable_origin_with_explicit_bot_mode_returns_empty(self, origin_product: str) -> None:
         user = self._make_user()
-        task = self._make_task(Task.OriginProduct.USER_CREATED, user=user)
+        task = self._make_task(origin_product, user=user)
         assert get_git_identity_env_vars(task, {"pr_authorship_mode": "bot"}) == {}
 
     def test_non_user_created_with_explicit_user_mode_returns_user_identity(self) -> None:
@@ -815,6 +877,11 @@ class TestGetGitIdentityEnvVars(TestCase):
             "GIT_COMMITTER_EMAIL": "slack@example.com",
         }
 
+    def test_posthog_ai_without_marker_returns_empty(self) -> None:
+        user = self._make_user()
+        task = self._make_task(Task.OriginProduct.POSTHOG_AI, user=user)
+        assert get_git_identity_env_vars(task) == {}
+
     def test_user_created_without_user_returns_empty(self) -> None:
         task = self._make_task(Task.OriginProduct.USER_CREATED, user=None)
         assert get_git_identity_env_vars(task) == {}
@@ -852,6 +919,205 @@ class TestGetGithubToken(TestCase):
 
         with self.assertRaises(CredentialUnavailableError):
             get_github_token(integration.id)
+
+    @override_settings(
+        TASKS_REDIS_URL="",
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    )
+    def test_forgetting_cached_tokens_forces_a_fresh_scoped_mint(self):
+        from posthog.egress.limiter.policies import Priority
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.integration import GitHubIntegration
+
+        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.temporal.process_task.utils import forget_cached_github_tokens, get_github_token
+
+        get_tasks_cache().clear()
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"type": "Organization", "name": "Acme"}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+
+        with patch.object(GitHubIntegration, "mint_scoped_installation_token", side_effect=["ghs_1", "ghs_2"]) as mint:
+            first = [get_github_token(integration.id, repositories=["acme/api"]) for _ in range(2)]
+            forget_cached_github_tokens(
+                GitHubIntegration(integration, source="tasks_sandbox", priority=Priority.CRITICAL), ["Acme/API"]
+            )
+            second = get_github_token(integration.id, repositories=["acme/api"])
+
+        assert first == ["ghs_1", "ghs_1"]
+        assert second == "ghs_2"
+        assert mint.call_count == 2
+
+    @parameterized.expand(
+        [
+            ("renamed_account", "OldAcme", ["acme/api"], ["api"], "ghs_scoped"),
+            ("dedupes_owner_and_case", "Acme", ["Acme/API", "acme/api", "acme/web"], ["api", "web"], "ghs_scoped"),
+            ("drops_public_bootstrap_repo", "Acme", ["acme/web", "PostHog/.github"], ["web"], "ghs_scoped"),
+            ("public_bootstrap_only_keeps_shared_token", "Acme", ["PostHog/.github"], None, "ghs_shared"),
+            ("drops_repo_another_account_owns", "Acme", ["acme/web", "evilorg/api"], ["web"], "ghs_scoped"),
+            ("another_account_only_gets_no_token", "Acme", ["evilorg/api"], None, None),
+            ("placeholder_account_rejects_other_owner", "INSTALL", ["evilorg/api"], None, None),
+            ("placeholder_account_heals", "INSTALL", ["acme/api"], ["api"], "ghs_scoped"),
+            ("missing_account_heals", None, ["acme/api"], ["api"], "ghs_scoped"),
+            ("placeholder_heal_fails", "INSTALL", ["evilorg/api"], None, None, 500),
+            ("missing_heal_fails", None, ["acme/api"], None, None, 500),
+        ]
+    )
+    def test_repositories_get_a_cached_scoped_token_instead_of_the_shared_one(
+        self, _name, account_name, repositories, expected_mint_repositories, expected_token, lookup_status=200
+    ):
+        from posthog.models import Integration, Organization, Team
+        from posthog.models.integration import GitHubIntegration
+
+        from products.tasks.backend.redis import get_tasks_cache
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        get_tasks_cache().clear()
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"type": "Organization", "name": account_name}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+
+        with (
+            patch.object(GitHubIntegration, "mint_scoped_installation_token", return_value="ghs_scoped") as mint,
+            patch.object(
+                GitHubIntegration,
+                "client_request",
+                return_value=MagicMock(
+                    status_code=lookup_status, json=lambda: {"account": {"login": "Acme", "type": "Organization"}}
+                ),
+            ) as lookup,
+        ):
+            tokens = [get_github_token(integration.id, repositories=repositories) for _ in range(2)]
+
+        if account_name in ("OldAcme", "INSTALL", None) or (
+            account_name == "Acme" and any(r.startswith("evilorg/") for r in repositories)
+        ):
+            lookup.assert_called_once_with("installations/INSTALL")
+        else:
+            lookup.assert_not_called()
+        assert tokens == [expected_token, expected_token]
+        if expected_mint_repositories is None:
+            mint.assert_not_called()
+        else:
+            mint.assert_called_once_with(None, repositories=expected_mint_repositories)
+
+    @parameterized.expand(
+        [
+            ("mixed_public_and_installed", ["api", "web"], 200, {"id": 9, "private": False}, ["web"]),
+            ("public_only", ["api"], 200, {"id": 9, "private": False}, []),
+            ("renamed_private", ["api"], 200, {"id": 2, "private": True}, ["new-api"]),
+            ("renamed_public_installed", ["api"], 200, {"id": 2, "private": False}, ["new-api"]),
+            ("deduplicates_renamed_repo", ["api", "new-api"], 200, {"id": 2, "private": True}, ["new-api"]),
+            ("installed_only", ["web"], 200, {}, ["web"]),
+            ("private_outside_installation", ["api"], 200, {"id": 9, "private": True}, None),
+            ("private_transferred", ["api"], 200, {"id": 7, "private": True}, None),
+            ("internal_not_public", ["api"], 200, {"id": 9, "private": False, "visibility": "internal"}, None),
+            ("missing_visibility", ["api"], 200, {"id": 9}, None),
+            ("not_found", ["api"], 404, {}, None),
+            ("upstream_error", ["api"], 503, {}, None),
+        ]
+    )
+    @override_settings(
+        TASKS_REDIS_URL="",
+        CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}},
+    )
+    def test_recovers_scoped_mint_using_repository_identity_and_visibility(
+        self,
+        _name: str,
+        names: list[str],
+        probe_status: int,
+        metadata: dict,
+        expected_names: list[str] | None,
+    ) -> None:
+        get_tasks_cache().clear()
+        organization = Organization.objects.create(name="repository-access")
+        team = Team.objects.create(organization=organization, name="repository-access")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "acme"}},
+            sensitive_config={"access_token": "ghs_shared"},
+        )
+        installed = [
+            {"id": 1, "name": "web", "full_name": "acme/web"},
+            {"id": 2, "name": "new-api", "full_name": "acme/new-api"},
+            {"id": 7, "name": "api", "full_name": "another-owner/api"},
+        ]
+        responses = [MagicMock(status_code=200, json=lambda: {"repositories": installed})]
+        if "api" in names:
+            responses.append(MagicMock(status_code=probe_status, json=lambda: metadata))
+        with (
+            time_machine.travel("2026-01-01", tick=False) as clock,
+            patch.object(
+                GitHubIntegration,
+                "mint_scoped_installation_token",
+                side_effect=[GitHubIntegrationError("repository scope rejected", status_code=422), "ghs_scoped"],
+            ) as mint,
+            patch.object(GitHubIntegration, "api_request", side_effect=responses) as request,
+        ):
+            repositories = [f"acme/{name}" for name in names]
+            if expected_names is None:
+                expected_error = GitHubIntegrationError if probe_status >= 500 else CredentialUnavailableError
+                with self.assertRaises(expected_error) as raised:
+                    get_github_token(integration.id, repositories)
+                if isinstance(raised.exception, GitHubIntegrationError):
+                    assert raised.exception.status_code == probe_status
+                else:
+                    assert "acme/api" in str(raised.exception)
+                    assert "installation settings" in str(raised.exception)
+            else:
+                token = get_github_token(integration.id, repositories)
+                assert token == ("ghs_scoped" if expected_names else None)
+                assert get_github_token(integration.id, repositories) == token
+                if not expected_names:
+                    clock.shift(299)
+                    assert get_github_token(integration.id, repositories) is None
+                    clock.shift(2)
+                    assert get_github_token(integration.id, repositories) == "ghs_scoped"
+
+        expected_calls = [call(None, repositories=sorted(names))]
+        if expected_names:
+            expected_calls.append(call(None, repositories=expected_names))
+        elif expected_names == []:
+            expected_calls.append(call(None, repositories=sorted(names)))
+        assert mint.call_args_list == expected_calls
+        assert request.call_count == (2 if "api" in names else 1)
+        integration.refresh_from_db()
+        assert integration.repository_cache == installed
+
+    @parameterized.expand([(401,), (403,), (500,)])
+    def test_non_scope_mint_failures_do_not_probe_repositories(self, status_code: int) -> None:
+        get_tasks_cache().clear()
+        organization = Organization.objects.create(name="repository-access")
+        team = Team.objects.create(organization=organization, name="repository-access")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            integration_id="INSTALL",
+            config={"installation_id": "INSTALL", "account": {"name": "acme"}},
+        )
+        error = GitHubIntegrationError("mint failed", status_code=status_code)
+        with (
+            patch.object(GitHubIntegration, "mint_scoped_installation_token", side_effect=error),
+            patch.object(GitHubIntegration, "api_request") as request,
+            self.assertRaises(GitHubIntegrationError) as raised,
+        ):
+            get_github_token(integration.id, ["acme/api"])
+        assert raised.exception is error
+        request.assert_not_called()
 
 
 class TestSlackTaskRunActorUser(TestCase):
@@ -910,7 +1176,54 @@ class TestSlackTaskRunActorUser(TestCase):
         assert get_task_run_credential_user(task, state) == creator
 
 
-class TestGetSandboxGitHubToken(TestCase):
+class TestGetUserGithubIntegration(TestCase):
+    def test_a_flagged_install_is_skipped_for_a_healthy_one(self) -> None:
+        user = User.objects.create(email="two-installs@example.com")
+        flagged = UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="111",
+            config={"installation_id": "111"},
+            sensitive_config={"user_access_token": "gho_a", "user_refresh_token": "ghr_a"},
+        )
+        UserIntegration.objects.create(
+            user=user,
+            kind="github",
+            integration_id="222",
+            config={"installation_id": "222"},
+            sensitive_config={"user_access_token": "gho_b", "user_refresh_token": "ghr_b"},
+        )
+        UserGitHubIntegration(flagged, source="test", priority=Priority.CRITICAL)._mark_needs_reauthorization(
+            "refresh rejected by GitHub: bad_refresh_token"
+        )
+
+        resolved = get_user_github_integration(user)
+
+        assert resolved is not None
+        assert resolved.integration.integration_id == "222"
+
+
+class TestResolveUserGithubIntegrationForTask(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_access", {"github_access": "none"}, False),
+            ("read_access", {"github_access": "read"}, True),
+            ("no_limit", None, True),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_integration")
+    def test_a_task_without_github_access_resolves_no_personal_integration(
+        self, _name: str, options: dict | None, resolves: bool, mock_get_identity: MagicMock
+    ) -> None:
+        identity = MagicMock(name="identity")
+        mock_get_identity.return_value = identity
+
+        resolved = resolve_user_github_integration_for_task(Task(options=options), actor_user=MagicMock())
+
+        assert resolved is (identity if resolves else None)
+
+
+class TestGetSandboxGitHubToken(SimpleTestCase):
     @parameterized.expand(
         [
             ("cached_token_wins", "ghu_cached", True, "ghu_user", None, "ghu_cached"),
@@ -971,9 +1284,36 @@ class TestGetSandboxGitHubToken(TestCase):
             if has_identity:
                 mock_resolve.assert_called_once_with(identity)
         if error_case in ("missing", "reauthorization", "empty_token"):
-            mock_get_github_token.assert_called_once_with(123)
+            mock_get_github_token.assert_called_once_with(123, repositories=[])
         else:
             mock_get_github_token.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("no_access_user_authored", {"github_access": "none"}, "user", None),
+            ("no_access_bot_authored", {"github_access": "none"}, "bot", None),
+            ("read_access_user_authored", {"github_access": "read"}, "user", "ghp_cached"),
+            ("no_limit_bot_authored", None, "bot", "ghs_team"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token", return_value="ghs_team")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_cached_github_user_token", return_value="ghp_cached")
+    def test_a_task_without_github_access_resolves_no_token(
+        self,
+        _name: str,
+        options: dict | None,
+        mode: str,
+        expected: str | None,
+        _mock_cached: MagicMock,
+        _mock_get_github_token: MagicMock,
+    ) -> None:
+        task = Task(options=options, github_integration_id=123)
+
+        token = get_sandbox_github_token(
+            123, run_id="run-1", state={"pr_authorship_mode": mode}, task=task, repository="posthog/posthog"
+        )
+
+        assert token == expected
 
     @parameterized.expand(
         [
@@ -1008,14 +1348,70 @@ class TestGetSandboxGitHubToken(TestCase):
                 created_by=MagicMock(name="creator"),
             )
 
+    @parameterized.expand(
+        [
+            ("repo_less", {}, None, []),
+            ("task_repository", {}, "acme/api", ["acme/api"]),
+            ("pinned_list_ignores_changed_task_repository", {"repositories": ["acme/api"]}, "acme/new", ["acme/api"]),
+            ("empty_pinned_list_ignores_task_repository", {"repositories": []}, "acme/api", []),
+            (
+                "access_list_widens_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": ["acme/api", "acme/assets"]},
+                "acme/api",
+                ["acme/api", "acme/assets"],
+            ),
+            (
+                "empty_access_list_keeps_clone_list",
+                {"repositories": ["acme/api"], "github_access_repositories": []},
+                "acme/api",
+                ["acme/api"],
+            ),
+        ]
+    )
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
-    def test_bot_authorship_uses_installation_token(self, mock_get_github_token) -> None:
+    def test_bot_authorship_scopes_installation_token_to_run_repositories(
+        self, _name, extra_state, repository, expected_repositories, mock_get_github_token
+    ) -> None:
         mock_get_github_token.return_value = "ghs_bot"
 
-        result = get_sandbox_github_token(123, run_id="run-1", state={"pr_authorship_mode": "bot"})
+        result = get_sandbox_github_token(
+            123, run_id="run-1", state={"pr_authorship_mode": "bot", **extra_state}, repository=repository
+        )
 
         assert result == "ghs_bot"
-        mock_get_github_token.assert_called_once_with(123)
+        mock_get_github_token.assert_called_once_with(123, repositories=expected_repositories)
+
+    @parameterized.expand(
+        [
+            ("bot_authored_push", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("user_authored_push", "user", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("bot_authored_read", "bot", "read", READONLY_SANDBOX_GITHUB_PERMISSIONS, 123),
+            ("no_attached_installation", "bot", "push", PUSH_SANDBOX_GITHUB_PERMISSIONS, None),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.get_user_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
+    @patch("products.tasks.backend.temporal.process_task.utils.get_scoped_github_token")
+    def test_scoped_run_mints_only_from_the_attached_installation(
+        self, _name, authorship, scope, permissions, integration_id, mock_scoped, mock_full, mock_user_install
+    ) -> None:
+        mock_scoped.return_value = "ghs_scoped"
+
+        result = get_sandbox_github_token(
+            integration_id,
+            run_id="run-1",
+            state={"pr_authorship_mode": authorship, "github_token_scope": scope, "repositories": ["acme/api"]},
+            github_user_integration_id="user-install",
+        )
+
+        if integration_id is None:
+            assert result is None
+            mock_scoped.assert_not_called()
+        else:
+            assert result == "ghs_scoped"
+            mock_scoped.assert_called_once_with(integration_id, ["acme/api"], permissions)
+        mock_full.assert_not_called()
+        mock_user_install.assert_not_called()
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_no_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
@@ -1024,7 +1420,7 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(123, run_id="run-1", state=None)
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123)
+        mock_get_github_token.assert_called_once_with(123, repositories=[])
 
     @patch("products.tasks.backend.temporal.process_task.utils.get_github_token")
     def test_empty_state_falls_through_to_installation_token(self, mock_get_github_token) -> None:
@@ -1033,7 +1429,7 @@ class TestGetSandboxGitHubToken(TestCase):
         result = get_sandbox_github_token(123, run_id="run-1", state={})
 
         assert result == "ghs_default"
-        mock_get_github_token.assert_called_once_with(123)
+        mock_get_github_token.assert_called_once_with(123, repositories=[])
 
     def test_no_integration_id_returns_none(self) -> None:
         result = get_sandbox_github_token(None, run_id="run-1", state={"pr_authorship_mode": "bot"})
@@ -1146,11 +1542,45 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         ):
             assert is_caller_token_run("run-1", {}) is expected
 
-    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(self) -> None:
+    @parameterized.expand(
+        [
+            ("no_repository", None, "ghs_user_scoped"),
+            ("repository_the_user_can_open", "acme/web-app", "ghs_user_scoped"),
+            ("renamed_repository_the_user_can_open", "acme/old-web-app", "ghs_user_scoped"),
+            ("repository_the_user_cannot_open", "acme/secret", None),
+        ]
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    @patch("posthog.models.user_integration.github_request")
+    def test_bot_authorship_falls_back_to_user_install_token_when_team_integration_missing(
+        self,
+        _name: str,
+        repository: str | None,
+        expected: str | None,
+        mock_user_request: MagicMock,
+        mock_client_request: MagicMock,
+    ) -> None:
         from posthog.models import Organization, Team
         from posthog.models.user import User
         from posthog.models.user_integration import UserIntegration
 
+        get_tasks_cache().clear()
+        user_responses = {
+            "/user/installations/install-1/repositories": (
+                200,
+                {"total_count": 1, "repositories": [{"name": "web-app"}]},
+            ),
+            "/repos/acme/web-app": (200, {"full_name": "acme/web-app"}),
+            "/repos/acme/old-web-app": (200, {"full_name": "acme/web-app"}),
+            "/repos/acme/secret": (404, {"message": "Not Found"}),
+        }
+
+        def user_request(method: str, url: str, **kwargs: object) -> MagicMock:
+            status, body = user_responses[url.removeprefix("https://api.github.com")]
+            return MagicMock(status_code=status, headers={}, json=lambda: body)
+
+        mock_user_request.side_effect = user_request
+        mock_client_request.return_value = MagicMock(status_code=201, json=lambda: {"token": "ghs_user_scoped"})
         organization = Organization.objects.create(name="bot-fallback-org")
         Team.objects.create(organization=organization, name="bot-fallback-team")
         user = User.objects.create(email="bot-fallback@test.com")
@@ -1158,8 +1588,8 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             user=user,
             kind=UserIntegration.IntegrationKind.GITHUB,
             integration_id="install-1",
-            config={},
-            sensitive_config={"access_token": "ghs_user_install"},
+            config={"installation_id": "install-1", "account": {"name": "acme"}},
+            sensitive_config={"access_token": "ghs_user_install", "user_access_token": "ghu_user"},
         )
 
         result = get_sandbox_github_token(
@@ -1167,9 +1597,14 @@ class TestGitHubCredentialSourceHelpers(TestCase):
             run_id="run-1",
             state={"pr_authorship_mode": "bot"},
             github_user_integration_id=str(user_integration.id),
+            repository=repository,
         )
 
-        assert result == "ghs_user_install"
+        assert result == expected
+        minted = [call.kwargs.get("json_body", {}).get("repositories") for call in mock_client_request.call_args_list]
+        assert all(repositories == ["web-app"] for repositories in minted)
+        listed_all = any("/user/installations/" in call.args[1] for call in mock_user_request.call_args_list)
+        assert listed_all is (repository is None)
 
     def test_bot_authorship_prefers_team_integration_over_user_install_token(self) -> None:
         from posthog.models import Integration, Organization, Team
@@ -1204,7 +1639,7 @@ class TestGitHubCredentialSourceHelpers(TestCase):
         assert result == "ghs_team"
 
 
-class TestBuildImportedMcpServerConfigs(TestCase):
+class TestBuildImportedMcpServerConfigs(SimpleTestCase):
     def test_returns_empty_for_none_empty_or_non_list(self):
         assert build_imported_mcp_server_configs(None, set()) == []
         assert build_imported_mcp_server_configs([], {"posthog"}) == []
@@ -1262,7 +1697,7 @@ class TestBuildImportedMcpServerConfigs(TestCase):
         assert [c.name for c in configs] == ["Grafana"]
 
 
-class TestGetImportedMcpServerConfigs(TestCase):
+class TestGetImportedMcpServerConfigs(SimpleTestCase):
     """The claude-only adapter gate — codex-acp hard-fails a session on any unreachable MCP server
     and the sandbox does no reachability pruning, so imported servers must not enter a codex run."""
 
@@ -1282,7 +1717,7 @@ class TestGetImportedMcpServerConfigs(TestCase):
         assert get_imported_mcp_server_configs(self._task_run("codex"), set()) == []
 
 
-class TestGetRelayedMcpServerNames(TestCase):
+class TestGetRelayedMcpServerNames(SimpleTestCase):
     @staticmethod
     def _task_run(relayed_mcp_servers):
         return MagicMock(relayed_mcp_servers=relayed_mcp_servers)
@@ -1365,7 +1800,11 @@ _CTX, _TASK = _gateway_ctx_task()
     "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
     return_value="https://us.posthog.com",
 )
-class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
+class TestBuildSandboxEnvironmentVariablesGateway(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+
     def _build(self):
         ctx, task = _gateway_ctx_task()
         return build_sandbox_environment_variables(github_token=None, access_token="tok", ctx=ctx, task=task)
@@ -1395,6 +1834,11 @@ class TestBuildSandboxEnvironmentVariablesGateway(TestCase):
 
 
 class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
+
+    @parameterized.expand([False, True])
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
         return_value="pub",
@@ -1403,17 +1847,30 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
         "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
         return_value="https://api.example",
     )
-    def test_snapshot_resume_env_includes_otel_config_when_configured(self, _api, _jwt) -> None:
-        with override_settings(
-            SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
-            SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
-            SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+    def test_snapshot_resume_env_includes_otel_config_when_configured(self, is_trial: bool, _api, _jwt) -> None:
+        ctx, task = _gateway_ctx_task()
+        task.is_scout_experiment = is_trial
+        with (
+            override_settings(
+                SCOUT_LIVE_TRIALS_PRIVATE_CAPTURE=True,
+                AI_GATEWAY_URL="https://ai-gateway.example.com/v1",
+                SANDBOX_AI_GATEWAY_URL="https://ai-gateway.example.com",
+                SANDBOX_AI_GATEWAY_MINT_KEY="phs_test_mint",
+                SANDBOX_AGENT_OTEL_LOGS_URL="https://us.i.posthog.com/i/v1/logs",
+                SANDBOX_AGENT_OTEL_LOGS_TOKEN="phc_telemetry",
+                SANDBOX_AGENT_OTEL_TRACES_URL="https://us.i.posthog.com/i/v1/traces",
+            ),
+            patch("products.tasks.backend.temporal.process_task.ai_gateway_token.requests.post") as post,
         ):
-            env = build_sandbox_environment_variables(None, "access-token", _CTX, _TASK, otel_telemetry_enabled=True)
+            post.return_value.status_code = 201
+            post.return_value.json.return_value = {"token": "phe_private", "capture_mode": "none"}
+            env = build_sandbox_environment_variables(None, "access-token", ctx, task, otel_telemetry_enabled=True)
 
-        assert env["POSTHOG_AGENT_OTEL_LOGS_URL"] == "https://us.i.posthog.com/i/v1/logs"
-        assert env["POSTHOG_AGENT_OTEL_LOGS_TOKEN"] == "phc_telemetry"
-        assert env["POSTHOG_AGENT_OTEL_TRACES_URL"] == "https://us.i.posthog.com/i/v1/traces"
+        assert env.get("POSTHOG_AGENT_OTEL_LOGS_URL") == (None if is_trial else "https://us.i.posthog.com/i/v1/logs")
+        assert env.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "phc_telemetry")
+        assert env.get("POSTHOG_AGENT_OTEL_TRACES_URL") == (
+            None if is_trial else "https://us.i.posthog.com/i/v1/traces"
+        )
 
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
@@ -1537,6 +1994,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _profile_without_user_authorable_prs(self) -> None:
+        self.connect_personal_github()
+        self.task.profile = "business_knowledge"
+        self.task.save(update_fields=["profile"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -1549,6 +2011,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("already_user_authored",),
             ("caller_token_run",),
             ("signal_report_origin",),
+            ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
         ]
     )
@@ -1584,18 +2047,44 @@ class TestIsBotAuthorshipFallback(_AuthorshipFixture):
         self.task.origin_product = Task.OriginProduct.SIGNAL_REPORT
         self.task.save(update_fields=["origin_product"])
 
+    def _profile_without_user_authorable_prs(self) -> None:
+        self.task.profile = "business_knowledge"
+        self.task.save(update_fields=["profile"])
+
     @parameterized.expand(
         [
             ("user_authored",),
             ("caller_token_run",),
             ("signal_report_run",),
             ("signal_report_origin",),
+            ("profile_without_user_authorable_prs",),
         ]
     )
     def test_nothing_is_flagged(self, case: str) -> None:
         getattr(self, f"_{case}")()
 
         assert is_bot_authorship_fallback(self.task, str(self.task_run.id), self.task_run.state) is False
+
+
+class TestGetPrAuthorshipMode(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("profile_wins_over_origin", "business_knowledge", None, PrAuthorshipMode.BOT),
+            ("unregistered_profile_uses_origin", "test.unregistered", None, PrAuthorshipMode.USER),
+            (
+                "run_state_wins_over_profile",
+                "business_knowledge",
+                {"pr_authorship_mode": "user"},
+                PrAuthorshipMode.USER,
+            ),
+        ]
+    )
+    def test_reads_run_state_then_profile_then_origin(
+        self, _name: str, profile: str, state: dict | None, expected: PrAuthorshipMode
+    ) -> None:
+        task = Task(origin_product=Task.OriginProduct.USER_CREATED, profile=profile)
+
+        assert get_pr_authorship_mode(task, state) == expected
 
 
 class TestMcpExecSkillsEnvVars(SimpleTestCase):
@@ -1606,23 +2095,26 @@ class TestMcpExecSkillsEnvVars(SimpleTestCase):
             ("eval_flag_on", "eval", None, True, True),
             ("desktop_keeps_bundled_skills_even_with_flag_on", None, None, True, False),
             ("web_phai_flag_off", "posthog_ai", None, False, False),
+            ("caller_disables_skills", None, "signal_report", False, True, True),
             ("web_phai_task_without_interaction_origin_flag_on", None, "posthog_ai", True, True),
             ("web_phai_task_without_interaction_origin_flag_off", None, "posthog_ai", False, False),
         ]
     )
-    def test_strips_bundled_skills_only_for_learn_capable_runs_with_the_flag_on(
+    def test_strips_bundled_skills_for_caller_or_learn_capable_runs(
         self,
         _name: str,
         interaction_origin: str | None,
         origin_product: str | None,
         flag_enabled: bool,
         expect_stripped: bool,
+        disable_skills: bool = False,
     ) -> None:
         ctx = MagicMock(
             interaction_origin=interaction_origin,
             origin_product=origin_product,
             organization_id="org-1",
             distinct_id="user-1",
+            state={"disable_skills": disable_skills},
         )
         with patch(
             "products.tasks.backend.temporal.process_task.utils.is_mcp_exec_skills_enabled", return_value=flag_enabled
@@ -1630,7 +2122,7 @@ class TestMcpExecSkillsEnvVars(SimpleTestCase):
             env = mcp_exec_skills_env_vars(ctx)
 
         assert env == ({"POSTHOG_CODE_DISABLE_BUNDLED_SKILLS": "1"} if expect_stripped else {})
-        if interaction_origin is None and origin_product is None:
+        if disable_skills or (interaction_origin is None and origin_product is None):
             flag_check.assert_not_called()
         else:
             flag_check.assert_called_once_with("org-1", "user-1")

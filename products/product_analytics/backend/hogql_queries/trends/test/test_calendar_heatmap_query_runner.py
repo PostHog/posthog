@@ -3,8 +3,6 @@ from typing import Optional
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
-from django.conf import settings
-
 from parameterized import parameterized
 
 from posthog.schema import (
@@ -18,7 +16,7 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.product_analytics.backend.hogql_queries.trends.calendar_heatmap_query_runner import (
     CalendarHeatmapQueryRunner,
 )
@@ -282,7 +280,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results_dict.get((6, 10)) == 1, f"Expected 1 custom event, got {results_dict.get((6, 10))}"
 
     def test_action_conversion_goal(self):
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Did Custom Event",
             steps_json=[
@@ -694,7 +692,7 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def test_complex_actions_with_multiple_steps(self):
         """Test calendar heatmap with complex actions containing multiple steps"""
         # Create a complex action with multiple events
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="Complex User Journey",
             steps_json=[
@@ -961,13 +959,11 @@ class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[{"key": "empty_string", "value": ""}],
         )
         results_dict = {(r.row, r.column): r.value for r in response.results.data}
-        # On the native-JSON table an empty value is absent, like a materialized column, so the filter matches nothing.
-        expected_matches = 0 if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else 1
-        assert (results_dict.get((6, 10)) or 0) == expected_matches, (
-            f"Expected {expected_matches} empty string event(s) at 10:00, got {results_dict.get((6, 10))}"
+        assert results_dict.get((6, 10)) == 1, (
+            f"Expected 1 empty string event at 10:00, got {results_dict.get((6, 10))}"
         )
-        assert response.results.allAggregations == expected_matches, (
-            f"Expected {expected_matches} total empty string event(s), got {response.results.allAggregations}"
+        assert response.results.allAggregations == 1, (
+            f"Expected 1 total empty string event, got {response.results.allAggregations}"
         )
 
         # Test with non-existent property filter

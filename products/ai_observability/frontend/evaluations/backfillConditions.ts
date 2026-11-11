@@ -35,8 +35,15 @@ export function backfillCoveredCount(backfill: EvaluationBackfillApi): number {
     const covered =
         backfill.status === 'completed' && backfill.remaining_count !== null
             ? total - backfill.remaining_count
-            : backfill.dispatched_count + backfill.skipped_count
+            : backfillHandledCount(backfill) + backfill.skipped_count
     return clamp(covered, 0, total)
+}
+
+/** Runs that tracked outcomes count only finished evaluations, so a failed run is not covered. */
+function backfillHandledCount(backfill: EvaluationBackfillApi): number {
+    return backfill.completed_count != null
+        ? backfill.completed_count + backfill.evaluation_skipped_count
+        : backfill.dispatched_count
 }
 
 /** A rerun dispatches every unit, so only a run over ungraded units has a gap the live path filled. */
@@ -44,5 +51,5 @@ export function backfillLiveCoveredCount(backfill: EvaluationBackfillApi): numbe
     if (backfill.rerun_existing || backfill.status !== 'completed' || backfill.remaining_count === null) {
         return 0
     }
-    return Math.max(0, backfillCoveredCount(backfill) - backfill.dispatched_count - backfill.skipped_count)
+    return Math.max(0, backfillCoveredCount(backfill) - backfillHandledCount(backfill) - backfill.skipped_count)
 }

@@ -1,5 +1,6 @@
 """Jira integration."""
 
+import re
 import time
 from datetime import timedelta
 from typing import Any, NoReturn
@@ -9,20 +10,121 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.integrations.contracts import IntegrationRecord
 
 from . import common, model, oauth
+from .assignees import MAX_ASSIGNEES, Assignee, AssigneeLookupFailed, ReconnectRequired
 
 logger = structlog.get_logger(__name__)
+
+OPENING_FENCE = re.compile(r"(?P<fence>`{3,})(?P<language>[^`]*)")
+CLOSING_FENCE = re.compile(r"(?P<fence>`{3,})[ \t]*")
+# A backtick ends the URL, so that the closing backtick of inline code stays outside the link.
+URL = re.compile(r"https?://[^\s<>\"'`]+")
+# Punctuation that usually ends the sentence around a URL rather than belonging to it. `*`, `_` and `~` close Markdown
+# emphasis around a URL, and GitHub's autolinks leave them out for the same reason.
+URL_TRAILING_PUNCTUATION = ".,;:!?*_~"
+
+
+def trim_url(url: str) -> str:
+    """Drops trailing punctuation, and a closing parenthesis that has no opening one in the URL.
+
+    The descriptions are user input of any length, so the parentheses are counted once and the URL is cut once,
+    keeping this linear like the fence handling.
+    """
+    unmatched_closing = url.count(")") - url.count("(")
+    end = len(url)
+    while end:
+        last = url[end - 1]
+        if last in URL_TRAILING_PUNCTUATION:
+            end -= 1
+        elif last == ")" and unmatched_closing > 0:
+            unmatched_closing -= 1
+            end -= 1
+        else:
+            break
+    return url[:end]
+
+
+def text_to_adf_nodes(text: str) -> list[dict[str, Any]]:
+    """Splits text into ADF text nodes, giving each URL a link mark.
+
+    Jira only turns URLs into links when someone types them in its editor, so a URL sent through the API as plain
+    text stays plain text and can't be clicked.
+    """
+    nodes: list[dict[str, Any]] = []
+    position = 0
+    for match in URL.finditer(text):
+        url = trim_url(match.group())
+        if not url:
+            continue
+        start = match.start()
+        if start > position:
+            nodes.append({"type": "text", "text": text[position:start]})
+        nodes.append({"type": "text", "text": url, "marks": [{"type": "link", "attrs": {"href": url}}]})
+        position = start + len(url)
+    if position < len(text):
+        nodes.append({"type": "text", "text": text[position:]})
+    return nodes
+
+
+def description_to_adf(description: str) -> dict[str, Any]:
+    """Markdown code fences become ADF code blocks, because Jira shows the backticks literally otherwise. URLs outside
+    code blocks become links.
+
+    The fences follow CommonMark, so Jira shows the same blocks that GitHub would: a closing fence is at least as
+    long as its opening fence, and a fence without a closing line runs to the end. Each line is read once, so a
+    description with many unclosed fences still converts in linear time.
+    """
+    content: list[dict[str, Any]] = []
+    text_lines: list[str] = []
+    code_lines: list[str] = []
+    fence = ""
+    language = ""
+
+    def add_paragraph() -> None:
+        text = "\n".join(text_lines).strip("\n")
+        text_lines.clear()
+        # Jira rejects an empty text node.
+        if text.strip():
+            content.append({"type": "paragraph", "content": text_to_adf_nodes(text)})
+
+    def add_code_block(language: str) -> None:
+        code_block: dict[str, Any] = {"type": "codeBlock", "content": []}
+        if language:
+            code_block["attrs"] = {"language": language}
+        if code := "\n".join(code_lines):
+            code_block["content"] = [{"type": "text", "text": code}]
+        code_lines.clear()
+        content.append(code_block)
+
+    for line in description.split("\n"):
+        if not fence:
+            if opening := OPENING_FENCE.fullmatch(line):
+                add_paragraph()
+                fence, language = opening["fence"], opening["language"].strip()
+            else:
+                text_lines.append(line)
+        elif (closing := CLOSING_FENCE.fullmatch(line)) and len(closing["fence"]) >= len(fence):
+            add_code_block(language)
+            fence = ""
+        else:
+            code_lines.append(line)
+    if fence:
+        add_code_block(language)
+    add_paragraph()
+
+    return {"type": "doc", "version": 1, "content": content}
 
 
 class JiraIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "jira":
             raise Exception("JiraIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     def cloud_id(self) -> str | None:
         """Get the Atlassian cloud ID from the integration config"""
@@ -55,8 +157,7 @@ class JiraIntegration:
 
     def refresh_access_token(self) -> None:
         """Refresh the Atlassian access token using the refresh token"""
-        oauth_integration = oauth.OauthIntegration(self.integration)
-        oauth_integration.refresh_access_token()
+        self.integration = model.integration_model(oauth.OauthIntegration(self.integration).refresh_access_token())
 
     def _ensure_token_valid(self) -> None:
         """Proactively refresh token if it's close to expiring to avoid intermittent 401s"""
@@ -105,6 +206,41 @@ class JiraIntegration:
         projects = body.get("values", [])
         return [{"id": p["id"], "key": p["key"], "name": p["name"]} for p in projects]
 
+    def list_assignees(self, project_key: str, search: str = "") -> list[Assignee]:
+        """Active users who can be assigned issues in the project, matching ``search``.
+
+        Raises ReconnectRequired for a connection made before PostHog requested read:jira-user.
+        """
+        cloud_id = self.cloud_id()
+        if not cloud_id:
+            raise AssigneeLookupFailed("Jira integration missing cloud_id")
+
+        self._ensure_token_valid()
+
+        response = requests.get(
+            f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/user/assignable/search",
+            params={
+                "project": project_key,
+                "maxResults": str(MAX_ASSIGNEES),
+                **({"query": search.strip()} if search.strip() else {}),
+            },
+            headers={
+                "Authorization": f"Bearer {self.integration.sensitive_config['access_token']}",
+                "Accept": "application/json",
+            },
+            timeout=10,
+        )
+        # Jira answers 401 or 403 when the connection's grant lacks read:jira-user.
+        if response.status_code in (401, 403):
+            raise ReconnectRequired()
+        if response.status_code != 200:
+            raise AssigneeLookupFailed("Could not list the Jira project's assignable users")
+        return [
+            Assignee(id=user["accountId"], name=user.get("displayName") or user["accountId"])
+            for user in response.json()
+            if user.get("active", True)
+        ]
+
     def create_issue(self, config: dict[str, str]) -> dict[str, str]:
         """Create a Jira issue and return the issue key"""
         cloud_id = self.cloud_id()
@@ -116,25 +252,17 @@ class JiraIntegration:
         title = config.get("title")
         description = config.get("description")
         project_key = config.get("project_key")
+        assignee = config.get("assignee")
 
-        # Jira uses Atlassian Document Format (ADF) for description
-        payload = {
-            "fields": {
-                "project": {"key": project_key},
-                "summary": title,
-                "description": {
-                    "type": "doc",
-                    "version": 1,
-                    "content": [
-                        {
-                            "type": "paragraph",
-                            "content": [{"type": "text", "text": description}],
-                        }
-                    ],
-                },
-                "issuetype": {"name": "Task"},
-            }
+        fields: dict[str, Any] = {
+            "project": {"key": project_key},
+            "summary": title,
+            "description": description_to_adf(description or ""),
+            "issuetype": {"name": "Task"},
         }
+        if assignee:
+            fields["assignee"] = {"accountId": assignee}
+        payload = {"fields": fields}
 
         response = requests.post(
             f"https://api.atlassian.com/ex/jira/{cloud_id}/rest/api/3/issue",

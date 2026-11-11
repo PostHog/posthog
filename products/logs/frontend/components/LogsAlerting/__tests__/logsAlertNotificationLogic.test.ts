@@ -1,12 +1,18 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
-import { logsAlertsDestinationsCreate, logsAlertsDestinationsDeleteCreate } from 'products/logs/frontend/generated/api'
+import {
+    logsAlertsDestinationsCreate,
+    logsAlertsDestinationsDeleteCreate,
+    logsAlertsRetrieve,
+} from 'products/logs/frontend/generated/api'
 
 import { logsAlertNotificationLogic } from '../logsAlertNotificationLogic'
 import { buildLogsAlertFilterConfig, LogsAlertDestinationGroup } from '../logsAlertUtils'
@@ -26,6 +32,7 @@ jest.mock('products/logs/frontend/generated/api', () => ({
     __esModule: true,
     logsAlertsDestinationsCreate: jest.fn(),
     logsAlertsDestinationsDeleteCreate: jest.fn(),
+    logsAlertsRetrieve: jest.fn(),
 }))
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
@@ -38,6 +45,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 const mockApi = api as jest.Mocked<typeof api>
 const mockCreate = logsAlertsDestinationsCreate as jest.MockedFunction<typeof logsAlertsDestinationsCreate>
 const mockDelete = logsAlertsDestinationsDeleteCreate as jest.MockedFunction<typeof logsAlertsDestinationsDeleteCreate>
+const mockRetrieve = logsAlertsRetrieve as jest.MockedFunction<typeof logsAlertsRetrieve>
 
 const MOCK_HOG_FUNCTION = {
     id: 'hf-1',
@@ -71,6 +79,35 @@ describe('logsAlertNotificationLogic', () => {
                 type: 'slack',
                 slackChannelId: 'C123',
             })
+
+            logic.unmount()
+        })
+
+        it('adds a pagerduty notification only once the integration key looks valid', () => {
+            const logic = logsAlertNotificationLogic({ alertId: undefined })
+            logic.mount()
+
+            logic.actions.setSelectedType('pagerduty')
+            logic.actions.setPagerDutySeverity('warning')
+            logic.actions.setPagerDutyRoutingKey('not-a-key')
+            expect(logic.values.addDisabledReason).toEqual('The integration key is 32 letters and digits')
+
+            logic.actions.addSelectedNotification()
+            expect(logic.values.pendingNotifications).toHaveLength(0)
+
+            logic.actions.setPagerDutyRoutingKey(' 0123456789abcdef0123456789abcdef ')
+            expect(logic.values.addDisabledReason).toBeUndefined()
+
+            logic.actions.addSelectedNotification()
+            expect(logic.values.pendingNotifications).toEqual([
+                {
+                    type: 'pagerduty',
+                    routingKey: '0123456789abcdef0123456789abcdef',
+                    severity: 'warning',
+                    region: 'us',
+                },
+            ])
+            expect(logic.values.pagerDutyRoutingKey).toEqual('')
 
             logic.unmount()
         })
@@ -146,6 +183,56 @@ describe('logsAlertNotificationLogic', () => {
 
             logic.unmount()
         })
+
+        it.each([
+            { flagOn: true, flagAfterMount: false, expectedKeys: ['slack:C-edited'] },
+            { flagOn: true, flagAfterMount: true, expectedKeys: ['slack:C-edited'] },
+            { flagOn: false, flagAfterMount: false, expectedKeys: [] },
+        ])(
+            'tags only the customized destination when the flag is $flagOn (set after mount: $flagAfterMount)',
+            async ({ flagOn, flagAfterMount, expectedKeys }) => {
+                const slack = (id: string, channel: string): HogFunctionType =>
+                    ({
+                        ...MOCK_HOG_FUNCTION,
+                        id,
+                        template_id: 'template-slack',
+                        inputs: { channel: { value: channel } },
+                    }) as HogFunctionType
+                ;(mockApi.hogFunctions.list as jest.Mock).mockResolvedValue({
+                    results: [
+                        slack('hf-stock-1', 'C-stock'),
+                        slack('hf-stock-2', 'C-stock'),
+                        slack('hf-edited', 'C-edited'),
+                    ],
+                })
+                mockRetrieve.mockResolvedValue({
+                    destinations: [
+                        { hog_function_ids: ['hf-stock-1', 'hf-stock-2'], message_customized: false },
+                        { hog_function_ids: ['hf-edited'], message_customized: true },
+                    ],
+                } as unknown as Awaited<ReturnType<typeof logsAlertsRetrieve>>)
+                const flag = FEATURE_FLAGS.ALERTS_DESTINATION_CUSTOMIZATION
+                const setFlag = (): void =>
+                    featureFlagLogic.actions.setFeatureFlags(flagOn ? [flag] : [], { [flag]: flagOn })
+                featureFlagLogic.mount()
+                if (!flagAfterMount) {
+                    setFlag()
+                }
+
+                const logic = logsAlertNotificationLogic({ alertId: 'alert-1' })
+                logic.mount()
+                await expectLogic(logic).toFinishAllListeners()
+                if (flagAfterMount) {
+                    setFlag()
+                    await expectLogic(logic).toFinishAllListeners()
+                }
+
+                expect([...logic.values.customizedDestinationKeys]).toEqual(expectedKeys)
+                expect(mockRetrieve.mock.calls.length > 0).toBe(flagOn)
+
+                logic.unmount()
+            }
+        )
     })
 
     describe('createPendingHogFunctions', () => {
@@ -175,12 +262,18 @@ describe('logsAlertNotificationLogic', () => {
                 slackChannelId: 'C456',
                 slackChannelName: 'alerts',
             })
+            logic.actions.addPendingNotification({
+                type: 'pagerduty',
+                routingKey: '0123456789abcdef0123456789abcdef',
+                severity: 'error',
+                region: 'eu',
+            })
 
             await expectLogic(logic, () => {
                 logic.actions.createPendingHogFunctions('alert-1')
             }).toFinishAllListeners()
 
-            expect(mockCreate).toHaveBeenCalledTimes(2)
+            expect(mockCreate).toHaveBeenCalledTimes(3)
             expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
                 type: 'webhook',
                 webhook_url: 'https://a.com',
@@ -191,7 +284,13 @@ describe('logsAlertNotificationLogic', () => {
                 slack_channel_id: 'C456',
                 slack_channel_name: 'alerts',
             })
-            expect(lemonToast.success).toHaveBeenCalledWith('2 notification destination(s) created.')
+            expect(mockCreate).toHaveBeenCalledWith(expect.any(String), 'alert-1', {
+                type: 'pagerduty',
+                pagerduty_routing_key: '0123456789abcdef0123456789abcdef',
+                pagerduty_severity: 'error',
+                pagerduty_region: 'eu',
+            })
+            expect(lemonToast.success).toHaveBeenCalledWith('3 notification destination(s) created.')
             expect(logic.values.pendingNotifications).toHaveLength(0)
 
             logic.unmount()

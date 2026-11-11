@@ -1,6 +1,6 @@
 import { CHUNK_CSS_GLOBAL } from '@posthog/esbuilder/cssLoader.mjs'
 
-import { cssPrelude, planCssGroups } from './stableCssPlan.mjs'
+import { cssPrelude, planCssGroups, stableCssBytes } from './stableCssPlan.mjs'
 
 const imports = (...paths: string[]): { imports: { path: string; kind: string }[] } => ({
     imports: paths.map((path) => ({ path, kind: 'import-statement' })),
@@ -28,11 +28,11 @@ const METAFILE = {
         },
         'dist/index-A.css': {
             inputs: {
-                '../common/tailwind/tailwind.css': {},
-                'src/styles/global.scss': {},
-                'src/lib/Button.scss': {},
-                'src/lib/Shared.scss': {},
-                'src/scenes/Scene.scss': {},
+                '../common/tailwind/tailwind.css': { bytesInOutput: 1 },
+                'src/styles/global.scss': { bytesInOutput: 2 },
+                'src/lib/Button.scss': { bytesInOutput: 4 },
+                'src/lib/Shared.scss': { bytesInOutput: 8 },
+                'src/scenes/Scene.scss': { bytesInOutput: 16 },
             },
         },
         'dist/App-B.js': { entryPoint: 'src/scenes/App.tsx', inputs: { 'src/scenes/App.tsx': {} } },
@@ -65,6 +65,14 @@ describe('planCssGroups', () => {
             ['src/scenes/Scene.scss'],
         ])
         expect(lazyGroupsByEntry.has('dist/App-B.js')).toBe(false)
+    })
+
+    it.each([
+        ['a boot page', [], 1 + 2 + 4],
+        ['a boot entry with no lazy CSS', ['dist/App-B.js'], 1 + 2 + 4],
+        ['a lazy scene and its shared chunk', ['dist/Scene-C.js'], 1 + 2 + 4 + 8 + 16],
+    ])('counts the CSS a stable page loads before %s runs', (_, entryOutputs, expectedBytes) => {
+        expect(stableCssBytes(planCssGroups(METAFILE), entryOutputs)).toBe(expectedBytes)
     })
 
     it('fails rather than reorder rules when boot stylesheets are out of layer order', () => {

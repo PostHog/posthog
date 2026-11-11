@@ -86,3 +86,9 @@ def validate_workspace_metadata_value(metadata: object, key: str) -> str:
     if not isinstance(value, str):
         raise ValueError(f"Wizard workspace metadata field {key!r} must be a string")
     return value
+
+
+def validate_optional_workspace_metadata_value(metadata: object, key: str) -> str | None:
+    if isinstance(metadata, dict) and metadata.get(key) is None:
+        return None
+    return validate_workspace_metadata_value(metadata, key)

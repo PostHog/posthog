@@ -100,15 +100,22 @@ export function AlertIntervalRow({
     if (alertForm.calculation_interval === AlertCalculationInterval.REAL_TIME) {
         nextEvaluation = null
     } else if (creatingNewAlert || nextPlannedEvaluationStale) {
-        const approximateTime = approximateNextAlertRun(
+        const { earliest, latest } = approximateNextAlertRun(
             alertForm.calculation_interval,
             currentTeam?.timezone ?? 'UTC',
             alertForm.schedule_start_time
         )
         nextEvaluation = (
             <NextScheduledRun label="Next planned evaluation:">
-                <span>
-                    Approximately <TZLabel time={approximateTime} />
+                <span className="flex flex-wrap items-center gap-x-1">
+                    <span>{earliest.isSame(latest) ? 'Approximately' : 'Approximately between'}</span>
+                    <TZLabel time={earliest} displayTimezone={currentTeam?.timezone ?? 'UTC'} />
+                    {!earliest.isSame(latest) && (
+                        <>
+                            <span>and</span>
+                            <TZLabel time={latest} displayTimezone={currentTeam?.timezone ?? 'UTC'} />
+                        </>
+                    )}
                 </span>
             </NextScheduledRun>
         )
@@ -199,6 +206,12 @@ export function AlertIntervalRow({
                 {evaluatedWindow}
             </AlertDefinitionRow>
             {nextEvaluation}
+            {alertForm.calculation_interval !== AlertCalculationInterval.REAL_TIME &&
+                !alertForm.schedule_start_time && (
+                    <p className="text-sm text-muted m-0">
+                        Automatic checks use a consistent minute for each alert so evaluations are spread out.
+                    </p>
+                )}
         </div>
     )
 }

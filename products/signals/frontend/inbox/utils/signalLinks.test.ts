@@ -10,7 +10,7 @@ describe('signalLinks', () => {
                     source_id: 'issue-1',
                     extra: { url: 'https://example.com/elsewhere' },
                 },
-                expected: { to: '/error_tracking/issue-1', label: 'View issue', external: false },
+                expected: { to: '/error-tracking/issue-1', label: 'View issue', external: false },
             },
             {
                 name: 'links a support ticket from a conversations source id',

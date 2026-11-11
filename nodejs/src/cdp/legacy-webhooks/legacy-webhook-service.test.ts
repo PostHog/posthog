@@ -54,6 +54,10 @@ describe('LegacyWebhookService', () => {
         }
     }
 
+    const parseAndSend = async (messages: Message[]): Promise<void> => {
+        await service.processEvents(await service.parseBatch(messages)).backgroundTask
+    }
+
     beforeEach(async () => {
         hub = await createHub()
         team = (await createTestTeamFixture(hub.postgres)).team
@@ -79,15 +83,14 @@ describe('LegacyWebhookService', () => {
         jest.clearAllMocks()
     })
 
-    describe('processBatch', () => {
+    describe('parseBatch and processEvents', () => {
         it('should parse events for teams with both webhooks and zapier', async () => {
             service['actionMatcher'].hasWebhooks = jest.fn().mockReturnValue(true)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const result = await service.processBatch(messages)
-            await result.backgroundTask
+            await parseAndSend(messages)
 
             expect(service['actionMatcher'].hasWebhooks).toHaveBeenCalledWith(team.id)
         })
@@ -102,8 +105,7 @@ describe('LegacyWebhookService', () => {
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            const result = await service.processBatch(messages)
-            await result.backgroundTask
+            await parseAndSend(messages)
 
             expect(service.processEvent).not.toHaveBeenCalled()
         })
@@ -115,8 +117,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const result = await service.processBatch(messages)
-            await result.backgroundTask
+            await parseAndSend(messages)
 
             expect(service.processEvent).not.toHaveBeenCalled()
         })
@@ -128,8 +129,7 @@ describe('LegacyWebhookService', () => {
 
             const messages: Message[] = [createKafkaMessage(createIncomingEvent(team.id, { event: '$pageview' }))]
 
-            const result = await service.processBatch(messages)
-            await result.backgroundTask
+            await parseAndSend(messages)
 
             expect(service.processEvent).not.toHaveBeenCalled()
         })
@@ -144,8 +144,7 @@ describe('LegacyWebhookService', () => {
                 createKafkaMessage(createIncomingEvent(team2.id, { event: '$pageview' })),
             ]
 
-            const result = await service.processBatch(messages)
-            await result.backgroundTask
+            await parseAndSend(messages)
 
             expect(service.processEvent).toHaveBeenCalledTimes(1)
         })
@@ -167,8 +166,7 @@ describe('LegacyWebhookService', () => {
                 ),
             ]
 
-            const result = await service.processBatch(messages)
-            await result.backgroundTask
+            await parseAndSend(messages)
 
             expect(fetchGroupsByKeysSpy).not.toHaveBeenCalled()
             expect(fetchGroupSpy).not.toHaveBeenCalled()
@@ -199,8 +197,7 @@ describe('LegacyWebhookService', () => {
 
             // group_analytics ON (and zapier ON)
             hub.teamManager.hasAvailableFeature = jest.fn().mockResolvedValue(true)
-            let result = await service.processBatch([makeMessage()])
-            await result.backgroundTask
+            await parseAndSend([makeMessage()])
             const bodyWithGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
 
             mockFetch.mockClear()
@@ -209,8 +206,7 @@ describe('LegacyWebhookService', () => {
             hub.teamManager.hasAvailableFeature = jest
                 .fn()
                 .mockImplementation((_teamId, feature) => Promise.resolve(feature === 'zapier'))
-            result = await service.processBatch([makeMessage()])
-            await result.backgroundTask
+            await parseAndSend([makeMessage()])
             const bodyWithoutGroupAnalytics = parseJSON(mockFetch.mock.calls[0][1].body)
 
             // The payload is byte-for-byte identical whether or not group_analytics is enabled

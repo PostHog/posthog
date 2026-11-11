@@ -7,26 +7,32 @@ from typing import Any, Literal, NotRequired, TypedDict
 from pydantic import BaseModel, ValidationError
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
+from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_specs.configs import (
     ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
+    CANVAS_APP_WIDGET_TYPE,
     CONVERSATIONS_RECENT_TICKETS_WIDGET_TYPE,
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
     LOGS_LIST_WIDGET_TYPE,
+    METRICS_TABLE_WIDGET_TYPE,
     NOTEBOOK_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     SURVEY_RESULTS_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
+    CanvasAppWidgetConfig,
     ConversationsRecentTicketsWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
     LogsListWidgetConfig,
+    MetricsTableWidgetConfig,
     NotebookWidgetConfig,
     SessionReplayListWidgetConfig,
     SurveyResultsWidgetConfig,
 )
+from products.metrics.backend.facade.contracts import METRICS_FEATURE_FLAG
 
 DashboardWidgetType = Literal[
     "notebook_widget",
@@ -38,6 +44,8 @@ DashboardWidgetType = Literal[
     "survey_results",
     "logs_list",
     "conversations_recent_tickets",
+    "canvas_app",
+    "metrics_table",
 ]
 
 __all__ = [
@@ -80,6 +88,9 @@ class WidgetSpec:
     # Adds-only rollout gate: creating a tile of this type requires this feature flag (resolved via
     # feature_flags.widget_flag_enabled in widget_create). Existing tiles keep rendering when it's off.
     creation_flag: str | None = None
+    # Grid size of a new tile, in columns (of 12) and rows. The frontend catalog `defaultLayout` must match.
+    default_width: int = 6
+    default_height: int = 5
 
     def __post_init__(self) -> None:
         if self.is_live:
@@ -115,6 +126,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.activity_events_list import (  # noqa: PLC0415
         run_activity_events_list_widget,
     )
+    from products.dashboards.backend.widgets.canvas_app import run_canvas_app_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.conversations_recent_tickets import (  # noqa: PLC0415
         run_conversations_recent_tickets_widget,
     )
@@ -122,6 +134,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.metrics_table import run_metrics_table_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.notebook_widget import run_notebook_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.survey_results import run_survey_results_widget  # noqa: PLC0415
@@ -141,7 +154,6 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=(),
             filter_fields=(),
-            creation_flag="notebook-generated-widgets",
         ),
         ACTIVITY_EVENTS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ACTIVITY_EVENTS_LIST_WIDGET_TYPE,
@@ -266,6 +278,41 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=("conversations_enabled",),
             form_fields=("limit",),
             filter_fields=("status", "priorities", "channel", "assignees", "search"),
+        ),
+        CANVAS_APP_WIDGET_TYPE: WidgetSpec(
+            widget_type=CANVAS_APP_WIDGET_TYPE,
+            config_model=CanvasAppWidgetConfig,
+            query_fn=run_canvas_app_widget,
+            required_scopes=("canvas:read",),
+            group_id="canvas",
+            group_label="Canvas",
+            label="Canvas app",
+            description="A published canvas app rendered in a tile. It reads data and acts with each viewer's own permissions.",
+            required_product_access=None,
+            product_access_denied_message=None,
+            availability_requirements=(),
+            form_fields=("canvasId",),
+            filter_fields=(),
+            creation_flag="small-software-apps",
+        ),
+        METRICS_TABLE_WIDGET_TYPE: WidgetSpec(
+            widget_type=METRICS_TABLE_WIDGET_TYPE,
+            config_model=MetricsTableWidgetConfig,
+            query_fn=run_metrics_table_widget,
+            required_scopes=("query:read", "metrics:read"),
+            group_id="metrics",
+            group_label="Metrics",
+            label="Metrics table",
+            description="One row per label value, such as each endpoint, with a sparkline for each metric.",
+            required_product_access="metrics",
+            product_access_denied_message="You do not have access to metrics.",
+            availability_requirements=(),
+            form_fields=("limit", "dateRange"),
+            filter_fields=("dateRange",),
+            # Full width, like a Grafana row: each row is one label value, and the columns need the room.
+            default_width=DASHBOARD_GRID_COLUMN_COUNT,
+            default_height=6,
+            creation_flag=METRICS_FEATURE_FLAG,
         ),
     }
 

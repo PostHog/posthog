@@ -1,21 +1,20 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DateRange, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import { DateRange, InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { ActivityScope, Breadcrumb, ChartDisplayType, HogQLMathType } from '~/types'
 
-import type { FeatureFlagsSet } from '../../../../frontend/src/lib/logic/featureFlagLogic'
 import {
     evaluationsBackfillsRetrieve,
     evaluationsCreate,
@@ -26,7 +25,9 @@ import {
 import type { EvaluationBackfillApi, TestHogRequestApi, TestHogResultItemApi } from '../generated/api.schemas'
 import type { EvaluationApiOutputConfig } from '../generated/api.schemas'
 import { parsePlaygroundProviderKeyId } from '../ModelPicker'
-import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { modelPickerLogic, type ModelOption, type ProviderModelGroup } from '../modelPickerLogic'
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
+import { LLMProviderKey, llmProviderKeysLogic, toLLMProvider } from '../settings/llmProviderKeysLogic'
 import type { EvaluationConfig as TeamEvaluationConfig } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { EvaluationRunsStats, queryEvaluationRuns, queryEvaluationRunsStats } from '../utils'
@@ -34,12 +35,21 @@ import { evaluationErrorMessage } from './apiErrors'
 import {
     EVALUATION_NUMERIC_GRADED_HOGQL,
     EVALUATION_NUMERIC_MEAN_HOGQL,
+    EVALUATION_SENTIMENT_GRADED_HOGQL,
     numericEvaluationPassedHogQL,
     evaluationPassedHogQL,
     evaluationPassRateHogQL,
     evaluationIsDetector,
+    booleanOutputConfigError,
+    clearInvalidDecisionThreshold,
     numericOutputConfigError,
     numericScorePasses,
+    categoricalResultPasses,
+    categoricalOutputConfigError,
+    categoricalEvaluationPassedHogQL,
+    EVALUATION_CATEGORICAL_GRADED_HOGQL,
+    EVALUATION_RUNS_QUERY_LIMIT,
+    evaluationRunsFilterHogQL,
 } from './constants'
 import {
     evaluationCanResolveModel,
@@ -50,8 +60,11 @@ import {
 } from './evaluationCapabilities'
 import { EvaluationBackTarget, getEvaluationBackTarget } from './evaluationNavigation'
 import { evaluationReportLogic, persistReportDraft } from './evaluationReportLogic'
+import { patchEvaluation } from './evaluationsApi'
 import { getHogEvalExample } from './hogEvalExamples'
 import { llmEvaluationsLogic } from './llmEvaluationsLogic'
+import { markEvaluationsOverviewStale } from './overview/evaluationsOverviewLogic'
+import { requestBackfillStart } from './pendingBackfillStarts'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import type {
     EvaluationConditionSet,
@@ -65,7 +78,9 @@ import type {
     EvaluationType,
     HogEvaluation,
     LLMJudgeEvaluation,
+    JudgeMethod,
     ModelConfiguration,
+    ReasoningLevel,
     SentimentEvaluation,
 } from './types'
 
@@ -84,10 +99,6 @@ const EVALUATION_DETAIL_TABS = new Set(['configuration', 'reports', 'runs', 'bac
 
 function evaluationDetailTab(value: unknown): string | null {
     if (typeof value !== 'string' || !EVALUATION_DETAIL_TABS.has(value)) {
-        return null
-    }
-    // Backfills is flag-gated, so a bookmarked URL for it falls back to the default tab.
-    if (value === 'backfills' && !featureFlagLogic.values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
         return null
     }
     return value
@@ -134,6 +145,16 @@ if (not result) {
 return result`,
 ]
 
+// A new judge starts from this instead of an empty box. It returns true or false, the default output type.
+export const DEFAULT_JUDGE_PROMPT = `Check the assistant's response to the user.
+
+Return true if the response:
+- Answers what the user asked
+- States only facts it can support, without making things up
+- Follows the instructions in the system prompt
+
+Return false if it misses any of these.`
+
 const DEFAULT_SENTIMENT_SOURCE = 'user_messages' as const
 const DEFAULT_SENTIMENT_RUNS_FILTER = 'negative' as const
 const DEFAULT_CONDITION_ROLLOUT_PERCENTAGE = 100
@@ -158,22 +179,34 @@ function toLLMJudgeEvaluation(evaluation: EvaluationConfig): LLMJudgeEvaluation 
         ...evaluation,
         evaluation_type: 'llm_judge',
         evaluation_config: { prompt: '' },
-        output_type: evaluation.output_type === 'numeric' ? 'numeric' : 'boolean',
-        output_config: evaluation.output_type === 'numeric' ? evaluation.output_config : { allows_na: false },
+        output_type: evaluation.output_type === 'sentiment' ? 'boolean' : evaluation.output_type,
+        output_config: ['numeric', 'categorical'].includes(evaluation.output_type)
+            ? evaluation.output_config
+            : { allows_na: false },
     }
+}
+
+function defaultCategoricalHogSource(config: EvaluationOutputConfig): string {
+    return `return ['${config.options?.[0]?.key ?? 'resolved'}'];`
 }
 
 function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
         evaluation_type: 'hog',
-        evaluation_config: { source: evaluation.output_type === 'numeric' ? 'return 0;' : DEFAULT_HOG_SOURCE },
-        output_type: evaluation.output_type === 'numeric' ? 'numeric' : 'boolean',
+        evaluation_config: {
+            source:
+                evaluation.output_type === 'numeric'
+                    ? 'return 0;'
+                    : evaluation.output_type === 'categorical'
+                      ? defaultCategoricalHogSource(evaluation.output_config)
+                      : DEFAULT_HOG_SOURCE,
+        },
+        output_type: evaluation.output_type === 'sentiment' ? 'boolean' : evaluation.output_type,
         model_configuration: null,
-        output_config:
-            evaluation.output_type === 'numeric'
-                ? evaluation.output_config
-                : { ...evaluation.output_config, allows_na: false },
+        output_config: ['numeric', 'categorical'].includes(evaluation.output_type)
+            ? evaluation.output_config
+            : { ...clearInvalidDecisionThreshold(evaluation.output_config), allows_na: false },
     }
 }
 
@@ -191,6 +224,34 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
+/** Offers past data for a new evaluation, or hands a requested past-traffic check to the Backfills tab. Returns the URL params to open the evaluation with. */
+function coverPastTraffic(
+    evaluation: EvaluationConfig | undefined,
+    requested: boolean,
+    isNew: boolean
+): Record<string, string> {
+    if (!isNew || !evaluation?.id) {
+        return {}
+    }
+    // The backfill API refuses a paused evaluation, so past traffic is checked only when it runs.
+    if (!evaluation.enabled || !requested) {
+        // Saving navigates away, so the offer to cover past data travels with the user.
+        lemonToast.info('This evaluation grades new data from now on.', {
+            button: {
+                label: 'Evaluate past data',
+                action: () =>
+                    router.actions.push(
+                        combineUrl(urls.aiObservabilityEvaluation(evaluation.id), { evaluation_tab: 'backfills' }).url
+                    ),
+            },
+        })
+        return {}
+    }
+    // The Backfills tab counts the range and starts the run, with its own errors and polling.
+    requestBackfillStart(evaluation.id)
+    return { evaluation_tab: 'backfills' }
+}
+
 function filterEvaluationRuns(
     runs: EvaluationRun[],
     filter: EvaluationRunsFilter,
@@ -204,7 +265,7 @@ function filterEvaluationRuns(
     // A skipped run carries result=false when the evaluation disallows N/A, so it has to be
     // excluded before the outcome is read or it lands in the fail bucket without being graded.
     const gradedRuns = completedRuns.filter((r) => !r.skipped)
-    if (evaluation?.output_type === 'numeric') {
+    if (evaluation?.output_type === 'numeric' || evaluation?.output_type === 'categorical') {
         if (filter === 'na') {
             return gradedRuns.filter((run) => run.applicable === false)
         }
@@ -213,10 +274,13 @@ function filterEvaluationRuns(
             return []
         }
         return gradedRuns.filter((run) => {
-            if (run.applicable === false || run.score == null) {
+            if (run.applicable === false) {
                 return false
             }
-            const passed = numericScorePasses(run.score, rule)
+            const passed =
+                evaluation.output_type === 'categorical'
+                    ? categoricalResultPasses(run.categories, rule)
+                    : numericScorePasses(run.score, rule)
             return filter === 'pass' ? passed === true : filter === 'fail' ? passed === false : false
         })
     }
@@ -235,6 +299,11 @@ function filterEvaluationRuns(
 }
 
 type TestableHogEvaluation = HogEvaluation
+
+export interface MethodConfigDrafts {
+    prompt?: string
+    hogSource?: string
+}
 
 function isTestableHogEvaluation(evaluation: EvaluationConfig | null): evaluation is TestableHogEvaluation {
     return evaluation?.evaluation_type === 'hog'
@@ -277,6 +346,12 @@ function buildHogTestRequest(evaluation: TestableHogEvaluation, forComparison = 
     return request
 }
 
+export function llmEvaluationLogicKey(props: LLMEvaluationLogicProps): string {
+    return `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}${
+        props.evaluationType ? `-${props.evaluationType}` : ''
+    }`
+}
+
 export interface LLMEvaluationLogicProps {
     evaluationId: string
     templateKey?: EvaluationTemplateKey
@@ -285,15 +360,19 @@ export interface LLMEvaluationLogicProps {
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface llmEvaluationLogicValues {
-    featureFlags: FeatureFlagsSet // featureFlagLogic
     activeProviderKey: LLMProviderKey | null | undefined // llmProviderKeysLogic
     providerKeys: LLMProviderKey[] // llmProviderKeysLogic
     providerKeysLoading: boolean // llmProviderKeysLogic
     requiresProviderKey: boolean // llmProviderKeysLogic
+    byokModels: ModelOption[] // modelPickerLogic
+    evaluationProviderModelGroups: ProviderModelGroup[] // modelPickerLogic
     activeTab: string
     breadcrumbs: Breadcrumb[]
     canEnable: boolean
     canEnableReason: string | null
+    checkPastTraffic: boolean
+    enableSavedReason: string | null
+    enabledSaving: boolean
     evaluation: EvaluationConfig | null
     evaluationBackTarget: EvaluationBackTarget
     evaluationFormSubmitting: boolean
@@ -302,20 +381,28 @@ export interface llmEvaluationLogicValues {
     evaluationRuns: EvaluationRun[]
     evaluationRunsError: boolean
     evaluationRunsFilter: EvaluationRunsFilter
+    evaluationRunsHasMore: boolean
     evaluationRunsLoading: boolean
     filteredEvaluationRuns: EvaluationRun[]
+    formStep: string
     formValid: boolean
     hasUnsavedChanges: boolean
     hogTestMessage: string | null
     hogTestResults: TestHogResultItemApi[] | null
     hogTestResultsLoading: boolean
+    includeMedia: boolean
     isForceRefresh: boolean
     isNewEvaluation: boolean
     isReportableEvaluation: boolean
+    judgeMethod: JudgeMethod
+    judgeModelGroups: ProviderModelGroup[]
     maxContext: MaxContextInput[]
+    methodConfigDrafts: MethodConfigDrafts
     modelSelectionRequired: boolean
+    numericBoundsRequired: boolean
     originalEvaluation: EvaluationConfig | null
-    outputConfigDrafts: Partial<Record<'boolean' | 'numeric', EvaluationOutputConfig>>
+    outputConfigDrafts: Partial<Record<'boolean' | 'categorical' | 'numeric', EvaluationOutputConfig>>
+    reasoningLevel: ReasoningLevel | null
     runsBackfill: EvaluationBackfillApi | null
     runsBackfillId: string | null
     runsBackfillLoading: boolean
@@ -324,7 +411,6 @@ export interface llmEvaluationLogicValues {
     runsStatsLoading: boolean
     runsSummary: {
         applicabilityRate: number
-        errors: number
         failed: number
         scoreMean: number | null
         successful: number
@@ -332,9 +418,14 @@ export interface llmEvaluationLogicValues {
         total: number
     } | null
     selectedModel: string
+    selectedModelName: string | undefined
+    selectedModelOption: ModelOption | null
+    selectedModelSupportsReasoning: boolean
     selectedPickerProviderKeyId: string | null
     sidePanelContext: SidePanelSceneContext | null
     trendInsightUrl: string | null
+    trendsQuery: TrendsQuery | null
+    usesDecisionModel: boolean
 }
 
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
@@ -371,6 +462,21 @@ export interface llmEvaluationLogicActions {
     loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => {
         evaluation: EvaluationConfig | null
         requestedTab: string | null
+    }
+    loadOlderEvaluationRuns: () => any
+    loadOlderEvaluationRunsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadOlderEvaluationRunsSuccess: (
+        evaluationRuns: EvaluationRun[],
+        payload?: any
+    ) => {
+        evaluationRuns: EvaluationRun[]
+        payload?: any
     }
     loadRunsBackfill: () => any
     loadRunsBackfillFailure: (
@@ -414,6 +520,15 @@ export interface llmEvaluationLogicActions {
     resetEvaluation: () => {
         value: true
     }
+    saveEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
+    saveEnabledFailure: () => {
+        value: true
+    }
+    saveEnabledSuccess: (evaluation: EvaluationConfig) => {
+        evaluation: EvaluationConfig
+    }
     saveEvaluation: () => {
         value: true
     }
@@ -436,11 +551,17 @@ export interface llmEvaluationLogicActions {
     setAllowsNA: (allowsNA: boolean) => {
         allowsNA: boolean
     }
+    setCheckPastTraffic: (checkPastTraffic: boolean) => {
+        checkPastTraffic: boolean
+    }
+    setDefaultEnabled: (enabled: boolean) => {
+        enabled: boolean
+    }
     setEvaluationDescription: (description: string) => {
         description: string
     }
-    setEvaluationEnabled: (enabled: boolean) => {
-        enabled: boolean
+    setEvaluationDirectory: (directoryId: string | null) => {
+        directoryId: string | null
     }
     setEvaluationName: (name: string) => {
         name: string
@@ -455,11 +576,19 @@ export interface llmEvaluationLogicActions {
         filter: EvaluationRunsFilter
         previousFilter: EvaluationRunsFilter
     }
+    setEvaluationRunsHasMore: (hasMore: boolean) => {
+        hasMore: boolean
+    }
     setEvaluationTarget: (target: EvaluationTarget) => {
         target: EvaluationTarget
     }
     setEvaluationType: (evaluationType: EvaluationType) => {
         evaluationType: EvaluationType
+        methodConfigDrafts: MethodConfigDrafts
+        previousEvaluation: EvaluationConfig | null
+    }
+    setFormStep: (step: string) => {
+        step: string
     }
     setHogSource: (source: string) => {
         source: string
@@ -467,13 +596,22 @@ export interface llmEvaluationLogicActions {
     setHogTestMessage: (message: string | null) => {
         message: string | null
     }
+    setIncludeMedia: (includeMedia: boolean) => {
+        includeMedia: boolean
+    }
+    setJudgeMethod: (judgeMethod: JudgeMethod) => {
+        judgeMethod: JudgeMethod
+    }
     setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => {
         modelConfiguration: ModelConfiguration | null
     }
-    setOutputType: (outputType: 'boolean' | 'numeric') => {
+    setOutputType: (outputType: 'boolean' | 'categorical' | 'numeric') => {
         outputConfig: EvaluationApiOutputConfig | undefined
-        outputType: 'boolean' | 'numeric'
+        outputType: 'boolean' | 'categorical' | 'numeric'
         previousEvaluation: EvaluationConfig | null
+    }
+    setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => {
+        reasoningLevel: ReasoningLevel | null
     }
     setRunsBackfillId: (backfillId: string | null) => {
         backfillId: string | null
@@ -520,7 +658,8 @@ export interface llmEvaluationLogicMeta {
             evaluation: EvaluationConfig | null,
             originalEvaluation: EvaluationConfig | null
         ) => boolean
-        trendInsightUrl: (originalEvaluation: EvaluationConfig | null) => string | null
+        trendsQuery: (originalEvaluation: EvaluationConfig | null) => TrendsQuery | null
+        trendInsightUrl: (trendsQuery: TrendsQuery | null) => string | null
         isNewEvaluation: (evaluationId: string) => boolean
         evaluationBackTarget: (isNewEvaluation: boolean, searchParams: Record<string, any>) => EvaluationBackTarget
         modelSelectionRequired: (
@@ -528,11 +667,35 @@ export interface llmEvaluationLogicMeta {
             originalEvaluation: EvaluationConfig | null,
             evaluationId: string
         ) => boolean
-        formValid: (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => boolean
+        selectedModelOption: (evaluation: EvaluationConfig | null, byokModels: ModelOption[]) => ModelOption | null
+        judgeMethod: (evaluation: EvaluationConfig | null, selectedModelOption: ModelOption | null) => JudgeMethod
+        usesDecisionModel: (judgeMethod: JudgeMethod) => boolean
+        includeMedia: (evaluation: EvaluationConfig | null) => boolean
+        reasoningLevel: (evaluation: EvaluationConfig | null) => ReasoningLevel | null
+        selectedModelSupportsReasoning: (selectedModelOption: ModelOption | null, usesDecisionModel: boolean) => boolean
+        selectedModelName: (
+            byokModels: ModelOption[],
+            selectedModel: string,
+            selectedPickerProviderKeyId: string | null
+        ) => string | undefined
+        judgeModelGroups: (
+            evaluationProviderModelGroups: ProviderModelGroup[],
+            judgeMethod: JudgeMethod
+        ) => ProviderModelGroup[]
+        numericBoundsRequired: (evaluation: EvaluationConfig | null, usesDecisionModel: boolean) => boolean
+        formValid: (
+            evaluation: EvaluationConfig | null,
+            modelSelectionRequired: boolean,
+            numericBoundsRequired: boolean
+        ) => boolean
         canEnable: (
             evaluation: EvaluationConfig | null,
             activeProviderKey: LLMProviderKey | null | undefined
         ) => boolean
+        enableSavedReason: (
+            originalEvaluation: EvaluationConfig | null,
+            activeProviderKey: LLMProviderKey | null | undefined
+        ) => string | null
         canEnableReason: (canEnable: boolean) => string | null
         evaluationProviderKeyIssue: (
             evaluation: EvaluationConfig | null,
@@ -543,7 +706,6 @@ export interface llmEvaluationLogicMeta {
             originalEvaluation: EvaluationConfig | null
         ) => {
             applicabilityRate: number
-            errors: number
             failed: number
             scoreMean: number | null
             successful: number
@@ -579,19 +741,14 @@ export type llmEvaluationLogicType = MakeLogicType<
 export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationLogic']),
     props({} as LLMEvaluationLogicProps),
-    key(
-        (props) =>
-            `${props.evaluationId || 'new'}${props.templateKey ? `-${props.templateKey}` : ''}${
-                props.evaluationType ? `-${props.evaluationType}` : ''
-            }`
-    ),
+    key(llmEvaluationLogicKey),
 
     connect(() => ({
         values: [
             llmProviderKeysLogic,
             ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'activeProviderKey'],
-            featureFlagLogic,
-            ['featureFlags'],
+            modelPickerLogic,
+            ['byokModels', 'evaluationProviderModelGroups'],
         ],
         actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadEvaluationConfigSuccess']],
     })),
@@ -600,9 +757,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Evaluation configuration actions
         setEvaluationName: (name: string) => ({ name }),
         setEvaluationDescription: (description: string) => ({ description }),
+        setEvaluationDirectory: (directoryId: string | null) => ({ directoryId }),
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
-        setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
-        setOutputType: (outputType: 'boolean' | 'numeric') => ({
+        setDefaultEnabled: (enabled: boolean) => ({ enabled }),
+        setOutputType: (outputType: 'boolean' | 'numeric' | 'categorical') => ({
             outputType,
             previousEvaluation: values.evaluation,
             outputConfig: values.outputConfigDrafts[outputType],
@@ -612,7 +770,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTrueIsFailure: (trueIsFailure: boolean) => ({ trueIsFailure }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
-        setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setJudgeMethod: (judgeMethod: JudgeMethod) => ({ judgeMethod }),
+        setIncludeMedia: (includeMedia: boolean) => ({ includeMedia }),
+        setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => ({ reasoningLevel }),
+        setEvaluationType: (evaluationType: EvaluationType) => ({
+            evaluationType,
+            previousEvaluation: values.evaluation,
+            methodConfigDrafts: values.methodConfigDrafts,
+        }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
         setSettleStrategy: (strategy: EvaluationSettleStrategy) => ({ strategy }),
         // Duration fields only — switching strategy must go through setSettleStrategy so the
@@ -622,12 +787,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Tab navigation
         setActiveTab: (tab: string) => ({ tab }),
+        setFormStep: (step: string) => ({ step }),
         setRunsBackfillId: (backfillId: string | null) => ({ backfillId }),
         setRunsDates: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
 
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEnabled: (enabled: boolean) => ({ enabled }),
+        setCheckPastTraffic: (checkPastTraffic: boolean) => ({ checkPastTraffic }),
+        saveEnabledSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
+        saveEnabledFailure: true,
         saveEvaluationFailure: (error: string) => ({ error }),
         loadEvaluation: true,
         loadEvaluationSuccess: (evaluation: EvaluationConfig | null) => ({
@@ -638,6 +808,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
         // Evaluation runs actions
         refreshEvaluationRuns: true,
+        setEvaluationRunsHasMore: (hasMore: boolean) => ({ hasMore }),
 
         // Model selection actions
         selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
@@ -666,7 +837,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     if (!isTestableHogEvaluation(evaluation)) {
                         return null
                     }
-                    if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
+                    if (
+                        (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) ||
+                        (evaluation.output_type === 'categorical' &&
+                            categoricalOutputConfigError(evaluation.output_config))
+                    ) {
                         return null
                     }
 
@@ -700,6 +875,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             },
                         ]
                     }
+                    // pinned: analytics event name and properties, because usage reviews read them
+                    posthog.capture('llma evaluation code tested', {
+                        is_new: props.evaluationId === 'new',
+                        target: evaluation.target,
+                        samples: results.filter((result) => result.sample_id !== 'error').length,
+                        errors: results.filter((result) => result.error).length,
+                    })
 
                     breakpoint?.()
                     const currentEvaluation = values.evaluation
@@ -725,10 +907,43 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         backfillId: values.runsBackfillId ?? undefined,
                         dateRange: values.runsBackfillId ? undefined : values.runsDateRange,
+                        filterHogQL: evaluationRunsFilterHogQL(values.evaluationRunsFilter, values.originalEvaluation),
                         forceRefresh: values.isForceRefresh,
                     })
                     breakpoint?.()
+                    actions.setEvaluationRunsHasMore(runs.length >= EVALUATION_RUNS_QUERY_LIMIT)
                     return runs
+                },
+                loadOlderEvaluationRuns: async () => {
+                    const { evaluationRuns: loadedRuns, runsDateRange, runsBackfillId, evaluationRunsFilter } = values
+                    const oldestTimestamp = loadedRuns[loadedRuns.length - 1]?.timestamp
+                    if (!oldestTimestamp || !props.evaluationId || props.evaluationId === 'new') {
+                        return loadedRuns
+                    }
+
+                    const olderRuns = await queryEvaluationRuns({
+                        evaluationId: props.evaluationId,
+                        backfillId: runsBackfillId ?? undefined,
+                        dateRange: runsBackfillId ? undefined : runsDateRange,
+                        filterHogQL: evaluationRunsFilterHogQL(evaluationRunsFilter, values.originalEvaluation),
+                        before: {
+                            timestamp: oldestTimestamp,
+                            excludeIds: loadedRuns
+                                .filter((run) => run.timestamp === oldestTimestamp)
+                                .map((run) => run.id),
+                        },
+                    })
+                    // The selection can change, or a reload can finish, while this page loads. Do not append to rows of a different query.
+                    if (
+                        values.evaluationRuns !== loadedRuns ||
+                        values.runsDateRange !== runsDateRange ||
+                        values.runsBackfillId !== runsBackfillId ||
+                        values.evaluationRunsFilter !== evaluationRunsFilter
+                    ) {
+                        return values.evaluationRuns
+                    }
+                    actions.setEvaluationRunsHasMore(olderRuns.length >= EVALUATION_RUNS_QUERY_LIMIT)
+                    return [...loadedRuns, ...olderRuns]
                 },
             },
         ],
@@ -767,7 +982,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     reducers(({ props }) => ({
         outputConfigDrafts: [
-            {} as Partial<Record<'boolean' | 'numeric', EvaluationOutputConfig>>,
+            {} as Partial<Record<'boolean' | 'numeric' | 'categorical', EvaluationOutputConfig>>,
             {
                 loadEvaluationSuccess: () => ({}),
                 setOutputType: (state, { previousEvaluation }) =>
@@ -776,11 +991,32 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         : state,
             },
         ],
+        methodConfigDrafts: [
+            {} as MethodConfigDrafts,
+            {
+                loadEvaluationSuccess: () => ({}),
+                setEvaluationType: (state, { previousEvaluation }) =>
+                    previousEvaluation?.evaluation_type === 'llm_judge'
+                        ? { ...state, prompt: previousEvaluation.evaluation_config.prompt }
+                        : previousEvaluation?.evaluation_type === 'hog'
+                          ? {
+                                ...state,
+                                // An untouched default is regenerated on return so it matches the output type chosen meanwhile.
+                                hogSource:
+                                    previousEvaluation.evaluation_config.source ===
+                                    toHogEvaluation(previousEvaluation).evaluation_config.source
+                                        ? undefined
+                                        : previousEvaluation.evaluation_config.source,
+                            }
+                          : state,
+            },
+        ],
         originalEvaluation: [
             null as EvaluationConfig | null,
             {
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
+                saveEnabledSuccess: (_, { evaluation }) => evaluation,
             },
         ],
         evaluation: [
@@ -788,11 +1024,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 setEvaluationName: (state, { name }) => (state ? { ...state, name } : null),
                 setEvaluationDescription: (state, { description }) => (state ? { ...state, description } : null),
+                setEvaluationDirectory: (state, { directoryId }) =>
+                    state ? { ...state, directory_id: directoryId } : null,
                 setEvaluationPrompt: (state, { prompt }) =>
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
                         : state,
-                setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
+                setDefaultEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setOutputType: (state, { outputType, outputConfig }) => {
                     if (
                         !state ||
@@ -802,9 +1040,23 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     ) {
                         return state
                     }
-                    const output_config = outputConfig ?? { allows_na: state.output_config.allows_na ?? false }
+                    const output_config = outputConfig ?? {
+                        allows_na: state.output_config.allows_na ?? false,
+                        ...(outputType === 'categorical'
+                            ? {
+                                  options: [
+                                      { key: 'resolved', label: 'Resolved' },
+                                      { key: 'unresolved', label: 'Unresolved' },
+                                  ],
+                                  selection_mode: 'single' as const,
+                              }
+                            : {}),
+                    }
                     if (state.evaluation_type === 'hog') {
                         const source = state.evaluation_config.source
+                        const isDefaultCategoricalSource =
+                            state.output_type === 'categorical' &&
+                            source === defaultCategoricalHogSource(state.output_config)
                         return {
                             ...state,
                             output_type: outputType,
@@ -812,21 +1064,48 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             evaluation_config: {
                                 ...state.evaluation_config,
                                 source:
-                                    outputType === 'numeric' &&
-                                    (source === DEFAULT_HOG_SOURCE || LEGACY_HOG_DEFAULT_SOURCES.includes(source))
-                                        ? 'return 0;'
-                                        : outputType === 'boolean' && source === 'return 0;'
-                                          ? DEFAULT_HOG_SOURCE
-                                          : source,
+                                    outputType === 'categorical' &&
+                                    (source === 'return 0;' ||
+                                        source === DEFAULT_HOG_SOURCE ||
+                                        LEGACY_HOG_DEFAULT_SOURCES.includes(source))
+                                        ? defaultCategoricalHogSource(output_config)
+                                        : outputType === 'numeric' &&
+                                            (isDefaultCategoricalSource ||
+                                                source === DEFAULT_HOG_SOURCE ||
+                                                LEGACY_HOG_DEFAULT_SOURCES.includes(source))
+                                          ? 'return 0;'
+                                          : outputType === 'boolean' &&
+                                              (isDefaultCategoricalSource || source === 'return 0;')
+                                            ? DEFAULT_HOG_SOURCE
+                                            : source,
                             },
                         }
                     }
                     return { ...state, output_type: outputType, output_config }
                 },
-                patchOutputConfig: (state, { patch }) =>
-                    state?.output_type === 'numeric'
-                        ? { ...state, output_config: { ...state.output_config, ...patch } }
-                        : state,
+                patchOutputConfig: (state, { patch }) => {
+                    if (!state || state.output_type === 'sentiment') {
+                        return state
+                    }
+                    const output_config = { ...state.output_config, ...patch }
+                    // Only the untouched example follows category edits; custom code belongs to the user.
+                    if (
+                        state.output_type === 'categorical' &&
+                        state.evaluation_type === 'hog' &&
+                        patch.options &&
+                        state.evaluation_config.source === defaultCategoricalHogSource(state.output_config)
+                    ) {
+                        return {
+                            ...state,
+                            output_config,
+                            evaluation_config: {
+                                ...state.evaluation_config,
+                                source: defaultCategoricalHogSource(output_config),
+                            },
+                        }
+                    }
+                    return { ...state, output_config }
+                },
                 setAllowsNA: (state, { allowsNA }) =>
                     state && state.output_type !== 'sentiment'
                         ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } }
@@ -841,20 +1120,52 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, model_configuration: modelConfiguration }
                         : state,
-                setEvaluationType: (state, { evaluationType }) => {
+                setReasoningLevel: (state, { reasoningLevel }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? {
+                              ...state,
+                              evaluation_config: { ...state.evaluation_config, reasoning_level: reasoningLevel },
+                          }
+                        : state,
+                setJudgeMethod: (state, { judgeMethod }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? {
+                              ...state,
+                              evaluation_config: { ...state.evaluation_config, judge_method: judgeMethod },
+                              output_config:
+                                  judgeMethod === 'llm'
+                                      ? clearInvalidDecisionThreshold(state.output_config)
+                                      : state.output_config,
+                          }
+                        : state,
+                // Always explicit: a PATCH without the field keeps the saved value.
+                setIncludeMedia: (state, { includeMedia }) =>
+                    state && isLLMJudgeEvaluation(state)
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, include_media: includeMedia } }
+                        : state,
+                setEvaluationType: (state, { evaluationType, methodConfigDrafts }) => {
                     if (!state) {
                         return null
                     }
                     if (evaluationType === 'hog') {
-                        return toHogEvaluation(state)
+                        const hogEvaluation = toHogEvaluation(state)
+                        return methodConfigDrafts.hogSource === undefined
+                            ? hogEvaluation
+                            : { ...hogEvaluation, evaluation_config: { source: methodConfigDrafts.hogSource } }
                     }
                     if (evaluationType === 'sentiment') {
-                        if (props.evaluationId !== 'new' && state.output_type === 'numeric') {
+                        if (
+                            props.evaluationId !== 'new' &&
+                            (state.output_type === 'numeric' || state.output_type === 'categorical')
+                        ) {
                             return state
                         }
                         return toSentimentEvaluation(state)
                     }
-                    return toLLMJudgeEvaluation(state)
+                    const judgeEvaluation = toLLMJudgeEvaluation(state)
+                    return methodConfigDrafts.prompt === undefined
+                        ? judgeEvaluation
+                        : { ...judgeEvaluation, evaluation_config: { prompt: methodConfigDrafts.prompt } }
                 },
                 setEvaluationTarget: (state, { target }) => {
                     if (!state) {
@@ -892,6 +1203,17 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         : state,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
+                // Takes only the run state, so configuration edits that are not saved yet stay unsaved.
+                saveEnabledSuccess: (state, { evaluation }) =>
+                    state
+                        ? {
+                              ...state,
+                              enabled: evaluation.enabled,
+                              status: evaluation.status,
+                              status_reason: evaluation.status_reason,
+                              status_reason_detail: evaluation.status_reason_detail,
+                          }
+                        : state,
             },
         ],
         hogTestResults: {
@@ -964,19 +1286,37 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationFailure: () => false,
             },
         ],
+        checkPastTraffic: [
+            false,
+            {
+                setCheckPastTraffic: (_, { checkPastTraffic }) => checkPastTraffic,
+                loadEvaluationSuccess: () => false,
+            },
+        ],
+        enabledSaving: [
+            false,
+            {
+                saveEnabled: () => true,
+                saveEnabledSuccess: () => false,
+                saveEnabledFailure: () => false,
+            },
+        ],
         hasUnsavedChanges: [
             false,
             {
                 setEvaluationName: () => true,
                 setEvaluationDescription: () => true,
+                setEvaluationDirectory: () => true,
                 setEvaluationPrompt: () => true,
-                setEvaluationEnabled: () => true,
                 setOutputType: () => true,
                 patchOutputConfig: () => true,
                 setAllowsNA: () => true,
                 setTrueIsFailure: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
+                setJudgeMethod: () => true,
+                setIncludeMedia: () => true,
+                setReasoningLevel: () => true,
                 setEvaluationType: () => true,
                 setEvaluationTarget: () => true,
                 setSettleStrategy: () => true,
@@ -985,6 +1325,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
+            },
+        ],
+        evaluationRunsHasMore: [
+            false,
+            {
+                setEvaluationRunsHasMore: (_, { hasMore }) => hasMore,
             },
         ],
         evaluationRunsFilter: [
@@ -1014,6 +1360,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setRunsBackfillId: () => null,
             },
         ],
+        // The open step of the step layout, here so a failed save can open the step that needs fixing.
+        formStep: [
+            'name' as string,
+            {
+                setFormStep: (_, { step }) => step,
+            },
+        ],
         activeTab: [
             'configuration' as string,
             {
@@ -1035,12 +1388,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 previousEvaluation.evaluation_config.source === values.evaluation?.evaluation_config.source
             ) {
                 lemonToast.warning(
-                    `Your code was kept. Update it to return a ${outputType === 'numeric' ? 'number' : 'boolean'} and test it before enabling this evaluation.`
+                    `Your code was kept. Update it to return a ${outputType === 'numeric' ? 'number' : outputType === 'categorical' ? 'list of category keys' : 'boolean'} and test it before enabling this evaluation.`
                 )
             }
         },
-        loadEvaluationSuccess: () => {
+        loadEvaluationSuccess: ({ evaluation }) => {
+            // A draft can open already able to run, so the canEnable subscription never sees a change to apply.
+            if (props.evaluationId === 'new' && evaluation && evaluation.enabled !== values.canEnable) {
+                actions.setDefaultEnabled(values.canEnable)
+            }
             actions.loadRunsStats()
+            // The filter query reads the evaluation's pass rules, and a sentiment evaluation opens on a non-'all' filter.
+            if (values.evaluationRunsFilter !== 'all') {
+                actions.loadEvaluationRuns()
+            }
         },
         loadEvaluationConfigSuccess: () => {
             // The new-eval draft's enabled default is read before the team's evaluation config has
@@ -1050,7 +1411,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 values.evaluation?.enabled &&
                 !evaluationCanResolveModel(values.evaluation, values.activeProviderKey)
             ) {
-                actions.setEvaluationEnabled(false)
+                actions.setDefaultEnabled(false)
             }
         },
 
@@ -1097,8 +1458,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
-                    target: 'generation' as const,
-                    target_config: {},
+                    target: template?.target ?? 'generation',
+                    target_config: template?.target
+                        ? seedSettleConfig(template.target, defaultStrategyForTarget(template.target))
+                        : {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
@@ -1118,14 +1481,22 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                                 ...baseFields,
                                 evaluation_type: 'hog' as const,
                                 evaluation_config: { source: template.source, bytecode: [] },
+                                output_type: template.output_type,
+                                output_config: template.output_config,
                             }
-                          : {
-                                ...baseFields,
-                                evaluation_type: 'llm_judge' as const,
-                                evaluation_config: {
-                                    prompt: template && 'prompt' in template ? template.prompt : '',
-                                },
-                            }
+                          : template?.evaluation_type === 'llm_judge'
+                            ? {
+                                  ...baseFields,
+                                  evaluation_type: 'llm_judge' as const,
+                                  evaluation_config: { prompt: template.prompt },
+                                  output_type: template.output_type,
+                                  output_config: template.output_config,
+                              }
+                            : {
+                                  ...baseFields,
+                                  evaluation_type: 'llm_judge' as const,
+                                  evaluation_config: { prompt: DEFAULT_JUDGE_PROMPT },
+                              }
                 actions.loadEvaluationSuccess(newEvaluation)
             }
         },
@@ -1142,6 +1513,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         },
 
         setEvaluationRunsFilter: ({ filter, previousFilter }) => {
+            actions.loadEvaluationRuns()
             // pinned: analytics event name - renaming it breaks existing dashboards
             posthog.capture('llma evaluation summary filter changed', {
                 filter,
@@ -1177,7 +1549,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     status_reason_detail: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
-                        prompt: '',
+                        prompt: DEFAULT_JUDGE_PROMPT,
                     },
                     output_type: 'boolean',
                     output_config: {},
@@ -1201,6 +1573,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
+        saveEnabled: async ({ enabled }) => {
+            const teamId = teamLogic.values.currentTeamId
+            if (!teamId) {
+                actions.saveEnabledFailure()
+                return
+            }
+            try {
+                actions.saveEnabledSuccess(await patchEvaluation(teamId.toString(), props.evaluationId, { enabled }))
+                llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
+                markEvaluationsOverviewStale()
+            } catch (error) {
+                lemonToast.error(
+                    evaluationErrorMessage(
+                        error,
+                        enabled ? "Couldn't turn on this evaluation." : "Couldn't pause this evaluation."
+                    )
+                )
+                actions.saveEnabledFailure()
+            }
+        },
         saveEvaluation: async () => {
             try {
                 const teamId = teamLogic.values.currentTeamId
@@ -1232,36 +1624,33 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     return
                 }
 
+                // Unchanged configuration triggers capability checks that can block rename/disable after flag-off.
+                const evaluationData = isNew
+                    ? values.evaluation
+                    : Object.fromEntries(
+                          Object.entries(values.evaluation).filter(
+                              ([field, value]) =>
+                                  !objectsEqual(value, values.originalEvaluation?.[field as keyof EvaluationConfig])
+                          )
+                      )
                 const response = (isNew
                     ? await evaluationsCreate(
                           teamId.toString(),
-                          values.evaluation as Parameters<typeof evaluationsCreate>[1]
+                          evaluationData as Parameters<typeof evaluationsCreate>[1]
                       )
                     : await evaluationsPartialUpdate(
                           teamId.toString(),
                           props.evaluationId,
-                          values.evaluation as Parameters<typeof evaluationsPartialUpdate>[2]
+                          evaluationData as Parameters<typeof evaluationsPartialUpdate>[2]
                       )) as unknown as EvaluationConfig
+                const openParams = coverPastTraffic(response, values.checkPastTraffic, isNew)
                 actions.saveEvaluationSuccess(response)
                 // The list and the self-driving table read from llmEvaluationsLogic, which only
                 // fetches on mount. Refresh it here so they show the eval we just saved.
                 llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
+                markEvaluationsOverviewStale()
                 if (isNew) {
                     globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.SetUpLlmEvaluation)
-                    // Saving navigates away, so the offer to cover past data travels with the user.
-                    if (response?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVAL_BACKFILLS]) {
-                        lemonToast.info('This evaluation grades new data from now on.', {
-                            button: {
-                                label: 'Evaluate past data',
-                                action: () =>
-                                    router.actions.push(
-                                        combineUrl(urls.aiObservabilityEvaluation(response.id), {
-                                            evaluation_tab: 'backfills',
-                                        }).url
-                                    ),
-                            },
-                        })
-                    }
                 }
 
                 // Piggyback the scheduled-report draft onto the main save so the single
@@ -1292,7 +1681,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                 }
 
-                router.actions.push(getEvaluationBackTarget(false, router.values.searchParams).path)
+                // The new creation page lands on the evaluation itself, which says when its first result arrives.
+                const opensEvaluation = isNew && !!response?.id
+                router.actions.push(
+                    opensEvaluation
+                        ? combineUrl(urls.aiObservabilityEvaluation(response.id), openParams).url
+                        : getEvaluationBackTarget(false, router.values.searchParams).path
+                )
             } catch (error) {
                 const message = evaluationErrorMessage(error, 'Failed to save evaluation')
                 lemonToast.error(message)
@@ -1306,6 +1701,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
             const playgroundProvider = parsePlaygroundProviderKeyId(providerKeyId)
             if (playgroundProvider) {
+                actions.setJudgeMethod(values.judgeMethod)
                 actions.setModelConfiguration({
                     provider: playgroundProvider,
                     model: modelId,
@@ -1315,6 +1711,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
             const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
             if (key) {
+                actions.setJudgeMethod(values.judgeMethod)
                 actions.setModelConfiguration({
                     provider: key.provider,
                     model: modelId,
@@ -1322,9 +1719,38 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
+        setJudgeMethod: () => {
+            const config = values.evaluation?.model_configuration
+            if (!config) {
+                return
+            }
+            const model = values.selectedModelOption
+            const compatible = model
+                ? values.judgeMethod === 'decision'
+                    ? model.supportsDecisions
+                    : (model.supportsChat ?? !model.supportsDecisions)
+                : config.provider === 'system_one'
+                  ? values.judgeMethod === 'decision'
+                  : values.judgeMethod === 'llm'
+            if (!compatible) {
+                actions.setModelConfiguration(null)
+            }
+            if (values.reasoningLevel && !values.selectedModelSupportsReasoning) {
+                actions.setReasoningLevel(null)
+            }
+        },
+        setModelConfiguration: () => {
+            if (values.reasoningLevel && !values.selectedModelSupportsReasoning) {
+                actions.setReasoningLevel(null)
+            }
+        },
         setEvaluationType: () => {
             if (!values.isReportableEvaluation && values.activeTab === 'reports') {
                 actions.setActiveTab('configuration')
+            }
+            // Code and sentiment drop the model, so the picker must not keep showing it for a later switch back.
+            if (!values.evaluation?.model_configuration && values.selectedModel) {
+                actions.setModelConfiguration(null)
             }
         },
     })),
@@ -1338,70 +1764,88 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 originalEvaluation: EvaluationConfig | null
             ): boolean => evaluationSupportsReports(isNewEvaluation ? evaluation : originalEvaluation),
         ],
-        trendInsightUrl: [
+        // The evaluation's headline result as a trends query: the pass rate, the mean score without a passing rule, or
+        // the negative sentiment rate.
+        trendsQuery: [
             (s) => [s.originalEvaluation],
-            (evaluation: EvaluationConfig | null): string | null =>
+            (evaluation: EvaluationConfig | null): TrendsQuery | null =>
                 evaluation &&
-                (evaluationSupportsRunOutcomes(evaluation) || evaluation.output_type === 'numeric') &&
+                (evaluationSupportsRunOutcomes(evaluation) ||
+                    evaluation.output_type === 'numeric' ||
+                    evaluation.output_type === 'sentiment') &&
                 evaluation.id
-                    ? urls.insightNew({
-                          query: {
-                              kind: NodeKind.InsightVizNode,
-                              source: {
-                                  kind: NodeKind.TrendsQuery,
-                                  series: [
+                    ? ({
+                          kind: NodeKind.TrendsQuery,
+                          series: [
+                              {
+                                  kind: NodeKind.EventsNode,
+                                  event: '$ai_evaluation',
+                                  custom_name: `${evaluation.name} - ${evaluation.output_type === 'sentiment' ? 'Negative rate' : evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
+                                  math: HogQLMathType.HogQL,
+                                  math_hogql:
+                                      evaluation.output_type === 'sentiment'
+                                          ? evaluationPassRateHogQL(
+                                                `lower(properties.$ai_sentiment_label) = 'negative'`,
+                                                EVALUATION_SENTIMENT_GRADED_HOGQL
+                                            )
+                                          : evaluation.output_type === 'categorical'
+                                            ? evaluationPassRateHogQL(
+                                                  categoricalEvaluationPassedHogQL(evaluation),
+                                                  EVALUATION_CATEGORICAL_GRADED_HOGQL
+                                              )
+                                            : evaluation.output_type === 'numeric'
+                                              ? evaluation.output_config.passing_rule
+                                                  ? evaluationPassRateHogQL(
+                                                        numericEvaluationPassedHogQL(evaluation),
+                                                        EVALUATION_NUMERIC_GRADED_HOGQL
+                                                    )
+                                                  : EVALUATION_NUMERIC_MEAN_HOGQL
+                                              : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
+                                  properties: [
                                       {
-                                          kind: NodeKind.EventsNode,
-                                          event: '$ai_evaluation',
-                                          custom_name: `${evaluation.name} - ${evaluation.output_type === 'numeric' && !evaluation.output_config.passing_rule ? 'Mean score' : 'Pass rate'}`,
-                                          math: HogQLMathType.HogQL,
-                                          math_hogql:
-                                              evaluation.output_type === 'numeric'
-                                                  ? evaluation.output_config.passing_rule
-                                                      ? evaluationPassRateHogQL(
-                                                            numericEvaluationPassedHogQL(evaluation),
-                                                            EVALUATION_NUMERIC_GRADED_HOGQL
-                                                        )
-                                                      : EVALUATION_NUMERIC_MEAN_HOGQL
-                                                  : evaluationPassRateHogQL(evaluationPassedHogQL(evaluation)),
-                                          properties: [
-                                              {
-                                                  key: '$ai_evaluation_id',
-                                                  value: evaluation.id,
-                                                  operator: 'exact',
-                                                  type: 'event',
-                                              },
-                                          ],
+                                          key: '$ai_evaluation_id',
+                                          value: evaluation.id,
+                                          operator: 'exact',
+                                          type: 'event',
                                       },
-                                      ...(evaluation.output_type !== 'numeric' && evaluation.output_config.allows_na
-                                          ? [
-                                                {
-                                                    kind: NodeKind.EventsNode as const,
-                                                    event: '$ai_evaluation',
-                                                    custom_name: `${evaluation.name} — N/A rate`,
-                                                    math: HogQLMathType.HogQL as const,
-                                                    math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
-                                                    properties: [
-                                                        {
-                                                            key: '$ai_evaluation_id',
-                                                            value: evaluation.id,
-                                                            operator: 'exact' as const,
-                                                            type: 'event' as const,
-                                                        },
-                                                    ],
-                                                },
-                                            ]
-                                          : []),
                                   ],
-                                  trendsFilter: {
-                                      display: ChartDisplayType.ActionsLineGraph,
-                                  },
-                                  dateRange: {
-                                      date_from: '-7d',
-                                  },
-                                  interval: 'day',
                               },
-                          } as InsightVizNode,
+                              ...(evaluation.output_type === 'boolean' && evaluation.output_config.allows_na
+                                  ? [
+                                        {
+                                            kind: NodeKind.EventsNode as const,
+                                            event: '$ai_evaluation',
+                                            custom_name: `${evaluation.name} — N/A rate`,
+                                            math: HogQLMathType.HogQL as const,
+                                            math_hogql: `if(count() > 0, countIf(properties.$ai_evaluation_result IS NULL) / count() * 100, 0)`,
+                                            properties: [
+                                                {
+                                                    key: '$ai_evaluation_id',
+                                                    value: evaluation.id,
+                                                    operator: 'exact' as const,
+                                                    type: 'event' as const,
+                                                },
+                                            ],
+                                        },
+                                    ]
+                                  : []),
+                          ],
+                          trendsFilter: {
+                              display: ChartDisplayType.ActionsLineGraph,
+                          },
+                          dateRange: {
+                              date_from: '-7d',
+                          },
+                          interval: 'day',
+                      } as TrendsQuery)
+                    : null,
+        ],
+        trendInsightUrl: [
+            (s) => [s.trendsQuery],
+            (trendsQuery: TrendsQuery | null): string | null =>
+                trendsQuery
+                    ? urls.insightNew({
+                          query: { kind: NodeKind.InsightVizNode, source: trendsQuery } as InsightVizNode,
                       })
                     : null,
         ],
@@ -1424,20 +1868,105 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!isLLMJudgeEvaluation(evaluation)) {
                     return false
                 }
-                if (evaluationId === 'new' || originalEvaluation?.evaluation_type !== 'llm_judge') {
+                if (
+                    evaluationId === 'new' ||
+                    originalEvaluation?.evaluation_type !== 'llm_judge' ||
+                    evaluation.evaluation_config?.judge_method != null
+                ) {
                     return true
                 }
                 return originalEvaluation.model_configuration != null
             },
         ],
 
+        selectedModelOption: [
+            (s) => [s.evaluation, s.byokModels],
+            (evaluation: EvaluationConfig | null, models: ModelOption[]): ModelOption | null => {
+                const config = evaluation?.model_configuration
+                if (!config) {
+                    return null
+                }
+                return (
+                    models.find(
+                        (model) =>
+                            model.id === config.model &&
+                            toLLMProvider(model.provider) === config.provider &&
+                            (!config.provider_key_id || model.providerKeyId === config.provider_key_id)
+                    ) ?? null
+                )
+            },
+        ],
+        judgeMethod: [
+            (s) => [s.evaluation, s.selectedModelOption],
+            (evaluation: EvaluationConfig | null, model: ModelOption | null): JudgeMethod => {
+                if (isLLMJudgeEvaluation(evaluation) && evaluation.evaluation_config?.judge_method) {
+                    return evaluation.evaluation_config.judge_method
+                }
+                const provider = evaluation?.model_configuration?.provider
+                return provider === 'system_one' ||
+                    (provider === 'openrouter' && !!model?.supportsDecisions && !model.supportsChat)
+                    ? 'decision'
+                    : 'llm'
+            },
+        ],
+        usesDecisionModel: [(s) => [s.judgeMethod], (judgeMethod: JudgeMethod): boolean => judgeMethod === 'decision'],
+        includeMedia: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): boolean =>
+                !isLLMJudgeEvaluation(evaluation) || evaluation.evaluation_config?.include_media !== false,
+        ],
+        reasoningLevel: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): ReasoningLevel | null =>
+                (isLLMJudgeEvaluation(evaluation) && evaluation.evaluation_config.reasoning_level) || null,
+        ],
+        selectedModelSupportsReasoning: [
+            (s) => [s.selectedModelOption, s.usesDecisionModel],
+            (model: ModelOption | null, usesDecisionModel: boolean): boolean =>
+                !usesDecisionModel && !!model?.supportsReasoning,
+        ],
+        // Evals always run on the team's own provider key, so only BYOK models can be the selected one.
+        selectedModelName: [
+            (s) => [s.byokModels, s.selectedModel, s.selectedPickerProviderKeyId],
+            (models: ModelOption[], selectedModel: string, providerKeyId: string | null): string | undefined =>
+                models.find((m) => m.id === selectedModel && m.providerKeyId === providerKeyId)?.name,
+        ],
+        judgeModelGroups: [
+            (s) => [s.evaluationProviderModelGroups, s.judgeMethod],
+            (groups: ProviderModelGroup[], judgeMethod: JudgeMethod): ProviderModelGroup[] =>
+                groups
+                    .map((group) => ({
+                        ...group,
+                        models: group.models.filter((model) =>
+                            judgeMethod === 'decision'
+                                ? model.supportsDecisions
+                                : (model.supportsChat ?? !model.supportsDecisions)
+                        ),
+                    }))
+                    .filter(
+                        (group) =>
+                            group.models.length > 0 ||
+                            group.disabledReason ||
+                            (judgeMethod === 'llm' && group.allowsCustomModel)
+                    ),
+        ],
+        numericBoundsRequired: [
+            (s) => [s.evaluation, s.usesDecisionModel],
+            (evaluation: EvaluationConfig | null, usesDecisionModel: boolean): boolean =>
+                isLLMJudgeEvaluation(evaluation) && evaluation.output_type === 'numeric' && usesDecisionModel,
+        ],
         formValid: [
-            (s) => [s.evaluation, s.modelSelectionRequired],
-            (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean) => {
+            (s) => [s.evaluation, s.modelSelectionRequired, s.numericBoundsRequired],
+            (evaluation: EvaluationConfig | null, modelSelectionRequired: boolean, numericBoundsRequired: boolean) => {
                 if (!evaluation) {
                     return false
                 }
-                if (evaluation.output_type === 'numeric' && numericOutputConfigError(evaluation.output_config)) {
+                if (
+                    (evaluation.output_type === 'boolean' && booleanOutputConfigError(evaluation.output_config)) ||
+                    (evaluation.output_type === 'numeric' &&
+                        numericOutputConfigError(evaluation.output_config, numericBoundsRequired)) ||
+                    (evaluation.output_type === 'categorical' && categoricalOutputConfigError(evaluation.output_config))
+                ) {
                     return false
                 }
                 const hasValidName = (evaluation.name?.length ?? 0) > 0
@@ -1472,6 +2001,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             },
         ],
 
+        // Pause and Turn on change only the saved evaluation, so they check it rather than an unsaved draft.
+        enableSavedReason: [
+            (s) => [s.originalEvaluation, s.activeProviderKey],
+            (
+                originalEvaluation: EvaluationConfig | null,
+                activeProviderKey: LLMProviderKey | null | undefined
+            ): string | null =>
+                !originalEvaluation || evaluationCanResolveModel(originalEvaluation, activeProviderKey)
+                    ? null
+                    : 'Add a provider API key to enable this evaluation.',
+        ],
+
         canEnableReason: [
             (s) => [s.canEnable],
             (canEnable: boolean): string | null => {
@@ -1497,13 +2038,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
 
                 const { total, trueCount } = stats
-                const applicable = evaluation?.output_type === 'numeric' ? (stats.scoreCount ?? 0) : stats.applicable
+                const applicable =
+                    evaluation?.output_type === 'categorical'
+                        ? (stats.categoricalCount ?? 0)
+                        : evaluation?.output_type === 'numeric'
+                          ? (stats.scoreCount ?? 0)
+                          : stats.applicable
                 const passed =
-                    evaluation?.output_type === 'numeric'
-                        ? (stats.numericPassCount ?? 0)
-                        : evaluation && evaluationIsDetector(evaluation)
-                          ? applicable - trueCount
-                          : trueCount
+                    evaluation?.output_type === 'categorical'
+                        ? (stats.categoricalPassCount ?? 0)
+                        : evaluation?.output_type === 'numeric'
+                          ? (stats.numericPassCount ?? 0)
+                          : evaluation && evaluationIsDetector(evaluation)
+                            ? applicable - trueCount
+                            : trueCount
                 // Applicable runs excludes N/A results
                 const failed = applicable - passed
 
@@ -1512,10 +2060,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     scoreMean: stats.scoreMean ?? null,
                     successful: passed,
                     failed,
-                    errors: 0,
+                    // Round down so a few failures never read as 100%
                     successRate:
                         evaluationSupportsRunOutcomes(evaluation) && applicable > 0
-                            ? Math.round((passed / applicable) * 100)
+                            ? Math.floor((passed / applicable) * 1000) / 10
                             : null,
                     applicabilityRate: total > 0 ? Math.round((applicable / total) * 100) : 0,
                 }
@@ -1643,13 +2191,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
             return [
                 router.values.location.pathname,
-                { ...router.values.searchParams, evaluation_tab: evaluationTab },
+                { ...withoutTraceDrawerParams(router.values.searchParams), evaluation_tab: evaluationTab },
                 router.values.hashParams,
                 { replace: true },
             ]
         },
     })),
 
+    subscriptions(({ actions, values, props }) => ({
+        // A new evaluation starts running when it can: code and sentiment need no key, a judge needs a working one.
+        canEnable: (canEnable: boolean) => {
+            if (props.evaluationId === 'new' && values.evaluation && values.evaluation.enabled !== canEnable) {
+                actions.setDefaultEnabled(canEnable)
+            }
+        },
+    })),
     afterMount(({ actions, props }) => {
         actions.loadProviderKeys()
         actions.loadEvaluation()

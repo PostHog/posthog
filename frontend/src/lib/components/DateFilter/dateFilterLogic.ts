@@ -418,9 +418,8 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                         ? formatDate(dateStringToDayJs(dateFrom) ?? dayjs(dateFrom))
                         : (dateFilterToText(dateFrom, dateTo, null, dateOptions, false) ??
                           labelForRangeOutsideOptions(dateFrom, dateTo) ??
-                          (isFixedDateMode
-                              ? (placeholder ?? SELECT_FIXED_VALUE_PLACEHOLDER)
-                              : NO_OVERRIDE_RANGE_PLACEHOLDER))
+                          placeholder ??
+                          (isFixedDateMode ? SELECT_FIXED_VALUE_PLACEHOLDER : NO_OVERRIDE_RANGE_PLACEHOLDER))
             },
         ],
     }),

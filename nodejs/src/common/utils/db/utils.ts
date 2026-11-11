@@ -131,9 +131,9 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return properties
 }
 
-// Deletion call sites own the version they emit (the +100 fudge for hard deletes,
-// the exact stamped death version for tombstones), so a deletion must state it
-// explicitly — a stale person.version can never become a no-headroom death row.
+// Deletion call sites own the version they emit (the exact stamped death version
+// for tombstones), so a deletion must state it explicitly — a stale person.version
+// can never become a no-headroom death row.
 export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted?: false): PersonMessage
 export function generateKafkaPersonUpdateMessage(
     person: InternalPerson,
@@ -169,7 +169,7 @@ export function getFinalPostgresQuery(queryString: string, values: any[]): strin
     return queryString.replace(/\$([0-9]+)/g, (m, v) => JSON.stringify(values[parseInt(v) - 1]))
 }
 
-// keep in sync with posthog/posthog/api/utils.py::safe_clickhouse_string
+// keep in sync with posthog/api/utils.py::safe_clickhouse_string
 export function safeClickhouseString(str: string): string {
     // character is a surrogate
     return str.replace(/[\ud800-\udfff]/gu, (match) => {
@@ -200,6 +200,13 @@ export function sanitizeJsonbValue(value: any): any {
 
 export function sanitizeString(value: string) {
     return value.replace(/\u0000/g, '\uFFFD')
+}
+
+// The pg driver sends an object parameter as JSON text and everything else via
+// String(), so this is the text Postgres receives. String() alone throws on an
+// object whose toString is not callable, which a sender controls.
+export function asPostgresParameterText(value: unknown): string {
+    return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 
 export const surrogatesSubstitutedCounter = new Counter({

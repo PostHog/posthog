@@ -86,8 +86,8 @@ class Finding:
     crossed: bool
 
 
-def _git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True)
+def _git(*args: str, timeout: float | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, timeout=timeout)
 
 
 def _merge_base(against: str | None) -> str | None:
@@ -103,8 +103,8 @@ def _merge_base(against: str | None) -> str | None:
     return None
 
 
-def _rename_map(*diff_args: str) -> dict[str, str]:
-    result = _git("diff", "-M", "--name-status", "-z", *diff_args)
+def _rename_map(*diff_args: str, timeout: float | None = None) -> dict[str, str]:
+    result = _git("diff", "-M", "--name-status", "-z", *diff_args, timeout=timeout)
     if result.returncode != 0:
         return {}
     fields = [field for field in result.stdout.split("\0") if field]

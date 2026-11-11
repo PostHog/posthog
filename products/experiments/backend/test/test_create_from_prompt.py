@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.ai_observability.backend.facade.contracts import EVALUATION_GRADED_MARKER, EVALUATION_PASSED_MARKER
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt
 from products.experiments.backend.llm_metric_templates import TEMPLATE_NAMES
 from products.experiments.backend.models.experiment import Experiment
@@ -120,11 +121,8 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         prompt_filter = next(p for p in properties if p.get("key") == "$ai_prompt_name")
         self.assertEqual(prompt_filter["value"], self.prompt_name)
         if template_name == "eval_pass_rate":
-            for source in (metric["numerator"], metric["denominator"]):
-                self.assertIn(
-                    "JSONExtractString(properties, '$ai_evaluation_result_type') IN ('', 'boolean')",
-                    [prop["key"] for prop in source["properties"]],
-                )
+            self.assertIn(EVALUATION_PASSED_MARKER, [prop["key"] for prop in metric["numerator"]["properties"]])
+            self.assertIn(EVALUATION_GRADED_MARKER, [prop["key"] for prop in metric["denominator"]["properties"]])
 
     def test_multiple_templates_creates_one_metric_each(self) -> None:
         # Pick all available templates so we exercise both mean and ratio shapes.

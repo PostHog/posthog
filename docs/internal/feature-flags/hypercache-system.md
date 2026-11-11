@@ -131,8 +131,12 @@ A referenced entry is load-bearing: the matcher pre-seeds its id as false, so a 
 The service's PostgreSQL fallback runs the same classification, so a Redis miss serves the flag set the cache would have carried.
 Both builders run the same fixture, `rust/feature-flags/tests/fixtures/flags_cache_config_formats.json`.
 One known divergence remains: Rust decodes v1 documents into typed structs, so an evaluable row it cannot decode (a property filter without a `type` key, for example) is omitted there with its dependents, while Python, which only reads the cohort and flag references, still publishes it.
+When the Rust service reads a Python-written entry that holds such a row, it skips that one flag, counts it in `flags_flag_malformed_filter_total`, and marks every flag that depends on it as missing a dependency, so the team's other flags still evaluate.
+That response sets `errorsWhileComputingFlags`, and so does a PostgreSQL fallback response that omits such a row, so an SDK keeps its stored value for the missing flag.
+An entry the Rust builder wrote already lacks the row, so a response served from it does not report the missing flag.
 `verify_team_flags` reports and repairs such a team, attributed to the writer that produced it.
-An entry written before this rule can hold an inactive non-v1 row already blanked to `{"groups": []}`; its cached bytes cannot recover the original format, so the entry is rebuilt from the database rows by the next invalidation, refresh sweep, or verifier repair rather than reclassified in place.
+Python rejects a v1 row as well when its `groups`, or a group's `properties`, is neither falsy nor a list of objects, so neither builder publishes that row and no response reports it.
+An entry written before the builders omitted unsupported non-v1 rows can hold an inactive non-v1 row already blanked to `{"groups": []}`; its cached bytes cannot recover the original format, so the entry is rebuilt from the database rows by the next invalidation, refresh sweep, or verifier repair rather than reclassified in place.
 Until then an unreferenced blanked row is inert for the matcher, and an active dependent of one reports as `STALE_IN_CACHE` and triggers the repair.
 Parity is per team, not per byte: each team has one primary writer (teams whose invalidation routes to Kafka via `KAFKA_ROUTING_FLAG` get the Rust builder, every other team Python), the Python verifier remains a repair writer for every team, and the two serializers order keys differently — so what must match is the flag set, fields, and metadata, not the bytes or etag.
 Verifier fixes on the flags cache carry a `writer` label (`posthog_hypercache_verify_fixes_total{cache_type="flags", writer="rust"|"python"|"unknown"}`), attributed by evaluating the same routing flag (`get_team_primary_flags_writer` in `flags_cache.py`): a fix on a rust-routed team is the parity signal that the Rust builder diverged, which the unattributed counter blends into Python's baseline repair noise. `unknown` means the routing flag couldn't be evaluated at fix time, so an attribution outage can't masquerade as a clean Rust ramp.
@@ -229,6 +233,15 @@ Models that invalidate the flags cache:
 - `Cohort` - Cohort properties changed
 - `FeatureFlagEvaluationTag` - Evaluation tags changed
 - `Tag` - Tag renamed
+
+Deleting a `Team` clears its local evaluation and team metadata entries from Redis and S3 after the deletion commits.
+The rebuild task cannot run for a deleted team, and the flags service falls back to the S3 copies, which have no TTL.
+A stale team metadata entry lets the flags service resolve the deleted team's token without a Postgres check.
+A refresh run that loaded the team before the deletion can write an entry again. The daily cleanup task deletes that entry from Redis and S3.
+
+The staff cache tools `clear` action also accepts the ids of deleted teams.
+Use it to purge an orphaned flags entry for a team that no longer exists.
+It does not clear team metadata entries, because it takes team ids and those entries are keyed by API token.
 
 ## Remote config caching
 
@@ -527,18 +540,27 @@ Reads on the dedicated instance go to its `-ro` reader endpoint. `NotFound` is u
 
 The flag-definitions self-heal queue follows the write side, not the read side. The Rust endpoint enqueues a rebuild request on the dedicated instance (`State::flags_namespace_redis_client`), and the Celery drain reads the queue from `flag_definitions_hypercache.redis_url` (`products/feature_flags/backend/rebuild_queue.py`). Both resolve from `FLAGS_REDIS_URL`, so the producer and the consumer move together on configuration. They can still split on connection state: a Rust process that cannot reach the dedicated cluster at startup falls back to the shared one and enqueues there for its whole life, while Celery keeps draining the dedicated one. Those teams wait for the hourly verifier. `server.rs` logs that startup failure at error level, and the same failure already sends the flags.json, team-metadata, and remote-config readers to the shared cluster, where Django writes nothing. Django and the Rust fleet deploy independently, so a deploy of one before the other leaves requests on the cluster the other side is not reading. Clean up on the **shared** cluster only, and never on the dedicated one, which holds the live queue once both sides are up. A Rust-first rollout puts the window's requests on the dedicated cluster, where the drain collects them as soon as Django deploys, so they need no cleanup. A Django-first rollout puts them on the shared cluster, where nothing reads them again. Either order also leaves the pre-move queue members and the open circuits on the shared cluster. Run `DEL flag_definitions:rebuild_requests flag_definitions:rebuild_circuit` there after both sides are deployed. The circuit-breaker set is included because only the drain prunes it and the key carries no TTL. The cooldown and failure-streak keys expire on their own.
 
+`FLAG_DEFINITIONS_REBUILD_ON_S3_HIT_ENABLED` defaults to `false`.
+Set it to `true` on the Rust definitions fleet to rebuild entries that S3 serves after a confirmed Redis miss.
+`FLAG_DEFINITIONS_SELF_HEAL_ENABLED` must also be `true`, and the Celery rebuild drain must run.
+The Rust service reads both settings at startup. Restart its pods after a setting change. The service puts S3-hit requests in a lower-priority queue, so cache misses that return 503 drain first. Both queues use `ZADD NX` so repeated polls keep the first enqueue time. The drain skips a queued team if Redis already holds its payload and ETag.
+
+During rollout, watch `flags_flag_definitions_rebuild_requested_total` by `trigger` and `result`.
+Also watch `posthog_flag_definitions_rebuild_queue_depth` and `posthog_flag_definitions_rebuild_oldest_age_seconds`.
+Set the S3-hit variable to `false` and restart the Rust pods to stop new S3-hit requests. Set self-heal to `false` and restart them to stop both triggers. The Celery drain continues to process requests that are already queued after either setting is disabled.
+
 The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache update functions check this setting and skip operations if not set.
 
 ## Scheduled tasks
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                              | Schedule         | Purpose                                              |
-| ------------------------------------------------- | ---------------- | ---------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
-| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
-| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire   |
-| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database       |
+| Task                                              | Schedule         | Purpose                                            |
+| ------------------------------------------------- | ---------------- | -------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`            | Hourly at :15    | Refresh caches with TTL < 24h before they expire   |
+| `cleanup_stale_flags_expiry_tracking_task`        | Daily at 3:15 AM | Delete deleted teams' entries and tracking members |
+| `refresh_expiring_flag_definitions_cache_entries` | Hourly at :35    | Refresh flag definitions caches before they expire |
+| `verify_and_fix_flag_definitions_cache_task`      | Hourly at :50    | Verify flag definitions cache against database     |
 
 ### Refresh task
 

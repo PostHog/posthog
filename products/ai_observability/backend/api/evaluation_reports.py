@@ -22,7 +22,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
@@ -45,7 +45,7 @@ from products.ai_observability.backend.models.evaluation_reports import (
     EvaluationReportRun,
 )
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
-from products.workflows.backend.utils.rrule_utils import validate_rrule
+from products.workflows.backend.facade.api import validate_rrule
 
 logger = structlog.get_logger(__name__)
 
@@ -330,11 +330,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             # Enforce tenant + kind boundary: only integrations that belong to this team AND
             # are Slack integrations are valid. Prevents cross-team reuse of integration ids
             # and rejects non-Slack kinds that happen to share an id.
-            owned = set(
-                Integration.objects.filter(
-                    team_id=team.id, kind=Integration.IntegrationKind.SLACK, id__in=slack_ids_to_verify
-                ).values_list("id", flat=True)
-            )
+            owned = set(IntegrationManager.slack.oauth.get_many(team.id, slack_ids_to_verify))
             missing = slack_ids_to_verify - owned
             if missing:
                 raise serializers.ValidationError(f"Slack integration(s) not found for this team: {sorted(missing)}.")
@@ -430,7 +426,7 @@ class EvaluationReportCitationSerializer(serializers.Serializer):
 class EvaluationReportMetricsSerializer(serializers.Serializer):
     output_config = _OutputConfigField(
         required=False,
-        help_text="Numeric score configuration and passing rule used for both report periods.",
+        help_text="Output configuration and passing rule used for both report periods.",
     )
     output_type = serializers.ChoiceField(
         choices=OutputType.choices,
@@ -479,12 +475,12 @@ class EvaluationReportMetricsSerializer(serializers.Serializer):
     pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Boolean or numeric pass percentage, excluding N/A results. Null when no numeric scores were produced.",
+        help_text="Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.",
     )
     previous_pass_rate = serializers.FloatField(
         required=False,
         allow_null=True,
-        help_text="Boolean or numeric pass percentage for the previous period, or null when unavailable.",
+        help_text="Pass percentage for boolean, numeric, or categorical results in the previous period, or null when unavailable.",
     )
 
 

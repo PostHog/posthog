@@ -231,6 +231,7 @@ export interface MCPRankingVersionApi {
 export type McpRegistryServersListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**

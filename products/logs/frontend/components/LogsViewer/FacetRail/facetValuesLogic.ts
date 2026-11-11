@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -38,6 +38,7 @@ export interface facetValuesLogicValues {
     facetSearch: string
     facetValues: _LogFacetValueApi[]
     facetValuesLoading: boolean
+    fetchFailed: boolean
     fetchSignature: string
     fetchedSignature: string | null
     scopeSignature: string
@@ -68,6 +69,9 @@ export interface facetValuesLogicActions {
         payload?: {
             signature: string
         }
+    }
+    retryFacetValues: () => {
+        value: true
     }
     setFacetSearch: (search: string) => {
         search: string
@@ -138,6 +142,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
         // and the signature payload is only there for the reducer below to record.
         loadFacetValues: (signature: string) => ({ signature }),
         clearFetchedSignature: true,
+        retryFacetValues: true,
     }),
 
     reducers({
@@ -157,6 +162,15 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 loadFacetValues: (_, { signature }) => signature,
                 loadFacetValuesFailure: () => null,
                 clearFetchedSignature: () => null,
+            },
+        ],
+        // Drives this facet's inline error state, so one broken facet shows in place rather than
+        // as a global toast.
+        fetchFailed: [
+            false,
+            {
+                loadFacetValuesSuccess: () => false,
+                loadFacetValuesFailure: () => true,
             },
         ],
     }),
@@ -250,6 +264,10 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
             (scopeSignature: string, facetSearch: string): string => `${scopeSignature}|${facetSearch}`,
         ],
     }),
+
+    listeners(({ actions, values }) => ({
+        retryFacetValues: () => actions.loadFacetValues(values.fetchSignature),
+    })),
 
     subscriptions(({ actions, values }) => {
         // Subscriptions fire with their initial value, so this is also the mount fetch.

@@ -24,6 +24,7 @@ FORWARD_PATH = "posthog.api.posthog_connection.requests.request"
 def _mock_response(status_code: int, body: dict, chunks: list[bytes] | None = None) -> MagicMock:
     # The view streams the body via res.iter_content(...), so drive that rather than res.json().
     m = MagicMock(status_code=status_code)
+    m.headers = {}
     m.__enter__.return_value = m
     m.iter_content.return_value = iter(chunks) if chunks is not None else iter([json.dumps(body).encode()])
     return m
@@ -59,6 +60,26 @@ class TestPostHogConnectionForward:
 
     def _target_url(self) -> str:
         return f"/api/environments/{self.team.pk}/posthog_connections/{self.integration.id}/target/"
+
+    @pytest.mark.parametrize("private", [True, False])
+    @pytest.mark.parametrize("target_status", [200, 403, 500])
+    def test_forward_preserves_trusted_capture_policy(
+        self, client: HttpClient, private: bool, target_status: int
+    ) -> None:
+        client.force_login(self.user)
+        upstream = _mock_response(target_status, {"detail": "Synthetic response"})
+        if private:
+            upstream.headers["X-PostHog-Suppress-Analytics"] = "true"
+        with patch(FORWARD_PATH, return_value=upstream):
+            response = client.post(
+                self._forward_url(),
+                {"method": "GET", "path": "api/projects/2/tasks/"},
+                content_type="application/json",
+                headers={"X-PostHog-Suppress-Analytics": "true"},
+            )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["status"] == target_status
+        assert (response.get("X-PostHog-Suppress-Analytics") == "true") == private
 
     def test_forward_injects_token_and_passes_through(self, client: HttpClient):
         client.force_login(self.user)
@@ -230,20 +251,34 @@ class TestPostHogConnectionForward:
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_request.assert_not_called()
 
-    def test_forward_requires_caller_token_to_cover_connection_scopes(self, client: HttpClient):
-        # A scoped key that lacks the scopes the connection was granted can't wield the connection.
-        self.integration.config["granted_scopes"] = ["insight:read", "task:write"]
+    @pytest.mark.parametrize(
+        "granted_scopes,caller_scopes,forwarded",
+        [
+            (["insight:read", "task:write"], ["integration:write"], False),
+            (
+                ["task:read", "task:write", "inbox:read", "inbox:write"],
+                ["integration:write", "task:read", "task:write"],
+                True,
+            ),
+            (["task:read", "task:write", "inbox:read", "inbox:write"], ["integration:write", "inbox:write"], False),
+        ],
+    )
+    def test_forward_requires_caller_token_to_cover_connection_scopes(
+        self, client: HttpClient, granted_scopes: list[str], caller_scopes: list[str], forwarded: bool
+    ):
+        self.integration.config["granted_scopes"] = granted_scopes
         self.integration.save()
         client.force_login(self.user)
-        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=["integration:write"]):
+        with patch("posthog.api.posthog_connection.get_authenticator_scopes", return_value=caller_scopes):
             with patch(FORWARD_PATH) as mock_request:
+                mock_request.return_value = _mock_response(200, {"results": []})
                 response = client.post(
                     self._forward_url(),
                     {"method": "GET", "path": "api/projects/2/insights/"},
                     content_type="application/json",
                 )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
-        mock_request.assert_not_called()
+        assert response.status_code == (status.HTTP_200_OK if forwarded else status.HTTP_403_FORBIDDEN)
+        assert mock_request.called == forwarded
 
     def test_forward_refuses_scoped_caller_when_granted_scopes_unknown(self, client: HttpClient):
         # If the target's token response omitted `scope`, `granted_scopes` is empty and we can't bound

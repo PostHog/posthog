@@ -52,6 +52,8 @@ function toolItem(
     title: string;
     details?: unknown;
     toolMeta?: ReturnType<typeof posthogToolMeta>;
+    kind?: "read" | "other";
+    settled?: boolean;
   },
 ): SessionUpdateItem {
   return {
@@ -61,8 +63,8 @@ function toolItem(
       sessionUpdate: "tool_call",
       toolCallId: id,
       title: options.title,
-      kind: "other",
-      status: "in_progress",
+      kind: options.kind ?? "other",
+      status: options.settled ? "completed" : "in_progress",
       details: options.details,
       _meta: options.toolMeta,
     },
@@ -70,7 +72,7 @@ function toolItem(
       toolCalls: new Map(),
       childItems: new Map(),
       turnCancelled: false,
-      turnComplete: false,
+      turnComplete: options.settled ?? false,
     },
   } as SessionUpdateItem;
 }
@@ -142,6 +144,14 @@ describe("ToolGroup", () => {
       name: "tallies the run once it settles",
       items: [subagentItem("spawn-1"), subagentItem("spawn-2")],
       expected: "Ran 2 subagents",
+    },
+    {
+      name: "summarizes workflows separately from other tool calls",
+      items: [
+        toolItem("read-1", { title: "read-1", kind: "read", settled: true }),
+        toolItem("workflow-1", { title: "workflow", settled: true }),
+      ],
+      expected: "Read a file, ran a workflow",
     },
     {
       name: "names the current tool while the run is active",

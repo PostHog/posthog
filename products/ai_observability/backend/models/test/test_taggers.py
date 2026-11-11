@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.exceptions import ValidationError
+from django.test import SimpleTestCase
 
 from posthog.models.utils import UUIDTModel
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
@@ -9,7 +10,7 @@ from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
 from products.ai_observability.backend.models.taggers import LLMTaggerConfig, TagDefinition, Tagger
 
 
-class TestLLMTaggerConfig(BaseTest):
+class TestLLMTaggerConfig(SimpleTestCase):
     def test_valid_config(self):
         config = LLMTaggerConfig(
             prompt="Which features were discussed?",
@@ -154,7 +155,7 @@ class TestTaggerModel(BaseTest):
         assert isinstance(tagger.conditions[0]["bytecode"], list)
 
     def test_sets_bytecode_error_when_compilation_fails(self):
-        with patch("posthog.cdp.filters.compile_filters_bytecode") as mock_compile:
+        with patch("products.cdp.backend.filters.compile_filters_bytecode") as mock_compile:
             mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
 
             tagger = Tagger.objects.create(

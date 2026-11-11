@@ -13,10 +13,14 @@ import { HogVMErrorKind, HogVMException } from '@posthog/hogvm'
  *   what exists. Ours to fix.
  * - `limit`: the program ran out of time, memory or stack. Replay would run out again, so it is the
  *   owner's to fix. Many functions hitting it at once is a different story, and the label shows that.
+ * - `config`: the function points at something the owner removed, such as a deleted integration.
+ *   The owner has to fix the function; replaying the event cannot.
  * - `platform`: a JavaScript error the VM let through, or something that is not an error at all.
  *   Ours to look at.
  */
-export type HogErrorClass = 'data' | 'legacy' | 'drift' | 'bug' | 'limit' | 'platform'
+export type HogErrorClass = 'data' | 'legacy' | 'drift' | 'bug' | 'limit' | 'config' | 'platform'
+
+export class HogConfigurationError extends Error {}
 
 export type HogErrorContract = {
     /** The stamp on the bytecode that ran, from `filters.bytecode_contract`. Absent on older bytecode. */
@@ -73,6 +77,9 @@ export function bytecodeContractOf(error: unknown): string | undefined {
 }
 
 export function classifyHogError(error: unknown, contract: HogErrorContract): HogErrorClass {
+    if (error instanceof HogConfigurationError) {
+        return 'config'
+    }
     const vmError = findHogVMException(error)
     if (!vmError) {
         return 'platform'

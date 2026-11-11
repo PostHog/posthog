@@ -131,6 +131,7 @@ class LogsViewViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 "name": instance.name,
                 "pinned": instance.pinned,
                 "has_filters": bool(instance.filters),
+                "has_columns": instance.columns is not None,
             },
             team=self.team,
             request=self.request,

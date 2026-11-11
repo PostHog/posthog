@@ -1,11 +1,11 @@
-import type { Schemas } from "@posthog/api-client";
+import type { TaskSummaryDTO } from "@posthog/api-client/task-normalization";
 import { useAuthenticatedInfiniteQuery } from "@posthog/ui/hooks/useAuthenticatedInfiniteQuery";
 import { useMemo } from "react";
 
 const ARCHIVED_TASKS_PAGE_SIZE = 50;
 
 export interface ArchivedTaskSummaryPage {
-  results: Schemas.TaskSummaryDTO[];
+  results: TaskSummaryDTO[];
   requested: number;
 }
 

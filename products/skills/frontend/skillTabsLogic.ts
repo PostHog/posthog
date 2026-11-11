@@ -10,7 +10,7 @@ import { llmSkillsList } from 'products/skills/frontend/generated/api'
 export const DEFAULT_SKILLS_TAB_KEY: string = 'skills'
 
 /** Sub-title shown for the default "Skills" tab. Category tabs carry their own copy (below). */
-export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage versioned agent skills that any agent can discover and use.'
+export const DEFAULT_SKILLS_TAB_DESCRIPTION = 'Manage skills that are not assigned to a product category.'
 
 export interface SkillCategoryTab {
     /** Tab key, also the `/skills/<key>` URL segment. */
@@ -32,16 +32,16 @@ export const SKILL_CATEGORY_TABS: SkillCategoryTab[] = [
     {
         key: 'scouts',
         category: 'scout',
-        label: 'Scouts',
+        label: 'Scout skills',
         description:
-            "Scouts — scheduled agents that scan your project and surface findings in your inbox. Includes PostHog's canonical scouts and any custom ones you author.",
+            "Scout skills define scheduled agents that scan your project and surface findings in your inbox. This includes PostHog's canonical scouts and custom scouts.",
     },
     {
         key: 'review-hog',
         category: 'review_hog',
-        label: 'Code review',
+        label: 'Code review skills',
         description:
-            "PostHog Review's code-review skills: the specialist perspectives applied in parallel when reviewing a pull request (logic & correctness, contracts & security, performance & reliability) and the validation criteria that decide which findings are worth surfacing. Edit a skill to retune it for your team.",
+            'Code review skills define the specialist perspectives and validation criteria that PostHog Review uses when it reviews a pull request. Edit a skill to tune it for your team.',
     },
 ]
 

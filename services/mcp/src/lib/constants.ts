@@ -42,3 +42,6 @@ export const MCP_CLAUDE_TOOL_DOMAINS_CHAR_BUDGET = 1536
 // Gates reaching third-party MCP servers connected through the MCP gateway. Same flag as
 // the gateway's own UI in the main app, so a team gets the tools when it gets the gateway.
 export const MCP_GATEWAY_FLAG = 'mcp-gateway'
+
+// claude.ai silently drops a tool whose serialized `inputSchema` reaches this many characters.
+export const CLAUDE_REGISTRY_INPUT_SCHEMA_CHAR_LIMIT = 16_384

@@ -448,6 +448,123 @@ export interface CanvasBuildActionApi {
     build_id: string
 }
 
+export interface CanvasCommentSummaryApi {
+    /** Root comment id. */
+    id: string
+    /** Bounded excerpt of the root comment body. */
+    content: string
+    /** Whether the root comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Text selected when the comment was created.
+     * @nullable
+     */
+    selected_text: string | null
+    /** When the root comment was created. */
+    created_at: string
+    /** Number of human replies. */
+    reply_count: number
+    /** Whether the comment thread is resolved. */
+    resolved: boolean
+}
+
+export interface CanvasCommentsResponseApi {
+    /** Root comments on the canvas, newest first. */
+    comments: CanvasCommentSummaryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
+export interface CanvasCommentAnchorApi {
+    /** Anchor kind: text or region. */
+    kind?: string
+    /** Selected text. */
+    quote?: string
+    /** Text immediately before the selection. */
+    prefix?: string
+    /** Text immediately after the selection. */
+    suffix?: string
+    /**
+     * Selection start offset.
+     * @minimum 0
+     */
+    start?: number
+    /**
+     * Selection end offset.
+     * @minimum 1
+     */
+    end?: number
+    /**
+     * Horizontal region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    x?: number
+    /**
+     * Vertical region position.
+     * @minimum 0
+     * @maximum 1
+     */
+    y?: number
+    /**
+     * Region width.
+     * @minimum 0
+     * @maximum 1
+     */
+    width?: number
+    /**
+     * Region height.
+     * @minimum 0
+     * @maximum 1
+     */
+    height?: number
+}
+
+export interface CanvasCommentEntryApi {
+    /** Comment id. */
+    id: string
+    /** Byte-bounded comment body chunk. */
+    content: string
+    /** Whether this comment body has more content. */
+    content_truncated: boolean
+    /**
+     * Byte offset for the next body chunk, or null when complete.
+     * @nullable
+     */
+    content_next_offset: number | null
+    /**
+     * Display name of the comment author.
+     * @nullable
+     */
+    author: string | null
+    /** When the comment was created. */
+    created_at: string
+    /** Normalized text or region anchor. */
+    anchor: CanvasCommentAnchorApi | null
+    /**
+     * Canvas version that was live when the comment was written.
+     * @nullable
+     */
+    canvas_version_id: string | null
+}
+
+export interface CanvasCommentDetailApi {
+    /** Root comment id. */
+    id: string
+    /** Whether the comment thread is resolved. */
+    resolved: boolean
+    /** Comments in this page, oldest first. */
+    comments: CanvasCommentEntryApi[]
+    /**
+     * Opaque cursor for the next page, or null.
+     * @nullable
+     */
+    next: string | null
+}
+
 /**
  * Tool arguments, validated against the tool's input schema.
  */
@@ -619,6 +736,12 @@ export interface CanvasPostHogCapabilitiesApi {
      * @items.maxLength 64
      */
     actions?: string[]
+    /**
+     * PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review.
+     * @maxItems 32
+     * @items.maxLength 200
+     */
+    tools?: string[]
     agentRequests?: boolean
 }
 
@@ -726,6 +849,8 @@ export interface CanvasCapabilityWideningApi {
     state_scopes_added: string[]
     /** Action verbs the draft newly declares it may invoke via ph.actions. */
     actions_added: string[]
+    /** PostHog MCP tools the draft newly declares it may run via ph.tools. */
+    tools_added: string[]
     /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
     connectors_added: CanvasConnectorDeclarationApi[]
 }
@@ -784,15 +909,6 @@ export interface CanvasDraftApi {
      * @nullable
      */
     build_id: string | null
-}
-
-export interface PaginatedCanvasDraftListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: CanvasDraftApi[]
 }
 
 /**
@@ -1497,11 +1613,28 @@ export interface CanvasStateEntryApi {
 export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
+    /** Number of entries in the whole selection, across all pages. */
+    count: number
     /**
-     * Next entry offset, or null when complete.
+     * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page by offset, or null on the first page and for a cursor request.
+     * @nullable
+     */
+    previous: string | null
+    /**
+     * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
      */
     next_offset: number | null
+    /**
+     * Cursor for the next page, or null when complete. Pass it as cursor.
+     * @nullable
+     */
+    next_cursor: string | null
     /** True when no further entries remain for this selection. */
     complete: boolean
 }
@@ -1547,6 +1680,39 @@ export interface CanvasStateValueResponseApi {
     next_offset: number | null
     /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
     complete: boolean
+}
+
+/**
+ * The tool's input, exactly as an MCP client passes it.
+ */
+export type CanvasToolInvokeApiArguments = { [key: string]: unknown }
+
+/**
+ * Payload for running one PostHog MCP tool.
+ */
+export interface CanvasToolInvokeApi {
+    /**
+     * MCP tool to run, e.g. 'feature-flag-enable'.
+     * @maxLength 200
+     */
+    tool: string
+    /** The tool's input, exactly as an MCP client passes it. */
+    arguments?: CanvasToolInvokeApiArguments
+}
+
+/**
+ * The tool's JSON result.
+ */
+export type CanvasToolResultApiResult = { [key: string]: unknown }
+
+/**
+ * Result of one PostHog MCP tool run.
+ */
+export interface CanvasToolResultApi {
+    /** The tool that ran. */
+    tool: string
+    /** The tool's JSON result. */
+    result: CanvasToolResultApiResult
 }
 
 /**
@@ -1631,6 +1797,11 @@ export interface CanvasViewResponseApi {
     layout?: CanvasLayoutApi | null
     /** For grid canvases: the renderable build of every component the layout's live placements reference, so the grid renders from this one call. Absent for other kinds. */
     component_lifecycles?: CanvasComponentLifecycleApi[]
+    /**
+     * URL of the sandbox document that renders the head source project in an iframe, served from the artifact origin. Load it by URL, not as srcdoc. Null when artifact delivery is unavailable.
+     * @nullable
+     */
+    readonly sandbox_document_url: string | null
 }
 
 /**
@@ -1648,11 +1819,29 @@ export interface CanvasActionDefinitionApi {
 }
 
 /**
- * The action registry: every verb a canvas may declare and invoke.
+ * One PostHog MCP tool a canvas may declare, as the host renders it before running it.
+ */
+export interface CanvasToolDefinitionApi {
+    /** MCP tool name, e.g. 'feature-flag-enable'. */
+    name: string
+    /** Human-readable tool title. */
+    title: string
+    /** One line naming what the tool does. */
+    summary: string
+    /** True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with ph.tools.call. */
+    read_only: boolean
+    /** True when the tool deletes or overwrites something; the host warns the viewer before it runs. */
+    destructive: boolean
+}
+
+/**
+ * The action registry: every verb and PostHog MCP tool a canvas may declare and invoke.
  */
 export interface CanvasActionsResponseApi {
     /** Registered verbs, sorted by name. */
     actions: CanvasActionDefinitionApi[]
+    /** PostHog MCP tools a canvas may declare in capabilities.posthog.tools, sorted by name. Read each tool's input schema with the MCP `info` command. */
+    tools: CanvasToolDefinitionApi[]
 }
 
 /**
@@ -1725,17 +1914,26 @@ export type CanvasesListParams = {
      */
     channel?: string
     /**
+     * Only return canvases created by the user with this UUID.
+     */
+    created_by?: string
+    /**
      * Only return canvases of this kind. kind=component lists the component store.
      */
     kind?: CanvasesListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Sort order. -created_at (default) puts the newest canvases first. -updated_at puts the most recently changed canvases first.
+     */
+    ordering?: CanvasesListOrdering
     /**
      * Only return canvases whose name or description contains this text (case-insensitive).
      */
@@ -1750,6 +1948,13 @@ export const CanvasesListKind = {
     Grid: 'grid',
 } as const
 
+export type CanvasesListOrdering = (typeof CanvasesListOrdering)[keyof typeof CanvasesListOrdering]
+
+export const CanvasesListOrdering = {
+    CreatedAt: '-created_at',
+    UpdatedAt: '-updated_at',
+} as const
+
 export type CanvasesBuildsRetrieveParams = {
     /**
      * "slim" returns only what rendering needs — the live build, the head version's builds, and anything still in flight — instead of the full recent-build history. Any other value (or none) returns the full window.
@@ -1761,15 +1966,47 @@ export type CanvasesBuildsRetrieveParams = {
     version_id?: string
 }
 
-export type CanvasesDraftsRetrieveParams = {
+export type CanvasesCommentsListParams = {
     /**
-     * Number of results to return per page.
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Whether to include resolved comment threads.
+     */
+    include_resolved?: boolean
+    /**
+     * Maximum number of root comments to return.
+     * @minimum 1
+     * @maximum 100
      */
     limit?: number
+}
+
+export type CanvasesCommentsRetrieveParams = {
     /**
-     * The initial index from which to return the results.
+     * Comment id whose truncated body should continue. Use with content_offset.
      */
-    offset?: number
+    comment_id?: string
+    /**
+     * Byte offset returned as content_next_offset for the selected comment.
+     * @minimum 0
+     */
+    content_offset?: number
+    /**
+     * Opaque cursor returned by the previous page.
+     * @minLength 1
+     * @maxLength 256
+     */
+    cursor?: string
+    /**
+     * Maximum number of comments in the thread to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type CanvasesLayoutRetrieveParams = {
@@ -1792,6 +2029,12 @@ export type CanvasesSourceRetrieveParams = {
 
 export type CanvasesStateRetrieveParams = {
     /**
+     * Cursor from next_cursor. Resumes after the last entry of the previous page, so an entry that exists for the whole read comes back exactly once. A key written between pages can be missing. Keep filters unchanged between pages. Takes precedence over offset.
+     * @minLength 1
+     * @maxLength 2048
+     */
+    cursor?: string
+    /**
      * Only read this exact key.
      * @minLength 1
      * @maxLength 200
@@ -1813,7 +2056,7 @@ export type CanvasesStateRetrieveParams = {
      */
     limit?: number
     /**
-     * Entry offset from next_offset. Keep filters unchanged between pages.
+     * Entry offset from next_offset. Keep filters unchanged between pages. Prefer cursor: an offset can skip or repeat entries when state changes between pages.
      * @minimum 0
      */
     offset?: number
@@ -1879,6 +2122,7 @@ export const CanvasesStateValueRetrieveScope = {
 export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

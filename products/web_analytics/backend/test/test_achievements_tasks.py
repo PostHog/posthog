@@ -1,16 +1,22 @@
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta
 
+import pytest
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import connection, transaction
 from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.clickhouse.client.execute import KillSwitchLevel
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.web_analytics.backend.achievements import tasks
 from products.web_analytics.backend.achievements.evaluators import EvalContext, PriorProgress, TrackEvaluation
@@ -89,6 +95,37 @@ class TestRecomputeTask(BaseTest):
         self._run_team({**make_incremental_evaluators(), "cumulative_pageviews": pageviews})
         self.assertEqual(calls["count"], 0)
 
+    @parameterized.expand(
+        [
+            ("query_failure", ValueError("scan failed"), True),
+            ("contention", ConcurrencyLimitExceeded(), False),
+        ]
+    )
+    def test_failed_team_track_backs_off_until_a_successful_run(
+        self, _name: str, failure: Exception, backs_off: bool
+    ) -> None:
+        calls = 0
+
+        def pageviews(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise failure
+            return TrackEvaluation(value=10_000, checkpoint={})
+
+        evaluators = {**make_incremental_evaluators(), "cumulative_pageviews": pageviews}
+        self._run_team(evaluators)
+        self._run_team(evaluators)
+        self.assertEqual(calls, 1 if backs_off else 2)
+
+        with time_machine.travel(timezone.now() + tasks.RETRY_BACKOFF_BASE + timedelta(minutes=1), tick=False):
+            self._run_team(evaluators)
+        progress = self._team_progress("traffic")
+        self.assertEqual(calls, 2)
+        self.assertEqual(progress.current_stage, 1)
+        self.assertEqual(progress.failed_attempts, 0)
+        self.assertIsNone(progress.retry_after)
+
     def test_team_track_stores_the_evaluator_checkpoint(self) -> None:
         checkpoint: dict[str, object] = {"counted_through": "2026-01-02T00:00:00+00:00"}
         self._run_team(
@@ -100,6 +137,26 @@ class TestRecomputeTask(BaseTest):
         progress = self._team_progress("traffic")
         self.assertEqual(progress.current_stage, 1)
         self.assertEqual(progress.state["checkpoint"], checkpoint)
+
+    def test_partial_conversion_checkpoint_stays_due_for_next_sweep(self) -> None:
+        checkpoint: dict[str, object] = {"bootstrap": {"next_start": "2026-01-09T00:00:00+00:00"}}
+        calls = 0
+
+        def conversions(_ctx: EvalContext, _prior: PriorProgress) -> TrackEvaluation:
+            nonlocal calls
+            calls += 1
+            return TrackEvaluation(value=calls, checkpoint=checkpoint, complete=False)
+
+        evaluators = {**make_incremental_evaluators(), "conversions": conversions}
+        self._run_team(evaluators)
+        self._run_team(evaluators)
+
+        progress = self._team_progress("conversions")
+        self.assertEqual(calls, 2)
+        self.assertEqual(progress.progress_value, 0)
+        self.assertEqual(progress.current_stage, 0)
+        self.assertEqual(progress.state["checkpoint"], checkpoint)
+        self.assertIsNone(progress.last_computed_at)
 
     @parameterized.expand([("racing_recompute", True), ("racing_backfill", False)])
     def test_overlapping_team_recompute_keeps_the_first_checkpoint(
@@ -225,7 +282,12 @@ class TestRecomputeTask(BaseTest):
 
 class TestSweep(BaseTest):
     def _team_with_traffic_progress(
-        self, name: str, last_computed_at: datetime | None, current_stage: int = 0, visit_days_ago: int = 0
+        self,
+        name: str,
+        last_computed_at: datetime | None,
+        current_stage: int = 0,
+        visit_days_ago: int = 0,
+        retry_after: datetime | None = None,
     ) -> int:
         team = Team.objects.create(organization=self.organization, name=name)
         WebAnalyticsVisit(
@@ -239,6 +301,7 @@ class TestSweep(BaseTest):
             progress_value=0,
             state={},
             last_computed_at=last_computed_at,
+            retry_after=retry_after,
         ).save()
         return team.id
 
@@ -270,5 +333,46 @@ class TestSweep(BaseTest):
             "fresh": self._team_with_traffic_progress("fresh", now - timedelta(hours=1)),
             "maxed": self._team_with_traffic_progress("maxed", now - timedelta(days=2), current_stage=5),
             "inactive": self._team_with_traffic_progress("inactive", now - timedelta(days=2), visit_days_ago=30),
+            "backing_off": self._team_with_traffic_progress(
+                "backing off", None, retry_after=now + timedelta(minutes=5)
+            ),
         }
         self.assertEqual(self._sweep(batch_size, kill_switch), [team_ids[name] for name in expected])
+
+
+@pytest.mark.django_db(transaction=True)
+def test_user_recompute_skips_a_locked_progress_row_instead_of_waiting(team: Team, user: User) -> None:
+    locked_row = WebAnalyticsAchievementProgress(team=team, user=user, track_key="explorer")
+    locked_row.save()
+
+    def recompute() -> None:
+        tasks.recompute_web_analytics_achievements_sync(team.id, user_id=user.id, cheap_only=True)
+
+    def recompute_on_another_connection() -> None:
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SET lock_timeout = '1s'")
+            recompute()
+        finally:
+            connection.close()
+
+    with (
+        patch.object(tasks, "EVALUATORS", make_evaluators(data_events=lambda ctx: 1, recordings_opened=lambda ctx: 1)),
+        patch.object(tasks, "streak_arm_for_user", return_value="daily-only"),
+    ):
+        with transaction.atomic():
+            WebAnalyticsAchievementProgress.objects.for_team(team.id).select_for_update().get(pk=locked_row.pk)
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor.submit(recompute_on_another_connection).result(timeout=10)
+
+        stages = dict(
+            WebAnalyticsAchievementProgress.objects.for_team(team.id)
+            .filter(user=user)
+            .values_list("track_key", "current_stage")
+        )
+        assert (stages["explorer"], stages["detective"]) == (0, 1)
+
+        recompute()
+
+    locked_row.refresh_from_db()
+    assert locked_row.current_stage == 1

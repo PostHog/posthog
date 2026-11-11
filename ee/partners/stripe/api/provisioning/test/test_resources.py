@@ -1,20 +1,26 @@
 from datetime import timedelta
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.models.oauth import OAuthAccessToken
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
 from posthog.models.utils import generate_random_oauth_access_token
+from posthog.test.authentication_checks import covers_authentication
 
 from products.access_control.backend.models.access_control import AccessControl
 
+from ee.models.license import License
+from ee.partners.stripe.api.provisioning.authentication import StripeBearerAuthentication
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 RESOURCES_URL = f"{BASE_PATH}/provisioning/resources"
@@ -51,6 +57,19 @@ class TestResources(StripeProvisioningTestBase):
         assert first.json()["id"] == second.json()["id"]
         # A project_id provisions a dedicated team, distinct from the consent team.
         assert first.json()["id"] != str(self.team.id)
+
+    @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
+    def test_bearer_checks_organization_ip_policy(self, ip: str, expected_status: int) -> None:
+        token = self._get_bearer_token()
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+
+        response = self._post_signed_with_bearer(RESOURCES_URL, {}, token=token, REMOTE_ADDR=ip)
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 403:
+            assert response.json()["status"] == "error"
+            assert response.json()["error"]["code"] == "forbidden"
+            assert "IP address" in response.json()["error"]["message"]
 
     def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()
@@ -166,6 +185,83 @@ class TestResources(StripeProvisioningTestBase):
             "error": {"code": "requires_payment_credentials", "message": "Billing activation failed"},
         }
 
+    def test_rate_limited_spt_activation_logs_a_warning_instead_of_an_error(self) -> None:
+        token = self._get_bearer_token()
+        billing_response = requests.Response()
+        billing_response.status_code = 429
+        billing_response.headers["Retry-After"] = "30"
+        billing_response.raw = MagicMock()
+
+        with (
+            patch(
+                "ee.partners.stripe.api.provisioning.billing.get_cached_instance_license",
+                return_value=License(key="12345::67890"),
+            ),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post", return_value=billing_response),
+            patch("ee.partners.stripe.api.provisioning.billing.capture_exception") as capture,
+            patch("ee.partners.stripe.api.provisioning.billing.logger") as logger,
+        ):
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "service_id": "analytics",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == 400
+        assert res.json()["error"]["message"] == "Billing activation failed"
+        capture.assert_not_called()
+        logger.warning.assert_called_once_with(
+            "stripe_provisioning.spt_billing_rate_limited",
+            team_id=self.team.id,
+            org_id=str(self.team.organization_id),
+        )
+
+    @parameterized.expand(
+        [
+            ("partner_billed", None, 400, []),
+            ("partner_billed_org_with_own_stripe_customer", "cus_example", 200, [{"shared_payment_token": "spt_1"}]),
+        ]
+    )
+    def test_spt_activates_billing_unless_billing_is_locked_to_the_partner(
+        self, _name: str, customer_id: str | None, expected_status: int, expected_billing_payloads: list[dict[str, str]]
+    ) -> None:
+        self.stripe_app.update_provisioning(pays_for_customers=True)
+        OrganizationProvisioning.objects.create(
+            organization=self.organization,
+            partner=OrganizationProvisioning.Partner.STRIPE_PROJECTS,
+            application=self.stripe_app,
+        )
+        self.organization.customer_id = customer_id
+        self.organization.save(update_fields=["customer_id"])
+        token = self._get_bearer_token()
+        billing_response = requests.Response()
+        billing_response.status_code = 201
+
+        with (
+            patch(
+                "ee.partners.stripe.api.provisioning.billing.get_cached_instance_license",
+                return_value=License(key="12345::67890"),
+            ),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post", return_value=billing_response) as billing_post,
+        ):
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "service_id": "pay_as_you_go",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == expected_status, res.json()
+        assert [call.kwargs["json"] for call in billing_post.call_args_list] == expected_billing_payloads
+
+    @covers_authentication(StripeBearerAuthentication)
     def test_detail_returns_resource(self):
         token = self._get_bearer_token()
         res = self._get_signed_with_bearer(f"{RESOURCES_URL}/{self.team.id}", token=token)

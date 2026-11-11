@@ -349,6 +349,14 @@ describe('URL Routing', () => {
     })
 
     describe('excludeTools parsing', () => {
+        it.each(['linear__CreateIssue', `linear__${'a'.repeat(80)}`, 'linear__issues.create'])(
+            'preserves connected tool name %s',
+            (name) => {
+                const request = new Request(`https://example.com/mcp?exclude_tools=${encodeURIComponent(name)}`)
+                expect(parseRequestProperties(request, {}).excludeTools).toEqual([name])
+            }
+        )
+
         it('parses x-posthog-exclude-tools and drops duplicates and invalid names', () => {
             const request = new Request('https://example.com/mcp', {
                 headers: {

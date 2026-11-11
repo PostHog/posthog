@@ -1,4 +1,6 @@
 import re
+import itertools
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Literal, Optional
@@ -17,6 +19,7 @@ _AWS_S3_ENDPOINT_RE = re.compile(r"s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)
 _AWS_S3_VIRTUAL_HOST_RE = re.compile(r"(?P<bucket>.+)\.(?P<endpoint>s3(?:[.-][a-z0-9-]+)*\.amazonaws\.com(?:\.cn)?)")
 _AWS_REGION_RE = re.compile(r"(?:^|[.-])(?P<region>[a-z]{2,4}(?:-[a-z0-9]+)+-\d)(?:\.|$)")
 _AZURE_BLOB_HOST_SUFFIX = ".blob.core.windows.net"
+_AZURE_BLOB_ACCOUNT_URL_RE = re.compile(r"(https://[A-Za-z0-9-]+\.blob\.core\.windows\.net)/")
 _FORMAT_LABELS = {
     "CSV": "CSV",
     "CSVWithNames": "CSV with headers",
@@ -24,6 +27,25 @@ _FORMAT_LABELS = {
     "Delta": "Delta",
     "DeltaS3Wrapper": "Delta",
 }
+# Mirrors ClickHouse's chooseCompressionMethod.
+_COMPRESSION_BY_EXTENSION = {
+    "gz": "gzip",
+    "gzip": "gzip",
+    "deflate": "deflate",
+    "br": "br",
+    "brotli": "br",
+    "xz": "xz",
+    "lzma": "xz",
+    "zst": "zstd",
+    "zstd": "zstd",
+    "lz4": "lz4",
+    "bz2": "bz2",
+    "snappy": "snappy",
+}
+_URL_GLOB_CHARACTERS = frozenset("*?{}")
+_BROTLI_FILE_NAME_RE = re.compile(r"\.(?:br|brotli)(?![\w.-])", re.IGNORECASE)
+_BROTLI_EXTENSION_RE = re.compile(r"(?:br|brotli)[*?]*", re.IGNORECASE)
+_MAX_BRACE_EXPANSIONS = 1000
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -106,6 +128,151 @@ def parse_duckdb_s3_source(url: str) -> DuckDBS3Source | None:
     )
 
 
+class _FunctionCallParams:
+    def __init__(self, context: Optional[HogQLContext]) -> None:
+        self._context = context
+        self._raw_params: dict[str, str] = {}
+
+    def add(self, value: str, is_sensitive: bool = True) -> str:
+        if self._context is not None:
+            if is_sensitive:
+                return self._context.add_sensitive_value(value)
+            return self._context.add_value(value)
+
+        param_name = f"value_{len(self._raw_params)}"
+        self._raw_params[param_name] = value
+        return f"%({param_name})s"
+
+    def finish(self, expr: str) -> str:
+        if self._context is not None:
+            return f"{expr})"
+
+        return f"{substitute_params(expr, self._raw_params)})"
+
+
+def _s3_function(table_size_mib: Optional[float]) -> str:
+    if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
+        return "s3Cluster('posthog', "
+    return "s3("
+
+
+def _queryable_folder_url(url: str, queryable_folder: str) -> str:
+    # Hack: Remove the last directory from the URL and add the queryable folder instead
+    # TODO(Gilbert09): Fix this: simplify logic around how we construct the S3 and
+    # http urls and make all url generation going through a single place
+    parsed = urlparse(url)
+    new_path = str(PurePosixPath(parsed.path).parent) + "/"
+    new_url = urlunparse(parsed._replace(path=new_path))
+    return new_url + queryable_folder + "/**.parquet"
+
+
+def _url_table_function(
+    params: _FunctionCallParams,
+    function: str,
+    url: str,
+    format: Optional[str],
+    structure: Optional[str],
+    access_key: Optional[str],
+    access_secret: Optional[str],
+    compression: Optional[str] = None,
+) -> str:
+    """Renders `s3`, `s3Cluster` and `deltaLake` calls, which share one argument order.
+
+    A `format` of None renders the literal 'Parquet' instead of a parameter.
+    """
+    escaped_url = params.add(url)
+    format_arg = params.add(format, False) if format is not None else "'Parquet'"
+    escaped_structure = params.add(structure, False) if structure else None
+
+    expr = f"{function}{escaped_url}"
+
+    if access_key and access_secret:
+        escaped_access_key = params.add(access_key)
+        escaped_access_secret = params.add(access_secret)
+        expr += f", {escaped_access_key}, {escaped_access_secret}"
+
+    expr += f", {format_arg}"
+
+    if escaped_structure:
+        expr += f", {escaped_structure}"
+    elif compression:
+        # s3() only reads the codec after a structure argument.
+        expr += ", 'auto'"
+
+    if compression:
+        expr += f", {params.add(compression, False)}"
+
+    return params.finish(expr)
+
+
+def _azure_blob_storage_call(
+    params: _FunctionCallParams,
+    url: str,
+    format: str,
+    structure: Optional[str],
+    access_key: Optional[str],
+    access_secret: Optional[str],
+    compression: Optional[str] = None,
+) -> str:
+    azure_match = _AZURE_BLOB_ACCOUNT_URL_RE.match(url)
+    if azure_match is None:
+        raise ExposedHogQLError("Can't parse Azure blob storage URL")
+    container_name, separator, blob_name = url[azure_match.end() :].partition("/")
+    if not container_name or not separator:
+        raise ExposedHogQLError("Can't parse Azure blob storage URL")
+
+    storage_account_url = params.add(azure_match.group(1))
+    container = params.add(container_name)
+    blob_path = params.add(blob_name)
+
+    if not access_key or not access_secret:
+        raise ExposedHogQLError("Azure blob storage has no access key or secret")
+
+    escaped_access_key = params.add(access_key)
+    escaped_access_secret = params.add(access_secret)
+    escaped_format = params.add(format, False)
+    escaped_compression = params.add(compression, False) if compression else "'auto'"
+
+    expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, {escaped_compression}"
+
+    if structure:
+        escaped_structure = params.add(structure, False)
+        expr += f", {escaped_structure}"
+
+    return params.finish(expr)
+
+
+def compression_for_url_pattern(url: str) -> str | None:
+    """None when the pattern can match files with different extensions."""
+    _, dot, extension = url.rsplit("/", 1)[-1].rpartition(".")
+    if _URL_GLOB_CHARACTERS.intersection(extension):
+        return None
+    return _COMPRESSION_BY_EXTENSION.get(extension.lower(), "none") if dot else "none"
+
+
+def _brace_expansions(pattern: str) -> Iterator[str]:
+    match = re.search(r"\{([^{}]*)\}", pattern)
+    if match is None:
+        yield pattern
+        return
+    for alternative in match.group(1).split(","):
+        yield from _brace_expansions(pattern[: match.start()] + alternative + pattern[match.end() :])
+
+
+def _reads_brotli_files(url: str) -> bool:
+    urls = list(itertools.islice(_brace_expansions(url), _MAX_BRACE_EXPANSIONS + 1))
+    if len(urls) > _MAX_BRACE_EXPANSIONS:
+        return _BROTLI_FILE_NAME_RE.search(url) is not None
+    return any(
+        dot and _BROTLI_EXTENSION_RE.fullmatch(extension)
+        for _, dot, extension in (expanded.rsplit("/", 1)[-1].rpartition(".") for expanded in urls)
+    )
+
+
+def is_azure_blob_url(url: str) -> bool:
+    return _AZURE_BLOB_ACCOUNT_URL_RE.match(url) is not None
+
+
 def build_function_call(
     url: str,
     format: str,
@@ -115,145 +282,39 @@ def build_function_call(
     structure: Optional[str] = None,
     context: Optional[HogQLContext] = None,
     table_size_mib: Optional[float] = None,
+    compression: Optional[str] = None,
 ) -> str:
     if access_key is None and access_secret is None and (settings.DEBUG or settings.TEST or settings.USE_LOCAL_SETUP):
         access_key = settings.DATAWAREHOUSE_LOCAL_ACCESS_KEY
         access_secret = settings.DATAWAREHOUSE_LOCAL_ACCESS_SECRET
 
-    use_s3_cluster = False
-    if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
-        use_s3_cluster = True
-
     # If a table has a queryable url set, then use that directly
     if queryable_folder and format == "DeltaS3Wrapper":
-        # Hack: Remove the last directory from the URL and add the queryable folder instead
-        # TODO(Gilbert09): Fix this: simplify logic around how we construct the S3 and
-        # http urls and make all url generation going through a single place
-        parsed = urlparse(url)
-        new_path = str(PurePosixPath(parsed.path).parent) + "/"
-        new_url = urlunparse(parsed._replace(path=new_path))
-        url = new_url + queryable_folder + "/**.parquet"
+        url = _queryable_folder_url(url, queryable_folder)
         format = "Parquet"
 
-    raw_params: dict[str, str] = {}
+    params = _FunctionCallParams(context)
 
-    def add_param(value: str, is_sensitive: bool = True) -> str:
-        if context is not None:
-            if is_sensitive:
-                return context.add_sensitive_value(value)
-            return context.add_value(value)
-
-        param_name = f"value_{len(raw_params.items())}"
-        raw_params[param_name] = value
-        return f"%({param_name})s"
-
-    def return_expr(expr: str) -> str:
-        if context is not None:
-            return f"{expr})"
-
-        return f"{substitute_params(expr, raw_params)})"
-
-    # DeltaS3Wrapper format
     if format == "DeltaS3Wrapper":
-        if url.endswith("/"):
-            escaped_url = add_param(f"{url[:-1]}__query/**.parquet")
-        else:
-            escaped_url = add_param(f"{url}__query/**.parquet")
+        query_url = f"{url.removesuffix('/')}__query/**.parquet"
+        return _url_table_function(
+            params, _s3_function(table_size_mib), query_url, None, structure, access_key, access_secret
+        )
 
-        if structure:
-            escaped_structure = add_param(structure, False)
-
-        if use_s3_cluster:
-            expr = f"s3Cluster('posthog', {escaped_url}"
-        else:
-            expr = f"s3({escaped_url}"
-
-        if access_key and access_secret:
-            escaped_access_key = add_param(access_key)
-            escaped_access_secret = add_param(access_secret)
-
-            expr += f", {escaped_access_key}, {escaped_access_secret}"
-
-        expr += ", 'Parquet'"
-
-        if structure:
-            expr += f", {escaped_structure}"
-
-        return return_expr(expr)
-
-    # Delta format
     if format == "Delta":
-        escaped_url = add_param(url)
-        if structure:
-            escaped_structure = add_param(structure, False)
+        return _url_table_function(params, "deltaLake(", url, None, structure, access_key, access_secret)
 
-        expr = f"deltaLake({escaped_url}"
+    if _reads_brotli_files(url):
+        raise ExposedHogQLError(
+            "PostHog can't read Brotli-compressed (.br) files. Compress the files with gzip or zstd instead."
+        )
 
-        if access_key and access_secret:
-            escaped_access_key = add_param(access_key)
-            escaped_access_secret = add_param(access_secret)
+    if is_azure_blob_url(url):
+        return _azure_blob_storage_call(params, url, format, structure, access_key, access_secret, compression)
 
-            expr += f", {escaped_access_key}, {escaped_access_secret}"
-
-        expr += ", 'Parquet'"
-
-        if structure:
-            expr += f", {escaped_structure}"
-
-        return return_expr(expr)
-
-    # Azure
-    if re.match(r"^https:\/\/.+\.blob\.core\.windows\.net\/", url):
-        regex_result = re.search(r"(https:\/\/.+\.blob\.core\.windows\.net)\/(.+?)\/(.*)", url)
-        if regex_result is None:
-            raise ExposedHogQLError("Can't parse Azure blob storage URL")
-
-        groups = regex_result.groups()
-        if len(groups) < 3:
-            raise ExposedHogQLError("Can't parse Azure blob storage URL")
-
-        storage_account_url = add_param(groups[0])
-        container = add_param(groups[1])
-        blob_path = add_param(groups[2])
-
-        if not access_key or not access_secret:
-            raise ExposedHogQLError("Azure blob storage has no access key or secret")
-
-        escaped_access_key = add_param(access_key)
-        escaped_access_secret = add_param(access_secret)
-        escaped_format = add_param(format, False)
-
-        expr = f"azureBlobStorage({storage_account_url}, {container}, {blob_path}, {escaped_access_key}, {escaped_access_secret}, {escaped_format}, 'auto'"
-
-        if structure:
-            escaped_structure = add_param(structure, False)
-            expr += f", {escaped_structure}"
-
-        return return_expr(expr)
-
-    # S3
-    escaped_url = add_param(url)
-    escaped_format = add_param(format, False)
-    if structure:
-        escaped_structure = add_param(structure, False)
-
-    if use_s3_cluster:
-        expr = f"s3Cluster('posthog', {escaped_url}"
-    else:
-        expr = f"s3({escaped_url}"
-
-    if access_key and access_secret:
-        escaped_access_key = add_param(access_key)
-        escaped_access_secret = add_param(access_secret)
-
-        expr += f", {escaped_access_key}, {escaped_access_secret}"
-
-    expr += f", {escaped_format}"
-
-    if structure:
-        expr += f", {escaped_structure}"
-
-    return return_expr(expr)
+    return _url_table_function(
+        params, _s3_function(table_size_mib), url, format, structure, access_key, access_secret, compression
+    )
 
 
 class S3Table(FunctionCallTable):
@@ -272,6 +333,8 @@ class S3Table(FunctionCallTable):
     source_type: Optional[str] = None
     # Set when this table backs a materialized saved query, so a query that reads the table is attributed to the view.
     saved_query_id: Optional[str] = None
+    # Set when the table keeps every version of a row, so a query that reads it counts as history usage.
+    is_history_table: bool = False
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)

@@ -67,6 +67,9 @@ where
             let mut encoder = zstd::Encoder::new(Vec::new(), 3)
                 .map_err(|e| Error::CompressionError(e.to_string()))?;
             encoder
+                .set_pledged_src_size(Some(raw_bytes.len() as u64))
+                .map_err(|e| Error::CompressionError(e.to_string()))?;
+            encoder
                 .write_all(&raw_bytes)
                 .map_err(|e| Error::CompressionError(e.to_string()))?;
             encoder
@@ -91,10 +94,67 @@ where
     read_as_with_byte_count(data).map(|(v, _)| v)
 }
 
+pub fn known_decompressed_size(data: &[u8]) -> Result<Option<usize>, Error> {
+    let version = read_version(data)?;
+
+    match version {
+        V1_VERSION => {
+            assert_at_least_as_long_as(v1_header_len(), data.len())?;
+            Ok(Some(data.len() - v1_header_len()))
+        }
+        VERSION => {
+            assert_at_least_as_long_as(v2_header_len(), data.len())?;
+            let payload = &data[v2_header_len()..];
+            match Compression::try_from(data[v2_header_len() - 1])? {
+                Compression::None => Ok(Some(payload.len())),
+                Compression::Zstd => known_zstd_decompressed_size(payload),
+            }
+        }
+        other => Err(Error::WrongVersion(other, VERSION)),
+    }
+}
+
+fn known_zstd_decompressed_size(mut data: &[u8]) -> Result<Option<usize>, Error> {
+    let mut total = 0usize;
+    while !data.is_empty() {
+        let frame_len = zstd::zstd_safe::find_frame_compressed_size(data).map_err(|code| {
+            Error::CompressionError(zstd::zstd_safe::get_error_name(code).to_string())
+        })?;
+        let Some(frame_size) = zstd::zstd_safe::get_frame_content_size(data)
+            .map_err(|e| Error::CompressionError(e.to_string()))?
+        else {
+            return Ok(None);
+        };
+        let Ok(frame_size) = usize::try_from(frame_size) else {
+            return Ok(None);
+        };
+        let Some(next_total) = total.checked_add(frame_size) else {
+            return Ok(None);
+        };
+        total = next_total;
+        data = &data[frame_len..];
+    }
+    Ok(Some(total))
+}
+
 /// Like `read_as`, but also returns the decompressed payload byte count.
 /// This is useful for cache memory accounting when the container uses compression,
 /// since the compressed size can be much smaller than the actual data in memory.
 pub fn read_as_with_byte_count<T>(data: &[u8]) -> Result<(T, usize), Error>
+where
+    T: SymbolData,
+{
+    read_as_with_byte_count_limited(data, usize::MAX)
+}
+
+/// Like `read_as_with_byte_count`, but fails with `Error::DecompressedTooLarge` instead of
+/// producing a payload larger than `max_bytes`. Use it for data from an untrusted source: a
+/// small zstd frame can decompress to many gigabytes, and the frame header that declares the
+/// size is written by the uploader.
+pub fn read_as_with_byte_count_limited<T>(
+    data: &[u8],
+    max_bytes: usize,
+) -> Result<(T, usize), Error>
 where
     T: SymbolData,
 {
@@ -104,9 +164,9 @@ where
         V1_VERSION => {
             assert_at_least_as_long_as(v1_header_len(), data.len())?;
             assert_data_type_impl(data, T::data_type())?;
-            let payload = data[v1_header_len()..].to_vec();
-            let byte_count = payload.len();
-            T::from_bytes(payload).map(|v| (v, byte_count))
+            let payload = &data[v1_header_len()..];
+            assert_within_limit(payload.len(), max_bytes)?;
+            T::from_bytes(payload.to_vec()).map(|v| (v, payload.len()))
         }
         VERSION => {
             assert_at_least_as_long_as(v2_header_len(), data.len())?;
@@ -114,14 +174,27 @@ where
             let compression = Compression::try_from(data[v2_header_len() - 1])?;
             let payload = &data[v2_header_len()..];
             let decompressed = match compression {
-                Compression::None => payload.to_vec(),
+                Compression::None => {
+                    assert_within_limit(payload.len(), max_bytes)?;
+                    payload.to_vec()
+                }
                 Compression::Zstd => {
-                    let mut decoder = zstd::Decoder::new(Cursor::new(payload))
+                    // A declared size is safe to reject on but not to trust: zstd fails a frame
+                    // whose content does not match its declared size, and a frame can declare
+                    // no size at all, so the read below keeps its own cap.
+                    if let Ok(Some(declared)) = known_zstd_decompressed_size(payload) {
+                        assert_within_limit(declared, max_bytes)?;
+                    }
+                    let decoder = zstd::Decoder::new(Cursor::new(payload))
                         .map_err(|e| Error::CompressionError(e.to_string()))?;
                     let mut out = Vec::new();
+                    // One byte past the limit is enough to tell an oversized payload from one
+                    // that is exactly at the limit.
                     decoder
+                        .take((max_bytes as u64).saturating_add(1))
                         .read_to_end(&mut out)
                         .map_err(|e| Error::CompressionError(e.to_string()))?;
+                    assert_within_limit(out.len(), max_bytes)?;
                     out
                 }
             };
@@ -130,6 +203,13 @@ where
         }
         other => Err(Error::WrongVersion(other, VERSION)),
     }
+}
+
+fn assert_within_limit(len: usize, max_bytes: usize) -> Result<(), Error> {
+    if len > max_bytes {
+        return Err(Error::DecompressedTooLarge(max_bytes as u64));
+    }
+    Ok(())
 }
 
 fn read_version(buffer: &[u8]) -> Result<u32, Error> {

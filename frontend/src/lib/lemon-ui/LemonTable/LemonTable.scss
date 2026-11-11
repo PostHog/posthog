@@ -454,3 +454,19 @@ body:not(.storybook-test-runner) .LemonTable.LemonTable--sticky-header {
         }
     }
 }
+
+.LemonTable__bulk-selection-reveal {
+    display: grid;
+    grid-template-rows: 0fr;
+    visibility: hidden;
+    transition: grid-template-rows 180ms ease-out;
+
+    &--open {
+        grid-template-rows: 1fr;
+        visibility: visible;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        transition: none;
+    }
+}

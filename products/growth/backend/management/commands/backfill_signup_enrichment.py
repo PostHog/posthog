@@ -18,6 +18,12 @@ from products.growth.backend.enrichment import gates
 from products.growth.backend.temporal.signup_enrichment.trigger import dispatch_signup_enrichment
 from products.growth.backend.temporal.signup_enrichment.workflow import SignupEnrichmentInputs
 
+_SKIP_REASONS: dict[gates.SignupIdentitySkipReason, str] = {
+    "signup_user_left": "signup user no longer a member",
+    "no_usable_member": "no usable signup member",
+    "not_work_email": "signup email is not a work email",
+}
+
 
 class Command(BaseCommand):
     help = (
@@ -67,12 +73,7 @@ class Command(BaseCommand):
             identity = gates.resolve_signup_identity(str(org.id))
             if isinstance(identity, gates.SignupIdentitySkip):
                 skipped += 1
-                if identity.reason == "signup_user_left":
-                    self.stdout.write(
-                        f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (signup user no longer a member)"
-                    )
-                else:
-                    self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) (no usable signup member)")
+                self.stdout.write(f"skip {org.id} ({org.created_at:%Y-%m-%d %H:%M}) ({_SKIP_REASONS[identity.reason]})")
                 continue
 
             inputs = SignupEnrichmentInputs(

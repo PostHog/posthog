@@ -1,4 +1,5 @@
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { hasDangerousScheme } from 'lib/utils/url'
 
 export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 
@@ -10,7 +11,9 @@ export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
  * preference, while plain `window.open` and bare `.click()` can route to a new window.
  */
 export function newInternalTab(path?: string, _source: 'internal_link' | 'unknown' = 'internal_link'): void {
-    if (!path) {
+    // Paths can come from team-writable data, such as search results, so a `javascript:` target
+    // must open nothing. `addProjectIdIfMissing` passes `javascript:/api/...` through intact.
+    if (!path || hasDangerousScheme(path)) {
         return
     }
     const isExternal = /^(https?:|mailto:)/.test(path)

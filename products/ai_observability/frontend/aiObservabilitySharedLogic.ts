@@ -39,6 +39,7 @@ import type { ProductIntentProperties } from '../../../frontend/src/lib/utils/pr
 import type { UserType } from '../../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './clusters/constants'
 import { buildAiObservabilityStorageConfig } from './preferenceStorage'
+import { scorerFiltersFromSearchParams } from './scoreDefinitions/scoreDefinitionNavigation'
 import { parserRecipesLogic } from './settings/parserRecipesLogic'
 import { hasRecentAIEvents } from './utils/aiEvents'
 
@@ -704,7 +705,13 @@ export const aiObservabilitySharedLogic = kea<aiObservabilitySharedLogicType>([
             },
             [urls.aiObservabilitySelfDriving()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityGenerations()]: (_, searchParams) => applyNonDashboard(searchParams),
-            [urls.aiObservabilityReviews()]: (_, searchParams) => applyNonDashboard(searchParams),
+            [urls.aiObservabilityReviews()]: (_, searchParams) => {
+                if (searchParams.human_reviews_tab === 'scorers') {
+                    router.actions.replace(urls.aiObservabilityScorers(), scorerFiltersFromSearchParams(searchParams))
+                    return
+                }
+                applyNonDashboard(searchParams)
+            },
             [urls.aiObservabilityTraces()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityUsers()]: (_, searchParams) => applyNonDashboard(searchParams),
             [urls.aiObservabilityErrors()]: (_, searchParams) => applyNonDashboard(searchParams),

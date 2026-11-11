@@ -112,6 +112,7 @@ const EXCLUDED_PATH_SEGMENTS = ['/temporal/']
 const PRODUCTS_RUNNING_TEMPORAL_IN_JOB = new Set([
     'batch-exports',
     'managed-warehouse',
+    'subscriptions',
     'tasks',
     'warehouse-sources',
 ])
@@ -381,6 +382,33 @@ function productOfFile(file) {
     }
     const [product, rest] = file.slice(PRODUCTS_DIR.length).split('/', 2)
     return rest === undefined ? null : product
+}
+
+const UNDECLARED_PRODUCT_INPUT = /^products\/([^/]+)\/(backend|skills)\/(.+)$/
+
+function productsWithUndeclaredInputChanges(changedFiles, allProductSet) {
+    const products = new Set()
+    for (const file of changedFiles) {
+        const match = UNDECLARED_PRODUCT_INPUT.exec(file)
+        if (!match) {
+            continue
+        }
+        const [, directory, root, rest] = match
+        if (rest.includes('__pycache__/') || (root === 'backend' && rest.endsWith('.md'))) {
+            continue
+        }
+        const product = moduleToProduct(directory)
+        if (allProductSet.has(product)) {
+            products.add(product)
+        }
+    }
+    return [...products].sort()
+}
+
+function listChangedFiles(base, head) {
+    return execFileSync('git', ['diff', '--name-only', '--no-renames', base, head], TURBO_EXEC_OPTS)
+        .split('\n')
+        .filter(Boolean)
 }
 
 // Collapse tach's file map ({ file: [files that import it] }) into
@@ -1023,11 +1051,11 @@ const DJANGO_SEGMENTS = {
             'posthog/hogql/',
         ],
     },
-    // batch-exports, tasks and product-analytics used to run their temporal suites
-    // here. They now run them in their own product jobs, which cost no extra
-    // infrastructure because every shard already starts the temporal profile.
-    // signals/emission is listed because select-tests routes it here; leaving it
-    // out under-counted the segment.
+    // batch-exports, tasks, product-analytics and subscriptions used to run their
+    // temporal suites here. They now run them in their own product jobs, which cost
+    // no extra infrastructure because every shard already starts the temporal
+    // profile. signals/emission is listed because select-tests routes it here;
+    // leaving it out under-counted the segment.
     Temporal: {
         include: ['posthog/temporal/', 'products/signals/backend/emission/'],
         exclude: [],
@@ -1205,6 +1233,25 @@ function fallbackSelection(fallbackMode, reason, selection) {
     return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
 }
 
+// Whether every legacy edit in the diff is Dagster Python under posthog/dags/. ci-dagster.yml runs
+// the tests there, and the selector assigns them to no Django segment. No module that Django loads
+// imports posthog.dags, because its __init__.py calls django.setup() again, so a Django test reaches
+// Dagster code only through its own import, which the selector follows. That makes an empty Django
+// selection correct for such a diff. A deleted file has no imports left to follow, so it does not
+// qualify. Products and Markdown are not legacy edits, so they may sit beside the Dagster files.
+function isDagsterOnlyLegacyEdit(changedFiles, fileExists) {
+    if (!Array.isArray(changedFiles)) {
+        return false
+    }
+    const isDagsterPython = (file) => file.startsWith('posthog/dags/') && file.endsWith('.py')
+    const dagsterFiles = changedFiles.filter(isDagsterPython)
+    return (
+        dagsterFiles.length > 0 &&
+        dagsterFiles.every((file) => fileExists(file)) &&
+        changedFiles.every((file) => isDagsterPython(file) || file.startsWith('products/') || /\.mdx?$/.test(file))
+    )
+}
+
 // Which Django tests this run should execute, and whether the product matrix may narrow.
 // Pure: every input is an argument, so each branch is unit-tested rather than inferred
 // from a workflow run.
@@ -1212,9 +1259,19 @@ function fallbackSelection(fallbackMode, reason, selection) {
 //   disabled       the DISABLE_BACKEND_TEST_SELECTION kill switch
 //   draft          fall back by skipping rather than by running everything
 //   legacyChanged  the paths filter saw an edit under posthog/ or ee/
+//   dagsterOnlyLegacyEdit  every legacy edit is Dagster Python, see isDagsterOnlyLegacyEdit
 //   runLegacy      whether the Django suite runs, and why
 //   selection      the selector's parsed output, null when it did not produce one
-function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, runLegacyReason, selection }) {
+function decideSelection({
+    applies,
+    disabled,
+    draft,
+    legacyChanged,
+    dagsterOnlyLegacyEdit,
+    runLegacy,
+    runLegacyReason,
+    selection,
+}) {
     if (!applies || runLegacy === false) {
         // Nothing to narrow: either the event never selects, or the Django suite is
         // skipped outright. An empty mode leaves every consumer on its own default.
@@ -1242,18 +1299,25 @@ function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, r
         console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
         return fallbackSelection(fallbackMode, 'full_run_requested', selection)
     }
+    if (!(Number(selection.durations?.total_seconds) > 0)) {
+        return fallbackSelection(fallbackMode, 'no_durations', selection)
+    }
     const segments = selection.combined?.segments ?? {}
     const core = segments.core ?? []
     const poe = segments.poe ?? []
     const temporal = segments.temporal ?? []
     const compat = segments.compat ?? []
-    if (legacyChanged && core.length === 0 && temporal.length === 0) {
+    // The Dagster exemption trusts the import graph. A failed Snob run still exits cleanly, with
+    // segments that the graph never filled, so it cannot claim the exemption.
+    const dagsterExempt = dagsterOnlyLegacyEdit && selection.snob?.status === 'ok'
+    if (legacyChanged && !dagsterExempt && core.length === 0 && temporal.length === 0) {
         // A diff that touched legacy code but selected no Django test at all means the
         // selector had no rule for it, not that there is nothing to run — a non-Python
         // legacy file (C++ parser sources, a JSON config) reaches no import edge.
         // Narrowing to zero would silently gate on nothing. FULL_RUN_PATTERNS covers the
         // known cases; this catches the ones added to the `legacy` paths filter and
         // forgotten there. Products-only diffs legitimately select nothing and are not legacy.
+        // A diff whose legacy edits are all Dagster Python also legitimately selects nothing.
         return fallbackSelection(fallbackMode, 'empty_selection', selection)
     }
     console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
@@ -1282,6 +1346,10 @@ function fullRunJsonTargets(targets, skippedProducts) {
     return targets.filter((target) => !isUnderProduct(target, skippedProducts))
 }
 
+// The runLegacyReason values of a diff that edited products only. A schema or lib change
+// reaches core directly, so the events_json leg keeps the whole list for those.
+const PRODUCT_CASCADE_REASONS = new Set(['non_isolated_product', 'contract_cascade'])
+
 // Which events_json paths this run executes. The leg follows the legacy tests. Null means
 // the whole list at the full-run shard count. An array is the list to run, and an empty
 // one means the leg does not run.
@@ -1296,10 +1364,25 @@ function fullRunJsonTargets(targets, skippedProducts) {
 //   draft            the PR is a draft. Only read in selected mode, the one mode that the
 //                    merge queue's draft trunk-merge/** PR never reaches.
 //   doubled          retain only paths the schema copies do not cover
+//   skipReason       why the selection fell back, from decideSelection
+//   runLegacyReason  why the Django suite runs
+//   diffProducts     the products the diff reached before a cascade widened the matrix to
+//                    all products, or null when that set is unknown
 function decideJsonTargets({
-    targets, mode, runLegacy, selectedTests, products, skippedProducts = [], draft = false, doubled = false,
+    targets,
+    mode,
+    runLegacy,
+    selectedTests,
+    products,
+    skippedProducts = [],
+    draft = false,
+    doubled = false,
+    skipReason = '',
+    runLegacyReason = '',
+    diffProducts = null,
 }) {
     if (doubled) {
+        // The label asks for the widest events_json coverage, so a product cascade does not narrow it.
         const paths = decideJsonTargets({ targets, mode, runLegacy, selectedTests, products, skippedProducts, draft })
         // Dagster tests are excluded from the doubled Django suites and have no product job.
         return (paths ?? targets).filter(
@@ -1321,6 +1404,13 @@ function decideJsonTargets({
     }
     if (mode !== 'selected') {
         const kept = fullRunJsonTargets(targets, skippedProducts)
+        if (mode === 'full' && skipReason === 'untrusted' && diffProducts !== null && PRODUCT_CASCADE_REASONS.has(runLegacyReason)) {
+            // A product-only diff runs the whole Django suite because core can import the
+            // product's internals, and no selector can see that edge. The events_json leg
+            // then keeps the paths of the products the diff reached and leaves the legacy
+            // paths to the merge queue, which runs the whole list before anything lands.
+            return kept.filter((target) => isUnderProduct(target, diffProducts))
+        }
         return kept.length === targets.length ? null : kept
     }
     // Product test files come in through productPaths instead, so that the leg tests the
@@ -1336,6 +1426,10 @@ function decideJsonTargets({
 function narrowedJsonTargetsShards(paths, durations) {
     if (paths.length === 0) {
         return 0
+    }
+    // Without durations the work reads as zero, which would size the list to one shard.
+    if (!durations) {
+        return DJANGO_FALLBACK_SHARDS.JsonTargets
     }
     return calculateShards(pathsDuration(paths, durations), DJANGO_OVERHEAD_SECONDS_BY_SEGMENT.JsonTargets, 1)
 }
@@ -1479,6 +1573,7 @@ function buildMatrix(products, durations, productsScaled = false) {
 module.exports = {
     narrowedProducts,
     decideSelection,
+    isDagsterOnlyLegacyEdit,
     decideJsonTargets,
     loadJsonTargets,
     selectedShards,
@@ -1495,6 +1590,8 @@ module.exports = {
     PRODUCTS_SCALED_MARKER,
     TARGET_WALL_SECONDS,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
+    DJANGO_FALLBACK_SHARDS,
+    narrowedJsonTargetsShards,
     DJANGO_SEGMENTS,
     getIsolatedProducts,
     collectTestFiles,
@@ -1510,6 +1607,7 @@ module.exports = {
     libImportName,
     productsImportingModule,
     coreFilesImportingModule,
+    productsWithUndeclaredInputChanges,
 }
 
 // --- Main ---
@@ -1559,6 +1657,9 @@ let runLegacyReason = ''
 // selection, the matrix narrows to these products plus the ones the selector reached
 // through the import graph. Null when that narrowing is not safe.
 let mustRunProducts = null
+// The products a product-only diff reached, kept apart from a matrix that a cascade widened
+// to all products. Null when a change reaches core directly or the reach is unknown.
+let diffProducts = null
 
 if (legacyChanged) {
     console.error('Legacy code changed — testing all products')
@@ -1585,6 +1686,9 @@ if (legacyChanged) {
         products = allProducts
         runLegacy = true
         runLegacyReason = 'non_isolated_product'
+        // Products that import the changed product's internals keep their events_json paths too.
+        const dependents = tachDependentProducts(nonIsolatedAffectedProducts, allProductSet)
+        diffProducts = dependents === null ? null : [...new Set([...affectedProducts, ...dependents])].sort()
     } else if (affectedProducts.length > 0) {
         // Only isolated products changed — check whether their contract surface was affected
         const affectedProductSet = new Set(affectedProducts)
@@ -1609,6 +1713,7 @@ if (legacyChanged) {
                     )
                 }
                 products = [...new Set([...affectedProducts, ...dependents])].sort()
+                diffProducts = products
             }
         } else {
             console.error('Only isolated product internals changed — Django can be skipped')
@@ -1638,6 +1743,7 @@ if (legacyChanged) {
                 console.error(`${libModule} is imported by core (${coreImporters.join(', ')}) — Django will run`)
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
+                diffProducts = null
             }
         }
         if (directConsumers.size === 0) {
@@ -1651,12 +1757,16 @@ if (legacyChanged) {
                 products = allProducts
                 runLegacy = true
                 runLegacyReason = runLegacyReason || 'lib_cascade'
+                diffProducts = null
             } else {
                 if (cascaded.length > 0) {
                     console.error(`Products depending on those importers via the tach map: ${JSON.stringify(cascaded)}`)
                 }
                 const reached = [...new Set([...directConsumers, ...cascaded])].sort()
                 products = [...new Set([...products, ...reached])].sort()
+                if (diffProducts !== null) {
+                    diffProducts = [...new Set([...diffProducts, ...reached])].sort()
+                }
                 const nonIsolatedReached = reached.filter((p) => !isolatedProducts.has(p))
                 if (nonIsolatedReached.length > 0) {
                     console.error(
@@ -1680,6 +1790,32 @@ if (legacyChanged) {
         // Core (posthog/, ee/, etc.) imports schema heavily; always run Django on schema changes.
         runLegacy = true
         runLegacyReason = 'schema'
+    }
+}
+
+let undeclaredInputProductsAdded = []
+if (process.env.TURBO_SCM_BASE) {
+    let changedFiles
+    try {
+        changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
+    } catch (e) {
+        console.error(`changed-file listing failed: ${e.message}`)
+        process.exit(1)
+    }
+    const undeclaredInputProducts = productsWithUndeclaredInputChanges(changedFiles, allProductSet)
+    const unselected = undeclaredInputProducts.filter((p) => !products.includes(p))
+    if (unselected.length > 0) {
+        console.error(
+            `Products whose non-Python test inputs changed, which Turbo's affected query cannot see: ${JSON.stringify(unselected)}`
+        )
+        products = [...new Set([...products, ...unselected])].sort()
+        undeclaredInputProductsAdded = unselected
+    }
+    if (mustRunProducts !== null) {
+        mustRunProducts = [...new Set([...mustRunProducts, ...undeclaredInputProducts])].sort()
+    }
+    if (diffProducts !== null) {
+        diffProducts = [...new Set([...diffProducts, ...undeclaredInputProducts])].sort()
     }
 }
 
@@ -1724,6 +1860,7 @@ const selectionDecision = decideSelection({
     disabled: process.env.SELECTION_DISABLED === 'true',
     draft: process.env.PR_DRAFT === 'true',
     legacyChanged,
+    dagsterOnlyLegacyEdit: isDagsterOnlyLegacyEdit(selection?.changed_files, fs.existsSync),
     runLegacy,
     runLegacyReason,
     selection,
@@ -1763,6 +1900,9 @@ const jsonTargetFiles = decideJsonTargets({
     skippedProducts,
     draft: process.env.PR_DRAFT === 'true',
     doubled: process.env.RUN_NEW_EVENTS_SCHEMA === 'true',
+    skipReason: selectionDecision.skip_reason,
+    runLegacyReason,
+    diffProducts,
 })
 
 console.error('\nDjango shard calculation:')
@@ -1789,8 +1929,8 @@ const result = {
         run_poe,
         run_temporal,
         segment_shards: segment_shards ? JSON.stringify(segment_shards) : '',
-        // Empty on a run that takes the whole list. A full run sizes from django_shards.JsonTargets
-        // even when a skipped product shortens its list here.
+        // Empty on a run that takes the whole list. A full run sizes from django_shards.JsonTargets,
+        // and build_django_matrix lowers that to json_targets_shards when this list is shorter.
         json_targets_files: jsonTargetFiles === null ? '' : jsonTargetFiles.join(' '),
         json_targets_shards: jsonTargetFiles === null ? '' : narrowedJsonTargetsShards(jsonTargetFiles, durations),
     },
@@ -1806,6 +1946,7 @@ const result = {
         product_matrix_narrowed: productMatrixNarrowed,
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
+        undeclared_input_products: undeclaredInputProductsAdded,
         ...runContext(),
     },
 }

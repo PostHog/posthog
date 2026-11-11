@@ -30,6 +30,7 @@ def tagged_http_client(
     *,
     pin: tuple[str, ResolvedIPs] | None = None,
     follow_redirects: bool = True,
+    total_timeout: float | None = None,
 ) -> httpx.Client:
     """An httpx client that tags provider responses.
 
@@ -47,4 +48,4 @@ def tagged_http_client(
     if pin is None:
         return httpx.Client(**kwargs)
     url, pinned_ips = pin
-    return pinned_client(url, pinned_ips, **kwargs)
+    return pinned_client(url, pinned_ips, total_timeout=total_timeout, **kwargs)

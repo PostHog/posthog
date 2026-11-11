@@ -276,6 +276,7 @@ def _github_policy(key: str) -> RatePolicy:
         limits=((per_minute, 60.0), (hourly, 3600.0)),
         in_memory_divider=4,
         reserve=DEFAULT_RESERVE if has_interactive_demand(installation_id) else _IDLE_RESERVE,
+        scope_in_metrics=True,
     )
 
 
@@ -285,8 +286,8 @@ register_policy(GITHUB_DOMAIN, _github_policy)
 # of the account's plan tier (unlike core), so there is no tier to observe. Both sit just under
 # GitHub's real per-installation ceilings (10/min and 30/min) so our reactive backoff absorbs
 # drift. The default reserve ladder applies, so BATCH/NORMAL callers still shed first as the window fills.
-register_policy(GITHUB_CODE_SEARCH_DOMAIN, RatePolicy(limits=((8, 60.0),), in_memory_divider=4))
-register_policy(GITHUB_SEARCH_DOMAIN, RatePolicy(limits=((27, 60.0),), in_memory_divider=4))
+register_policy(GITHUB_CODE_SEARCH_DOMAIN, RatePolicy(limits=((8, 60.0),), in_memory_divider=4, scope_in_metrics=True))
+register_policy(GITHUB_SEARCH_DOMAIN, RatePolicy(limits=((27, 60.0),), in_memory_divider=4, scope_in_metrics=True))
 
 
 def github_installation_key(

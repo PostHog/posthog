@@ -40,7 +40,7 @@ class Command(BaseCommand):
     help = (
         "Repair schemas whose Temporal schedule stopped firing: unpause or recreate the schedule "
         "and clear a stale Running status. Skips schemas whose run is wedged (use "
-        "unstick_external_data_jobs) and buffered CDC sources. Dry-run unless --live-run is given."
+        "unstick_external_data_jobs) and halted CDC schemas (use repair_cdc). Dry-run unless --live-run is given."
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
@@ -61,21 +61,11 @@ class Command(BaseCommand):
             default=MAX_SCHEMAS_DEFAULT,
             help=f"Abort if more than this many schemas match (default {MAX_SCHEMAS_DEFAULT})",
         )
-        parser.add_argument(
-            "--include-buffered",
-            action="store_true",
-            help=(
-                "Also repair schemas on a buffered CDC source. Their schedule paces buffer "
-                "consumption, so restarting it out of sequence can merge files against a table "
-                "the buffered lane already writes. Prefer re-running migrate_cdc_source_to_buffered."
-            ),
-        )
         parser.add_argument("--live-run", action="store_true", help="Apply changes (default is dry-run)")
         parser.add_argument("--yes", action="store_true", help="Skip interactive confirmation")
 
     def handle(self, *args: Any, **options: Any) -> None:
         live_run: bool = options["live_run"]
-        include_buffered: bool = options["include_buffered"]
 
         max_schemas: int = options["max_schemas"]
         # One over the cap, so an unexpectedly wide match is refused rather than loaded whole.
@@ -96,21 +86,7 @@ class Command(BaseCommand):
                 "Narrow the targeting or raise --max-schemas explicitly."
             )
 
-        # --include-buffered only overrides the buffered-CDC exclusion; every other exclusion in
-        # repairable_here stays in force — none of them are what that flag is for.
-        actionable = [
-            s
-            for s in stalled
-            if s.repairable_here
-            or (
-                include_buffered
-                and s.kind == "no_runs"
-                and not s.admin_paused
-                and s.has_sync_interval
-                and not s.cdc_streaming
-                and not s.cdc_halted
-            )
-        ]
+        actionable = [s for s in stalled if s.repairable_here]
         actionable_ids = {s.schema_id for s in actionable}
         skipped = [s for s in stalled if s.schema_id not in actionable_ids]
 
@@ -181,11 +157,7 @@ class Command(BaseCommand):
             return "paused for an in-flight admin-triggered run"
         if not schema.has_sync_interval:
             return "no sync_frequency_interval set"
-        if schema.cdc_streaming:
-            return "streaming CDC schema, use repair_cdc"
-        if schema.cdc_halted:
-            return "CDC halted, use repair_cdc"
-        return "buffered CDC source"
+        return "CDC halted, use repair_cdc"
 
     def _confirm(self, prompt: str, yes: bool) -> None:
         if yes:

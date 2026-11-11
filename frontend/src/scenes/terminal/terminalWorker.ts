@@ -39,12 +39,12 @@ let emulator: WorkerV86 | undefined
 let visible = false
 let nextRequest = 0
 const replies = new Map<number, { tag: number; reply: (bytes: Uint8Array) => void }>()
-const serial = [new Uint8Array(8192), new Uint8Array(8192)]
-const lengths = [0, 0]
+const serial = [new Uint8Array(8192), new Uint8Array(8192), new Uint8Array(8192)]
+const lengths = [0, 0, 0]
 let flushScheduled = false
 
 function flushSerial(): void {
-    for (const port of [0, 1]) {
+    for (const port of [0, 1, 2]) {
         if (lengths[port]) {
             const bytes = serial[port].slice(0, lengths[port])
             lengths[port] = 0
@@ -109,11 +109,14 @@ function receive(message: TerminalWorkerRequest): void {
                 disable_mouse: true,
                 disable_speaker: true,
                 uart1: true,
+                // Doom multiplayer frames; see terminalNetplay.ts.
+                uart2: true,
                 autostart: false,
             }) as WorkerV86
             const vm = emulator
             vm.add_listener('serial0-output-byte', (byte: number) => output(0, byte))
             vm.add_listener('serial1-output-byte', (byte: number) => output(1, byte))
+            vm.add_listener('serial2-output-byte', (byte: number) => output(2, byte))
             vm.add_listener('emulator-loaded', () => {
                 // Linux uses a graphical framebuffer; retain v86's headless VGA text adapter for boot.
                 Object.assign(vm.screen_adapter, {

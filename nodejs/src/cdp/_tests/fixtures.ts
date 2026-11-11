@@ -322,6 +322,7 @@ export interface CohortMembershipRecord {
     person_id: string
     in_cohort: boolean
     last_updated?: Date
+    version?: string
 }
 
 export const insertCohortMembership = async (

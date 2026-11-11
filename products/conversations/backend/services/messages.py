@@ -2,11 +2,31 @@ from django.db.models import Q, QuerySet
 
 from posthog.models.comment import Comment
 
+from products.conversations.backend.models.constants import TicketMessageType
+
 # Ticket messages are stored as comments under this scope.
 TICKET_MESSAGE_SCOPE = "conversations_ticket"
 
 # "team" is analytics-only. "AI" and "customer" are not learning evidence.
 PUBLIC_HUMAN_AUTHOR_TYPES = ("support", "human")
+
+AI_DRAFT_PERSIST_AS = frozenset({"reply", "clarification"})
+
+
+def ticket_message_type(item_context: object, created_by_id: int | None) -> TicketMessageType:
+    context = item_context if isinstance(item_context, dict) else {}
+    if context.get("is_private") is not True:
+        if context.get("author_type", "customer") == "customer":
+            return TicketMessageType.CUSTOMER_MESSAGE
+        return TicketMessageType.SENT_REPLY
+    if (
+        created_by_id is None
+        and context.get("author_type") == "AI"
+        and "internal_note_key" not in context
+        and context.get("persist_as", "reply") in AI_DRAFT_PERSIST_AS
+    ):
+        return TicketMessageType.AI_DRAFT
+    return TicketMessageType.INTERNAL_NOTE
 
 
 def _public_ticket_message_context() -> Q:

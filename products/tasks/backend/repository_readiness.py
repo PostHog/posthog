@@ -10,7 +10,9 @@ from django.utils import timezone
 
 import requests
 
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import GitHubIntegration
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.event_definitions.backend.models.event_definition import EventDefinition
@@ -114,12 +116,11 @@ def _cache_key(*, team_id: int, integration_id: int, repository: str, window_day
     )
 
 
-def _refresh_installation_token(integration: Integration) -> None:
-    github = GitHubIntegration(integration)
+def _refresh_installation_token(integration: IntegrationRecord) -> None:
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     try:
         if github.access_token_expired():
             github.refresh_access_token()
-            integration.refresh_from_db(fields=["config", "sensitive_config"])
     except Exception:
         logger.warning("repository_readiness.refresh_token_failed", exc_info=True)
         return
@@ -231,8 +232,8 @@ def _fetch_file_content(github: GitHubIntegration, repository: str, path: str, r
         return None
 
 
-def _scan_repository(integration: Integration, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
-    github = GitHubIntegration(integration, source="tasks")
+def _scan_repository(integration: IntegrationRecord, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
+    github = GitHubIntegration(integration, source="tasks", priority=Priority.CRITICAL)
     tree_paths, default_branch = _fetch_repository_tree(github, repository)
 
     found_posthog_init = False
@@ -373,7 +374,7 @@ def compute_repository_readiness(
     repository = _normalize_repo_key(repository)
     window_days = min(max(window_days, 1), MAX_WINDOW_DAYS)
 
-    integration = Integration.objects.filter(team=team, kind="github").first()
+    integration = IntegrationManager.github.oauth.find(team.id)
     if not integration:
         not_ready = _capability_state("GitHub integration is not connected.", "needs_setup")
         return {

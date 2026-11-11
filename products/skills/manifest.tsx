@@ -1,13 +1,18 @@
 import { combineUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Skills',
+    activityDescribers: {
+        [ActivityScope.LLM_SKILL]: () =>
+            import('./frontend/activityDescriber').then((module) => module.skillActivityDescriber),
+    },
     scenes: {
         Skills: {
             import: () => import('./frontend/LLMSkillsScene'),
@@ -75,6 +80,14 @@ export const manifest: ProductManifest = {
             iconType: 'skill',
             iconColor: ['var(--color-product-skills-light)', 'var(--color-product-skills-dark)'],
             href: urls.skills(),
+            searchKeywords: ['agent instructions', 'playbooks'],
+            searchTabs: [
+                {
+                    name: 'Community skills',
+                    href: urls.communitySkills(),
+                    flag: FEATURE_FLAGS.LLM_ANALYTICS_COMMUNITY_SKILLS,
+                },
+            ],
             sceneKey: 'Skills',
         },
     ],

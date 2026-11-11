@@ -1,4 +1,4 @@
-import type { LoopSchemas } from "@posthog/api-client/loops";
+import type { LoopSchemas } from "@posthog/ui/features/loops/loopSchemas";
 import { type ReactNode, useMemo, useState } from "react";
 import {
   countLoops,
@@ -18,7 +18,6 @@ export function LoopsListSection({
   error,
   showScope,
   showSpace,
-  showVisibility,
   emptyState,
 }: {
   loops: LoopSchemas.Loop[];
@@ -27,7 +26,6 @@ export function LoopsListSection({
   error: unknown;
   showScope: boolean;
   showSpace: boolean;
-  showVisibility: boolean;
   emptyState: ReactNode;
 }) {
   const [filters, setFilters] = useState<LoopListFilters>({
@@ -60,7 +58,6 @@ export function LoopsListSection({
         filters={filters}
         counts={countLoops(loops)}
         showScope={showScope}
-        showVisibility={showVisibility}
         onChange={(patch) =>
           setFilters((current) => ({ ...current, ...patch }))
         }

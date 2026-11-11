@@ -1,9 +1,15 @@
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Notebooks',
+    activityDescribers: {
+        [ActivityScope.NOTEBOOK]: () =>
+            import('scenes/notebooks/Notebook/notebookActivityDescriber').then(
+                (module) => module.notebookActivityDescriber
+            ),
+    },
     scenes: {
         ReusableWidget: {
             name: 'Reusable widget',
@@ -17,7 +23,7 @@ export const manifest: ProductManifest = {
         '/notebooks/widgets/:widgetId': ['ReusableWidget', 'reusableWidget'],
     },
     urls: {
-        notebooks: (): string => '/notebooks',
+        notebooks: (tab?: 'widgets'): string => (tab ? `/notebooks?tab=${tab}` : '/notebooks'),
         notebook: (shortId: string): string => `/notebooks/${shortId}`,
         canvas: (): string => `/canvas`,
         reusableWidget: (widgetId: string): string => `/notebooks/widgets/${widgetId}`,

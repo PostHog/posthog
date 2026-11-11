@@ -3,10 +3,16 @@
 The score-side sibling of backfill_enrichment_fields (which owns the firmographic keys and
 never touches any score): this command writes ONLY the icp_fit_* keys — a fit-only
 write_organization_enrichment call — so the two backfills stay independently re-runnable,
-and the legacy clay icp_score is never touched here.
+and the legacy clay icp_score is never touched here. The one exception is work_email, which
+the clear below sets to false.
 No new Harmonic calls: everything replays from the fetch archive. A sentinel (miss) archive
 row scores as not_found, which is recorded rather than skipped so the re-enrichment sweep
 can find those orgs.
+
+An org whose signup domain is a personal or relay email provider is cleared, not scored:
+its archived payload describes the email provider, so its fit becomes not_found. The signup
+domain is the one the stored score used, so a member who changes their email later does not
+move the org between scored and cleared.
 
 Role for the student disqualification comes from the record's signup_role key, persisted at
 signup since the fit score shipped; historical orgs without it simply score without the
@@ -44,7 +50,7 @@ from products.growth.backend.enrichment import (
 from products.growth.backend.enrichment.bridge import read_organization_bridge_inputs
 from products.growth.backend.enrichment.context import FIT_EVALUATION_KIND_BACKFILL
 from products.growth.backend.enrichment.fit_recomputation import latest_fetch, score_archived_fit
-from products.growth.backend.enrichment.fit_score import IcpFitResult, score_company
+from products.growth.backend.enrichment.fit_score import IcpFitResult, no_company_fit, score_company
 from products.growth.backend.enrichment.icp_lists import (
     CuratedLists,
     load_active_lists,
@@ -57,11 +63,18 @@ from products.growth.backend.enrichment.scoring_context import normalize_fit_pay
 from products.growth.backend.enrichment.writer import (
     lock_organization_enrichment,
     project_organization_enrichment,
+    record_signup_work_email,
     write_organization_enrichment,
 )
 from products.growth.backend.models import IcpScoringConfig, OrganizationEnrichment, OrganizationEnrichmentFetch
 
-_BackfillOutcome = Literal["written", "skipped_org_gone", "skipped_wizard_unavailable", "skipped_stale_fetch"]
+_BackfillOutcome = Literal[
+    "written",
+    "cleared_not_work_email",
+    "skipped_org_gone",
+    "skipped_wizard_unavailable",
+    "skipped_stale_fetch",
+]
 
 
 class _Stats:
@@ -125,14 +138,20 @@ def _wizard_ai_sdk_for_backfill(*, organization_id: str, record: Optional[Organi
         return True if persisted else None
 
 
-def _score_backfill_fetch(
-    *, fetch: OrganizationEnrichmentFetch, organization: Organization, lists: CuratedLists, wizard_ai_sdk: bool
-) -> IcpFitResult:
-    domain = signup_domain_for_organization(organization)
-    record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
-    role = record.data.get("signup_role") if record else None
+def _signup_domain(*, organization: Organization, record: Optional[OrganizationEnrichment]) -> str | None:
+    signup = record.data.get("icp_fit_signup") if record else None
+    domain = signup.get("domain") if isinstance(signup, dict) else None
+    return domain if isinstance(domain, str) and domain else signup_domain_for_organization(organization)
 
-    return score_archived_fit(fetch, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
+
+def _signup_role(organization_id: str) -> str | None:
+    record = OrganizationEnrichment.objects.filter(organization_id=organization_id).first()
+    return record.data.get("signup_role") if record else None
+
+
+def _earliest_member_distinct_id(organization: Organization) -> str | None:
+    membership = organization.memberships.select_related("user").order_by("joined_at").first()
+    return membership.user.distinct_id if membership else None
 
 
 def _iter_parity_payloads(path: str):
@@ -213,21 +232,32 @@ class Command(BaseCommand):
             return "skipped_org_gone"
 
         record = OrganizationEnrichment.objects.filter(organization_id=fetch.organization_id).first()
-        wizard_ai_sdk = _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
+        domain = _signup_domain(organization=organization, record=record)
+        clears_fit = domain is not None and not gates.is_work_domain(domain)
+        outcome: _BackfillOutcome = "cleared_not_work_email" if clears_fit else "written"
+        verb, done = ("clear", "cleared") if clears_fit else ("write", "wrote")
+        detail = f" signup_domain={domain}" if clears_fit else ""
+        wizard_ai_sdk = (
+            saved_wizard_ai_sdk(record.data if record else {})
+            if clears_fit
+            else _wizard_ai_sdk_for_backfill(organization_id=str(fetch.organization_id), record=record)
+        )
         if wizard_ai_sdk is None:
             return "skipped_wizard_unavailable"
         with lock_organization_enrichment(str(fetch.organization_id)):
             current_fetch = latest_fetch(str(fetch.organization_id))
             if current_fetch is None or current_fetch.id != fetch.id:
                 return "skipped_stale_fetch"
-            result = _score_backfill_fetch(
-                fetch=fetch, organization=organization, lists=lists, wizard_ai_sdk=wizard_ai_sdk
-            )
-            stats.add(result)
+            role = _signup_role(str(fetch.organization_id))
+            if clears_fit:
+                result = no_company_fit(lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
+            else:
+                result = score_archived_fit(fetch, lists=lists, role=role, domain=domain, wizard_ai_sdk=wizard_ai_sdk)
+                stats.add(result)
 
             if dry_run:
-                self.stdout.write(f"would write {fetch.organization_id}: {result.status} score={result.score}")
-                return "written"
+                self.stdout.write(f"would {verb} {fetch.organization_id}: {result.status} score={result.score}{detail}")
+                return outcome
 
             if (
                 require_active_config
@@ -244,13 +274,19 @@ class Command(BaseCommand):
                 fit_evaluation_kind=FIT_EVALUATION_KIND_BACKFILL,
                 project=False,
             )
+            if clears_fit:
+                record_signup_work_email(organization_id=str(fetch.organization_id), work_email=False)
         project_organization_enrichment(
-            organization_id=str(fetch.organization_id), fields=None, pha_client=pha_client, fit=result
+            organization_id=str(fetch.organization_id),
+            fields=None,
+            pha_client=pha_client,
+            fit=result,
+            fit_mirror_distinct_id=_earliest_member_distinct_id(organization) if clears_fit else None,
         )
-        self.stdout.write(f"wrote {fetch.organization_id}: {result.status} score={result.score}")
+        self.stdout.write(f"{done} {fetch.organization_id}: {result.status} score={result.score}{detail}")
         if delay:
             time.sleep(delay)
-        return "written"
+        return outcome
 
     def _run_backfill(self, options: dict[str, Any]) -> None:
         if not gates.region_allowed():
@@ -276,6 +312,7 @@ class Command(BaseCommand):
 
         outcomes: dict[_BackfillOutcome, int] = {
             "written": 0,
+            "cleared_not_work_email": 0,
             "skipped_org_gone": 0,
             "skipped_wizard_unavailable": 0,
             "skipped_stale_fetch": 0,
@@ -297,10 +334,11 @@ class Command(BaseCommand):
         finally:
             pha_client.shutdown()
 
-        verb = "would write" if dry_run else "wrote"
+        verb, clear_verb = ("would write", "would clear") if dry_run else ("wrote", "cleared")
         self.stdout.write(
             self.style.SUCCESS(
                 f"considered {considered}, {verb} {outcomes['written']}, "
+                f"{clear_verb} {outcomes['cleared_not_work_email']}, "
                 f"skipped_org_gone {outcomes['skipped_org_gone']}, "
                 f"skipped_wizard_unavailable {outcomes['skipped_wizard_unavailable']}, "
                 f"skipped_stale_fetch {outcomes['skipped_stale_fetch']}"

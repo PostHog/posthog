@@ -155,6 +155,39 @@ describe('async utils', () => {
             }
         })
 
+        it('waits the delay getDelayMs gives, and the backoff when it gives none', async () => {
+            jest.useFakeTimers()
+            try {
+                const fn = jest
+                    .fn()
+                    .mockRejectedValueOnce(new Error('wait 5000'))
+                    .mockRejectedValueOnce(new Error('no wait given'))
+                    .mockResolvedValue('success')
+
+                const promise = retryWithBackoff(fn, {
+                    maxAttempts: 3,
+                    initialDelayMs: 1000,
+                    backoffMultiplier: 2,
+                    getDelayMs: (error) => ((error as Error).message === 'wait 5000' ? 5000 : undefined),
+                })
+
+                await jest.advanceTimersByTimeAsync(4999)
+                expect(fn).toHaveBeenCalledTimes(1)
+                await jest.advanceTimersByTimeAsync(1)
+                expect(fn).toHaveBeenCalledTimes(2)
+
+                // initialDelayMs * 2^1 after the second failure
+                await jest.advanceTimersByTimeAsync(1999)
+                expect(fn).toHaveBeenCalledTimes(2)
+                await jest.advanceTimersByTimeAsync(1)
+                expect(fn).toHaveBeenCalledTimes(3)
+
+                await expect(promise).resolves.toBe('success')
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
         it('uses default options when none provided', async () => {
             const errors = [new Error('fail'), new Error('fail'), new Error('fail')]
             let callCount = 0
