@@ -598,7 +598,7 @@ describe('scenario environment', () => {
         }, 15_000)
     })
 
-    describe('up', () => {
+    describe('up and reset', () => {
         const cacheHome = process.env.XDG_CACHE_HOME
         const realSpawn = childProcess.spawn
         const stubRolePids = new Set<number>()
@@ -625,6 +625,11 @@ describe('scenario environment', () => {
             jest.spyOn(stack, 'missingTemplates').mockResolvedValue([])
             const members = jest.spyOn(stack, 'groupMembers').mockResolvedValue(0)
             consumerGroupMembers.forEach((count) => members.mockResolvedValueOnce(count))
+        }
+        const stubTheReset = (): void => {
+            jest.spyOn(stack, 'deleteUnfinishedJobs').mockResolvedValue()
+            jest.spyOn(stack, 'forgetSesBucket').mockResolvedValue()
+            jest.spyOn(stack, 'seekToEnd').mockResolvedValue()
         }
 
         beforeEach(() => {
@@ -739,6 +744,86 @@ describe('scenario environment', () => {
             environment = createEnvironment()
 
             await expect(environment.up()).rejects.toMatchObject({
+                exitCode: 2,
+                message: expect.stringContaining('6760 (cdp-processed-events)'),
+                stopCommand: "ss -ltnp 'sport = :6760'",
+            })
+        }, 30_000)
+
+        it.each<[string, () => Promise<void>]>([
+            ['', async () => {}],
+            [
+                ' after a role crashed during the card',
+                async () => {
+                    process.kill([...stubRolePids].at(-1)!, 'SIGKILL')
+                    await waitForExpect(() => expect(environment!.exits()).toHaveLength(1), 5_000)
+                },
+            ],
+        ])(
+            'brings every role back healthy on reset%s',
+            async (_name, arrange) => {
+                stubTheStack([])
+                stubTheReset()
+                environment = createEnvironment()
+                await environment.up()
+                await arrange()
+
+                await environment.reset({})
+
+                const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
+                expect(Object.fromEntries(health)).toEqual(
+                    Object.fromEntries(CdpRole.options.map((role) => [role, 200]))
+                )
+            },
+            30_000
+        )
+
+        it.each<[string, Role, string, () => void]>([
+            [
+                'loses its port to another server that answers /_health',
+                'cdp-processed-events',
+                'code 1',
+                () => {
+                    losesItsPort = 'cdp-processed-events'
+                },
+            ],
+            [
+                'cannot be spawned',
+                'cdp-cyclotron-worker-email',
+                'ENOENT',
+                () => {
+                    unspawnable = 'cdp-cyclotron-worker-email'
+                },
+            ],
+        ])(
+            'fails a reset at once naming a role that %s, why, and its log',
+            async (_name, role, why, arrange) => {
+                stubTheStack([])
+                stubTheReset()
+                environment = createEnvironment()
+                await environment.up()
+                arrange()
+
+                const failure = await environment.reset({}).then(
+                    () => null,
+                    (error: Error) => error.message
+                )
+
+                expect(failure).toMatch(new RegExp(`^${role} `))
+                expect(failure).toContain(why)
+                expect(failure).toContain(logOf(role))
+            },
+            30_000
+        )
+
+        it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
+            stubTheStack([])
+            stubTheReset()
+            environment = createEnvironment()
+            await environment.up()
+            jest.spyOn(stack, 'deleteUnfinishedJobs').mockImplementation(() => holdPort('cdp-processed-events'))
+
+            await expect(environment.reset({})).rejects.toMatchObject({
                 exitCode: 2,
                 message: expect.stringContaining('6760 (cdp-processed-events)'),
                 stopCommand: "ss -ltnp 'sport = :6760'",

@@ -46,7 +46,6 @@ const TEMPLATES_WITHIN_MS = 120_000
 const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
-const ROLES_READY_WITHIN_MS = 120_000
 const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
 
@@ -95,6 +94,7 @@ export function createEnvironment(): Environment {
             if (!edge) {
                 throw new Error('Start the environment with up() before reset().')
             }
+            const exitsBefore = supervisor.exits().length
             await supervisor.stop()
             const specs = roleSpecs(env, edge.url, secrets, settings)
             const groups = consumerGroupsOf(specs)
@@ -116,25 +116,9 @@ export function createEnvironment(): Environment {
             for (const group of groups) {
                 await seekToEnd(group)
             }
-            const exitsBefore = supervisor.exits().length
+            await refuseHeldPorts(specs.map((spec) => spec.role))
             await supervisor.start(specs)
-            await waitForExpect(
-                async () => {
-                    const notReady = await rolesNotReady(specs)
-                    if (notReady.length > 0) {
-                        const exited = supervisor
-                            .exits()
-                            .slice(exitsBefore)
-                            .map(({ role, code, signal }) => `${role} (${signal ?? `code ${code}`})`)
-                        throw new Error(
-                            `The roles ${notReady.join(', ')} did not answer /_health within ${ROLES_READY_WITHIN_MS / 1000}s. ` +
-                                `Exited since the reset: ${exited.join(', ') || 'none'}. Logs: ${stateDir}/<role>.log.`
-                        )
-                    }
-                },
-                ROLES_READY_WITHIN_MS,
-                PROBE_INTERVAL_MS
-            )
+            await untilHealthy(specs, exitsBefore)
         },
 
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
