@@ -1460,6 +1460,12 @@ describe('EmailService', () => {
                 { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
             [
+                'a transactional email whose template id has a dot',
+                { template_uuid: 'template.v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
                 'a workflow email made from a template',
                 { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
                 '$pageview',
@@ -1486,6 +1492,22 @@ describe('EmailService', () => {
                     from: '"Test User" <test@posthog-test.com>',
                 }),
             ])
+        })
+
+        it('names the template the email was rendered with, after its step moves to another template', async () => {
+            await captureEngagementEvents()
+            invocation.hogFunction.metadata = { message_category_type: 'transactional', template_uuid: 'template-2' }
+            invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1 },
+                template: { template_uuid: 'template-1' },
+            })
+
+            const result = await service.executeSendEmail(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].tags).toMatchObject({ ph_template_id: 'template-1' })
+            expect(result.capturedPostHogEvents[0].properties.$email_template_id).toEqual('template-1')
         })
 
         const sesAccepts = (): void => {}
