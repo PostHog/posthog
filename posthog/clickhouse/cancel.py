@@ -55,15 +55,22 @@ def cancel_query_on_cluster(team_id: int, client_query_id: str) -> None:
         statsd.incr("clickhouse.query.cancellation.ok", tags={"team_id": team_id})
     elif settings.CLICKHOUSE_FALLBACK_CANCEL_QUERY_ON_CLUSTER:
         logger.debug("No initiator host found for query %s, cancelling query on cluster", client_query_id)
+        cancellation_error: Exception | None = None
         for cluster, lookup_host in clusters.items():
-            with default_client(
-                host=lookup_host, database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS
-            ) as client:
-                # nosemgrep: clickhouse-fstring-param-audit - cluster is a cluster name from settings
-                result = sync_execute(
-                    f"KILL QUERY ON CLUSTER '{cluster}' WHERE startsWith(query_id, %(client_query_id)s) SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
-                    {"client_query_id": f"{team_id}_{client_query_id}"},
-                    sync_client=client,
-                )
+            try:
+                with default_client(
+                    host=lookup_host, database=CLICKHOUSE_DATABASE, send_receive_timeout=_SEND_RECEIVE_TIMEOUT_SECONDS
+                ) as client:
+                    # nosemgrep: clickhouse-fstring-param-audit - cluster is a cluster name from settings
+                    result = sync_execute(
+                        f"KILL QUERY ON CLUSTER '{cluster}' WHERE startsWith(query_id, %(client_query_id)s) SETTINGS max_execution_time = 10, skip_unavailable_shards=1",
+                        {"client_query_id": f"{team_id}_{client_query_id}"},
+                        sync_client=client,
+                    )
+            except Exception as exc:
+                cancellation_error = exc
+                continue
             logger.info("Cancelled query %s for team %s, result: %s", client_query_id, team_id, result)
             statsd.incr("clickhouse.query.cancellation.on_cluster", tags={"team_id": team_id})
+        if cancellation_error is not None:
+            raise cancellation_error
