@@ -11,24 +11,12 @@ from __future__ import annotations
 import os
 import sys
 import site
-import subprocess
 from collections.abc import Iterable
 from pathlib import Path
 
 from hogli.manifest import REPO_ROOT
 
-
-def _main_clone(repo_root: Path) -> Path | None:
-    if not (repo_root / ".git").is_file():
-        return None
-    common_dir = subprocess.run(
-        ["git", "-C", str(repo_root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        capture_output=True,
-        text=True,
-    )
-    if common_dir.returncode != 0:
-        return None
-    return Path(common_dir.stdout.strip()).resolve().parent
+from hogli_commands.git_dirs import git_common_dir
 
 
 def _editable_import_roots(site_dirs: Iterable[str]) -> list[Path]:
@@ -37,7 +25,11 @@ def _editable_import_roots(site_dirs: Iterable[str]) -> list[Path]:
     roots = []
     for site_dir in site_dirs:
         for pth in sorted(Path(site_dir).glob("*.pth")):
-            for line in pth.read_text(encoding="utf-8", errors="replace").splitlines():
+            try:
+                lines = pth.read_text(encoding="utf-8", errors="replace").splitlines()
+            except OSError:
+                continue
+            for line in lines:
                 path = Path(line.strip())
                 if path.is_absolute() and path.is_dir():
                     roots.append(path.resolve())
@@ -45,21 +37,26 @@ def _editable_import_roots(site_dirs: Iterable[str]) -> list[Path]:
 
 
 def worktree_import_roots(repo_root: Path, site_dirs: Iterable[str]) -> list[str]:
-    main_clone = _main_clone(repo_root)
-    if main_clone is None:
+    if not (repo_root / ".git").is_file():
         return []
+    common_dir = git_common_dir(repo_root)
+    if common_dir is None:
+        return []
+    main_clone = common_dir.parent
+    worktree = repo_root.resolve()
     roots = []
     for root in _editable_import_roots(site_dirs):
-        if not root.is_relative_to(main_clone):
+        # The main clone root itself would put every top-level repo directory ahead of site-packages.
+        if root == main_clone or not root.is_relative_to(main_clone):
             continue
-        ours = repo_root.resolve() / root.relative_to(main_clone)
+        ours = worktree / root.relative_to(main_clone)
         if ours.is_dir():
             roots.append(str(ours))
     return roots
 
 
 def _prefer_worktree_packages() -> None:
-    roots = worktree_import_roots(REPO_ROOT, site.getsitepackages())
+    roots = [root for root in worktree_import_roots(REPO_ROOT, site.getsitepackages()) if root not in sys.path]
     if not roots:
         return
     sys.path[:0] = roots

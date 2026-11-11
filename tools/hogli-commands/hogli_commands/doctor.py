@@ -37,6 +37,7 @@ from .cargo_targets import (
     unused_legacy_cargo_target,
 )
 from .disk_usage import measure_disk_usage
+from .git_dirs import git_common_dir
 from .processes import process_cwds
 
 MAX_SAMPLE_PATHS = 8
@@ -2979,37 +2980,6 @@ _GIT_PACK_WARNING_THRESHOLD = 1000
 _GIT_MAINTENANCE_LOCK_STALE_SECONDS = 6 * 60 * 60
 
 
-def _git_common_dir(repo_root: Path) -> Path | None:
-    """Resolve the shared .git directory without spawning git.
-
-    In a worktree ``.git`` is a file pointing at ``<common>/worktrees/<name>``.
-    Packs, the commit-graph and the maintenance lock all live in the common dir.
-    """
-    dot_git = repo_root / ".git"
-    if dot_git.is_dir():
-        return dot_git
-    if not dot_git.is_file():
-        return None
-    try:
-        line = dot_git.read_text().strip()
-    except OSError:
-        return None
-    if not line.startswith("gitdir:"):
-        return None
-    worktree_dir = Path(line.split(":", 1)[1].strip())
-    # Git writes this pointer relative to the worktree in some layouts.
-    if not worktree_dir.is_absolute():
-        worktree_dir = repo_root / worktree_dir
-    try:
-        worktree_dir = worktree_dir.resolve(strict=True)
-    except OSError:
-        return None  # Dangling pointer. Treat the tree as no repo at all.
-    # <common>/worktrees/<name> -> <common>
-    if worktree_dir.parent.name == "worktrees":
-        return worktree_dir.parent.parent
-    return worktree_dir
-
-
 @dataclass(frozen=True)
 class GitHealth:
     pack_count: int
@@ -3067,7 +3037,7 @@ def _git_health(common_dir: Path, pack_cap: int) -> GitHealth:
 
 def _check_git_health(repo_root: Path) -> CheckResult:
     """Fast git housekeeping probe. Reads directory entries only, never runs git."""
-    common_dir = _git_common_dir(repo_root)
+    common_dir = git_common_dir(repo_root)
     if common_dir is None:
         return CheckResult(name="Git housekeeping", status=CheckStatus.OK, summary="not a git checkout")
 
@@ -3464,7 +3434,7 @@ def doctor_git(fix: bool) -> None:
     This runs on every ``hogli start``, so each step is instant or detached.
     ``--fix`` runs the repack in the foreground instead.
     """
-    common_dir = _git_common_dir(REPO_ROOT)
+    common_dir = git_common_dir(REPO_ROOT)
     if common_dir is None:
         click.echo("Not a git checkout, nothing to check.")
         return

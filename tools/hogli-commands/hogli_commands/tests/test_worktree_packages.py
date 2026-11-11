@@ -38,6 +38,7 @@ def test_a_worktree_imports_its_own_copy_of_each_package_the_main_clone_venv_ins
     elsewhere.mkdir()
     site_dir = _site_dir(
         tmp_path,
+        str(main_clone),
         str(main_clone / "packages/owners-yaml"),
         str(main_clone / "tools/hogli/src"),
         str(main_clone / "untracked-only-in-main"),
