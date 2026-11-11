@@ -263,6 +263,11 @@ export const ReviewModeEnumApi = {
  */
 export type StamphogRepoConfigApiRoutingForkLabels = { [key: string]: string }
 
+/**
+ * Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer.
+ */
+export type StamphogRepoConfigApiRoutingSharedBehaviorLabels = { [key: string]: string }
+
 export interface StamphogRepoConfigApi {
     readonly id: string
     /** SCM provider this config talks to. Defaults to 'github'. */
@@ -290,10 +295,12 @@ export interface StamphogRepoConfigApi {
     readonly routing_mode: RoutingModeEnumApi
     /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. */
     readonly routing_fork_labels: StamphogRepoConfigApiRoutingForkLabels
+    /** Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. */
+    readonly routing_shared_behavior_labels: StamphogRepoConfigApiRoutingSharedBehaviorLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     readonly review_on_clean_external_review: boolean
     /**
-     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review.
+     * The caller's access level on the stamphog resource, resolved for the team that owns this row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change review_mode, trigger_label, routing_mode, routing_fork_labels, routing_shared_behavior_labels or review_on_clean_external_review.
      * @nullable
      */
     readonly user_access_level: string | null
@@ -314,6 +321,11 @@ export interface PaginatedStamphogRepoConfigListApi {
  * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
  */
 export type StamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: string }
+
+/**
+ * Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team.
+ */
+export type StamphogRepoConfigWriteApiRoutingSharedBehaviorLabels = { [key: string]: string }
 
 /**
  * Input shape for creating/updating a repo config.
@@ -351,6 +363,8 @@ export interface StamphogRepoConfigWriteApi {
     routing_mode?: RoutingModeEnumApi
     /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
     routing_fork_labels?: StamphogRepoConfigWriteApiRoutingForkLabels
+    /** Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team. */
+    routing_shared_behavior_labels?: StamphogRepoConfigWriteApiRoutingSharedBehaviorLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     review_on_clean_external_review?: boolean
 }
@@ -359,6 +373,11 @@ export interface StamphogRepoConfigWriteApi {
  * On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label.
  */
 export type PatchedStamphogRepoConfigWriteApiRoutingForkLabels = { [key: string]: string }
+
+/**
+ * Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team.
+ */
+export type PatchedStamphogRepoConfigWriteApiRoutingSharedBehaviorLabels = { [key: string]: string }
 
 /**
  * Input shape for creating/updating a repo config.
@@ -396,6 +415,8 @@ export interface PatchedStamphogRepoConfigWriteApi {
     routing_mode?: RoutingModeEnumApi
     /** On fork pull requests, routing adds the mapped label instead of requesting a review from the team, so an outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces the whole map, and an empty object removes every label. */
     routing_fork_labels?: PatchedStamphogRepoConfigWriteApiRoutingForkLabels
+    /** Teams that routing requests only when their part of a pull request changes shared behavior, such as run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as 'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still always requested, and a pull request always keeps at least one reviewer. Sending the field replaces the whole map, and an empty object removes every team. */
+    routing_shared_behavior_labels?: PatchedStamphogRepoConfigWriteApiRoutingSharedBehaviorLabels
     /** Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a silent stamphog review of that head, whatever review_mode says. A silent review posts only an approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode 'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent review before routing. Defaults to false. */
     review_on_clean_external_review?: boolean
 }
