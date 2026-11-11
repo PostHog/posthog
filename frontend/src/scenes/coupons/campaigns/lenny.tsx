@@ -72,8 +72,11 @@ export const lennyCampaign: CampaignConfig = {
             <Link to="https://posthog.com/platform-packages" target="_blank">
                 many more
             </Link>
-            ! Special plans and features are available for 12 months from the date you redeem your coupon. After that
-            we'll switch you back to the default paid plans.
+            ! Special plans and features are available for 12 months from the date you redeem your coupon. The offer
+            doesn't renew. When it ends, Scale switches to paid Scale and your other products go back to the default
+            paid plans. We'll email you 30 days and 7 days before, so you can remove Scale first if you don't want it.
+            Usage above the doubled free allowance is billed during the offer, and you can set billing limits to control
+            your spend.
         </>
     ),
 }
