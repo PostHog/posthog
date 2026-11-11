@@ -535,6 +535,22 @@ class TestEmail(BaseTest):
                 ["transactional email workflows rejected"],
             ),
             (
+                "workflows_rejects_invalid_recipient_address_drops_email",
+                True,
+                [(400, {"type": "validation_error", "code": "invalid_input", "attr": "to"})],
+                ["workflows"],
+                None,
+                ["transactional email workflows rejected"],
+            ),
+            (
+                "workflows_rejects_other_invalid_field_sends_nothing",
+                True,
+                [(400, {"type": "validation_error", "code": "invalid_input", "attr": "message_data"})],
+                ["workflows"],
+                None,
+                ["transactional email failed"],
+            ),
+            (
                 "workflows_key_already_used_sends_nothing",
                 True,
                 [(422, {"type": "invalid_request", "code": "idempotency_key_reused"})],
