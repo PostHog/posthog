@@ -104,8 +104,6 @@ def _event_alert(request: AlertDeliveryRequest) -> _EventAlert | None:
     # A deleted alert takes its destinations with it, so nobody is left to receive the event.
     if configuration is None:
         return None
-    if configuration.legacy_configuration_id is None:
-        return None
     insight = _insight_of(request.team_id, configuration)
     if insight is None:
         return None

@@ -917,6 +917,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
                 )
                 for insight_id in (insight["id"], self.insight["id"])
             )
+            platform_testing.start_firing(native.id, team_id=self.team.id, at=datetime(2026, 1, 1, tzinfo=UTC))
         destination = HogFunction.objects.create(
             team=self.team,
             type="internal_destination",
@@ -925,10 +926,18 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             enabled=True,
             filters={
                 "source": "internal-events",
-                "events": [{"id": "$insight_alert_firing", "type": "events"}],
+                "events": [
+                    {"id": "$insight_alert_firing", "type": "events"},
+                    {"id": INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION["resolve"], "type": "events"},
+                ],
                 "properties": [{"key": "alert_id", "value": str(native.id), "operator": "exact", "type": "event"}],
             },
         )
+        resolves: list[tuple[str, str, bool]] = []
+
+        def emit(*, alert_id: str, events: list[Any], **_: Any) -> None:
+            destination_kept = not HogFunction.objects.get(id=destination.id).deleted
+            resolves.extend((alert_id, event.event_name, destination_kept) for event in events)
 
         started: list[NativeCleanupInputs] = []
 
@@ -942,6 +951,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
 
         with (
             mock.patch("products.alerts.backend.platform_native_cleanup._start", side_effect=start),
+            mock.patch("products.alerts.backend.platform_alert_legacy_events.emit_alert_internal_events", emit),
             self.captureOnCommitCallbacks(execute=True),
         ):
             if path.startswith("soft_delete"):
@@ -964,6 +974,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             )
         destination.refresh_from_db()
         assert ({view.id for view in remaining.configurations}, destination.deleted) == ({kept.id}, True)
+        assert resolves == [(str(native.id), INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION["resolve"], True)]
         expected_start = [NativeCleanupInputs(team_id=self.team.id, insight_ids=(insight["id"],))]
         assert started == (expected_start if temporal_up else [])
 
