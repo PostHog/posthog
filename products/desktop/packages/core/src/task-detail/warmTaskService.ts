@@ -14,6 +14,7 @@ export type WarmTaskClient = Pick<
 export interface WarmTaskLease {
   taskId: string;
   runId: string;
+  permissionModeMutable?: boolean;
 }
 
 export function warmTaskKey(options: WarmTaskOptions): string {
@@ -27,6 +28,21 @@ export function warmTaskKey(options: WarmTaskOptions): string {
     options.sandbox_environment_id ?? null,
     options.custom_image_id ?? null,
   ]);
+}
+
+function warmTaskMatches(
+  previous: WarmTaskOptions,
+  next: WarmTaskOptions,
+  mutableMode: boolean,
+): boolean {
+  return (
+    warmTaskKey(previous) ===
+    warmTaskKey(
+      mutableMode
+        ? { ...next, initial_permission_mode: previous.initial_permission_mode }
+        : next,
+    )
+  );
 }
 
 export interface WarmTaskSubmission {
@@ -94,6 +110,21 @@ export class WarmTaskDraft {
       if (options && this.selection) this.selection.options = options;
       return;
     }
+    if (
+      options &&
+      client &&
+      key &&
+      this.attempt &&
+      warmTaskMatches(
+        this.attempt.selection.options,
+        options,
+        !this.attempt.lease ||
+          this.attempt.lease.permissionModeMutable === true,
+      )
+    ) {
+      this.selection = { options, client, key };
+      return;
+    }
     this.clearTimer();
     if (this.attempt) this.release(this.attempt);
     this.attempt = null;
@@ -120,8 +151,23 @@ export class WarmTaskDraft {
             releaseKey();
             return;
           }
-          attempt.lease = { taskId: warm.task_id, runId: warm.run_id };
-          if (attempt.invalidated) this.release(attempt);
+          attempt.lease = {
+            taskId: warm.task_id,
+            runId: warm.run_id,
+            ...(warm.permission_mode_mutable
+              ? { permissionModeMutable: true }
+              : {}),
+          };
+          if (
+            attempt.invalidated ||
+            !this.selection ||
+            !warmTaskMatches(
+              attempt.selection.options,
+              this.selection.options,
+              warm.permission_mode_mutable === true,
+            )
+          )
+            this.release(attempt);
         })
         .catch((error) => {
           releaseKey();
@@ -144,13 +190,20 @@ export class WarmTaskDraft {
       take: (options) => {
         if (taken || finished || !attempt?.lease || attempt.invalidated)
           return null;
-        const key = warmTaskKey({
+        const requested = {
           ...options,
           github_integration:
             options.github_integration ??
             attempt.selection.options.github_integration,
-        });
-        if (key !== attempt.selection.key) return null;
+        };
+        if (
+          !warmTaskMatches(
+            attempt.selection.options,
+            requested,
+            attempt.lease.permissionModeMutable === true,
+          )
+        )
+          return null;
         taken = true;
         return attempt.lease;
       },

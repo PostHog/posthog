@@ -34,6 +34,7 @@ export interface UseWarmTaskOptions {
   permissionMode?: ExecutionMode | null;
   contextWindow?: "200k" | "1m";
   fastMode?: boolean;
+  signalReportId?: string;
   sandboxEnvironmentId?: string | null;
   customImageId?: string | null;
 }
@@ -56,6 +57,7 @@ export function useWarmTask({
   permissionMode,
   contextWindow,
   fastMode,
+  signalReportId,
   sandboxEnvironmentId,
   customImageId,
 }: UseWarmTaskOptions): WarmTaskDraft | null {
@@ -101,6 +103,7 @@ export function useWarmTask({
     ? (githubIntegrationId ?? null)
     : null;
   const heldLeaseIsUnusable =
+    !!signalReportId ||
     agentRuntime === "pi" ||
     contextWindow === "1m" ||
     fastMode === true ||
