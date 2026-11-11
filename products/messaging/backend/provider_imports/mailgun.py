@@ -82,6 +82,10 @@ LOST_ACCESS_MESSAGE = (
     "Mailgun stopped accepting this API key during the import. Check it's still active and import again."
 )
 RATE_LIMITED_MESSAGE = "Mailgun kept asking PostHog to slow down. Import again later."
+NO_DOMAINS_MESSAGE = (
+    "Mailgun has no domains for this key in the {regions} region. Everything PostHog imports belongs to a domain, so "
+    "nothing would come across. Check which region your domains are in on Mailgun's domains page and choose it."
+)
 IMPORT_TAG = "imported-from-mailgun"
 COMPLAINT_REASON_PREFIX = "Imported from Mailgun (spam complaint on "
 REGION_SETTING = "region"
@@ -220,6 +224,7 @@ class MailgunImportProvider(ImportProvider):
             ),
             count_labels=(
                 ("opted_out", "People with a new opt-out"),
+                ("already_opted_out", "People already opted out in PostHog, left as they are"),
                 ("from_tags", "People who only unsubscribed from certain tags"),
                 ("tag_categories", "New categories for tags"),
                 ("invalid", "Skipped because the address isn't valid"),
@@ -251,6 +256,7 @@ class MailgunImportProvider(ImportProvider):
                 ("created", "New categories"),
                 ("already_present", "Already in PostHog, left as they are"),
                 ("opted_out", "People with a new list opt-out"),
+                ("already_opted_out", "People already opted out in PostHog, left as they are"),
                 ("members", "List members, who stay in Mailgun"),
                 ("missing_lists", "Lists Mailgun couldn't find, skipped"),
             ),
@@ -294,10 +300,13 @@ class MailgunImportProvider(ImportProvider):
             raise ImportCredentialsMissing(MISSING_KEY_MESSAGE)
         if not api_key.isascii():
             raise ImportCredentialsInvalid(INVALID_KEY_MESSAGE)
-        for region in _regions(settings):
+        regions = _regions(settings)
+        regions_with_domains = 0
+        for region in regions:
             client = MailgunClient(api_key, region, timeout=CREDENTIAL_CHECK_TIMEOUT_SECONDS, max_rate_limit_waits=0)
             with _translated_errors(INVALID_KEY_MESSAGE):
                 domains = client.get("/v4/domains", {"limit": 1}).get("items") or []
+            regions_with_domains += bool(domains)
             # Mailgun's Analyst role reads domains and templates, but not suppressions, so ask before the run starts.
             first = domains[0] if domains and isinstance(domains[0], dict) else {}
             if domain := first.get("name"):
@@ -305,6 +314,10 @@ class MailgunImportProvider(ImportProvider):
                     if what := _STEPS_NEEDING_SUPPRESSION_ROLE.get(step):
                         with _translated_errors(CANNOT_READ_MESSAGE.format(what=what)):
                             _probe(client, domain, what, first.get("subaccount_id"))
+        if regions and not regions_with_domains:
+            raise ImportCredentialsInvalid(
+                NO_DOMAINS_MESSAGE.format(regions=" or ".join(region.value.upper() for region in regions))
+            )
         return ImportCredentials(api_key=api_key)
 
     def run_step(self, step: str, context: ImportContext, checkpoint: StepCheckpoint | None) -> Iterator[ImportPage]:
@@ -609,6 +622,7 @@ def _save_unsubscribes(
         imported=changed,
         counts={
             "opted_out": changed,
+            "already_opted_out": sum(1 for categories in opt_outs.values() if categories) - changed,
             "from_tags": len(set(tags_by_email) - everything),
             "tag_categories": result.created,
             "invalid": invalid,
@@ -714,7 +728,10 @@ def _save_list_members(context: ImportContext, target: _Target, items: list[dict
     }
     changed = import_opt_outs(context.team_id, left, context.created_by_id)
     members = int(target.details.get("members_count") or 0)
-    counts: dict[str, int] = {"opted_out": changed}
+    counts: dict[str, int] = {
+        "opted_out": changed,
+        "already_opted_out": sum(1 for categories in left.values() if categories) - changed,
+    }
     items_out: tuple[ImportItem, ...] = ()
     if first:
         counts |= {"created": result.created, "already_present": result.already_present, "members": members}
