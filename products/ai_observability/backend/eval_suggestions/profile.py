@@ -85,7 +85,6 @@ class TeamProfile:
     tool_counts: dict[str, int]
     dispatcher_tools: tuple[str, ...]
     session_share: float
-    error_share: float
     mean_input_tokens: float | None
     models: tuple[str, ...]
     error_prefixes: tuple[str, ...]
@@ -104,7 +103,6 @@ class TeamProfile:
             tool_counts={},
             dispatcher_tools=(),
             session_share=0.0,
-            error_share=0.0,
             mean_input_tokens=None,
             models=(),
             error_prefixes=(),
@@ -126,7 +124,6 @@ SELECT
     uniq(properties.$ai_trace_id) AS traces,
     countIf(toFloat(properties.$ai_tool_call_count) > 0 OR notEmpty(toString(properties.$ai_tools_called))) AS with_tools,
     countIf(notEmpty(toString(properties.$ai_session_id))) AS with_session,
-    countIf(toString(properties.$ai_is_error) = 'true') AS errors,
     sum(toFloat(properties.$ai_input_tokens)) AS input_tokens,
     countIf(isNotNull(toFloat(properties.$ai_input_tokens))) AS with_input_tokens,
     topK(3)(toString(properties.$ai_model)) AS models
@@ -141,7 +138,7 @@ GROUP BY days_ago
 _TOOLS_SQL = """
 SELECT tool, count() AS calls
 FROM (
-    SELECT arrayJoin(splitByChar(',', toString(properties.$ai_tools_called))) AS tool
+    SELECT arrayJoin(arrayMap(name -> trim(name), splitByChar(',', toString(properties.$ai_tools_called)))) AS tool
     FROM events
     WHERE event = '$ai_generation'
       AND timestamp >= {start}
@@ -246,12 +243,12 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
     }
     daily = run_query(team, _DAILY_SQL, sampled, "EvalSuggestionsProfileDaily")
     sampled_generations = sum(int(row[1]) for row in daily)
-    with_tokens = sum(int(row[7]) for row in daily)
-    models = Counter(model for row in daily for model in row[8] if model)
+    with_tokens = sum(int(row[6]) for row in daily)
+    models = Counter(model for row in daily for model in row[7] if model)
     tool_counts = {
-        tool.strip(): round(int(calls) * scale)
+        tool: round(int(calls) * scale)
         for tool, calls in run_query(team, _TOOLS_SQL, sampled, "EvalSuggestionsProfileTools")
-        if tool and tool.strip()
+        if tool
     }
     # Errors are rare and filter on a materialized column, so they are counted on every row.
     error_rows = run_query(team, _ERRORS_SQL, placeholders, "EvalSuggestionsProfileErrors")
@@ -282,8 +279,7 @@ def fetch_profile(team: Team, window: ProfileWindow) -> TeamProfile:
         tool_counts=tool_counts,
         dispatcher_tools=dispatcher_tools(tool_counts),
         session_share=share(4),
-        error_share=share(5),
-        mean_input_tokens=sum(float(row[6] or 0) for row in daily) / with_tokens if with_tokens else None,
+        mean_input_tokens=sum(float(row[5] or 0) for row in daily) / with_tokens if with_tokens else None,
         models=tuple(model for model, _ in models.most_common(3)),
         error_prefixes=tuple(str(row[0]) for row in error_rows if row[0]),
         segments=segments_from_rows(segment_rows),

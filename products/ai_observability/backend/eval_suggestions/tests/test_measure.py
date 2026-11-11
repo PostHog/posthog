@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -14,14 +15,18 @@ from posthog.schema import LLMTrace, LLMTraceEvent
 
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 
-from products.ai_observability.backend.eval_suggestions.adapters import AdaptedCheck, compile_check
+from products.ai_observability.backend.eval_suggestions import measure, profile
+from products.ai_observability.backend.eval_suggestions.adapters import _FINAL_TEXT, AdaptedCheck, compile_check
 from products.ai_observability.backend.eval_suggestions.measure import (
     EVENTS_PER_TRACE,
     MAX_OUTPUT_BYTES,
+    MAX_STATE_BYTES,
+    ROLE_LABEL,
     SampledTrace,
     _calls_tools,
     _sampled_trace,
     fetch_sample,
+    final_answer,
     run_check,
 )
 from products.ai_observability.backend.eval_suggestions.profile import ProfileWindow, fetch_profile
@@ -35,8 +40,9 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
         answer: str = "Here is the summary.",
         *,
         messages: list[dict[str, Any]] | None = None,
-        properties: dict[str, str] | None = None,
+        properties: dict[str, Any] | None = None,
         copies: int = 1,
+        output_state: str | None = None,
     ) -> None:
         event_uuid = str(uuid.uuid4())
         light = {"$ai_trace_id": trace_id, "$ai_model": "example-model-mini", **(properties or {})}
@@ -60,6 +66,7 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
                         **light,
                         "$ai_input": messages or [{"role": "user", "content": "Summarize my notes"}],
                         "$ai_output_choices": [{"role": "assistant", "content": answer}],
+                        **({"$ai_output_state": output_state} if output_state is not None else {}),
                     },
                 }
             ]
@@ -89,6 +96,52 @@ class TestSample(ClickhouseTestMixin, APIBaseTest):
         sample = fetch_sample(self.team, window, fetch_profile(self.team, window))
 
         assert [s.trace.id for s in sample.traces] == ["short"]
+
+    def test_a_trace_with_a_long_graph_state_is_sampled_with_the_state_cut(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        self._generation("graph", end - timedelta(hours=3), output_state="s" * (MAX_STATE_BYTES * 2))
+        window = ProfileWindow(start=end - timedelta(days=7), end=end)
+
+        sample = fetch_sample(self.team, window, fetch_profile(self.team, window))
+
+        [sampled] = sample.traces
+        assert len(sampled.trace.events[0].properties["$ai_output_state"]) == MAX_STATE_BYTES
+
+    def test_hydration_stops_once_the_sample_passes_its_byte_budget(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        for index in range(3):
+            self._generation(f"trace-{index}", end - timedelta(hours=3, minutes=index))
+        window = ProfileWindow(start=end - timedelta(days=7), end=end)
+
+        with patch.object(measure, "MAX_SAMPLE_BYTES", 1), patch.object(measure, "HYDRATE_BATCH_TRACES", 1):
+            sample = fetch_sample(self.team, window, fetch_profile(self.team, window))
+
+        assert len(sample.traces) == 1
+
+    def test_the_profile_counts_traffic_tools_errors_and_segments(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        for index, product in enumerate(["chat-1", "chat-2", "search"]):
+            self._generation(
+                f"trace-{index}",
+                end - timedelta(hours=3, minutes=index),
+                properties={"ai_product": product, "$ai_tools_called": "search, fetch", "$ai_session_id": "s1"},
+            )
+        self._generation(
+            "failed",
+            end - timedelta(days=2),
+            properties={"ai_product": "search", "$ai_is_error": True, "$ai_error": "RateLimitError: slow down"},
+        )
+        window = ProfileWindow(start=end - timedelta(days=7), end=end)
+
+        with patch.object(profile, "MIN_SEGMENT_GENERATIONS", 2):
+            result = fetch_profile(self.team, window)
+
+        assert (result.generations, result.traces, result.sessions) == (4, 4, 1)
+        assert result.generations_by_days_ago == {0: 3, 2: 1}
+        assert result.tool_counts == {"search": 3, "fetch": 3}
+        assert result.tool_call_share == 0.75
+        assert result.error_prefixes == ("RateLimitError: slow down",)
+        assert result.segments == {"ai_product": {"chat": 2, "search": 2}}
 
     def test_hydration_reads_each_event_once_and_skips_traces_past_the_cap(self) -> None:
         end = timezone.now() - timedelta(minutes=30)
@@ -190,7 +243,7 @@ def test_boolean_segments_keep_the_spelling_filters_match() -> None:
     )
 
     assert sampled is not None
-    assert (sampled.segments, sampled.raw_segments) == ({"is_paid": "true"}, {"is_paid": "true"})
+    assert (sampled.segments, sampled.raw_segment_values) == ({"is_paid": "true"}, {"is_paid": frozenset({"true"})})
     assert sampled.raw_segment_values == {"is_paid": frozenset({"true"})}
 
 
@@ -256,7 +309,6 @@ def test_run_check_maps_each_verdict(_name: str, source: str, failed: bool | Non
         segments={},
         segment_values={},
         raw_segment_values={},
-        raw_segments={},
         final_text="",
         turn_text="",
         user_messages=1,
@@ -277,7 +329,6 @@ def test_a_check_stops_at_the_deadline() -> None:
         segments={},
         segment_values={},
         raw_segment_values={},
-        raw_segments={},
         final_text="",
         turn_text="",
         user_messages=1,
@@ -311,3 +362,99 @@ def test_a_tool_call_held_in_the_output_state_makes_a_generation_a_step() -> Non
         id="e", event="$ai_generation", createdAt=AT.isoformat(), properties={"$ai_output_state": state}
     )
     assert _calls_tools(event) is True
+
+
+def _generation_event(index: int, output: Any) -> LLMTraceEvent:
+    return LLMTraceEvent(
+        id=f"e{index}",
+        event="$ai_generation",
+        createdAt=(AT + timedelta(seconds=index)).isoformat(),
+        properties={"$ai_output_choices": output},
+    )
+
+
+def _text(content: str) -> list[dict[str, Any]]:
+    return [{"role": "assistant", "content": content}]
+
+
+_SEARCH_CALL = {"type": "function", "id": "c1", "function": {"name": "search", "arguments": "{}"}}
+
+
+# Python picks the answer for screening and gap search, and Hog picks it inside the checks, so both read these cases.
+@parameterized.expand(
+    [
+        ("plain_answer", [_text("All done.")], "All done."),
+        (
+            "tool_call_then_answer",
+            [[{"role": "assistant", "content": "", "tool_calls": [_SEARCH_CALL]}], _text("Found it.")],
+            "Found it.",
+        ),
+        (
+            "answer_then_tool_call",
+            [_text("Found it."), [{"role": "assistant", "content": "", "tool_calls": [_SEARCH_CALL]}]],
+            "Found it.",
+        ),
+        ("empty_tool_calls_list", [[{"role": "assistant", "content": "Found it.", "tool_calls": []}]], "Found it."),
+        (
+            "anthropic_tool_use_block",
+            [
+                _text("Found it."),
+                [
+                    {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "text", "text": "Searching"},
+                            {"type": "tool_use", "id": "c2", "name": "search", "input": {}},
+                        ],
+                    }
+                ],
+            ],
+            "Found it.",
+        ),
+        (
+            "otel_tool_call_part",
+            [
+                _text("Found it."),
+                [
+                    {
+                        "role": "assistant",
+                        "parts": [{"type": "tool_call", "name": "search", "arguments": {}, "id": "c3"}],
+                    }
+                ],
+            ],
+            "Found it.",
+        ),
+        ("no_text", [[{"role": "assistant", "content": ""}]], ""),
+    ]
+)
+def test_python_and_hog_pick_the_same_final_answer(_name: str, outputs: list[Any], expected: str) -> None:
+    events = [_generation_event(index, output) for index, output in enumerate(outputs)]
+    check = AdaptedCheck(
+        key="k",
+        name="n",
+        description="d",
+        source=_FINAL_TEXT + "\nprint(final_text)\nreturn true",
+        template_key="",
+        severity=1.0,
+    )
+    [outcome] = run_check(
+        compile_check(check),
+        [
+            SampledTrace(
+                trace=LLMTrace(id="t", createdAt=AT.isoformat(), distinctId="u", events=events),
+                held_out=False,
+                spans_days=False,
+                segments={},
+                segment_values={},
+                raw_segment_values={},
+                final_text="",
+                turn_text="",
+                user_messages=1,
+                has_tool_results=False,
+                input_tokens=0,
+            )
+        ],
+    )
+
+    hog_answer = ROLE_LABEL.sub("", outcome.reasoning.strip()) if outcome.failed is False else ""
+    assert (final_answer(events), hog_answer) == (expected, expected)

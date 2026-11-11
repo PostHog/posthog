@@ -47,6 +47,13 @@ DISCOVERY_OVERSAMPLE = 20
 EVENTS_PER_TRACE = 40
 MAX_OUTPUT_BYTES = 16384
 MAX_INPUT_MESSAGE_BYTES = 8192
+# Agent frameworks such as LangGraph send their whole graph state on every span. Checks don't read it, so a long
+# state is cut rather than dropping the trace, which would leave only short traces in the sample.
+MAX_STATE_BYTES = 16384
+# Hydration reads traces in batches and stops once the sample holds this much text, since each row can be
+# ~130 KB and the per-column caps alone would let a sample grow to gigabytes.
+MAX_SAMPLE_BYTES = 64 * 1024 * 1024
+HYDRATE_BATCH_TRACES = 50
 # Custom metadata past this size marks the event unreadable, which keeps the sample's memory bounded.
 MAX_PROPERTIES_BYTES = 65536
 ROLE_LABEL = re.compile(r"^(assistant|ai|model):\s*", re.IGNORECASE)
@@ -131,12 +138,10 @@ FROM (
         match(input, '"role":[[:space:]]*"tool"|"type":[[:space:]]*"(tool_result|function_call_output)"') AS has_tool_results,
         if(length(output_choices) <= {max_output}, output_choices, '') AS output_choices,
         if(length(output) <= {max_output}, output, '') AS output,
-        if(length(input_state) <= {max_input}, input_state, '') AS input_state,
-        if(length(output_state) <= {max_output}, output_state, '') AS output_state,
+        left(input_state, {max_state}) AS input_state,
+        left(output_state, {max_state}) AS output_state,
         length(ai_events.output_choices) > {max_output}
             OR length(ai_events.output) > {max_output}
-            OR length(ai_events.output_state) > {max_output}
-            OR length(ai_events.input_state) > {max_input}
             OR length(ai_events.properties) > {max_properties} AS unreadable
     FROM posthog.ai_events AS ai_events
     WHERE event IN ('$ai_generation', '$ai_span', '$ai_embedding')
@@ -163,7 +168,6 @@ class SampledTrace:
     segment_values: dict[str, frozenset[str]]
     # The same, as sent, which is what an exact live filter compares against.
     raw_segment_values: dict[str, frozenset[str]]
-    raw_segments: dict[str, str]
     final_text: str
     turn_text: str
     user_messages: int
@@ -230,6 +234,7 @@ def _hydrate(team: Team, trace_ids: Sequence[str], start: datetime, end: datetim
             "end": ast.Constant(value=end),
             "max_input": ast.Constant(value=MAX_INPUT_MESSAGE_BYTES),
             "max_output": ast.Constant(value=MAX_OUTPUT_BYTES),
+            "max_state": ast.Constant(value=MAX_STATE_BYTES),
             "max_properties": ast.Constant(value=MAX_PROPERTIES_BYTES),
             "turn_chars": ast.Constant(value=TURN_TEXT_CHARS),
             "rows_per_trace": ast.Constant(value=EVENTS_PER_TRACE + 1),
@@ -267,6 +272,26 @@ def _calls_tools(generation: LLMTraceEvent) -> bool:
         except ValueError:
             return False
     return _has_tool_call(output)
+
+
+def _rendered_text(event: LLMTraceEvent, side: str) -> str:
+    built = build_hog_event_global(event.event, event.properties, event_uuid=event.id, timestamp=event.createdAt)
+    return str(built[f"{side}_text"])
+
+
+def final_answer(generations: Sequence[LLMTraceEvent]) -> str:
+    """The last generation with text that is not a tool call, without the role label the renderer adds.
+
+    Checks pick the answer in Hog with `adapters._FINAL_TEXT`, and one test case list holds the two to the same result.
+    """
+    return next(
+        (
+            ROLE_LABEL.sub("", text)
+            for text in (_rendered_text(g, "output") for g in reversed(generations) if not _calls_tools(g))
+            if text.strip()
+        ),
+        "",
+    )
 
 
 def _tokens(value: Any) -> float:
@@ -332,25 +357,13 @@ def _sampled_trace(
     if not generations:
         return None
 
-    def text(event: LLMTraceEvent, side: str) -> str:
-        built = build_hog_event_global(event.event, event.properties, event_uuid=event.id, timestamp=event.createdAt)
-        return str(built[f"{side}_text"])
-
-    # The answer is the last generation with text that is not a tool call, without the role label the renderer adds.
     try:
-        final_text = next(
-            (
-                ROLE_LABEL.sub("", t)
-                for t in (text(g, "output") for g, _, _ in reversed(generations) if not _calls_tools(g))
-                if t.strip()
-            ),
-            "",
-        )
+        final_text = final_answer([g for g, _, _ in generations])
     except RecursionError:
         # An output string nested deeper than orjson parses stays raw, and Python can't parse it either.
         return None
     last_generation = generations[-1][0]
-    raw_segments = {
+    last_segments = {
         key: segment_text(last_generation.properties[key])
         for key in segment_keys
         if last_generation.properties.get(key) not in (None, "")
@@ -375,7 +388,7 @@ def _sampled_trace(
         ),
         held_out=held_out,
         spans_days=spans_days,
-        segments={key: normalize_segment_value(value) for key, value in raw_segments.items()},
+        segments={key: normalize_segment_value(value) for key, value in last_segments.items()},
         segment_values={key: values for key, values in segment_values.items() if values},
         raw_segment_values={
             key: values
@@ -388,10 +401,9 @@ def _sampled_trace(
                 )
             )
         },
-        raw_segments=raw_segments,
         final_text=final_text,
         turn_text=(f"Assistant: {before}\n\n" if before else "")
-        + f"User: {text(first, 'input')[-TURN_TEXT_CHARS:]}\n\nAssistant: {final_text[:TURN_TEXT_CHARS]}",
+        + f"User: {_rendered_text(first, 'input')[-TURN_TEXT_CHARS:]}\n\nAssistant: {final_text[:TURN_TEXT_CHARS]}",
         user_messages=max(user_messages for _, user_messages, _ in generations),
         has_tool_results=any(tool_results for _, _, tool_results in generations),
         input_tokens=sum(_tokens(g.properties.get("$ai_input_tokens")) for g, _, _ in generations),
@@ -418,23 +430,49 @@ def fetch_sample(team: Team, window: ProfileWindow, profile: TeamProfile) -> Tra
             if trace.trace_id not in main_ids
         ]
 
-    discovered = [(trace, False) for trace in main] + [(trace, True) for trace in held]
-    rows = _hydrate(team, [trace.trace_id for trace, _ in discovered], *read) if discovered else {}
     segment_keys = sorted(profile.segments)
-    sample: dict[bool, list[SampledTrace]] = {False: [], True: []}
-    for trace, is_held_out in discovered:
-        if trace.trace_id not in rows:
-            continue
-        sampled = _sampled_trace(
-            trace.trace_id,
-            rows[trace.trace_id],
-            held_out=is_held_out,
-            spans_days=trace.days > 1,
-            segment_keys=segment_keys,
-        )
-        if sampled is not None:
-            sample[is_held_out].append(sampled)
-    return TraceSample(main=sample[False], held_out=sample[True])
+    held_share = HELD_OUT_SAMPLE_TRACES / (MAIN_SAMPLE_TRACES + HELD_OUT_SAMPLE_TRACES)
+    return TraceSample(
+        main=_hydrated(team, main, read, segment_keys, held_out=False, budget=MAX_SAMPLE_BYTES * (1 - held_share)),
+        held_out=_hydrated(team, held, read, segment_keys, held_out=True, budget=MAX_SAMPLE_BYTES * held_share),
+    )
+
+
+def _row_bytes(row: tuple[Any, ...]) -> int:
+    return sum(len(value) for value in row if isinstance(value, str))
+
+
+def _hydrated(
+    team: Team,
+    discovered: Sequence[DiscoveredTrace],
+    read: tuple[datetime, datetime],
+    segment_keys: Sequence[str],
+    *,
+    held_out: bool,
+    budget: float,
+) -> list[SampledTrace]:
+    """Hydrate traces batch by batch in discovery order, stopping at the first batch that takes the sample past `budget`."""
+    sampled_traces: list[SampledTrace] = []
+    used = 0
+    for start in range(0, len(discovered), HYDRATE_BATCH_TRACES):
+        if used >= budget:
+            break
+        batch = discovered[start : start + HYDRATE_BATCH_TRACES]
+        rows = _hydrate(team, [trace.trace_id for trace in batch], *read)
+        used += sum(_row_bytes(row) for trace_rows in rows.values() for row in trace_rows)
+        for trace in batch:
+            if trace.trace_id not in rows:
+                continue
+            sampled = _sampled_trace(
+                trace.trace_id,
+                rows[trace.trace_id],
+                held_out=held_out,
+                spans_days=trace.days > 1,
+                segment_keys=segment_keys,
+            )
+            if sampled is not None:
+                sampled_traces.append(sampled)
+    return sampled_traces
 
 
 def structured_outputs(traces: Sequence[SampledTrace]) -> list[StructuredOutput]:

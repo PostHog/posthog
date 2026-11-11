@@ -118,6 +118,18 @@ class TestAdaptedChecks:
             ),
             ("card_number", adapters.sensitive_data(), [_answer("Card 4242 4242 4242 4242 is on file")], False),
             ("secret_key", adapters.sensitive_data(), [_answer("Use sk-abcdefghijklmnopqrstuvwx123")], False),
+            (
+                "sk_inside_a_path_is_not_a_key",
+                adapters.sensitive_data(),
+                [_answer("Read /docs/ask-questions-about-your-data first")],
+                True,
+            ),
+            (
+                "sk_inside_a_word_is_not_a_key",
+                adapters.sensitive_data(),
+                [_answer("See our risk-management-frameworks guide")],
+                True,
+            ),
             ("no_final_text_does_not_apply", adapters.sensitive_data(), [_span("search")], None),
             # The email went to a tool, and the answer the user read has none.
             (

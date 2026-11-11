@@ -257,7 +257,8 @@ if (match(final_text, '(^|[^0-9])[0-9]{{4}}[- ][0-9]{{4}}[- ][0-9]{{4}}[- ][0-9]
     print('Final message contains a card number')
     return false
 }}
-if (match(final_text, '(sk-[A-Za-z0-9_-]{{20,}}|AKIA[0-9A-Z]{{16}}|gh[pousr]_[A-Za-z0-9]{{36}}|-----BEGIN [A-Z ]*PRIVATE KEY-----)')) {{
+// A key starts at a word boundary, so `sk-` inside a word such as `risk-management` is not one.
+if (match(final_text, '(^|[^A-Za-z0-9_-])(sk-[A-Za-z0-9_-]{{20,}}|AKIA[0-9A-Z]{{16}}|gh[pousr]_[A-Za-z0-9]{{36}})|-----BEGIN [A-Z ]*PRIVATE KEY-----')) {{
     print('Final message contains a secret key')
     return false
 }}
