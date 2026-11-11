@@ -29,6 +29,7 @@ from products.alerts.backend.insight_alert_state_machine import (
 )
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.platform_source_cycle import DELIVERY_EVENT_IDS, platform_upsert_of
+from products.alerts.backend.platform_subscribers import sync_subscriber_destinations
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import (
     DeliveryPath,
@@ -239,6 +240,7 @@ def hand_over(alert: AlertConfiguration, at: datetime) -> bool:
     assert upsert is not None
     savepoint = transaction.savepoint_create()
     upsert_configuration(upsert)
+    sync_subscriber_destinations(alert)
     taken = take_ownership(
         PlatformOwnershipHandover(
             legacy_configuration_id=alert.id,

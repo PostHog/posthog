@@ -51,6 +51,7 @@ logs
 managed_migrations
 marketing_analytics
 mcp_analytics
+mcp_registry
 mcp_store
 notebooks
 notifications

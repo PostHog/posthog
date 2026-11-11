@@ -1,14 +1,17 @@
 import json
 from collections.abc import Collection, Mapping, Sequence
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db import connection
-from django.db.models import Count, OuterRef, QuerySet, Subquery, TextField, Value
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import connection, router
+from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
+
+from posthog.ingress.dispatch.database import bounded_statement_timeout
 
 from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
 from products.product_analytics.backend.facade.contracts import (
@@ -16,11 +19,12 @@ from products.product_analytics.backend.facade.contracts import (
     InsightVariableDefinition,
     SavedTrendsInsight,
 )
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The columns `InsightVariableDefinition` carries; `values` and `values_query` stay on the row.
@@ -61,6 +65,50 @@ def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | 
     InsightViewed.objects.update_or_create(  # type: ignore[misc]  # nullable FKs; django-stubs drops None from *_id lookups
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
     )
+
+
+AGENT_READ_DAYS_KEPT = 35
+AGENT_READ_DELETE_BATCH = 10_000
+AGENT_READ_WRITE_TIMEOUT_MS = 500
+
+
+def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
+    team_id = team.parent_team_id or team.id
+    day = now().astimezone(team.timezone_info).date()
+    with bounded_statement_timeout(AGENT_READ_WRITE_TIMEOUT_MS, aliases=[router.db_for_write(InsightAgentRead)]):
+        InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
+            [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
+            ignore_conflicts=True,
+        )
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[tuple[str, list[date]]]:
+    return list(
+        InsightAgentRead.objects.for_team(team_id)
+        .filter(user_id=user_id, day__gte=since, insight__deleted=False, insight__saved=True)
+        .values("insight__short_id")
+        .annotate(read_days=ArrayAgg("day", order_by="day"), days=Count("day"), last_day=Max("day"))
+        .filter(days__gte=min_days)
+        .order_by("-last_day")
+        .values_list("insight__short_id", "read_days")[:limit]
+    )
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids))
+
+
+def expire_agent_insight_reads() -> None:
+    oldest = now().date() - timedelta(days=AGENT_READ_DAYS_KEPT)
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(day__lt=oldest))
+
+
+def _delete_in_batches(reads: QuerySet[InsightAgentRead]) -> None:
+    writer = reads.using(router.db_for_write(InsightAgentRead))
+    while batch := list(writer.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
+        writer.filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:

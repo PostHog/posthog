@@ -33,7 +33,6 @@
   "TASK_ANALYSIS_FLAG": "posthog-code-task-analysis",
   "TASK_COST_VISIBLE_FLAG": "posthog-code-task-cost-visible",
   "TASKS_PREWARM_SANDBOX_FLAG": "tasks-prewarm-sandbox",
-  "TRIAGE_FOCUS_FLAG": "posthog-desktop-triage-focus",
   "TWIG_CLOUD_MODE_FLAG": "twig-cloud-mode-toggle",
   "USER_SPEND_LIMIT_FLAG": "ai-gateway-user-spend-limit"
 }
