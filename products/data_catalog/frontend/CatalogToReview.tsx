@@ -1,99 +1,66 @@
-import { useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
-import { IconLightBulb } from '@posthog/icons'
-import {
-    Button,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemGroup,
-    ItemMedia,
-    ItemTitle,
-} from '@posthog/quill'
-
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { QuillCertificationSuggestionsDialogs } from 'products/warehouse_suggestions/frontend/components/QuillCertificationSuggestionsDialogs'
+import type { WarehouseSuggestionApi } from 'products/warehouse_suggestions/frontend/generated/api.schemas'
+import { certificationSummaryText } from 'products/warehouse_suggestions/frontend/suggestionCopy'
+import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
+
+import { TABLES_SEARCH_PARAM } from './catalogTableRows'
+import { CatalogToReviewList } from './CatalogToReviewList'
 import { certificationsLogic } from './certificationsLogic'
-import { metricsLogic } from './metricsLogic'
-import { relationshipsLogic } from './relationshipsLogic'
 
-const HEADING_ID = 'data-catalog-to-review-heading'
+function openAcceptedSubject(suggestion: WarehouseSuggestionApi): void {
+    router.actions.push(
+        combineUrl(urls.dataCatalog('tables'), { [TABLES_SEARCH_PARAM]: suggestion.payload.subject_name }).url
+    )
+}
 
-interface ReviewItem {
-    key: string
-    count: number
-    title: string
-    description: string
-    href: string
+function CatalogToReviewWithSuggestions(): JSX.Element {
+    const { stripState, surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
+    const { openReview } = useActions(warehouseSuggestionsLogic)
+    const count = stripState === 'active' ? surfaceSuggestions.length : 0
+
+    return (
+        <>
+            <CatalogToReviewList
+                suggestionsItem={{
+                    key: 'certification-suggestions',
+                    count,
+                    title: pluralize(count, 'certification suggestion'),
+                    description: certificationSummaryText(surfaceSuggestions),
+                    onReview: () => openReview(),
+                }}
+            />
+            <QuillCertificationSuggestionsDialogs />
+        </>
+    )
 }
 
 export function CatalogToReview(): JSX.Element | null {
-    const { proposedCount: proposedMetrics } = useValues(metricsLogic)
-    const { proposedCount: proposedCertifications } = useValues(certificationsLogic)
-    const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { suggestionAccepted } = useActions(certificationsLogic)
 
-    const items: ReviewItem[] = [
-        {
-            key: 'certifications',
-            count: proposedCertifications,
-            title: pluralize(proposedCertifications, 'proposed certification'),
-            description: 'Tables and views waiting for someone to mark them as trusted.',
-            href: combineUrl(urls.dataCatalog('tables'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
-        },
-        {
-            key: 'relationships',
-            count: proposedJoins,
-            title: pluralize(proposedJoins, 'proposed join'),
-            description: 'Joins between tables waiting for someone to accept or reject them.',
-            href: urls.dataCatalog('relationships'),
-        },
-        {
-            key: 'metrics',
-            count: proposedMetrics,
-            title: pluralize(proposedMetrics, 'proposed metric'),
-            description: 'Metric definitions waiting for approval.',
-            href: urls.dataCatalog('metrics'),
-        },
-    ].filter(({ count }) => count > 0)
-
-    if (items.length === 0) {
-        return null
+    if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS]) {
+        return <CatalogToReviewList />
     }
 
     return (
-        <section aria-labelledby={HEADING_ID} className="flex flex-col gap-2">
-            <Heading size="base" render={<h3 id={HEADING_ID} className="m-0" />}>
-                To review
-            </Heading>
-            <ItemGroup className="grid gap-2 @min-[48rem]/main-content:grid-cols-3">
-                {items.map(({ key, title, description, href }) => (
-                    <Item key={key} variant="outline" size="sm" render={<div role="listitem" />}>
-                        <ItemMedia variant="icon">
-                            <IconLightBulb />
-                        </ItemMedia>
-                        <ItemContent>
-                            <ItemTitle>{title}</ItemTitle>
-                            <ItemDescription>{description}</ItemDescription>
-                        </ItemContent>
-                        <ItemActions>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                render={<LinkPrimitive to={href} />}
-                                data-attr={`data-catalog-review-${key}`}
-                            >
-                                Review
-                            </Button>
-                        </ItemActions>
-                    </Item>
-                ))}
-            </ItemGroup>
-        </section>
+        <BindLogic
+            logic={warehouseSuggestionsLogic}
+            props={{
+                surface: 'catalog',
+                placement: 'overview',
+                onAccepted: () => suggestionAccepted(),
+                onViewAccepted: openAcceptedSubject,
+            }}
+        >
+            <CatalogToReviewWithSuggestions />
+        </BindLogic>
     )
 }
