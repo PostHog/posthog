@@ -95,7 +95,7 @@ export const AeoBrandsPartialUpdateBody = () => zod.object({
 })
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const AeoPromptsListParams = () => zod.object({
@@ -114,6 +114,12 @@ export const aeoPromptsListQueryTopicMax = 200
 
 export const AeoPromptsListQueryParams = () => zod.object({
     active: zod.boolean().nullish().describe('Only list prompts that are on (true) or off (false). Omit to list both.'),
+    branded: zod
+        .boolean()
+        .nullish()
+        .describe(
+            "Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand."
+        ),
     include_archived: zod
         .boolean()
         .default(aeoPromptsListQueryIncludeArchivedDefault)
@@ -339,7 +345,7 @@ export const AeoPromptsBulkImportBody = () => zod.object({
 })
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
  * @summary Get the AEO prompt set overview
  */
 export const AeoPromptsOverviewParams = () => zod.object({
@@ -350,10 +356,17 @@ export const AeoPromptsOverviewParams = () => zod.object({
         ),
 })
 
+export const aeoPromptsOverviewQueryBrandedDefault = `all`
 export const aeoPromptsOverviewQueryDaysDefault = 30
 export const aeoPromptsOverviewQueryDaysMax = 90
 
 export const AeoPromptsOverviewQueryParams = () => zod.object({
+    branded: zod
+        .enum(['all', 'branded', 'non_branded'])
+        .default(aeoPromptsOverviewQueryBrandedDefault)
+        .describe(
+            "Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.\n\n\* `all` - All\n\* `branded` - Branded\n\* `non_branded` - Non-branded"
+        ),
     days: zod
         .number()
         .min(1)
