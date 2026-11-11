@@ -872,7 +872,7 @@ class Migration(migrations.Migration):
 PostHog's `makemigrations` leaves them out when it compares fields (`posthog/management/migration_autodetector.py`), so adding an enum member or editing help text writes no migration.
 
 Do not write that `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState`.
-The migration analyzer blocks both (`NonDbAlterFieldPolicy`), because the migration runs no SQL but still needs a review and takes a `max_migration.txt` slot.
+The migration analyzer points out both (`NonDbAlterFieldPolicy`), because the operation runs no SQL but still takes a `max_migration.txt` slot. It does not block, so migrations generated before this change still pass CI.
 
 A real column change on the same field, such as `max_length` or `null`, still writes a migration, and that migration carries the current choices.
 `default` is still compared, because Django reads it from migration state when a column becomes `NOT NULL`.

@@ -64,7 +64,7 @@ Do not apply this rule to migration tooling, migration safety checks, reusable b
 
 `makemigrations` uses `PostHogAutodetector` (`posthog/management/migration_autodetector.py`), which leaves `choices`, `help_text`, `verbose_name`, `validators`, `error_messages`, `editable`, `blank` and `limit_choices_to` out of the field comparison. None of them reach the database, so a change to only those attributes writes no migration. Add the enum member or edit the help text and stop there.
 
-- Do not write the `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState` to get past the hot-table check. `NonDbAlterFieldPolicy` in the migration risk analyzer blocks both.
+- Do not write the `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState` to get past the hot-table check. `NonDbAlterFieldPolicy` in the migration risk analyzer points out both.
 - `default` is still compared, because `AlterField` and `RunPython` read it from migration state.
 - A real column change (`max_length`, `null`, a new field) still writes a migration, and that migration carries the current choices.
 - Django's `fields.E009` check still fails a choice value longer than the field's `max_length`.

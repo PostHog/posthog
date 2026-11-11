@@ -3238,7 +3238,7 @@ class TestNonDbAlterFieldPolicy:
         state = self._state()
 
         with patch.object(NonDbAlterFieldPolicy, "_state_before", lambda _self, _migration: state):
-            violations = NonDbAlterFieldPolicy().check_migration(migration)
+            migration_risk = RiskAnalyzer().analyze_migration(migration, "posthog/migrations/0001_test.py")
 
-        assert len(violations) == expected
-        assert all(violation.startswith("❌ BLOCKED") for violation in violations)
+        assert len([message for message in migration_risk.info_messages if "AlterField" in message]) == expected
+        assert not any("AlterField" in violation for violation in migration_risk.policy_violations)
