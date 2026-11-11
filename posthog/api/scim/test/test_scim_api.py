@@ -231,6 +231,52 @@ class TestSCIMAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["totalResults"] >= 1
 
+    def test_slug_free_detail_routes(self):
+        # Detail routes have four segments too, so the tenant has to come from the matched route:
+        # parsing `/scim/v2/Users/42` by position would resolve the slug "Users".
+        self.client.credentials(**self.scim_headers)
+        self.client.get(f"/scim/v2/{self.config.scim_slug}/Users")  # backfills the digest
+
+        user_url = f"/scim/v2/Users/{self.user.id}"
+        response = self.client.get(user_url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["id"] == str(self.user.id)
+
+        response = self.client.patch(
+            user_url,
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "name.givenName", "value": "Renamed"}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        self.user.refresh_from_db()
+        assert self.user.first_name == "Renamed"
+
+        response = self.client.post(
+            "/scim/v2/Groups",
+            {
+                "schemas": ["urn:ietf:params:scim:schemas:core:2.0:Group"],
+                "displayName": "Slugless",
+                "members": [],
+            },
+            content_type="application/scim+json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        group_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/scim/v2/Groups/{group_id}",
+            {
+                "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                "Operations": [{"op": "replace", "path": "displayName", "value": "Renamed"}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert Role.objects.get(id=group_id).name == "Renamed"
+
     def test_slug_free_url_rejects_config_without_digest(self):
         # No slug and no digest leaves no way to name the tenant. Fail closed instead of scanning
         # every config's salted hash.
