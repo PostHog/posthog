@@ -3249,12 +3249,15 @@ describe('Cyclotron V2', () => {
             })
             const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 60_000 }, results)
             const started = janitor.start()
-            await waitForExpect(() => expect(produce).toHaveBeenCalledTimes(1), 2000, 10)
-
-            const stopped = janitor.stop()
-            ackProduce()
-            await stopped
-            await started
+            let stopped: Promise<void> | undefined
+            try {
+                await waitForExpect(() => expect(produce).toHaveBeenCalledTimes(1), 2000, 10)
+                stopped = janitor.stop()
+            } finally {
+                ackProduce()
+                await (stopped ?? janitor.stop())
+                await started
+            }
 
             expect(produce).toHaveBeenCalledTimes(1)
             const recordedId = parseProducedResult(produce).invocation_id
