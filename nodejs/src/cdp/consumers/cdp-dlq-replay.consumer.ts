@@ -279,17 +279,19 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             return kinds === null || kinds === undefined ? kinds === null : kinds.has(kind)
         }
 
-        const [hogInvocations, hogflowInvocations] = await Promise.all([
-            this.hogFunctionPipeline.buildInvocations(globalsList, {
+        const [hogBuild, hogflowBuild] = await Promise.all([
+            this.hogFunctionPipeline.buildInvocationsWithRelease(globalsList, {
                 hogTypes: this.hogTypes,
                 filterFn: runsOnEvents,
                 invocationFilterFn: (fn, globals) => allowsKind('hog_function', globals) && allows(fn.id, globals),
             }),
-            this.hogFlowPipeline.buildInvocations(globalsList, {
+            this.hogFlowPipeline.buildInvocationsWithRelease(globalsList, {
                 eligibilityFn: (flow, globals) =>
                     triggersOnEvents(flow) && allowsKind('hog_flow', globals) && allows(flow.id, globals),
             }),
         ])
+        const hogInvocations = hogBuild.invocations
+        const hogflowInvocations = hogflowBuild.invocations
 
         // A filter or an input that throws does not reject the build, so an empty invocation list is
         // how a still-broken destination looks from here. Zero invocations on its own is not enough
@@ -299,23 +301,28 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
         if (unreplayable) {
             counterReplayRecords.labels({ outcome: 'unreplayable' }).inc(unreplayable)
         }
-        if (blocking.length) {
-            const [first] = blocking
-            throw new Error(
-                `${blocking.length} source(s) in this batch still fail to build, ` +
-                    `first ${first.sourceKind} ${first.sourceId} at ${first.step}: ${first.error}. ` +
-                    'Refusing to commit past records whose delivery did not happen'
-            )
-        }
+        try {
+            if (blocking.length) {
+                const [first] = blocking
+                throw new Error(
+                    `${blocking.length} source(s) in this batch still fail to build, ` +
+                        `first ${first.sourceKind} ${first.sourceId} at ${first.step}: ${first.error}. ` +
+                        'Refusing to commit past records whose delivery did not happen'
+                )
+            }
 
-        await Promise.all(
-            unrebuildable.map(({ message, reason }) =>
-                this.poisonQuarantine.quarantine(message, reason, {
-                    consumerGroup: REPLAY_GROUP_ID,
-                    mayHaveSideEffects: false,
-                })
+            await Promise.all(
+                unrebuildable.map(({ message, reason }) =>
+                    this.poisonQuarantine.quarantine(message, reason, {
+                        consumerGroup: REPLAY_GROUP_ID,
+                        mayHaveSideEffects: false,
+                    })
+                )
             )
-        )
+        } catch (error) {
+            await Promise.all([hogBuild.release(), hogflowBuild.release()])
+            throw error
+        }
         if (unrebuildable.length) {
             counterReplayRecords.labels({ outcome: 'quarantined' }).inc(unrebuildable.length)
         }

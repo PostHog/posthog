@@ -19,7 +19,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../types'
 import { FixtureHogFlowBuilder } from './_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from './_tests/examples'
+import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES, HOG_MASK_EXAMPLES } from './_tests/examples'
 import { createIncomingEvent, insertHogFunction } from './_tests/fixtures'
 import { insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpCyclotronWorker } from './consumers/cdp-cyclotron-worker.consumer'
@@ -494,6 +494,7 @@ describe('CDP dead-letter replay', () => {
             type: 'destination',
             inputs_schema: HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema,
             inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, ...BROKEN_INPUTS },
+            ...HOG_MASK_EXAMPLES.all,
         })
 
         const kafkaQueue = new CyclotronJobQueueKafka(hub.KAFKA_CLIENT_RACK, hub, hub.CONSUMER_BATCH_SIZE)
@@ -515,6 +516,14 @@ describe('CDP dead-letter replay', () => {
         await expect(blockedReplay.replayBatch(parked)).rejects.toThrow('still fail to build')
 
         await repairInputs(broken)
+        hub.CDP_QUARANTINE_TOPIC = 'an invalid topic name!'
+        const failedQuarantineReplay = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
+        await expect(failedQuarantineReplay.replayBatch(parked)).rejects.toThrow()
+
+        hub.CDP_QUARANTINE_TOPIC = quarantineTopic
         cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
         await cyclotronWorker.start()
         replayConsumer = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
