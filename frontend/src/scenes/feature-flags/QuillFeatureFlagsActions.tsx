@@ -1,14 +1,12 @@
 import { IconPlus } from '@posthog/icons'
 import { Button, ButtonGroup } from '@posthog/quill'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { FeedbackSurveyButton } from 'lib/components/FeedbackSurveyButton/FeedbackSurveyButton'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -35,21 +33,6 @@ export function QuillFeatureFlagsActions({
     return (
         <>
             <FeedbackSurveyButton surveyId={feedbackSurveyId} data-attr="feature-flags-feedback-button" />
-            {showRulesV2Editor && (
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.FeatureFlag}
-                    minAccessLevel={AccessControlLevel.Editor}
-                >
-                    <Button
-                        variant="outline"
-                        render={<LinkPrimitive to={urls.featureFlagNew({ format: 'rules_v2' })} />}
-                        disabledReason={rulesV2DisabledReason}
-                        data-attr="new-rules-v2-feature-flag"
-                    >
-                        New rules v2 flag
-                    </Button>
-                </AccessControlAction>
-            )}
             <ButtonGroup>
                 <Shortcut
                     name="NewFeatureFlag"
@@ -70,7 +53,11 @@ export function QuillFeatureFlagsActions({
                         New
                     </Button>
                 </Shortcut>
-                <QuillNewFeatureFlagMenu disabledReason={createDisabledReason} />
+                <QuillNewFeatureFlagMenu
+                    disabledReason={createDisabledReason}
+                    showRulesV2Editor={showRulesV2Editor}
+                    rulesV2DisabledReason={rulesV2DisabledReason}
+                />
             </ButtonGroup>
         </>
     )

@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
 import { resolveAiBlobUrl } from './aiBlob'
-import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
+import { captureNormalizationFailure, normalizeMessage, normalizeMessages } from './messageNormalization'
 
 jest.mock('posthog-js', () => ({ __esModule: true, default: { capture: jest.fn() } }))
 
@@ -14,6 +14,17 @@ describe('messageNormalization', () => {
         it("never captures — reporting a failure is the caller's decision", () => {
             normalizeMessages({ file_path: 'src/index.ts' }, 'user')
             expect(capture).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('inputs JSON cannot encode', () => {
+        it('renders a Vercel AI SDK tool result whose output is circular', () => {
+            const circular: Record<string, unknown> = { key: 'value' }
+            circular.self = circular
+            const message = { type: 'tool-result', toolCallId: 'tc_circ', toolName: 'bad_tool', output: circular }
+            expect(normalizeMessage(message, 'assistant')).toEqual([
+                { role: 'assistant (tool result)', content: '[object Object]', tool_call_id: 'tc_circ' },
+            ])
         })
     })
 

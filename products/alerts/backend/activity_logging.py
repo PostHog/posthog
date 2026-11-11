@@ -119,19 +119,13 @@ def handle_alert_subscription_change(
 
 
 @receiver(pre_delete, sender=AlertConfiguration)
-def cleanup_alert_hog_functions(sender, instance: AlertConfiguration, **kwargs) -> None:
-    from products.cdp.backend.facade.models import HogFunction, HogFunctionType
+def delete_platform_shadow_copy(sender, instance: AlertConfiguration, **kwargs) -> None:
+    # A copy the platform owns is left to `delete_alert_destinations_and_copy`, which ends its firings first.
+    if instance.platform_owned:
+        return
+    from products.alerts.backend.platform_ownership import delete_shadow_alert_copy
 
-    for hog_function in HogFunction.objects.filter(
-        team_id=instance.team_id,
-        type=HogFunctionType.INTERNAL_DESTINATION,
-        deleted=False,
-        filters__contains={"properties": [{"key": "alert_id", "value": str(instance.id)}]},
-    ):
-        # nosemgrep: insight-alert-state-direct-mutation (writes HogFunction.enabled, not the alert's state)
-        hog_function.enabled = False
-        hog_function.deleted = True
-        hog_function.save()
+    delete_shadow_alert_copy(team_id=instance.team_id, alert_id=instance.id)
 
 
 @receiver(pre_delete, sender=AlertSubscription)

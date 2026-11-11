@@ -43,7 +43,7 @@ from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
 from posthog.scopes import scopes_covered_by_legacy_fallback
 
@@ -295,6 +295,8 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     scope_object = "integration"
     serializer_class = PostHogConnectionForwardSerializer
+    # A connection replays requests with its creator's own grant, which a workload token must not borrow.
+    permission_classes = [DenyWorkloadAccessToken]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("forward", "target"):

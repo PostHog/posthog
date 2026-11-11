@@ -65,6 +65,8 @@ class KnowledgeLearningRun(TeamScopedRootMixin, UUIDModel):
         ]
         indexes = [
             models.Index(fields=["team", "status", "analysis_version"], name="bk_learn_run_team_status"),
+            # Bounds the backfill progress count to runs in its time range.
+            models.Index(fields=["team", "analysis_version", "created_at"], name="bk_learn_run_team_created"),
         ]
 
     def __str__(self) -> str:

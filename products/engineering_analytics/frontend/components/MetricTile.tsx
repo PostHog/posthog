@@ -1,11 +1,11 @@
-// Headline-metric tile: label · value · caption, rendered with quill's MetricCard inside the
+// Headline-metric tile: label · value · caption, rendered with quill's Metric inside the
 // product's card chrome. It carries no delta, because a window comparison renders as
 // WindowComparisonCard.
 
 import { ReactNode } from 'react'
 
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
-import { MetricCard } from '@posthog/quill-charts'
+import { Metric, MetricSubtitle, MetricTitle, MetricValue } from '@posthog/quill-components/metric'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
@@ -97,7 +97,7 @@ export function MetricTile({
             hoverEffect={false}
             className={cn('flex min-w-44 flex-1 flex-col justify-center px-5 py-4', className)}
         >
-            {/* MetricCard has no loading prop; skeleton the whole tile on a genuine reload so it never
+            {/* Metric has no loading prop; skeleton the whole tile on a genuine reload so it never
                 flashes a stale/zero headline (the loading-states rule). */}
             {loading ? (
                 <div className="flex flex-col gap-2 py-1">
@@ -105,14 +105,12 @@ export function MetricTile({
                     <LemonSkeleton className="h-7 w-20" />
                 </div>
             ) : (
-                <MetricCard
-                    title={labelNode}
-                    // These tiles have no series data and often a non-numeric headline ("3 / 5", "2h 10m"),
-                    // so the pre-formatted display string rides through MetricCard's formatter.
-                    value={0}
-                    formatValue={() => value}
-                    subtitle={sub}
-                />
+                // The headline is often non-numeric ("3 / 5", "2h 10m"), so it renders as children.
+                <Metric value={0} subtitle={sub} className="px-0">
+                    <MetricTitle>{labelNode}</MetricTitle>
+                    <MetricValue className="mt-2">{value}</MetricValue>
+                    <MetricSubtitle className="mt-1" />
+                </Metric>
             )}
         </LemonCard>
     )

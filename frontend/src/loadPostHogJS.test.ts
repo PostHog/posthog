@@ -114,6 +114,27 @@ describe('loadPostHogJS', () => {
     })
 
     it.each([
+        ['$exception', true],
+        ['$ai_generation', true],
+        ['$ai_trace', true],
+        ['$web_vitals', true],
+        ['$performance', true],
+        ['$snapshot', true],
+        ['$pageview', false],
+        ['user action', false],
+    ] as const)('preserves %s capture and classifies its activity', (event, passive) => {
+        const beforeSend = [initConfigFor({ run_mode: 'US' }, false).before_send ?? []].flat()
+        const capture = { uuid: 'example', event, properties: { retained: true } } as CaptureResult
+        const result = beforeSend.reduce<CaptureResult | null>(
+            (current, filter) => (current ? filter(current) : null),
+            capture
+        )
+
+        expect(result?.properties?.retained).toBe(true)
+        expect(result?.properties?.$update_person_last_seen_at).toBe(passive ? false : undefined)
+    })
+
+    it.each([
         ['local development sending to Cloud', { run_mode: 'LOCAL' }, false, false],
         ['local development with self-capture', { run_mode: 'LOCAL' }, true, true],
         ['US cloud', { run_mode: 'US' }, false, true],

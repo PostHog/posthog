@@ -24,6 +24,7 @@ from rest_framework.views import APIView
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.dataclasses import frozen
 from posthog.email import EmailMessage, is_smtp_email_service_available
+from posthog.helpers.email_utils import email_domain
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -583,7 +584,9 @@ class EmailConnectView(APIView):
             if owner.id != user.id and not is_admin:
                 return Response({"error": "You can only connect your own email address."}, status=403)
 
-        domain = from_email.split("@")[1]
+        domain = email_domain(from_email)
+        if domain is None:
+            return Response({"error": "Enter a valid email address, like hello@example.com."}, status=400)
         inbound_domain = get_instance_setting("CONVERSATIONS_EMAIL_INBOUND_DOMAIN")
         if not inbound_domain:
             return Response(

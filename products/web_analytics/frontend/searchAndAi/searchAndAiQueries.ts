@@ -56,7 +56,7 @@ export const AI_CRAWLER_FILTERS: WebAnalyticsPropertyFilters = [
     },
 ]
 
-export const aiCrawlerRequestSeries = (customName: string): GroupNode => ({
+const aiCrawlerRequestSeries = (customName: string): GroupNode => ({
     kind: NodeKind.GroupNode,
     name: BOT_ANALYTICS_EVENTS.join(', '),
     custom_name: customName,
@@ -171,7 +171,8 @@ export const buildBreakdownQuery = (
     metric: PagePerformanceMetric,
     page: string,
     window: PagePerformanceWindow,
-    pathExpr: string
+    pathExpr: string,
+    groupByAssistant: boolean = false
 ): string | null => {
     const { cur } = windowPredicates(window)
     const pageMatch = `${pageKeyExpr(pathExpr)} = ${escapeHogQLString(page)}`
@@ -179,7 +180,7 @@ export const buildBreakdownQuery = (
     if (metric === 'llm_referrals') {
         return `
 SELECT
-    coalesce(nullIf(session.$entry_referring_domain, ''), '(direct)') AS "Assistant",
+    ${groupByAssistant ? AI_ASSISTANT_EXPR : "coalesce(nullIf(session.$entry_referring_domain, ''), '(direct)')"} AS "Assistant",
     uniq(person_id) AS "Visitors"
 FROM events
 WHERE and(${AI_VIEW}, ${pageMatch}, (${cur}), {filters})
@@ -289,14 +290,13 @@ export const buildTrendTile = (
 
 export const buildAiReferralTrendQuery = (
     filters: SearchAndAiTileFilters,
-    breakdownFilter: BreakdownFilter | undefined
+    breakdownFilter: BreakdownFilter | undefined,
+    math: BaseMathType.UniqueSessions | BaseMathType.UniqueUsers = BaseMathType.UniqueSessions
 ): InsightVizNode =>
     buildTrendTile(
         { ...filters, properties: [AI_CHANNEL_FILTER, ...filters.properties] },
         {
-            series: [
-                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math: BaseMathType.UniqueSessions },
-            ],
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview', math }],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph, showLegend: true },
             breakdownFilter,
         }

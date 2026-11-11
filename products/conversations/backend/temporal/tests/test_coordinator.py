@@ -73,24 +73,16 @@ def _make_ticket(
 
 class TestMasterFlagEnabled:
     @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
-    def test_evaluates_flag_with_team_uuid_and_groups(self, mock_feature_enabled):
+    def test_evaluates_flag_keyed_on_organization(self, mock_feature_enabled):
         team = MagicMock()
-        team.id = 2
-        team.uuid = TEST_TEAM_UUID
         team.organization_id = TEST_ORG_UUID
 
         assert _is_master_flag_enabled(team) is True
         mock_feature_enabled.assert_called_once_with(
-            "product-support-ai-suggestion",
-            str(TEST_TEAM_UUID),
-            groups={
-                "organization": str(TEST_ORG_UUID),
-                "project": "2",
-            },
-            group_properties={
-                "organization": {"id": str(TEST_ORG_UUID)},
-                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
-            },
+            "product-support-ai-suggestion-orgs",
+            str(TEST_ORG_UUID),
+            groups={"organization": str(TEST_ORG_UUID)},
+            group_properties={"organization": {"id": str(TEST_ORG_UUID)}},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
         )
@@ -176,6 +168,25 @@ class TestCollectEligible:
         assert len(result) == 1
         assert result[0].team_id == team.id
         assert result[0].ticket_id == ticket_id
+
+    @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
+    @patch(f"{COORD_MODULE}.Comment")
+    @patch(f"{COORD_MODULE}.Ticket")
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_master_flag_evaluated_once_per_org(
+        self,
+        mock_master_flag,
+        mock_ticket_model,
+        mock_comment_model,
+        mock_has_ready,
+    ):
+        tickets = [_make_ticket(team_id=team_id)[0] for team_id in (1, 1, 2)]
+        mock_ticket_model.objects.filter.return_value.select_related.return_value = tickets
+        mock_comment_model.objects.filter.return_value.values_list.return_value = []
+
+        result = _collect_eligible()
+        assert len(result) == 3
+        mock_master_flag.assert_called_once()
 
     @parameterized.expand(
         [

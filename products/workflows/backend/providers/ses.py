@@ -40,6 +40,7 @@ from products.workflows.backend.services.email_domain_status import build_email_
 
 if TYPE_CHECKING:
     from types_boto3_ses.client import SESClient
+    from types_boto3_ses.type_defs import IdentityMailFromDomainAttributesTypeDef
     from types_boto3_sesv2.client import SESV2Client
     from types_boto3_sesv2.type_defs import RecommendationTypeDef
 
@@ -622,6 +623,8 @@ class SESProvider:
         mail_from_subdomain: str,
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
+        *,
+        keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
         friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
@@ -633,7 +636,7 @@ class SESProvider:
             )
 
         # NOTE: For sesv1, domain Identity creation is done through verification
-        self.verify_email_domain(domain, mail_from_subdomain, team_id)
+        self.verify_email_domain(domain, mail_from_subdomain, team_id, keep_existing_mail_from=keep_existing_mail_from)
 
         # Bounces and complaints already reach the SES webhook through the configuration sets,
         # so a forwarding failure must not fail the add-domain request. The backfill command
@@ -675,7 +678,9 @@ class SESProvider:
         """
         self.ses_v2_client.put_email_identity_feedback_attributes(EmailIdentity=domain, EmailForwardingEnabled=False)
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
+    def verify_email_domain(
+        self, domain: str, mail_from_subdomain: str, team_id: int, *, keep_existing_mail_from: bool = False
+    ) -> EmailDomainVerification:
         # Validate the domain contains valid characters for a domain name
         DOMAIN_REGEX = r"(?i)^([a-z0-9]+(-[a-z0-9]+)*\.)+[a-z]{2,}$"
         if not re.match(DOMAIN_REGEX, domain):
@@ -701,15 +706,18 @@ class SESProvider:
                 raise
 
         # Start/ensure MAIL FROM setup (MX + TXT) ---
-        try:
-            self.ses_client.set_identity_mail_from_domain(
-                Identity=domain,
-                MailFromDomain=f"{mail_from_subdomain}.{domain}",
-                BehaviorOnMXFailure="UseDefaultValue",
-            )
-        except ClientError as e:
-            if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
-                raise
+        if keep_existing_mail_from and (ses_mail_from_subdomain := self.get_mail_from_subdomain(domain)) is not None:
+            mail_from_subdomain = ses_mail_from_subdomain
+        else:
+            try:
+                self.ses_client.set_identity_mail_from_domain(
+                    Identity=domain,
+                    MailFromDomain=f"{mail_from_subdomain}.{domain}",
+                    BehaviorOnMXFailure="UseDefaultValue",
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] not in ("InvalidParameterValue",):
+                    raise
 
         # DMARC is in the list too: AWS SES has no method to check its presence, so we do a direct
         # DNS lookup further below and include the result in the overall status.
@@ -865,9 +873,7 @@ class SESProvider:
             domain
         )
         dkim_for_domain = ses.get_identity_dkim_attributes(Identities=[domain])["DkimAttributes"].get(domain)
-        mail_from_for_domain = ses.get_identity_mail_from_domain_attributes(Identities=[domain])[
-            "MailFromDomainAttributes"
-        ].get(domain)
+        mail_from_for_domain = self._read_mail_from_attributes(domain, ses)
         return _SESIdentityState(
             verification_status=id_for_domain["VerificationStatus"] if id_for_domain else _UNKNOWN,
             verification_token=id_for_domain.get("VerificationToken") if id_for_domain else None,
@@ -876,6 +882,18 @@ class SESProvider:
             mail_from_status=mail_from_for_domain["MailFromDomainStatus"] if mail_from_for_domain else _UNKNOWN,
             mail_from_domain=mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None,
         )
+
+    @staticmethod
+    def _read_mail_from_attributes(domain: str, ses: "SESClient") -> "IdentityMailFromDomainAttributesTypeDef | None":
+        return ses.get_identity_mail_from_domain_attributes(Identities=[domain])["MailFromDomainAttributes"].get(domain)
+
+    def get_mail_from_subdomain(self, domain: str) -> str | None:
+        mail_from_for_domain = self._read_mail_from_attributes(domain, self.ses_client)
+        mail_from_domain = mail_from_for_domain.get("MailFromDomain") if mail_from_for_domain else None
+        suffix = f".{domain}"
+        if mail_from_domain and mail_from_domain.endswith(suffix):
+            return mail_from_domain.removesuffix(suffix)
+        return None
 
     def update_mail_from_subdomain(self, domain: str, mail_from_subdomain: str):
         """

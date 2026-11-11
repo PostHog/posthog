@@ -1,7 +1,7 @@
 import { useActions } from 'kea'
 import { memo } from 'react'
 
-import { IconArrowRight, IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconFilter, IconFolder, IconPerson, IconSparkles } from '@posthog/icons'
 import { Button, Skeleton, cn } from '@posthog/quill'
 
 import { getIconForItem, getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
@@ -104,6 +104,13 @@ function RowContent({ row }: { row: CommandKRow }): JSX.Element | null {
                     <span className="truncate text-muted-foreground">{row.label}</span>
                 </>
             )
+        case 'expand':
+            return (
+                <>
+                    <IconChevronDown className="size-4 shrink-0 text-muted-foreground" />
+                    <span className="truncate text-muted-foreground">{row.label}</span>
+                </>
+            )
         default:
             return null
     }
@@ -126,6 +133,7 @@ const rowContent = (row: CommandKRow): unknown => {
         case 'ask-ai':
             return row.question
         case 'scope':
+        case 'expand':
             return row.label
         case 'notice':
             return row.key

@@ -7,6 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+import { billingJson } from '~/mocks/fixtures/_billing'
 
 import { expect, userEvent } from 'storybook/test'
 
@@ -22,8 +23,10 @@ import {
     reportTabReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns, mockScoutSuggestionSet } from './__mocks__/scoutConfigs'
+import { InboxStateFilter } from './components/shell/InboxStateFilter'
 import { InboxScene } from './InboxScene'
 import { INBOX_LAST_UI_STATE_STORAGE_KEY } from './logics/inboxOnboardingLogic'
+import { reportListLogic, sectionListLogicProps } from './logics/reportListLogic'
 
 // Full Inbox scene with a populated report list. Use this to polish the holistic
 // layout: header, page tabs, the Reports view switcher, scope picker, filter bar, and the
@@ -41,6 +44,7 @@ function routeTo(pathname: string, searchParams: Record<string, string> = {}): D
 
 const sceneMocks = mswDecorator({
     get: {
+        '/api/projects/:id/signals/trial/': { enabled: false, grant_status: 'not_claimed' },
         '/api/projects/:id/integrations/github/available_installations/': {
             discovery_id: '11111111-1111-4111-8111-111111111111',
             discovered_at: '2026-06-11T00:00:00Z',
@@ -103,6 +107,53 @@ export default meta
 type Story = StoryObj
 
 export const Inbox: Story = {}
+
+function statusAvailabilityMocks(monitoringCount: number): Decorator {
+    return mswDecorator({
+        get: {
+            '/api/projects/:id/signals/reports': ({ request }) => [
+                200,
+                {
+                    results: [],
+                    count: new URL(request.url).searchParams.get('status') === 'monitoring' ? monitoringCount : 0,
+                    next: null,
+                    previous: null,
+                },
+            ],
+        },
+    })
+}
+
+export const MonitoringReportsExist: Story = {
+    parameters: {
+        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
+        testOptions: { snapshotBrowsers: [] },
+    },
+    decorators: [statusAvailabilityMocks(1)],
+    render: () => (
+        <div className="p-4">
+            <InboxStateFilter />
+        </div>
+    ),
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        await waitFor(() => expect(within(document.body).getByText('Monitoring', { exact: true })).toBeVisible())
+    },
+}
+
+export const NoMonitoringReports: Story = {
+    ...MonitoringReportsExist,
+    decorators: [statusAvailabilityMocks(0)],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await waitFor(() =>
+            expect(reportListLogic(sectionListLogicProps('outcome-monitoring')).values.hasProjectReports).toBe(false)
+        )
+        await userEvent.click(await canvas.findByRole('button', { name: /statuses/ }))
+        expect(within(document.body).queryByText('Monitoring', { exact: true })).not.toBeInTheDocument()
+    },
+}
 
 const valueSummaryMocks = mswDecorator({
     get: {
@@ -301,6 +352,46 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
+export const SettingsWithSpendBilling: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT]: true } },
+    decorators: [
+        routeTo(urls.inbox('settings')),
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/signals/reports/refund-summary/': {
+                    credited_refund_count: 0,
+                    credited_credits: 0,
+                    period_billable_credits: 0,
+                    quota_limited: true,
+                },
+                '/api/billing': () => [
+                    200,
+                    {
+                        ...billingJson,
+                        products: [
+                            {
+                                ...billingJson.products[0],
+                                type: 'inbox_usage',
+                                name: 'Inbox usage',
+                                usage_key: 'signals_spend_credits',
+                                current_amount_usd: '12.34',
+                                current_usage: 1234,
+                            },
+                        ],
+                        usage_summary: { signals_spend_credits: { billing_start_date: '2020-01-01' } },
+                    },
+                ],
+            },
+        }),
+    ],
+    play: async ({ canvasElement }) => {
+        const canvas = within(canvasElement)
+        await expect(await canvas.findByText('1,234 credits')).toBeVisible()
+        await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
+        await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
+    },
+}
+
 export const Sources: Story = {
     decorators: [routeTo(urls.inbox('sources'))],
     parameters: { testOptions: { snapshotBrowsers: [] } },
@@ -412,4 +503,48 @@ export const SelfDrivingPaused: Story = {
             },
         }),
     ],
+}
+
+// A filter link marks the scope as chosen in local storage, and the stories in this file share it.
+// Without this cleanup, the next story keeps the For you scope instead of its own default.
+const clearPersistedInboxFilters: Decorator = (Story) => {
+    useEffect(
+        () => () =>
+            Object.keys(localStorage)
+                .filter((key) => key.startsWith('scenes.inbox.logics.inboxFiltersLogic'))
+                .forEach((key) => localStorage.removeItem(key)),
+        []
+    )
+    return <Story />
+}
+
+// The user picked Personalized, but the server has no personal ranking for them, so it answers with
+// the Recommended order.
+export const PersonalizedSortFallback: Story = {
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.INBOX_PERSONALIZED_SORT]: true },
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/reports': () => [
+                    200,
+                    {
+                        results: allReports,
+                        count: allReports.length,
+                        next: null,
+                        previous: null,
+                        ranker: 'priority',
+                        ranking_id: null,
+                        ranking_pill: false,
+                    },
+                ],
+            },
+        }),
+        routeTo(urls.inbox('reports'), { sort: 'personal:asc' }),
+        clearPersistedInboxFilters,
+    ],
+    play: async ({ canvas }) => {
+        await canvas.findByText("Your personalized list isn't ready yet, so this is the Recommended order.")
+    },
 }

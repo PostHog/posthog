@@ -501,11 +501,19 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         return values.eventDefinitions
                     }
                     const verifiedById = new Map(updates.map((u) => [String(u.id), u.verified] as const))
+                    const patchDefinition = (d: EventDefinition): EventDefinition => {
+                        const verified = verifiedById.get(String(d.id))
+                        if (verified === undefined) {
+                            return d
+                        }
+                        // Like the server, verifying also unhides the event and cancels a scheduled delete
+                        return verified
+                            ? { ...d, verified, hidden: false, scheduled_deletion_at: null }
+                            : { ...d, verified }
+                    }
                     const patch = (list: EventDefinitionsPaginatedResponse): EventDefinitionsPaginatedResponse => ({
                         ...list,
-                        results: list.results.map((d) =>
-                            verifiedById.has(String(d.id)) ? { ...d, verified: verifiedById.get(String(d.id)) } : d
-                        ),
+                        results: list.results.map(patchDefinition),
                     })
 
                     const onScreen = values.eventDefinitions.current === cacheKey

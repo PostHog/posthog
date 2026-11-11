@@ -18,11 +18,11 @@ steps:
     - assert: { text: { in: { id: views-pin-dashboard-demo-dash-kpis }, contains: Product KPIs } }
 
     - echo: On Views. Open Edit pins and show Signups as a number. Expect the big value
-    - tap: { id: tabs-more }
+    - tap: { text: More }
     - tap: { id: views-edit-pins }
     - await: { visible: { id: edit-pins-sheet } }
     - tap: { id: edit-pin-mode-number-insight-demo-ins-signups }
-    - tap: { id: edit-pins-done }
+    - tap: { text: Done }
     - await: { visible: { id: views-pin-value-insight-demo-ins-signups } }
     - await: { idle: true }
 
@@ -90,9 +90,9 @@ steps:
     - await: { idle: true }
 
     - echo: Close full screen and go back. Expect the dashboard
-    - tap: { id: chart-fullscreen-back }
+    - tap: { text: Back }
     - await: { visible: { id: insight-scroll } }
-    - tap: { id: view-back }
+    - tap: { text: Back }
     - await: { visible: { id: dashboard-tiles } }
     - await: { idle: true }
 
@@ -118,7 +118,7 @@ steps:
     - tap: { id: view-tile-fullscreen-8 }
     - await: { visible: { id: chart-fullscreen-funnel } }
     - await: { idle: true }
-    - tap: { id: chart-fullscreen-back }
+    - tap: { text: Back }
     - await: { visible: { id: view-tile-fullscreen-8 } }
     - await: { idle: true }
 
@@ -132,7 +132,7 @@ steps:
     - await: { idle: true }
 
     - echo: Go back. Expect Views
-    - tap: { id: view-back }
+    - tap: { text: Back }
     - await: { visible: { id: views-screen } }
     - await: { idle: true }
 
@@ -146,7 +146,7 @@ steps:
     - await: { idle: true }
 
     - echo: On the dashboard list. Go back. Expect Views
-    - tap: { id: views-browse-back }
+    - tap: { text: Back }
     - await: { visible: { id: views-screen } }
     - await: { idle: true }
 
@@ -156,7 +156,7 @@ steps:
     - await: { idle: true }
 
     - echo: On the inbox. Open the menu. Expect Settings in it
-    - tap: { id: tabs-more }
+    - tap: { text: More }
     - await: { visible: { id: nav-settings } }
     - await: { idle: true }
 

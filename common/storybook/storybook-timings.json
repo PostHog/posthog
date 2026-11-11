@@ -3375,10 +3375,6 @@
         "chromium": 5.528,
         "webkit": 4.249
     },
-    "products/workflows/frontend/Workflows/hogflows/tree/HogFlowTreeEditor.stories.tsx": {
-        "chromium": 44.712,
-        "webkit": 13.455
-    },
     "products/workflows/frontend/Workflows/suggestions/WorkflowSuggestionEmailChange.stories.tsx": {
         "chromium": 1.63,
         "webkit": 1.851

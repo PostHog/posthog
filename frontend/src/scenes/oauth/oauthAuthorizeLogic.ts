@@ -6,105 +6,33 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
+import { timeSensitiveAuthenticationLogic } from 'lib/components/TimeSensitiveAuthentication/timeSensitiveAuthenticationLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
 import {
-    API_SCOPES,
-    DEFAULT_OAUTH_SCOPES,
-    clampScopeLevel,
-    getMinimumEquivalentScopes,
-    getScopeDescription,
-    groupScopeRows,
-    type ScopePickerGroup,
-    type ScopeAccessLevel,
-    type ScopePickerRow,
-} from 'lib/scopes'
+    IDENTITY_SCOPES,
+    SCOPE_GROUPING_MIN_ROWS,
+    buildOAuthScopeRows,
+    grantedResourceScopes,
+    identityScopeDescriptions,
+    requiredLevelsFromScopes,
+    type OAuthScopeGroup,
+    type OAuthScopeRow,
+    type RequiredLevel,
+    type ScopeAccessSelections,
+} from 'lib/oauthScopeRows'
+import { OAUTH_SCOPES_SUPPORTED } from 'lib/oauthScopes.generated'
+import { DEFAULT_OAUTH_SCOPES, getMinimumEquivalentScopes, groupScopeRows, type ScopeAccessLevel } from 'lib/scopes'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { userLogic } from 'scenes/userLogic'
 
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
 
+import { create as createOrganization } from 'products/platform_features/frontend/generated/api'
+
 export type OAuthAuthorizationFormValues = {
     scoped_organizations: string[]
     scoped_teams: number[]
     access_type: 'all' | 'organizations' | 'teams'
-}
-
-const IDENTITY_SCOPES = ['openid', 'profile', 'email', 'introspection']
-
-const scopeObjectKey = (scope: string): string => (scope === '*' ? '*' : scope.split(':')[0])
-
-export type OAuthScopeRow = ScopePickerRow & {
-    /** Full sentence description at the granted level, for the locked (checkmark) list. */
-    description: string
-    /** Required floor — the grant can never go below this. 'none' when not required. */
-    minLevel: ScopeAccessLevel
-    /** Requested ceiling — the grant can never go above what the client asked for. */
-    maxLevel: Exclude<ScopeAccessLevel, 'none'>
-    /** True when minLevel === maxLevel: nothing to choose, rendered as a locked checkmark row. */
-    locked: boolean
-    /** True when the floor comes from an earlier grant to this app rather than the app's required scopes. */
-    alreadyGranted: boolean
-}
-
-export type OAuthScopeGroup = ScopePickerGroup<OAuthScopeRow>
-
-// The floor and the ceiling as the reasons a level is not available, in the words the row shows.
-// The shared clamp and group control work from these, so a group set to write holds a read-only
-// row at read and a group set to none holds a required row at read.
-const oauthDisabledReasons = (
-    minLevel: ScopeAccessLevel,
-    maxLevel: ScopeAccessLevel,
-    appName: string,
-    alreadyGranted: boolean
-): Partial<Record<ScopeAccessLevel, string>> => ({
-    ...(minLevel !== 'none'
-        ? {
-              none: alreadyGranted
-                  ? `Already granted to ${appName}`
-                  : `${appName} requires at least ${minLevel} access`,
-          }
-        : {}),
-    ...(minLevel === 'write'
-        ? {
-              read: alreadyGranted
-                  ? `Write access is already granted to ${appName}`
-                  : `${appName} requires write access`,
-          }
-        : {}),
-    ...(maxLevel !== 'write' ? { write: `Not requested by ${appName}` } : {}),
-})
-
-const WILDCARD_LABEL = 'All PostHog data'
-
-// A request with this many adjustable rows or fewer shows a flat alphabetical list. Group
-// headers only help when the list is long.
-export const SCOPE_GROUPING_MIN_ROWS = 10
-
-// Fallback for scopes absent from API_SCOPES (e.g. server-side scopes the local list lags
-// behind) — derive a readable label from the raw key.
-const humanizeScopeKey = (key: string): string => {
-    const humanized = key.replace(/_/g, ' ')
-    return humanized.charAt(0).toUpperCase() + humanized.slice(1)
-}
-
-// Required scopes are tracked per object at the action level that's required, so a
-// required `obj:read` still lets the read-only toggle downgrade an optional `obj:write`.
-export type RequiredLevel = 'read' | 'write'
-
-const requiredLevelsFromScopes = (requiredScopes: string[]): Map<string, RequiredLevel> => {
-    const levels = new Map<string, RequiredLevel>()
-    for (const scope of requiredScopes) {
-        if (!scope.includes(':') && scope !== '*') {
-            continue
-        }
-        const key = scopeObjectKey(scope)
-        const level: RequiredLevel = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
-        if (level === 'write' || !levels.has(key)) {
-            levels.set(key, level)
-        }
-    }
-    return levels
 }
 
 // `*` grants read+write to everything; its read-only form is every grantable object's read
@@ -227,6 +155,7 @@ export interface oauthAuthorizeLogicValues {
     isOauthAuthorizationSubmitting: boolean
     isOauthAuthorizationValid: boolean
     isRedirecting: boolean
+    newOrganizationLoading: boolean
     newProjectLoading: boolean
     oauthApplication: OAuthApplicationPublicMetadata | null
     oauthApplicationLoading: boolean
@@ -244,10 +173,7 @@ export interface oauthAuthorizeLogicValues {
     requiredAccessLevel: 'organization' | 'team' | null
     requiredScopeLevels: Map<string, RequiredLevel>
     requiredScopeRows: OAuthScopeRow[]
-    scopeAccessSelections: {
-        bulk: ScopeAccessLevel | null
-        overrides: Record<string, ScopeAccessLevel>
-    }
+    scopeAccessSelections: ScopeAccessSelections
     scopeGroups: OAuthScopeGroup[]
     scopeRows: OAuthScopeRow[]
     scopeRowsGrouped: boolean
@@ -264,6 +190,9 @@ export interface oauthAuthorizeLogicValues {
 // Generated by kea-typegen. Update if you're an agent, ignore if you're human.
 export interface oauthAuthorizeLogicActions {
     cancel: () => {}
+    createNewOrganization: (name: string) => {
+        name: string
+    }
     createNewProject: (name: string) => {
         name: string
     }
@@ -314,6 +243,9 @@ export interface oauthAuthorizeLogicActions {
     }
     setIsMcpResource: (isMcpResource: boolean) => {
         isMcpResource: boolean
+    }
+    setNewOrganizationLoading: (loading: boolean) => {
+        loading: boolean
     }
     setNewProjectLoading: (loading: boolean) => {
         loading: boolean
@@ -415,10 +347,7 @@ export interface oauthAuthorizeLogicMeta {
         ) => string[]
         scopeRows: (
             consentResourceScopes: string[],
-            scopeAccessSelections: {
-                bulk: ScopeAccessLevel | null
-                overrides: Record<string, ScopeAccessLevel>
-            },
+            scopeAccessSelections: ScopeAccessSelections,
             requiredScopeLevels: Map<string, RequiredLevel>,
             alreadyGrantedScopeLevels: Map<string, RequiredLevel>,
             appName: string
@@ -472,6 +401,8 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setShowCreateProject: (show: boolean) => ({ show }),
         createNewProject: (name: string) => ({ name }),
         setNewProjectLoading: (loading: boolean) => ({ loading }),
+        createNewOrganization: (name: string) => ({ name }),
+        setNewOrganizationLoading: (loading: boolean) => ({ loading }),
     }),
     loaders({
         allTeams: [
@@ -480,8 +411,9 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 loadAllTeams: async () => {
                     const user = userLogic.values.user
                     if (!user?.organizations?.length) {
-                        // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                        return await api.loadPaginatedResults('api/projects')
+                        // Without an organization there are no projects to list, and `api/projects`
+                        // would 404 because it resolves the current organization.
+                        return []
                     }
                     const results = await Promise.all(
                         user.organizations.map((org) =>
@@ -522,6 +454,47 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 }
             } finally {
                 actions.setCanceling(false)
+            }
+        },
+        createNewOrganization: async ({ name }) => {
+            actions.setNewOrganizationLoading(true)
+            try {
+                await timeSensitiveAuthenticationLogic.findMounted()?.asyncActions.checkReauthentication()
+                const previousUser = userLogic.values.user
+                // The backend creates a default project with the organization and makes both current.
+                // nosemgrep: prefer-codegen-api -- False positive: this is the generated create() from products/platform_features/frontend/generated/api, which semgrep resolves to api.create because the module is named api.
+                const organization = await createOrganization({ name })
+                // The loaders below report their own failures and resolve anyway. A retry here would
+                // create a second organization, so offer a reload, which keeps the authorize URL.
+                const showReloadToast = (): void => {
+                    lemonToast.error(
+                        "Your organization was created, but it couldn't be loaded. Reload the page to continue.",
+                        {
+                            button: { label: 'Reload', action: () => window.location.reload() },
+                        }
+                    )
+                }
+                await userLogic.asyncActions.loadUser()
+                if (!userLogic.values.user) {
+                    // A failed loadUser sets the user to null, which hides this screen.
+                    if (previousUser) {
+                        userLogic.actions.loadUserSuccess(previousUser)
+                    }
+                    showReloadToast()
+                    return
+                }
+                await oauthAuthorizeLogic.asyncActions.loadAllTeams()
+                if (!values.allTeams?.some((team) => team.organization === organization.id)) {
+                    showReloadToast()
+                    return
+                }
+                if (values.requiredAccessLevel === 'team') {
+                    actions.setSelectedOrganization(organization.id, userLogic.values.user?.team?.id)
+                }
+            } catch (e: any) {
+                lemonToast.error(e.detail || "Couldn't create the organization. Try again.")
+            } finally {
+                actions.setNewOrganizationLoading(false)
             }
         },
         createNewProject: async ({ name }) => {
@@ -568,10 +541,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         // requested ceiling, and every pick is clamped to [required floor, requested ceiling]
         // in scopeRows, so bulk actions can apply one level blindly to heterogeneous rows.
         scopeAccessSelections: [
-            { bulk: null, overrides: {} } as {
-                bulk: ScopeAccessLevel | null
-                overrides: Record<string, ScopeAccessLevel>
-            },
+            { bulk: null, overrides: {} } as ScopeAccessSelections,
             {
                 setScopeAccess: (state, { scopeObject, level }) => ({
                     ...state,
@@ -654,11 +624,21 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 setNewProjectLoading: (_, { loading }) => loading,
             },
         ],
+        newOrganizationLoading: [
+            false,
+            {
+                setNewOrganizationLoading: (_, { loading }) => loading,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         setRequiredAccessLevel: ({ requiredAccessLevel }) => {
             if (requiredAccessLevel === 'organization') {
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
+                const currentOrganizationId = userLogic.values.user?.organization?.id
+                if (currentOrganizationId) {
+                    actions.setOauthAuthorizationValue('scoped_organizations', [currentOrganizationId])
+                }
             } else if (requiredAccessLevel === 'team') {
                 actions.setOauthAuthorizationValue('access_type', 'teams')
                 // With a team_id hint pending, let it drive org+project selection once
@@ -824,11 +804,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         ],
         identityScopeDescriptions: [
             (s) => [s.scopes],
-            (scopes: string[]): string[] =>
-                scopes
-                    .filter((scope) => IDENTITY_SCOPES.includes(scope))
-                    .map(getScopeDescription)
-                    .filter(Boolean) as string[],
+            (scopes: string[]): string[] => identityScopeDescriptions(scopes),
         ],
         requiredScopeLevels: [
             (s) => [s.oauthApplication],
@@ -883,40 +859,18 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             ],
             (
                 consentResourceScopes: string[],
-                scopeAccessSelections: { bulk: ScopeAccessLevel | null; overrides: Record<string, ScopeAccessLevel> },
+                scopeAccessSelections: ScopeAccessSelections,
                 requiredScopeLevels: Map<string, RequiredLevel>,
                 alreadyGrantedScopeLevels: Map<string, RequiredLevel>,
                 appName: string
             ): OAuthScopeRow[] => {
-                const rows = consentResourceScopes.map((scope): OAuthScopeRow => {
-                    const key = scopeObjectKey(scope)
-                    const maxLevel: 'read' | 'write' = scope === '*' || scope.endsWith(':write') ? 'write' : 'read'
-                    const requiredLevel = requiredScopeLevels.get(key)
-                    const grantedLevel = alreadyGrantedScopeLevels.get(key)
-                    const alreadyGranted =
-                        grantedLevel !== undefined && (grantedLevel === 'write' || requiredLevel !== 'write')
-                    const minLevel: ScopeAccessLevel = (alreadyGranted ? grantedLevel : requiredLevel) ?? 'none'
-                    const disabledReasons = oauthDisabledReasons(minLevel, maxLevel, appName, alreadyGranted)
-                    const selected = scopeAccessSelections.overrides[key] ?? scopeAccessSelections.bulk ?? maxLevel
-                    const value = clampScopeLevel({ key, label: key, value: selected, disabledReasons }, selected)
-                    const apiScope = key === '*' ? undefined : API_SCOPES.find((s) => s.key === key)
-                    const grantedScope = scope === '*' && value === 'write' ? '*' : `${key}:${value}`
-                    return {
-                        key,
-                        label: key === '*' ? WILDCARD_LABEL : (apiScope?.objectName ?? humanizeScopeKey(key)),
-                        description: getScopeDescription(grantedScope) ?? grantedScope,
-                        info: apiScope?.info,
-                        warning: value === 'none' ? undefined : apiScope?.warnings?.[value],
-                        muted: value === 'none',
-                        disabledReasons,
-                        minLevel,
-                        maxLevel,
-                        value,
-                        locked: minLevel === maxLevel,
-                        alreadyGranted,
-                    }
-                })
-                return rows.sort((a, b) => a.label.localeCompare(b.label))
+                return buildOAuthScopeRows(
+                    consentResourceScopes,
+                    scopeAccessSelections,
+                    requiredScopeLevels,
+                    alreadyGrantedScopeLevels,
+                    appName
+                )
             },
         ],
         // Locked rows (required at exactly the requested level) render as a plain checkmark
@@ -957,23 +911,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 alreadyGrantedScopes: string[]
             ): string[] => {
                 const identity = scopes.filter((scope) => IDENTITY_SCOPES.includes(scope))
-                const resources = scopeRows.flatMap((row) => {
-                    if (row.value === 'none') {
-                        return []
-                    }
-                    if (row.key === '*') {
-                        return row.value === 'write' ? ['*'] : wildcardReadScopes(oauthApplication)
-                    }
-                    // Write grants read too, but clients diff the granted `scope` against what they
-                    // asked for, so a missing `:read` reads as a partial grant. Spell both out when
-                    // the client asked for both, and only then: granting a half it never requested
-                    // is the same mismatch in the other direction.
-                    if (row.value === 'write') {
-                        const readScope = `${row.key}:read`
-                        return scopes.includes(readScope) ? [readScope, `${row.key}:write`] : [`${row.key}:write`]
-                    }
-                    return [`${row.key}:${row.value}`]
-                })
+                const resources = grantedResourceScopes(scopeRows, scopes, () => wildcardReadScopes(oauthApplication))
                 // Also grant the required strings verbatim: collapsing read+write pairs above
                 // could otherwise drop a literal entry the server's set-difference check expects.
                 const required = [...(oauthApplication?.required_scopes ?? []), ...alreadyGrantedScopes].filter(

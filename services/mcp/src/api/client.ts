@@ -191,6 +191,7 @@ export interface QueryEndpointResponse {
     // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
     // warnings and object-level access control warnings.
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
 }
 
 export interface ApiConfig {
@@ -1391,6 +1392,34 @@ export class ApiClient {
                 }
             },
 
+            saveExplanation: async ({
+                insightId,
+                data,
+            }: {
+                insightId: number
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.ChartExplanation>> => {
+                return this.fetchJson<Schemas.ChartExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/`,
+                    { method: 'POST', body: JSON.stringify({ data }) }
+                )
+            },
+
+            updateExplanation: async ({
+                insightId,
+                explanationId,
+                data,
+            }: {
+                insightId: number
+                explanationId: string
+                data: Record<string, unknown>
+            }): Promise<Result<Schemas.ChartExplanation>> => {
+                return this.fetchJson<Schemas.ChartExplanation>(
+                    `${this.baseUrl}/api/projects/${projectId}/insights/${insightId}/explanations/${encodeURIComponent(explanationId)}/`,
+                    { method: 'PUT', body: JSON.stringify({ data }) }
+                )
+            },
+
             create: async ({ data }: { data: Record<string, any> }): Promise<Result<Schemas.Insight>> => {
                 return this.fetchJson<Schemas.Insight>(`${this.baseUrl}/api/projects/${projectId}/insights/`, {
                     method: 'POST',
@@ -1667,6 +1696,7 @@ export class ApiClient {
                 columns?: unknown[] | null
                 formatted_results?: string
                 warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                 has_next?: boolean
                 next_cursor?: string | null
             }> => {
@@ -1675,6 +1705,7 @@ export class ApiClient {
                     columns?: unknown[] | null
                     formatted_results?: string
                     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                    warehouse_suggestions?: Schemas.WarehouseSuggestionNote[] | null
                     has_next?: boolean
                     next_cursor?: string | null
                 }>({

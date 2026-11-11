@@ -16,6 +16,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.context import HealthContext
 from products.experiments.backend.health.skips import (
+    NEEDS_EXPOSURES,
     NEEDS_PRIMARY_METRIC,
     NOT_AFTER_END,
     NOT_ON_ARCHIVED,
@@ -64,7 +65,7 @@ def early_significance(ctx: HealthContext) -> CheckOutcome:
         return not_applicable("Runs once the primary metric has results")
     samples = _total_samples(result)
     if samples < MIN_SAMPLES_FOR_RESULTS:
-        return not_applicable("Runs once enough users are exposed")
+        return not_applicable(NEEDS_EXPOSURES)
     control_rate = result.baseline.mean or 0
     if not 0 < control_rate < 1:
         return not_applicable("Runs once the control group's conversion rate is above 0% and below 100%")

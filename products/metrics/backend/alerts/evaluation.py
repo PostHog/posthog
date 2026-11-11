@@ -5,16 +5,19 @@ held back to where the team's ingestion has reached. Each series the query retur
 condition. Under grouping by result labels, each distinct set of grouping label values is a group.
 Without grouping, the alert has one group that breaches when any series does.
 
-A series the query no longer returns keeps its group's state, and so does a series whose value is
-not a number. Prometheus resolves a missing series, but a team's samples spread over ingestion
-partitions, and the freshness read cannot tell that every partition has caught up. So a missing
-series could be one a lagging partition has not written yet, and resolving it would read lag as
-recovery. The hold is bounded: a group missing for `ABSENT_RESOLVE_AFTER` while the team's
-ingestion is fresh resolves, which no lag that leaves the team fresh explains, and which frees its
-slot under `max_instances`. A watermark covering every partition would let it resolve at once.
+A series the query no longer returns resolves its group, as in Prometheus, once the partition
+checkpoint shows every ingestion partition has passed the instant the check read. A team's samples
+spread over those partitions, so without the checkpoint a missing series could be one a lagging
+partition has not written yet, and resolving it would read lag as recovery. Then the group keeps its
+state, bounded: a group missing for `ABSENT_RESOLVE_AFTER` while the team's ingestion is fresh
+resolves, which no lag that leaves the team fresh explains, and which frees its slot under
+`max_instances`. A series whose value is not a number always keeps its group's state.
 
-This reads and decides. It writes nothing, so a retried attempt reads the same due checks and makes
-the same decisions. The platform records the outcomes in its own activity.
+A check never reads behind the instant its configuration last read, because a breach between the
+two instants would read as recovery. A check behind that floor waits for a later tick.
+
+This reads and decides. It writes only the read floors, which a retried attempt reads at, not
+behind, so it makes the same decisions. The platform records the outcomes in its own activity.
 """
 
 import json
@@ -31,6 +34,7 @@ from django.conf import settings
 import structlog
 from pydantic import ValidationError
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot
@@ -75,7 +79,12 @@ from products.alerts_platform.backend.facade.platform_metrics import (
 )
 from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.metrics.backend.alerts.destinations import EVENT_IDS_BY_INCIDENT_ACTION, EVENT_IDS_BY_KIND
-from products.metrics.backend.alerts.freshness import evaluation_time, fetch_metrics_freshness
+from products.metrics.backend.alerts.freshness import (
+    IngestionReach,
+    fetch_metrics_freshness,
+    fetch_partition_checkpoint,
+)
+from products.metrics.backend.alerts.read_floor import raise_read_floors, read_floors
 from products.metrics.backend.alerts.source_config import MetricsPlatformAlertCondition, MetricsPlatformAlertConfig
 from products.metrics.backend.alerts.wording import alert_url
 from products.metrics.backend.promql import PromQLQueryError, snuffle_payload
@@ -100,8 +109,8 @@ BATCH_SLOT_LEASE_SECONDS: Final = 90
 # Ten times the most groups a configuration can hold. A query past it is refused before its series
 # are judged, so one high-cardinality expression cannot exhaust the worker.
 MAX_SERIES: Final = 1000
-# Far past any partition lag that leaves the team fresh, and short enough that groups which stopped
-# reporting cannot hold every instance slot.
+# Applies only without a partition checkpoint. Far past any partition lag that leaves the team fresh,
+# and short enough that groups which stopped reporting cannot hold every instance slot.
 ABSENT_RESOLVE_AFTER: Final = timedelta(hours=1)
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
@@ -160,36 +169,69 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
 def _evaluate_admitted(
     team: Team, slot: str, checks: Sequence[PlatformAlertCheckInput], *, cutoff: datetime, started_at: float
 ) -> SourceBatchEvaluation:
-    freshness = _freshness(team)
+    checkpoint = _read_instant(fetch_partition_checkpoint, team)
+    reach = IngestionReach(
+        checkpoint=checkpoint,
+        newest_point=None if checkpoint is not None else _read_instant(fetch_metrics_freshness, team),
+    )
+    floors = read_floors(team.id, [str(check.id) for check in checks])
     deadline = started_at + BATCH_QUERY_BUDGET_SECONDS
     decided: list[Decision] = []
+    reads: dict[str, datetime] = {}
+    behind_floor = 0
     for check in checks:
+        at = reach.evaluation_time(check.next_check_at or cutoff)
+        floor = floors.get(str(check.id))
+        if floor is not None and at < floor:
+            behind_floor += 1
+            continue
         remaining = deadline - time.monotonic()
         if remaining < MIN_QUERY_SECONDS:
             break
-        at = evaluation_time(check.next_check_at or cutoff, freshness)
         decided.append(
             _evaluate(
                 team,
                 check,
                 at=at,
                 now=cutoff,
-                ingestion_fresh=freshness is not None,
+                reach=reach,
                 query_seconds=min(MAX_QUERY_SECONDS, remaining),
                 muted=_in_quiet_hours(check, cutoff, team.timezone),
             )
         )
-    evaluation = _collect(decided, team_id=team.id, slot=slot, past_budget=len(checks) - len(decided))
+        reads[str(check.id)] = at
+    evaluation = _collect(
+        decided,
+        team_id=team.id,
+        slot=slot,
+        past_budget=len(checks) - len(decided) - behind_floor,
+        behind_floor=behind_floor,
+    )
+    # Only a recorded verdict sets a floor. A failed query read nothing, and a check cut from the
+    # payload keeps its due time.
+    raise_read_floors(
+        team.id,
+        {
+            key: reads[key]
+            for outcome in evaluation.outcomes
+            if outcome.failure is None and (key := str(outcome.configuration_id)) in reads
+        },
+        now=cutoff,
+    )
     safe_record(record_batch_duration, SOURCE.value, int((time.monotonic() - started_at) * 1000))
     return evaluation
 
 
-def _freshness(team: Team) -> datetime | None:
+def _read_instant(fetch: Callable[..., datetime | None], team: Team) -> datetime | None:
     try:
-        return fetch_metrics_freshness(team, max_execution_time=FRESHNESS_QUERY_SECONDS)
+        return fetch(team, max_execution_time=FRESHNESS_QUERY_SECONDS)
     except Exception:
-        # Without a freshness the batch still runs, at its due time.
-        logger.exception("Failed to fetch the metrics ingestion freshness", team_id=team.id)
+        # Without the read the batch still runs, at its due time or the other read's instant.
+        logger.exception(
+            "Failed to fetch how far metrics ingestion has reached",
+            team_id=team.id,
+            read=getattr(fetch, "__name__", repr(fetch)),
+        )
         return None
 
 
@@ -208,7 +250,7 @@ def _evaluate(
     *,
     at: datetime,
     now: datetime,
-    ingestion_fresh: bool,
+    reach: IngestionReach,
     query_seconds: float,
     muted: bool,
 ) -> Decision:
@@ -235,7 +277,7 @@ def _evaluate(
         policy=POLICY,
         now=now,
         muted=muted,
-        absent=lambda key: _absent(check, key, unknown=unknown, now=now, ingestion_fresh=ingestion_fresh),
+        absent=lambda key: _absent(check, key, unknown=unknown, now=now, reach=reach),
     )
     for verdict in decision.verdicts:
         safe_record(increment_checks, SOURCE.value, verdict.outcome.notification.value)
@@ -265,6 +307,7 @@ def _query(team: Team, expr: str, *, at: datetime, timeout_seconds: float) -> li
         "/api/v1/query",
         data={"query": expr, "time": str(at.timestamp()), "timeout": f"{int(timeout_seconds)}s"},
         timeout=timeout_seconds,
+        ch_user=ClickHouseUser.ALERTS_PLATFORM_METRICS,
     )
 
     data = payload.get("data") or {}
@@ -306,13 +349,16 @@ def _breached(condition: MetricsPlatformAlertCondition, value: float | None) -> 
 
 
 def _absent(
-    check: PlatformAlertCheckInput, key: str, *, unknown: frozenset[str], now: datetime, ingestion_fresh: bool
+    check: PlatformAlertCheckInput, key: str, *, unknown: frozenset[str], now: datetime, reach: IngestionReach
 ) -> GroupObservation | None:
-    """A missing group's verdict: None holds its state, as the module docstring explains, until the hold runs out."""
-    last_seen_at = check.instance(key).last_seen_at
-    if key in unknown or not ingestion_fresh or last_seen_at is None or now - last_seen_at < ABSENT_RESOLVE_AFTER:
+    """A missing group's verdict, as the module docstring explains. None holds its state."""
+    if key in unknown:
         return None
-    return not_breaching(key)
+    last_seen_at = check.instance(key).last_seen_at
+    held_long_enough = (
+        reach.newest_point is not None and last_seen_at is not None and now - last_seen_at >= ABSENT_RESOLVE_AFTER
+    )
+    return not_breaching(key) if reach.checkpoint is not None or held_long_enough else None
 
 
 def _observations(
@@ -450,8 +496,11 @@ def _request(
     )
 
 
-def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, past_budget: int) -> SourceBatchEvaluation:
-    """The batch, held to one payload. A check past the query budget or the payload keeps its due time."""
+def _collect(
+    decided: Sequence[Decision], *, team_id: int, slot: str, past_budget: int, behind_floor: int
+) -> SourceBatchEvaluation:
+    """The batch, held to one payload. A check past the query budget or the payload, or behind its
+    read floor, keeps its due time."""
     outcomes: list[PlatformAlertOutcome] = []
     deliveries: list[AlertDeliveryRequest] = []
     deferred = 0
@@ -465,9 +514,15 @@ def _collect(decided: Sequence[Decision], *, team_id: int, slot: str, past_budge
         outcomes.append(outcome)
         if delivery is not None:
             deliveries.append(delivery)
-    if past_budget or deferred:
+    omitted = past_budget + deferred + behind_floor
+    if omitted:
         logger.warning(
-            "Deferred metrics alert checks", team_id=team_id, slot=slot, past_budget=past_budget, over_payload=deferred
+            "Deferred metrics alert checks",
+            team_id=team_id,
+            slot=slot,
+            past_budget=past_budget,
+            over_payload=deferred,
+            behind_floor=behind_floor,
         )
-        safe_record(increment_checks_deferred, SOURCE.value, past_budget + deferred)
-    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=past_budget + deferred)
+        safe_record(increment_checks_deferred, SOURCE.value, omitted)
+    return SourceBatchEvaluation(outcomes=tuple(outcomes), deliveries=tuple(deliveries), omitted=omitted)

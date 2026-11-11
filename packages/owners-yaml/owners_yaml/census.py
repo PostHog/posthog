@@ -4,9 +4,9 @@ map. A static read of the tree, so it carries the denominator the signal-only CI
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from .resolver import OwnersResolver
+from .resolver import OwnersResolver, Resolution
 
 UNOWNED_TEAM = "unowned"
 
@@ -19,12 +19,29 @@ def first_team_owner(owners: list[str] | None) -> str:
     return next((owner for owner in owners or [] if not owner.startswith("@")), "")
 
 
+def owning_team(resolution: Resolution) -> str | None:
+    """``None`` for an ``owners: null`` exemption (SPEC 3.1), ``unowned`` when no team owns the file."""
+    if resolution.unowned_by_design:
+        return None
+    return first_team_owner(resolution.owners) or UNOWNED_TEAM
+
+
 def runner_for_path(path: str) -> str | None:
     if _PYTEST_FILE.search(path):
         return "pytest"
     if _JEST_FILE.search(path):
         return "jest"
     return None
+
+
+def unowned_test_directories(resolver: OwnersResolver, paths: Iterable[str]) -> set[str]:
+    """Directories, not files, so the baseline holds while files come and go. A file owned only by
+    ``@handles`` counts: a person is not a routing target."""
+    return {
+        str(PurePosixPath(path).parent)
+        for path in paths
+        if runner_for_path(path) and owning_team(resolver.resolve(path)) == UNOWNED_TEAM
+    }
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -49,14 +66,17 @@ class TeamTestCensus:
 
 def census(paths: Iterable[str], repo_root: Path) -> list[TeamTestCensus]:
     """Count test files per owning team over repo-relative ``paths``, most tests first.
-    Uncovered files and files owned only by ``@handles`` count under ``unowned``."""
+    Uncovered files and files owned only by ``@handles`` count under ``unowned``, and files that
+    ``owners: null`` exempts are left out."""
     resolver = OwnersResolver(repo_root)
     counts: dict[str, dict[str, int]] = {}
     for path in paths:
         runner = runner_for_path(path)
         if runner is None:
             continue
-        team = first_team_owner(resolver.resolve(path).owners) or UNOWNED_TEAM
+        team = owning_team(resolver.resolve(path))
+        if team is None:
+            continue
         counts.setdefault(team, {"pytest": 0, "jest": 0})[runner] += 1
     return sorted(
         (

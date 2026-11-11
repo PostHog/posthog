@@ -8,7 +8,7 @@ assembled viewset provides at runtime.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -29,7 +29,6 @@ from products.data_warehouse.backend.facade.api import (
     delete_discover_schemas_schedule,
     delete_external_data_schedule,
     ensure_cdc_slot_cleanup_schedule,
-    is_cdc_enabled_for_team,
     is_cdc_extraction_schedule_paused,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -79,7 +78,6 @@ __all__ = [
     "ensure_cdc_slot_cleanup_schedule",
     "ensure_person_join",
     "get_primary_key_columns",
-    "is_cdc_enabled_for_team",
     "is_cdc_extraction_schedule_paused",
     "logger",
     "purge_buffer_prefix",
@@ -107,6 +105,7 @@ if TYPE_CHECKING:
             source_id: str,
             source_schemas: list[SourceSchema],
             permission_errors: Mapping[str, str | None] | None = None,
+            only_tables: Collection[str] | None = None,
         ) -> dict | None: ...
 
         def _setup_cdc_resources(

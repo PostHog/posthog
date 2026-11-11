@@ -26,6 +26,8 @@ class NotificationType(str, Enum):
     WAREHOUSE_SUGGESTION_ASSIGNED = "warehouse_suggestion_assigned"
     FEATURE_FLAG_FAILURE = "feature_flag_failure"
     FIRST_REPORT_COMPLETED = "first_report_completed"
+    REPORT_CLAIM_TAKEN_OVER = "report_claim_taken_over"
+    ALERT_DESTINATION_REFUSED = "alert_destination_refused"
 
 
 class Priority(str, Enum):

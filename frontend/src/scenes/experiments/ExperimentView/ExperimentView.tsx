@@ -29,6 +29,7 @@ import { DEFAULT_EXPERIMENT_TAB, type ExperimentTab, experimentSceneLogic } from
 import { Metrics } from '../MetricsView/new/Metrics'
 import { RecalculationStatus } from '../MetricsView/shared/RecalculationStatus'
 import { isLegacyExperiment } from '../utils'
+import { DeletedFlagBanner } from './DeletedFlagBanner'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentDebugPanel } from './ExperimentExecutionPathComparison'
 import { ExperimentFeedbackTab } from './ExperimentFeedbackTab'
@@ -157,23 +158,14 @@ export function ExperimentView(): JSX.Element {
 
     const healthIssueCount = healthIssues(healthFindings).length
 
-    // Ordered as: results (Metrics), configuration (Settings, Code, Variants), feature tabs (Recordings,
-    // User feedback), audit trail (History), checks (Health, then the staff-only Health debug).
+    // Ordered as: results (Metrics, then the Health checks that say whether to trust them), configuration
+    // (Settings, Code, Variants), feature tabs (Recordings, User feedback), audit trail (History), and the
+    // staff-only Health debug.
     // Which of these actually render is resolved by experimentSceneLogic's availableTabs, so the tab set,
     // the URL, and the tracked tab stay in agreement.
     const tabs: LemonTab<ExperimentTab>[] = (
         [
             { key: 'metrics', label: 'Metrics', content: <MetricsTab /> },
-            { key: 'settings', label: 'Settings', content: <SettingsTab /> },
-            { key: 'code', label: 'Code', content: <CodeTab /> },
-            { key: 'variants', label: 'Variants', content: <VariantsTab /> },
-            { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
-            { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
-            {
-                key: 'history',
-                label: 'History',
-                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
-            },
             {
                 key: 'health',
                 label: (
@@ -194,6 +186,16 @@ export function ExperimentView(): JSX.Element {
                 ),
                 content: <ExperimentHealthTab />,
             },
+            { key: 'settings', label: 'Settings', content: <SettingsTab /> },
+            { key: 'code', label: 'Code', content: <CodeTab /> },
+            { key: 'variants', label: 'Variants', content: <VariantsTab /> },
+            { key: 'recordings', label: 'Recordings', content: <ExperimentReplayTab experiment={experiment} /> },
+            { key: 'feedback', label: 'User feedback', content: <ExperimentFeedbackTab experiment={experiment} /> },
+            {
+                key: 'history',
+                label: 'History',
+                content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+            },
             { key: 'health-debug', label: 'Health debug', content: <ExperimentHealthDebug /> },
         ] satisfies LemonTab<ExperimentTab>[]
     ).filter((tab) => availableTabs.includes(tab.key))
@@ -205,6 +207,7 @@ export function ExperimentView(): JSX.Element {
                 <LoadingState />
             ) : (
                 <>
+                    <DeletedFlagBanner />
                     {healthFindings === null && <ExperimentWarningBanner />}
                     {showDebugPanel && (
                         <div className="mb-4">
@@ -246,7 +249,7 @@ export function ExperimentView(): JSX.Element {
                     />
 
                     {/* Modern experiment modals */}
-                    <MetricSourceModal />
+                    <MetricSourceModal experiment={experiment} />
                     <ExperimentMetricModal
                         experiment={experiment}
                         exposureCriteria={exposureCriteria}
