@@ -1218,6 +1218,26 @@ class SourceAdmission(Protocol):
     ) -> None: ...
 
 
+class NativeEditGuard(Protocol):
+    """Refuses an edit to an alert with no source row that only the source's own API may make.
+
+    The source's API checks some settings against data the platform cannot see, such as the query
+    an alert reads. For an alert with a source row, `mirror` refuses an edit to them. An alert with
+    no source row has no mirror, so this refuses it. It runs in the edit's transaction, after the
+    edit is validated, and raises `InvalidPlatformAlertEdit`. An edit the source's API made, which
+    has passed those checks, skips it.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        current: PlatformAlertConfigurationEdit,
+        edit: PlatformAlertConfigurationEdit,
+        check_interval_minutes: int,
+    ) -> None: ...
+
+
 class NativeAlertRemoveDestinations(Protocol):
     """Removes the destinations of an alert the platform owns that is about to be deleted, with a
     source row or without one. `alert_id` is the id they match on, the alert's public id.
@@ -1284,6 +1304,8 @@ class SourceConfigSpec:
     native: NativeAlertLifecycle | None = None
     # For a kind with both `create` and `native`: whether a team's new alert gets no source row.
     native_create: Callable[[int], bool] | None = None
+    # For a kind with `native`: what `mirror` refuses for an alert with a source row.
+    native_edit_guard: NativeEditGuard | None = None
     # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.

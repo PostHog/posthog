@@ -25,6 +25,7 @@ from products.alerts.backend.platform_ownership import (
     hand_over_new_alert,
     platform_takes_new_alert_with,
     write_moved_alert_edit,
+    write_native_alert_edit,
 )
 from products.alerts.backend.platform_subscribers import platform_subscriber_ids, sync_alert_subscriber_destinations
 
@@ -53,4 +54,5 @@ __all__ = [
     "platform_subscriber_ids",
     "sync_alert_subscriber_destinations",
     "write_moved_alert_edit",
+    "write_native_alert_edit",
 ]

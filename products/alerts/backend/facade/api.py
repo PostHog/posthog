@@ -64,6 +64,7 @@ from products.alerts_platform.backend.facade.api import (
     assign_native_creator,
     enabled_native_configurations,
     native_configuration_team_id,
+    update_configuration,
 )
 from products.alerts_platform.backend.facade.contracts import (
     EnabledNativeConfiguration,
@@ -223,20 +224,9 @@ def snooze_alert_from_slack(
         # nosemgrep: idor-lookup-without-team, idor-taint-user-input-to-model-get
         alert = AlertConfiguration.objects.select_related("insight", "team").get(id=alert_id)
     except AlertConfiguration.DoesNotExist:
-        return "not_found"
+        return _snooze_native_from_slack(alert_id, user=user, duration=duration, until=until)
 
-    # Mirrors TeamMemberAccessPermission (posthog/permissions.py): a non-admin member with no
-    # explicit membership in a private project must be denied, even though they belong to the
-    # organization. effective_membership_level falls back to the plain org membership level when
-    # the organization doesn't have ACCESS_CONTROL, so this never false-denies on non-EE orgs.
-    if UserPermissions(user).team(alert.team).effective_membership_level is None:
-        logger.warning("alert_snooze_no_project_membership", alert_id=str(alert_id), user_id=user.id)
-        return "no_access"
-
-    # Project membership doesn't imply access to every insight in it — mirrors
-    # _require_insight_viewer_access, the same check the alerts API itself uses.
-    if not UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer"):
-        logger.warning("alert_snooze_no_insight_access", alert_id=str(alert_id), user_id=user.id)
+    if not _can_snooze_from_slack(alert, user=user):
         return "no_access"
 
     if not alert.enabled:
@@ -245,16 +235,9 @@ def snooze_alert_from_slack(
         # for the common case.
         return "disabled"
 
-    if duration is not None:
-        # always store snoozed_until as UTC time, as we look at current UTC time to check when to
-        # run alerts — same call the alerts API uses so "1d" means the same thing everywhere.
-        snoozed_until = relative_date_parse(duration, ZoneInfo("UTC"), increase=True, always_truncate=True)
-    else:
-        assert until is not None
-        now = timezone.now()
-        if until <= now or until > now + timedelta(days=SLACK_SNOOZE_MAX_DAYS):
-            return "invalid_until"
-        snoozed_until = until.astimezone(ZoneInfo("UTC"))
+    snoozed_until = _slack_snoozed_until(duration=duration, until=until)
+    if snoozed_until is None:
+        return "invalid_until"
 
     with transaction.atomic():
         try:
@@ -296,6 +279,78 @@ def snooze_alert_from_slack(
             )
 
     return "snoozed"
+
+
+def _can_snooze_from_slack(alert: AlertConfiguration, *, user: User) -> bool:
+    # Mirrors TeamMemberAccessPermission (posthog/permissions.py): a non-admin member with no
+    # explicit membership in a private project must be denied, even though they belong to the
+    # organization. effective_membership_level falls back to the plain org membership level when
+    # the organization doesn't have ACCESS_CONTROL, so this never false-denies on non-EE orgs.
+    if UserPermissions(user).team(alert.team).effective_membership_level is None:
+        logger.warning("alert_snooze_no_project_membership", alert_id=str(alert.id), user_id=user.id)
+        return False
+
+    # Project membership doesn't imply access to every insight in it — mirrors
+    # _require_insight_viewer_access, the same check the alerts API itself uses.
+    if not UserAccessControl(user, team=alert.team).check_access_level_for_object(alert.insight, "viewer"):
+        logger.warning("alert_snooze_no_insight_access", alert_id=str(alert.id), user_id=user.id)
+        return False
+    return True
+
+
+def _slack_snoozed_until(*, duration: str | None, until: datetime | None) -> datetime | None:
+    """When a Slack snooze ends, in UTC, or None for an `until` outside the allowed window."""
+    if duration is not None:
+        # always store snoozed_until as UTC time, as we look at current UTC time to check when to
+        # run alerts — same call the alerts API uses so "1d" means the same thing everywhere.
+        return relative_date_parse(duration, ZoneInfo("UTC"), increase=True, always_truncate=True)
+    assert until is not None
+    now = timezone.now()
+    if until <= now or until > now + timedelta(days=SLACK_SNOOZE_MAX_DAYS):
+        return None
+    return until.astimezone(ZoneInfo("UTC"))
+
+
+def _snooze_native_from_slack(
+    alert_id: uuid.UUID, *, user: User, duration: str | None, until: datetime | None
+) -> SlackSnoozeOutcome:
+    """`snooze_alert_from_slack` for an insight alert with no insight row, whose snooze the platform keeps."""
+    team_id = native_configuration_team_id(configuration_id=alert_id, source_kind=SourceKind.INSIGHT)
+    if team_id is None:
+        return "not_found"
+    try:
+        alert = _native_alert(team_id=team_id, alert_id=alert_id)
+    except AlertConfiguration.DoesNotExist:
+        return "not_found"
+    if not _can_snooze_from_slack(alert, user=user):
+        return "no_access"
+    if not alert.enabled:
+        return "disabled"
+    snoozed_until = _slack_snoozed_until(duration=duration, until=until)
+    if snoozed_until is None:
+        return "invalid_until"
+    with transaction.atomic(), ActingUserContext(user):
+        # Rechecked under the platform's lock, so a concurrent disable never ends up snoozed.
+        view = native_insight_alert_view(team_id, alert_id, lock=True)
+        if view is None:
+            return "not_found"
+        if not view.enabled:
+            return "disabled"
+        try:
+            snoozed = update_configuration(
+                team_id=team_id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=alert_id,
+                change=lambda stored: stored,
+                snooze_until=snoozed_until,
+                snooze_changed=True,
+                # A snooze changes no setting the guard checks.
+                source_checked=True,
+            )
+        except InvalidPlatformAlertEdit as error:
+            capture_exception(error, {"alert_id": str(alert_id)})
+            return "not_snoozable"
+    return "snoozed" if snoozed is not None else "not_found"
 
 
 FIRING_ALERT_CANDIDATES = 200

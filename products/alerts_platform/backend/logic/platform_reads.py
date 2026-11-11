@@ -272,8 +272,8 @@ def count_configurations(
     source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row. With `source_config_contains`, only the ones whose `source_config` holds
-    that object."""
+    the ones with no source row. With `exclude_id`, the alert an edit is checked for is left out. With
+    `source_config_contains`, only the ones whose `source_config` holds that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )

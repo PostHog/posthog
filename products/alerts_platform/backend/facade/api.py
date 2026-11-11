@@ -297,7 +297,8 @@ def count_configurations(
     exclude_id: UUID | None = None,
     source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
-    """How many alerts of a kind a team has on the platform. For a source's admission.
+    """How many alerts of a kind a team has on the platform. For a source's admission. With
+    `exclude_id`, the alert an edit is checked for is left out.
 
     A source that keeps rows counts them and adds `native_only`. A copy stands for a row the source
     already counts, and a copy left by a delete from before copies went with their row counts nothing.
@@ -434,9 +435,16 @@ def update_configuration(
     change: Callable[[PlatformAlertConfigurationEdit], PlatformAlertConfigurationEdit],
     snooze_until: datetime | None = None,
     snooze_changed: bool = False,
+    cadence: PlatformAlertUpsert | None = None,
+    rescheduled: bool = False,
+    source_checked: bool = False,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
     With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
+
+    For an alert with no source row, `cadence` and `rescheduled` write its schedule as
+    `update_owned_copy` writes a copy's. Its kind's `native_edit_guard` refuses what only the
+    source's API may change, unless `source_checked` says the source's API made the edit.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
@@ -448,6 +456,9 @@ def update_configuration(
         change=change,
         snooze_until=snooze_until,
         snooze_changed=snooze_changed,
+        cadence=cadence,
+        rescheduled=rescheduled,
+        source_checked=source_checked,
     )
 
 
