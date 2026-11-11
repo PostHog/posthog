@@ -1854,14 +1854,21 @@ export interface IncrementalFieldCandidateApi {
     recommended?: boolean
     /** Whether the decision model, not the name rules, picked this field. */
     picked_by_model?: boolean
-    /** Trade-offs of picking this field. */
+    /**
+     * Trade-offs of picking this field.
+     * @maxItems 16
+     * @items.maxLength 1000
+     */
     notes?: string[]
 }
 
 export interface IncrementalFieldTableApi {
     /** Name of the table, as returned by database_schema. */
     table: string
-    /** Candidate incremental fields of the table, as returned by database_schema. */
+    /**
+     * Candidate incremental fields of the table, as returned by database_schema.
+     * @maxItems 1000
+     */
     incremental_fields: IncrementalFieldCandidateApi[]
 }
 

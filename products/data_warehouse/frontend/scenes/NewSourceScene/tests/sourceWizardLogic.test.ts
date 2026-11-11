@@ -1886,6 +1886,17 @@ describe('sourceWizardLogic', () => {
                 expected: { sync_type: 'incremental', incremental_field: 'created_at' },
             },
             {
+                name: 'a column left out of the sync is not picked',
+                source: postgresSource,
+                fields: [
+                    { ...createdAt, recommended: true },
+                    { ...modelPick, recommended: false, picked_by_model: undefined },
+                ],
+                before: (logic) =>
+                    logic.actions.setSchemaSyncedColumns(logic.values.databaseSchema[0], ['created_at', 'id']),
+                expected: { sync_type: 'incremental', incremental_field: 'created_at' },
+            },
+            {
                 name: 'an answer for an earlier discovery is ignored',
                 source: postgresSource,
                 fields: [
@@ -1961,6 +1972,34 @@ describe('sourceWizardLogic', () => {
 
             try {
                 expect(recommend.mock.calls.map(([, body]) => body.tables.length)).toEqual([512, 1])
+            } finally {
+                unmount()
+            }
+        })
+
+        it('keeps the picks of the batches that answered when another batch fails', async () => {
+            const fields = [
+                { ...createdAt, recommended: true },
+                { ...modelPick, recommended: false, picked_by_model: undefined },
+            ]
+            jest.spyOn(api.externalDataSources, 'database_schema').mockResolvedValue(
+                Array.from({ length: 513 }, (_, n) => apiSchema(`public.t${n}`, { incremental_fields: fields }))
+            )
+            jest.mocked(externalDataSourcesIncrementalFieldRecommendationsCreate)
+                .mockReset()
+                .mockRejectedValueOnce(new Error('gateway timeout'))
+                .mockResolvedValueOnce({
+                    tables: [
+                        { table: 'public.t512', incremental_fields: [modelPick, { ...createdAt, recommended: false }] },
+                    ],
+                } as unknown as RecommendationsResponse)
+
+            const { logic, unmount } = await mountAndLoadSchemas(postgresSource)
+
+            try {
+                const byTable = Object.fromEntries(logic.values.databaseSchema.map((s) => [s.table, s]))
+                expect(byTable['public.t0'].incremental_field).toBe('created_at')
+                expect(byTable['public.t512'].incremental_field).toBe('fecha_actualizacion')
             } finally {
                 unmount()
             }

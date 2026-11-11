@@ -84,14 +84,19 @@ class IncrementalFieldCandidateSerializer(serializers.Serializer):
         required=False, help_text="Whether the decision model, not the name rules, picked this field."
     )
     notes = serializers.ListField(
-        child=serializers.CharField(), required=False, help_text="Trade-offs of picking this field."
+        child=serializers.CharField(max_length=1000),
+        max_length=16,
+        required=False,
+        help_text="Trade-offs of picking this field.",
     )
 
 
 class IncrementalFieldTableSerializer(serializers.Serializer):
     table = serializers.CharField(trim_whitespace=False, help_text="Name of the table, as returned by database_schema.")
-    incremental_fields = IncrementalFieldCandidateSerializer(
-        many=True, help_text="Candidate incremental fields of the table, as returned by database_schema."
+    incremental_fields = serializers.ListField(
+        child=IncrementalFieldCandidateSerializer(),
+        max_length=1000,
+        help_text="Candidate incremental fields of the table, as returned by database_schema.",
     )
 
 

@@ -1478,6 +1478,12 @@ export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesI
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemFieldTypeMax = 32
 
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesItemMax = 1000
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesMax = 16
+
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 1000
+
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 512
 
 export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
@@ -1519,9 +1525,22 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
                                 .boolean()
                                 .optional()
                                 .describe('Whether the decision model, not the name rules, picked this field.'),
-                            notes: zod.array(zod.string()).optional().describe('Trade-offs of picking this field.'),
+                            notes: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesItemMax
+                                        )
+                                )
+                                .max(
+                                    externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsItemNotesMax
+                                )
+                                .optional()
+                                .describe('Trade-offs of picking this field.'),
                         })
                     )
+                    .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax)
                     .describe('Candidate incremental fields of the table, as returned by database_schema.'),
             })
         )

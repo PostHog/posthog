@@ -1998,7 +1998,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             try {
                 // The endpoint takes at most this many tables per request, so larger sources go in batches.
                 const batches = chunk(tables, MAX_RECOMMENDATION_TABLES)
-                const responses = await Promise.all(
+                // A failed batch drops only its own tables.
+                const settled = await Promise.allSettled(
                     batches.map((batch) =>
                         externalDataSourcesIncrementalFieldRecommendationsCreate(String(values.currentTeamId), {
                             tables: batch.map((schema) => ({
@@ -2009,8 +2010,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     )
                 )
                 picked = new Map(
-                    responses.flatMap((response) =>
-                        response.tables.map((table) => [table.table, table.incremental_fields as IncrementalField[]])
+                    settled.flatMap((result) =>
+                        result.status === 'fulfilled'
+                            ? result.value.tables.map((table) => [
+                                  table.table,
+                                  table.incremental_fields as IncrementalField[],
+                              ])
+                            : []
                     )
                 )
             } catch {
@@ -2038,8 +2044,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         (previous.sync_type === 'full_refresh' ||
                             (schema.incremental_field ?? undefined) === previous.incremental_field)
                     const next = defaultPollingSyncSettings(updated, connectorName)
-                    const masked = !!next.incremental_field && !!schema.masked_columns?.includes(next.incremental_field)
-                    if (untouched && !masked) {
+                    // A column the person masked or left out of the sync cannot be the cursor.
+                    const pickedField = next.incremental_field
+                    const blocked =
+                        !!pickedField &&
+                        (!!schema.masked_columns?.includes(pickedField) ||
+                            (!!schema.enabled_columns && !schema.enabled_columns.includes(pickedField)))
+                    if (untouched && !blocked) {
                         updated.sync_type = next.sync_type
                         updated.incremental_field = next.incremental_field ?? null
                         updated.incremental_field_type = next.incremental_field_type ?? null
