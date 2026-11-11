@@ -97,48 +97,55 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
                 const projectId = String(values.currentTeamId)
                 const payload = toWritePayload(form)
                 let created: PlatformAlertConfigurationApi | null = null
+                // The create modal owns the destinations logic, and closing the modal mid-save would
+                // unmount it before its pending destinations are sent.
+                const unmountDestinations = props.alert ? null : metricsAlertDestinationsLogic({}).mount()
                 try {
-                    if (props.alert) {
-                        await platformAlertsPartialUpdate(projectId, props.alert.id, {
-                            source_kind: PatchedMetricsPlatformAlertConfigurationEditApiSourceKind.Metrics,
-                            ...payload,
-                        })
-                        posthog.capture('metrics alert updated', { condition_kind: form.conditionKind })
-                        lemonToast.success('Alert updated')
-                    } else {
-                        created = await platformAlertsCreate(projectId, {
-                            source_kind: MetricsPlatformAlertConfigurationCreateApiSourceKind.Metrics,
-                            ...payload,
-                        })
-                        posthog.capture('metrics alert created', {
-                            condition_kind: form.conditionKind,
-                            grouped: form.groupByLabels.length > 0,
-                        })
-                        lemonToast.success('Alert created')
+                    try {
+                        if (props.alert) {
+                            await platformAlertsPartialUpdate(projectId, props.alert.id, {
+                                source_kind: PatchedMetricsPlatformAlertConfigurationEditApiSourceKind.Metrics,
+                                ...payload,
+                            })
+                            posthog.capture('metrics alert updated', { condition_kind: form.conditionKind })
+                            lemonToast.success('Alert updated')
+                        } else {
+                            created = await platformAlertsCreate(projectId, {
+                                source_kind: MetricsPlatformAlertConfigurationCreateApiSourceKind.Metrics,
+                                ...payload,
+                            })
+                            posthog.capture('metrics alert created', {
+                                condition_kind: form.conditionKind,
+                                grouped: form.groupByLabels.length > 0,
+                            })
+                            lemonToast.success('Alert created')
+                        }
+                    } catch (error) {
+                        lemonToast.error(saveErrorMessage(error))
+                        throw error
                     }
-                } catch (error) {
-                    lemonToast.error(saveErrorMessage(error))
-                    throw error
+                    let failedTypes: string[] = []
+                    if (created) {
+                        // The create modal holds the destinations picked before the alert existed.
+                        const destinationsLogic = metricsAlertDestinationsLogic({})
+                        await destinationsLogic.asyncActions.createPendingDestinations(created.id)
+                        failedTypes = destinationsLogic.values.pendingDestinations.map(
+                            (destination) => describePendingDestination(destination).title
+                        )
+                    }
+                    actions.loadAlerts()
+                    props.onSubmitSuccess?.()
+                    // The alert exists now, so a retry belongs in its edit modal, not in a second create.
+                    if (created && failedTypes.length > 0) {
+                        lemonToast.error(
+                            `Alert created, but these destinations could not be added: ${failedTypes.join(', ')}. Add them again here.`
+                        )
+                        actions.openEditAlertModal(created)
+                    }
+                    return form
+                } finally {
+                    unmountDestinations?.()
                 }
-                let failedTypes: string[] = []
-                if (created) {
-                    // The create modal holds the destinations picked before the alert existed.
-                    const destinationsLogic = metricsAlertDestinationsLogic({})
-                    await destinationsLogic.asyncActions.createPendingDestinations(created.id)
-                    failedTypes = destinationsLogic.values.pendingDestinations.map(
-                        (destination) => describePendingDestination(destination).title
-                    )
-                }
-                actions.loadAlerts()
-                props.onSubmitSuccess?.()
-                // The alert exists now, so a retry belongs in its edit modal, not in a second create.
-                if (created && failedTypes.length > 0) {
-                    lemonToast.error(
-                        `Alert created, but these destinations could not be added: ${failedTypes.join(', ')}. Add them again here.`
-                    )
-                    actions.openEditAlertModal(created)
-                }
-                return form
             },
         },
     })),

@@ -1,9 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { LemonBanner } from '@posthog/lemon-ui'
-
-import { slackIntegrationLogic } from 'lib/integrations/slackIntegrationLogic'
 
 import {
     AlertNotificationDestinationEditor,
@@ -50,15 +47,6 @@ export function MetricsAlertNotifications({ alertId }: { alertId?: string }): JS
         loadDestinations,
         setSelectedSlackIntegrationId,
     } = useActions(logic)
-
-    const slackLogic = slackIntegrationLogic({ id: slackIntegration?.id ?? 0 })
-    const { loadAllSlackChannels } = useActions(slackLogic)
-
-    useEffect(() => {
-        if (slackIntegration) {
-            loadAllSlackChannels()
-        }
-    }, [slackIntegration?.id, loadAllSlackChannels, slackIntegration])
 
     const existing: AlertNotificationDestinationView[] = destinations.map((destination) => ({
         key: destination.id,
