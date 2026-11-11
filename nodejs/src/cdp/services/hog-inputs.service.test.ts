@@ -579,6 +579,10 @@ describe('Hog Inputs', () => {
 
                 expect(queued).toMatchObject({ name: 'TimeoutError' })
             } finally {
+                for (let turn = 0; jest.getTimerCount() > 0 && turn < 1000; turn++) {
+                    jest.runOnlyPendingTimers()
+                    await nextTurn()
+                }
                 jest.useRealTimers()
                 configureEventLoopYield(threshold)
             }
