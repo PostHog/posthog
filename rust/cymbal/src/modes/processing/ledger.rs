@@ -8,12 +8,14 @@ use uuid::Uuid;
 const RECORD_LUA: &str = r#"
 local windows = tonumber(ARGV[1])
 local first_issue = 2 + 2 * windows
-local fields = { '_n' }
+local issues = {}
 local total = 0
 for arg = first_issue, #ARGV, 2 do
-  fields[#fields + 1] = ARGV[arg]
+  issues[#issues + 1] = ARGV[arg]
   total = total + tonumber(ARGV[arg + 1])
 end
+-- unpack() fails past the Lua stack limit of a few thousand values, after the increments are already written.
+local chunk = 1000
 
 local out = {}
 local key = 1
@@ -29,11 +31,15 @@ for window = 0, windows - 1 do
     redis.call('expire', current, tonumber(ARGV[3 + 2 * window]))
   end
   for bucket = 0, buckets - 1 do
-    local counts = redis.call('hmget', KEYS[key + bucket], unpack(fields))
-    out[#out + 1] = tonumber(counts[1]) or 0
-    out[#out + 1] = redis.call('hlen', KEYS[key + bucket])
-    for field = 2, #fields do
-      out[#out + 1] = tonumber(counts[field]) or 0
+    local bucket_key = KEYS[key + bucket]
+    out[#out + 1] = tonumber(redis.call('hget', bucket_key, '_n')) or 0
+    out[#out + 1] = redis.call('hlen', bucket_key)
+    for first = 1, #issues, chunk do
+      local last = math.min(first + chunk - 1, #issues)
+      local counts = redis.call('hmget', bucket_key, unpack(issues, first, last))
+      for index = 1, #counts do
+        out[#out + 1] = tonumber(counts[index]) or 0
+      end
     end
   end
   key = key + buckets
@@ -248,6 +254,17 @@ mod tests {
             .unwrap();
         assert_eq!(next_hour[1].issues[0].counts[..2], [1, 8]);
         assert_eq!(next_hour[1].team.counts[..2], [1, 9]);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires Docker for Redis container"]
+    async fn records_a_batch_with_more_issues_than_the_lua_stack_holds() {
+        let (redis, _container) = start_redis().await;
+        let batch: Vec<_> = (0..10_000).map(|_| (Uuid::now_v7(), 1)).collect();
+        let counts = ledger().record(&*redis, 7, 0, &batch).await.unwrap();
+        assert_eq!(counts[0].team.current(), 10_000);
+        assert_eq!(counts[0].active_issues[0], 10_000);
+        assert!(counts[1].issues.iter().all(|issue| issue.current() == 1));
     }
 
     #[tokio::test]
