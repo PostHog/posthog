@@ -1,7 +1,8 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'fs'
 import http from 'http'
+import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
@@ -10,7 +11,7 @@ import { setTimeout as nextTimers } from 'timers/promises'
 import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { defaultConfig } from '~/common/config/config'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -60,13 +61,29 @@ const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
 }
 
-const callsOf = (file: string): string[][] =>
-    existsSync(file)
-        ? readFileSync(file, 'utf8')
-              .split('\n')
-              .filter(Boolean)
-              .map((line) => parseJSON(line))
-        : []
+const sesLimiterOn = ({
+    host,
+    port,
+}: {
+    host: string
+    port: number
+}): { limiter: RateLimiterService; close: () => Promise<void> } => {
+    const client = new Redis({ host, port, lazyConnect: true, maxRetriesPerRequest: 0 })
+    const valkey: RedisV2 = {
+        useClient: async (_options, use) => await use(client as unknown as RedisClient),
+        usePipeline: async (_options, build) => {
+            const pipeline = client.pipeline()
+            build(pipeline as unknown as RedisClientPipeline)
+            return await pipeline.exec()
+        },
+    }
+    return {
+        limiter: new RateLimiterService(valkey, { name: 'scenario-reset' }),
+        close: async () => {
+            await client.quit()
+        },
+    }
+}
 
 describe('scenario environment', () => {
     describe('planCleanup', () => {
@@ -350,12 +367,7 @@ describe('scenario environment', () => {
     })
 
     it('refills the SES token bucket the email worker claims from, so a reset starts with a full one', async () => {
-        const valkey = createRedisV2PoolFromConfig({
-            connection: { url: '127.0.0.1', options: { port: 6379 } },
-            poolMinSize: 1,
-            poolMaxSize: 1,
-        })
-        const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+        const { limiter, close } = sesLimiterOn({ host: '127.0.0.1', port: 6379 })
         const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
         try {
             await limiter.claimUpTo(claim)
@@ -366,6 +378,7 @@ describe('scenario environment', () => {
             expect(await limiter.claimUpTo(claim)).toBe(5)
         } finally {
             await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
+            await close()
         }
     })
 
@@ -670,11 +683,32 @@ describe('scenario environment', () => {
             const fs = require('fs')
             const path = require('path')
             const args = process.argv.slice(2)
-            fs.appendFileSync(path.join(__dirname, 'hogli-calls'), JSON.stringify(args) + '\\n')
-            if (args.join(' ') === 'wait --timeout 0') {
-                process.exit(Number(fs.readFileSync(path.join(__dirname, 'hogli-wait'), 'utf8')))
+            const command = args.join(' ')
+            const stateFile = path.join(__dirname, 'stack.json')
+            const stack = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
+            const fail = (why) => {
+                process.stderr.write(why + '\\n')
+                process.exit(1)
             }
-            if (args[0] === 'dev:sync-hog-templates') {
+            if (command === 'wait --timeout 0') {
+                process.exit(stack.running ? 0 : 3)
+            } else if (command === 'wait') {
+                process.exit(stack.running ? 0 : 1)
+            } else if (command === 'dev:generate --with workflows --without nodejs') {
+                const units = ['backend', 'frontend', 'workflows']
+                fs.writeFileSync(
+                    process.env.HOGLI_MPROCS_PATH,
+                    'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
+                )
+            } else if (args[0] === 'up' && args.length === 4 && args[1] === '-d' && args[2] === '--custom') {
+                if (!fs.existsSync(args[3])) {
+                    fail('No mprocs config at ' + args[3])
+                }
+                if (/^  nodejs:/m.test(fs.readFileSync(args[3], 'utf8'))) {
+                    fail('The config at ' + args[3] + ' starts nodejs')
+                }
+                fs.writeFileSync(stateFile, JSON.stringify({ running: true, starts: stack.starts + 1 }))
+            } else if (command === 'dev:sync-hog-templates') {
                 const { Client } = require(${JSON.stringify(require.resolve('pg'))})
                 const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
                 client
@@ -683,47 +717,52 @@ describe('scenario environment', () => {
                     .then(() => client.end())
                     .then(
                         () => process.exit(0),
-                        (error) => {
-                            process.stderr.write(String(error))
-                            process.exit(1)
-                        }
+                        (error) => fail(String(error))
                     )
+            } else {
+                fail('The fake hogli has no command ' + command)
             }
         `
         const fakeDocker = `
             const fs = require('fs')
             const path = require('path')
             const args = process.argv.slice(2)
-            fs.appendFileSync(path.join(__dirname, 'docker-calls'), JSON.stringify(args) + '\\n')
             const [exec, container, rpk, noun, verb, group] = args
-            if (
-                [exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' ||
-                !['describe', 'seek'].includes(verb)
-            ) {
-                process.stderr.write('The up test ran docker ' + args.join(' '))
+            const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
+            const describes = args.length === 6 && verb === 'describe'
+            const seeks =
+                args.length === 11 &&
+                verb === 'seek' &&
+                to === '--to' &&
+                ['start', 'end'].includes(position) &&
+                topicsFlag === '--topics' &&
+                allowNew === '--allow-new-topics'
+            if ([exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' || !(describes || seeks)) {
+                process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            if (verb === 'seek') {
-                const topic = args[args.indexOf('--topics') + 1]
+            if (seeks) {
                 const answer = path.join(__dirname, 'seek')
-                const { stdout, stderr, code } = fs.existsSync(answer)
-                    ? JSON.parse(fs.readFileSync(answer, 'utf8'))
-                    : {
-                          stdout: 'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n',
-                          stderr: '',
-                          code: 0,
-                      }
-                process.stdout.write(stdout)
-                process.stderr.write(stderr)
-                process.exit(code)
+                if (fs.existsSync(answer)) {
+                    const { stdout, stderr, code } = JSON.parse(fs.readFileSync(answer, 'utf8'))
+                    process.stdout.write(stdout)
+                    process.stderr.write(stderr)
+                    process.exit(code)
+                }
+                const offsets = path.join(__dirname, 'offsets.json')
+                const groups = fs.existsSync(offsets) ? JSON.parse(fs.readFileSync(offsets, 'utf8')) : {}
+                groups[group] = { ...groups[group], [topic]: position }
+                fs.writeFileSync(offsets, JSON.stringify(groups))
+                process.stdout.write('TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n')
+                process.exit(0)
             }
-            const counts = JSON.parse(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
-            const members = counts.length > 0 ? counts.shift() : 0
-            fs.writeFileSync(path.join(__dirname, 'members'), JSON.stringify(counts))
+            const members = Number(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
             )
+            const answers = path.join(__dirname, 'answers')
+            fs.writeFileSync(answers, String((fs.existsSync(answers) ? Number(fs.readFileSync(answers, 'utf8')) : 0) + 1))
         `
         const jobsSchema = `scenario_reset_${process.pid}`
         const cyclotronUrl = inSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, jobsSchema)
@@ -743,8 +782,12 @@ describe('scenario environment', () => {
             const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({})))
             return { group, topic: topics[0] }
         }
-        const rolePids = new Map<string, number>()
+        const offsetsOf = (): Record<string, Record<string, string>> =>
+            existsSync(path.join(fakes, 'offsets.json'))
+                ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
+                : {}
         let fakes = ''
+        let cacheDir = ''
         let stranger: ChildProcess | undefined
         let environment: Environment | undefined
         let portHolder: http.Server | undefined
@@ -760,8 +803,13 @@ describe('scenario environment', () => {
             portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
             await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
         }
-        const answerMembers = (counts: number[]): void =>
-            writeFileSync(path.join(fakes, 'members'), JSON.stringify(counts))
+        const answerMembers = (members: number): void => writeFileSync(path.join(fakes, 'members'), String(members))
+        const answersSoFar = (): number =>
+            existsSync(path.join(fakes, 'answers')) ? Number(readFileSync(path.join(fakes, 'answers'), 'utf8')) : 0
+        const writeStack = (stack: { running: boolean; starts: number }): void =>
+            writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
+        const stackOf = (): { running: boolean; starts: number } =>
+            parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
         const environmentOf = (): Environment =>
             createEnvironment({
                 hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
@@ -802,8 +850,8 @@ describe('scenario environment', () => {
             fakes = mkdtempSync(path.join(os.tmpdir(), 'scenario-fakes-'))
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
-            writeFileSync(path.join(fakes, 'hogli-wait'), '0')
-            answerMembers([])
+            writeStack({ running: true, starts: 0 })
+            answerMembers(0)
             process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
             await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
             await withPostgres(async (client) => {
@@ -853,10 +901,10 @@ describe('scenario environment', () => {
                     }
                 })
                 stubRolePids.add(role.pid!)
-                rolePids.set(mode!, role.pid!)
                 return role
             }) as unknown as typeof childProcess.spawn)
-            process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
+            cacheDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
+            process.env.XDG_CACHE_HOME = cacheDir
         })
 
         afterEach(async () => {
@@ -868,7 +916,6 @@ describe('scenario environment', () => {
             losesItsPort = undefined
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
-            rolePids.clear()
             if (cyclotronFromEnv === undefined) {
                 delete process.env.CYCLOTRON_NODE_DATABASE_URL
             } else {
@@ -881,40 +928,37 @@ describe('scenario environment', () => {
             } else {
                 process.env.XDG_CACHE_HOME = cacheHome
             }
+            rmSync(fakes, { recursive: true, force: true })
+            rmSync(cacheDir, { recursive: true, force: true })
         })
 
-        it('waits for a dead consumer to leave the events group instead of refusing it', async () => {
-            answerMembers([1, 1])
+        it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
+            answerMembers(1)
             environment = environmentOf()
+            let settled = false
+            const upping = environment.up().finally(() => {
+                settled = true
+            })
+            upping.catch(() => undefined)
 
-            await expect(environment.up()).resolves.toBeUndefined()
-            const describe = ['exec', 'posthog-kafka-1', 'rpk', 'group', 'describe', 'cdp-processed-events-consumer']
-            expect(callsOf(path.join(fakes, 'docker-calls'))).toEqual([describe, describe, describe])
+            await waitForExpect(() => expect(answersSoFar()).toBeGreaterThan(1), 10_000)
+            expect({ settled, apiPortFree: await isPortFree(ROLE_PORTS['cdp-api']) }).toEqual({
+                settled: false,
+                apiPortFree: true,
+            })
+            answerMembers(0)
+
+            await expect(upping).resolves.toBeUndefined()
         }, 30_000)
 
-        it.each<[string, string, string[], (stateDir: string) => string[][]]>([
-            ['a running stack', '0', STACK.templates, () => [['wait', '--timeout', '0'], ['wait']]],
-            [
-                'a stack hogli cannot reach',
-                '3',
-                STACK.templates,
-                (stateDir) => [
-                    ['wait', '--timeout', '0'],
-                    ['dev:generate', '--with', 'workflows', '--without', 'nodejs'],
-                    ['up', '-d', '--custom', path.join(stateDir, 'mprocs.yaml')],
-                    ['wait'],
-                ],
-            ],
-            [
-                'a stack whose Django lacks the templates',
-                '0',
-                [],
-                () => [['wait', '--timeout', '0'], ['wait'], ['dev:sync-hog-templates']],
-            ],
+        it.each<[string, boolean, string[], number]>([
+            ['a running stack', true, STACK.templates, 0],
+            ['a stack hogli cannot reach', false, STACK.templates, 1],
+            ['a stack whose Django lacks the templates', true, [], 0],
         ])(
-            'asks hogli to bring up %s and ends with the templates in Django',
-            async (_name, waitExit, templates, commands) => {
-                writeFileSync(path.join(fakes, 'hogli-wait'), waitExit)
+            'brings up %s through hogli and ends with the templates in Django',
+            async (_name, running, templates, starts) => {
+                writeStack({ running, starts: 0 })
                 await withPostgres(
                     (client) =>
                         client.query('DELETE FROM posthog_hogfunctiontemplate WHERE NOT (template_id = ANY($1))', [
@@ -926,11 +970,8 @@ describe('scenario environment', () => {
 
                 await environment.up()
 
-                expect({
-                    commands: callsOf(path.join(fakes, 'hogli-calls')),
-                    templates: await templatesInDjango(),
-                }).toEqual({
-                    commands: commands(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')),
+                expect({ stack: stackOf(), templates: await templatesInDjango() }).toEqual({
+                    stack: { running: true, starts },
                     templates: [...STACK.templates].sort(),
                 })
             },
@@ -941,12 +982,13 @@ describe('scenario environment', () => {
             const role = 'cdp-processed-events'
             environment = environmentOf()
             await environment.up()
-            const killed = rolePids.get(role)!
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const killed = Number(await (await internalFetch(health)).text())
 
             process.kill(killed, 'SIGKILL')
 
             await waitForExpect(async () => {
-                const answer = await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)
+                const answer = await internalFetch(health)
                 expect(answer.status).toBe(200)
                 expect(Number(await answer.text())).not.toBe(killed)
             }, 15_000)
@@ -1040,12 +1082,7 @@ describe('scenario environment', () => {
         )
 
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
-            const valkey = createRedisV2PoolFromConfig({
-                connection: { url: testRedis.host, options: { port: testRedis.port } },
-                poolMinSize: 1,
-                poolMaxSize: 1,
-            })
-            const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+            const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
             const { group, topic } = eventsGroup()
             environment = environmentOf()
@@ -1066,78 +1103,57 @@ describe('scenario environment', () => {
                 expect({
                     jobs: await jobsLeft(),
                     tokens: await limiter.claimUpTo(claim),
-                    seeks: callsOf(path.join(fakes, 'docker-calls')).filter((call) => call[4] === 'seek'),
+                    offsets: offsetsOf(),
                 }).toEqual({
                     jobs: ['completed'],
                     tokens: 5,
-                    seeks: [
-                        [
-                            'exec',
-                            'posthog-kafka-1',
-                            'rpk',
-                            'group',
-                            'seek',
-                            group,
-                            '--to',
-                            'end',
-                            '--topics',
-                            topic,
-                            '--allow-new-topics',
-                        ],
-                    ],
+                    offsets: { [group]: { [topic]: 'end' } },
                 })
             } finally {
                 await forgetSesBucket(testRedis)
+                await close()
             }
         }, 30_000)
 
-        it.each<[string, (topic: string) => { stdout: string; stderr: string; code: number }, boolean]>([
+        it.each<[string, { stdout: string; stderr: string; code: number }, string | null]>([
             [
                 'a topic that does not exist yet',
-                () => ({
+                {
                     stdout: '',
                     stderr: 'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
                     code: 1,
-                }),
-                true,
+                },
+                null,
             ],
             [
                 'a partition the broker refused to move',
-                (topic) => ({
-                    stdout: [
-                        ['TOPIC', 'PARTITION', 'PRIOR-OFFSET', 'CURRENT-OFFSET', 'ERROR'],
-                        [topic, '0', '-1', '-1', 'INVALID_OPERATION: seeking a non-empty group is not allowed.'],
-                    ]
-                        .map(([name, ...columns]) =>
-                            [name.padEnd(topic.length + 2), ...columns.map((column) => column.padEnd(16))]
-                                .join('')
-                                .trimEnd()
-                        )
-                        .map((line) => `${line}\n`)
-                        .join(''),
+                {
+                    stdout:
+                        'TOPIC                 PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\n' +
+                        'scenario_seek_events  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\n',
                     stderr: '',
                     code: 1,
-                }),
-                false,
+                },
+                'Could not move scenario-seek-group to the end of scenario_seek_events:\nscenario_seek_events/0: INVALID_OPERATION: seeking a non-empty group is not allowed.',
             ],
         ])(
             'moves the events group past %s only when rpk reports no failed partition',
-            async (_name, answer, resets) => {
-                const { group, topic } = eventsGroup()
-                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(answer(topic)))
+            async (_name, rpkSeek, failure) => {
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
                 environment = environmentOf()
                 await environment.up()
 
-                const failure = await environment.reset({}).then(
-                    () => null,
-                    (error: Error) => error.message
-                )
+                const outcome = await environment
+                    .reset({
+                        CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-seek-group',
+                        CDP_EVENTS_CONSUMER_TOPIC: 'scenario_seek_events',
+                    })
+                    .then(
+                        () => null,
+                        (error: Error) => error.message
+                    )
 
-                expect(failure).toEqual(
-                    resets
-                        ? null
-                        : `Could not move ${group} to the end of ${topic}:\n${topic}/0: INVALID_OPERATION: seeking a non-empty group is not allowed.`
-                )
+                expect(outcome).toEqual(failure)
             },
             30_000
         )
