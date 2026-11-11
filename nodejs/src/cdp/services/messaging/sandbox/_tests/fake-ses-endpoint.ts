@@ -26,6 +26,7 @@ export type SesReply =
     | { kind: 'error'; status: number; errorType: string }
     | { kind: 'accept-without-id' }
     | { kind: 'hang' }
+    | { kind: 'deliver-without-reply' }
     | { kind: 'drop' }
 
 export const SES_THROTTLE: SesReply = { kind: 'error', status: 400, errorType: 'ThrottlingException' }
@@ -68,10 +69,14 @@ export class FakeSesEndpoint {
         return `http://127.0.0.1:${(this.server.address() as AddressInfo).port}`
     }
 
-    async stop(): Promise<void> {
+    dropConnections(): void {
         for (const socket of this.sockets) {
             socket.destroy()
         }
+    }
+
+    async stop(): Promise<void> {
+        this.dropConnections()
         await new Promise<void>((resolve) => (this.server ? this.server.close(() => resolve()) : resolve()))
         for (const [key, value] of Object.entries(this.savedCredentials)) {
             if (value === undefined) {
@@ -91,6 +96,10 @@ export class FakeSesEndpoint {
         this.attempts += 1
         const reply = this.replies.shift() ?? this.everyReply
         if (reply?.kind === 'hang') {
+            return
+        }
+        if (reply?.kind === 'deliver-without-reply') {
+            this.delivered.push(toDeliveredEmail(parseJSON(body), `ses-${this.delivered.length + 1}`))
             return
         }
         if (reply?.kind === 'drop') {

@@ -1,8 +1,10 @@
 import { randomUUID } from 'crypto'
 
 import { defaultConfig } from '~/common/config/config'
+import { StallingValkeyProxy } from '~/common/redis/_tests/stalling-valkey-proxy'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
 import {
     createOrganization,
     createOrganizationMembership,
@@ -12,7 +14,11 @@ import {
 import { Team } from '~/types'
 
 import { createMissingSandboxSenderTables } from './_tests/sandbox-world'
-import { MAX_WAITING_AUTHORIZATION_CONNECTIONS, readSandboxAuthorization } from './sandbox-authorization'
+import {
+    MAX_PENDING_AUTHORIZATION_CONNECTIONS,
+    readSandboxAuthorization,
+    sandboxReadRouter,
+} from './sandbox-authorization'
 
 describe('readSandboxAuthorization', () => {
     let postgres: PostgresRouter
@@ -173,35 +179,80 @@ describe('readSandboxAuthorization', () => {
             await onePoolRouter.end()
         })
 
-        it('refuses at once while enough reads wait for a connection, also after they time out, until the pool frees one', async () => {
+        it('refuses at once after enough reads gave up waiting for a connection, until the pool frees one', async () => {
             await createMember(memberEmail, organizationId, true)
-            const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            const busy = await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)
             const queued = (): Promise<string> => new Promise((resolve) => setTimeout(resolve, 100, 'queued'))
             try {
-                const waiting = Array.from({ length: MAX_WAITING_AUTHORIZATION_CONNECTIONS }, () =>
-                    readThrough(onePoolRouter)
+                const gaveUp = await Promise.all(
+                    Array.from({ length: MAX_PENDING_AUTHORIZATION_CONNECTIONS }, () => readThrough(onePoolRouter))
                 )
+                expect(gaveUp).toEqual(gaveUp.map(() => unavailable))
 
-                expect(
-                    await Promise.race([readThrough(onePoolRouter), waiting[0].then(() => 'a waiting read')])
-                ).toEqual(unavailable)
-                expect(await Promise.all(waiting)).toEqual(waiting.map(() => unavailable))
                 expect(await Promise.race([readThrough(onePoolRouter), queued()])).toEqual(unavailable)
             } finally {
                 busy.release()
             }
-            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+            ;(await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)).release()
 
             expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
 
+        it('serves a burst of more reads than that limit while the pool keeps answering', async () => {
+            await createMember(memberEmail, organizationId, true)
+
+            const burst = await Promise.all(
+                Array.from({ length: 3 * MAX_PENDING_AUTHORIZATION_CONNECTIONS }, () =>
+                    readSandboxAuthorization(onePoolRouter, {
+                        teamId: team.id,
+                        recipient: memberEmail,
+                        tenantName,
+                        timeoutMs: 10_000,
+                    })
+                )
+            )
+
+            expect(burst).toEqual(burst.map(() => expect.objectContaining({ ok: true, storedAddress: memberEmail })))
+        })
+
+        it('opens at most that many connections to a database that stops answering a burst of reads, and reads again once new connections answer', async () => {
+            await createMember(memberEmail, organizationId, true)
+            const database = new URL(defaultConfig.DATABASE_URL)
+            const proxy = new StallingValkeyProxy({ host: database.hostname, port: Number(database.port || 5432) })
+            database.host = `127.0.0.1:${await proxy.start()}`
+            const wide = new PostgresRouter({
+                ...defaultConfig,
+                DATABASE_URL: database.toString(),
+                POSTGRES_CONNECTION_POOL_SIZE: 3 * MAX_PENDING_AUTHORIZATION_CONNECTIONS,
+            })
+            try {
+                proxy.stopAnswering()
+
+                const burst = await Promise.all(
+                    Array.from({ length: 3 * MAX_PENDING_AUTHORIZATION_CONNECTIONS }, () => readThrough(wide))
+                )
+
+                expect(burst).toEqual(burst.map(() => unavailable))
+                expect(proxy.openConnections).toBeLessThanOrEqual(MAX_PENDING_AUTHORIZATION_CONNECTIONS)
+
+                proxy.answerNewConnections()
+                await waitForExpect(
+                    async () => expect(await readThrough(wide)).toMatchObject({ ok: true, storedAddress: memberEmail }),
+                    10_000
+                )
+            } finally {
+                proxy.stop()
+                await wide.end()
+            }
+        })
+
         it('hands a connection that arrives after the deadline back to the pool', async () => {
             await createMember(memberEmail, organizationId, true)
-            const busy = await onePoolRouter.connect(PostgresUse.COMMON_WRITE)
+            const busy = await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)
             expect(await readThrough(onePoolRouter)).toEqual(unavailable)
 
             busy.release()
-            ;(await onePoolRouter.connect(PostgresUse.COMMON_WRITE)).release()
+            ;(await sandboxReadRouter(onePoolRouter).connect(PostgresUse.COMMON_WRITE)).release()
 
             expect(await readThrough(onePoolRouter)).toMatchObject({ ok: true, storedAddress: memberEmail })
         })
@@ -218,7 +269,7 @@ describe('readSandboxAuthorization', () => {
                 expect(await readThrough(onePoolRouter)).toEqual(unavailable)
                 expect(
                     (
-                        await onePoolRouter.query(
+                        await sandboxReadRouter(onePoolRouter).query(
                             PostgresUse.COMMON_WRITE,
                             'SELECT 1 AS answered',
                             undefined,
@@ -238,15 +289,24 @@ describe('readSandboxAuthorization', () => {
             }
         })
 
-        it('reports authorization as unavailable when connecting fails', async () => {
-            const unreachable = new PostgresRouter({
-                ...defaultConfig,
-                DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1:1/posthog',
-            })
+        it.each([
+            [
+                'the database refuses connections',
+                { DATABASE_URL: 'postgres://posthog:posthog@127.0.0.1:1/posthog' },
+                false,
+            ],
+            ['the router has been ended', {}, true],
+        ])('reports authorization as unavailable when %s', async (_case, config, endFirst) => {
+            const unreachable = new PostgresRouter({ ...defaultConfig, ...config })
             try {
+                if (endFirst) {
+                    await unreachable.end()
+                }
                 expect(await readThrough(unreachable)).toEqual(unavailable)
             } finally {
-                await unreachable.end()
+                if (!endFirst) {
+                    await unreachable.end()
+                }
             }
         })
     })

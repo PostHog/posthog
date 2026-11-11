@@ -8,6 +8,8 @@ import { IconWeb } from 'lib/lemon-ui/icons'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
 
+import type { ExperimentResultConfigurationStatusEnumApi } from 'products/experiments/frontend/generated/api.schemas'
+
 const DATE_FORMAT = 'MMM D, YYYY'
 const DATETIME_FORMAT = 'MMM D, YYYY h:mm A'
 
@@ -24,6 +26,7 @@ export interface VariantTimeseriesTooltipProps {
     denominator?: number
     significant?: boolean
     hasRealData: boolean
+    configurationStatus?: ExperimentResultConfigurationStatusEnumApi
     /** When the timeseries was computed (ISO string), or null if unknown. */
     computedAt: string | null
     /** The variant line's color, shown as the header swatch. */
@@ -75,6 +78,7 @@ export function VariantTimeseriesTooltip({
     denominator,
     significant,
     hasRealData,
+    configurationStatus,
     computedAt,
     color,
 }: VariantTimeseriesTooltipProps): JSX.Element {
@@ -107,6 +111,9 @@ export function VariantTimeseriesTooltip({
                     }
                 />
             )}
+
+            {configurationStatus === 'previous' && <TooltipFooter>Calculated with earlier settings</TooltipFooter>}
+            {configurationStatus === 'unknown' && <TooltipFooter>Calculation settings not recorded</TooltipFooter>}
 
             {!hasRealData && (
                 <TooltipFooter>

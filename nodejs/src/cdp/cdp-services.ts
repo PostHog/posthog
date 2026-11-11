@@ -14,7 +14,7 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -37,6 +37,7 @@ import { RecipientsManagerService } from './services/managers/recipients-manager
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailService, parseTeamEmailCapMode, parseTierCaps } from './services/messaging/email.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -72,6 +73,7 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
 
@@ -130,6 +132,7 @@ export interface CdpCoreServices {
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
     emailStatusService: EmailStatusService
+    emailTrackingService: EmailTrackingService
 }
 
 export type CdpCoreServicesConfig = Pick<
@@ -190,6 +193,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER'
         | 'CDP_EMAIL_UTM_LINK_SCANNER_TEAMS'
         | 'CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS'
+        | 'CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CONVERSATIONS_TICKETS_JWT_SECRET'
         | 'CUSTOMER_ANALYTICS_ACCOUNTS_JWT_SECRET'
@@ -215,6 +219,9 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_TOPIC'
+        | 'CDP_SES_WEBHOOKS_PRODUCER'
+        | 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     > &
     InternalLogsProducerConfig
 
@@ -466,6 +473,7 @@ export function createCdpCoreServices(
     const emailSuppressionService = new EmailSuppressionService(deps.postgres, {
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
         globalHardBounceEnforce: config.EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE,
+        softBounceEventTimeTeams: config.CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
@@ -641,6 +649,19 @@ export function createCdpCoreServices(
         emailStatusService
     )
 
+    const emailTrackingService = new EmailTrackingService(
+        hogFunctionManager,
+        hogFlowManager,
+        hogFunctionMonitoringService,
+        capturedEventsService,
+        teamWorkflowsConfigService,
+        trackingCodeSigner,
+        emailSuppressionService,
+        emailStatusService,
+        redis,
+        config.CDP_SES_WEBHOOKS_QUEUE_ENABLED ? outputs : null
+    )
+
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)
     const segmentDestinationExecutorService = new SegmentDestinationExecutorService(config)
 
@@ -676,5 +697,6 @@ export function createCdpCoreServices(
         emailService,
         messageAssetsService,
         emailStatusService,
+        emailTrackingService,
     }
 }

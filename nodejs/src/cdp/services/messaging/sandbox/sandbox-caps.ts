@@ -8,7 +8,7 @@ const BUCKET_TTL_SECONDS = 2 * SECONDS_PER_DAY
 export type SandboxCaps = { team: number; recipient: number }
 
 export type SandboxCapClaim =
-    | { ok: true; markSent: () => Promise<boolean> }
+    | { ok: true; markSending: () => Promise<boolean>; releaseUnsent: () => Promise<boolean> }
     | { ok: false; reason: 'daily_cap_reached' | 'cap_storage_unavailable' }
 
 export type SandboxCapClaimRequest = {
@@ -47,7 +47,11 @@ export async function claimSandboxCaps(
         { key: claimKey, attempt, ttlSeconds: BUCKET_TTL_SECONDS }
     )
     if (claim === 'granted') {
-        return { ok: true, markSent: () => limiter.markClaimSpent({ key: claimKey, attempt }) }
+        return {
+            ok: true,
+            markSending: () => limiter.markClaimSpent({ key: claimKey, attempt }),
+            releaseUnsent: () => limiter.releaseClaimSpend({ key: claimKey, attempt }),
+        }
     }
     return { ok: false, reason: claim === 'denied' ? 'daily_cap_reached' : 'cap_storage_unavailable' }
 }

@@ -2,13 +2,16 @@ import { randomUUID } from 'crypto'
 import express from 'ultimate-express'
 import { z } from 'zod'
 
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
 import { ScopedServiceJwt } from '../../../utils/scoped-service-jwt'
 import { SandboxEmailStepResult } from '../../hogflows/actions/email_sandbox'
 import { RateLimitedQueueOptions, sesRateLimitedQueueOptions } from '../../job-queue/job-queue-rate-limited-postgres-v2'
-import { RateLimiterValkeyConfig, createSesRateLimiterValkeyPool } from '../../rate-limiter/rate-limiter-valkey-pool'
+import { OPTIONAL_VALKEY_TIMEOUT_MS, RateLimiterValkeyConfig } from '../../rate-limiter/rate-limiter-valkey-pool'
+import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { SandboxEmailEvents } from './sandbox-email-events'
+import { sesBucketPoolConfig } from './sandbox-email-queue'
 import { SandboxEmailService, SandboxSendOutcome } from './sandbox-email.service'
 
 export const SANDBOX_TEST_SEND_PATH = '/api/projects/:team_id/sandbox_email/test_send'
@@ -31,8 +34,14 @@ export type SandboxEmailTestRouteDeps = {
 export function sandboxTestSendBucket(
     config: RateLimiterValkeyConfig & Parameters<typeof sesRateLimitedQueueOptions>[0]
 ): SandboxEmailTestRouteDeps['sesBucket'] {
-    const valkey = createSesRateLimiterValkeyPool(config, 'sandbox-email-test-send', { optional: true })
-    return valkey ? sesRateLimitedQueueOptions(config, valkey) : null
+    if (!config.SES_RATE_LIMITER_VALKEY_HOST) {
+        return null
+    }
+    const valkey = createRedisV2PoolFromConfig(sesBucketPoolConfig(config, 'sandbox-email-test-send', 0))
+    return {
+        ...sesRateLimitedQueueOptions(config, valkey),
+        limiter: new RateLimiterService(valkey, { name: 'ses', claimDeadlineMs: OPTIONAL_VALKEY_TIMEOUT_MS }),
+    }
 }
 
 export function sandboxEmailTestRouter(deps: SandboxEmailTestRouteDeps): express.Router {
