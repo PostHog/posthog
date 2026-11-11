@@ -42,6 +42,7 @@ Use `posthog:llma-prompt-create`.
 - Write runtime values as `{{variable}}`.
   When you move a prompt out of code, convert each f-string field or template literal placeholder to this form and keep the variable names.
   `compile` only substitutes values. A format spec such as `{amount:.2f}` or an expression such as `${items.length}` stays in the application code, which passes the result as a plain variable.
+  An expression has no variable name, so give it one that says what the value is, for example `{{item_count}}`.
 - Put model settings (model, temperature, tool definitions) in `config` when the user wants to change them without a deploy.
   `config` is versioned with the prompt.
 - Copy the prompt text exactly when you move it. Do not improve the wording in the same step.
@@ -76,6 +77,9 @@ To roll back, point the label at the earlier version.
 The SDK helper exists for Python (`posthog`) and Node (`@posthog/ai` with `posthog-node`).
 For another language, read the docs for current support before you write an HTTP client by hand.
 
+Check the installed SDK version first. The `label` option needs `posthog` 7.26.0 or newer in Python and `@posthog/ai` 8.4.0 or newer in Node.
+Read the lockfile or requirements file, and raise the version in the same change when it is older.
+
 ```python
 import os
 
@@ -107,13 +111,28 @@ Rules that are easy to get wrong:
 
 - **The fetch needs a personal API key with the `llm_prompt:read` scope.** The project token alone is not enough.
   You cannot create this key. Ask the user to create it and to set it as an environment variable or secret. Never write a key into the code.
+  In Python the `Posthog` client takes the key as `secret_key`, and `Prompts` built directly takes it as `personal_api_key`. In Node both take `personalApiKey`.
 - **Use the app host**, `https://us.posthog.com` or `https://eu.posthog.com`.
   An ingestion host such as `https://us.i.posthog.com` does not serve prompts.
   `Prompts` takes its host from the PostHog client you pass in.
-  If the existing client captures events through an ingestion host, construct `Prompts` directly with the personal API key, the project token, and the app host instead.
+  If the existing client captures events through an ingestion host, leave that client as it is and construct `Prompts` directly:
+
+  ```python
+  prompts = Prompts(personal_api_key=os.environ["POSTHOG_PERSONAL_API_KEY"], project_api_key=PROJECT_TOKEN, host="https://us.posthog.com")
+  ```
+
+  ```typescript
+  const prompts = new Prompts({
+    personalApiKey: process.env.POSTHOG_PERSONAL_API_KEY,
+    projectApiKey: PROJECT_TOKEN,
+    host: 'https://us.posthog.com',
+  })
+  ```
+
 - **Keep the original prompt text in the code as the `fallback`.**
   The SDK returns it when PostHog cannot be reached and nothing is cached, so the application keeps working.
 - **Create one `Prompts` client for the process**, at module level. Each client has its own cache. A client created per request fetches on every request.
+- **Call `get` inside the request path**, not at import time. The cache makes repeated calls cheap, and a change in PostHog reaches the application within the cache time. A fetch at import freezes the prompt until the process restarts.
 - **Link fetches to traces.** If the application sends LLM events to PostHog, pass `$ai_prompt_name` and `$ai_prompt_version` (from `result.name` and `result.version`) as PostHog properties on the model call.
   The prompt page then shows the traces of each version.
 - An application that uses many prompts can load them all in one request at startup. Read "Fetching all prompts in one request" in the docs.
