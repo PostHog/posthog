@@ -146,10 +146,16 @@ describe('scenario environment', () => {
                     proc(328, 328, 'tsx watch --include src src/index.ts', PLAIN_ENV),
                     proc(329, 329, 'tsx watch --ignore **/*.test.ts src/index.ts', PLAIN_ENV),
                     proc(330, 330, 'tsx watch --exclude src/generated.ts src/index.ts', PLAIN_ENV),
+                ],
+                { groups: [], pids: [], strangers: [323, 324, 325, 326, 327, 328, 329, 330] },
+            ],
+            [
+                'an unmarked node whose short options only resemble inline code is a stranger',
+                [
                     proc(331, 331, 'node -rperf_hooks --import tsx src/index.ts', PLAIN_ENV),
                     proc(332, 332, 'node -prof dist/index.js', PLAIN_ENV),
                 ],
-                { groups: [], pids: [], strangers: [323, 324, 325, 326, 327, 328, 329, 330, 331, 332] },
+                { groups: [], pids: [], strangers: [331, 332] },
             ],
             [
                 'an editor open on the entry point in the nodejs dir is not a stranger',
