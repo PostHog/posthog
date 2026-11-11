@@ -842,7 +842,8 @@ export class EmailService {
             // limiter's Valkey is down claimUpTo returns 0, so sends wait (never drop) until it
             // recovers — same fail-closed stance as the global SES gate.
             const workflowRateLimit = parseWorkflowEmailRateLimit(invocation.hogFunction.metadata)
-            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest) {
+            let workflowRateClaimed = invocation.queueMetadata?.workflowRateClaimed === true
+            if (workflowRateLimit && this.workflowEmailRateLimiter && !isTest && !workflowRateClaimed) {
                 const periodSeconds = workflowRateLimit.period === 'minute' ? 60 : 3600
                 const refillPerSecond = workflowRateLimit.count / periodSeconds
                 // Burst capacity is about one second of budget, not the full count: a bucket that
@@ -879,6 +880,7 @@ export class EmailService {
                     )
                     return result
                 }
+                workflowRateClaimed = true
             }
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
@@ -958,6 +960,7 @@ export class EmailService {
                     ...invocation.queueMetadata,
                     ownershipCheckRetries: retries,
                     ...(teamBudgetCharged ? { teamBudgetClaimed: true } : {}),
+                    ...(workflowRateClaimed ? { workflowRateClaimed: true } : {}),
                 }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({
                     milliseconds: pickAttachmentLoadRetryDelayMs(retries),

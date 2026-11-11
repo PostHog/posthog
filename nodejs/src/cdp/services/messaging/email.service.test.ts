@@ -1766,8 +1766,9 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
-                it('charges it once, waits before each retry, and sends once the ownership check failed on each of its retries', async () => {
+                it('charges it and the workflow limit once, waits before each retry, and sends once the ownership check failed on each of its retries', async () => {
                     const emailService = sender({ teamDailyCap: 2 })
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
                     emailService.checkJobOwnershipBeforeSend((checked) =>
                         checked.id === invocation.id
                             ? Promise.reject(new Error('Connection terminated unexpectedly'))
