@@ -706,3 +706,14 @@ The check uses the effective runtime and model access after defaults are applied
 The provisioning guard also treats this refusal as an expected failure, so an incompatible run already queued before the admission check fails without reporting an exception to error tracking.
 Other funding modes keep their existing runtime and model access rules.
 First-report completion returns an incomplete outcome without a notification when admission failed before the scout run was created.
+
+## Restarting the first-report scout
+
+After deploying a fix, an operator can restart a finished first-report investigation by resetting its `signals-scout-onboarding-...` Temporal workflow to the first `WorkflowTaskCompleted` event, before `run_signals_scout_activity`.
+The reset preserves the workflow input and creates a new scout run and task with a run-specific `first-report:<scout_run_id>` key.
+Existing tasks and scout runs stay in the history, including attempts created with the legacy `first-report` key; no database edits are needed.
+The normal onboarding trigger still starts only once per project, and the scout runner skips a restart while it sees a live queued or in-progress run for the same project and skill.
+Restarts re-evaluate the current experiment assignment and quota gates.
+
+Check the new scout run and its task outcome after resetting.
+A Temporal workflow marked `Completed` can have returned a failed or skipped scout result; that status alone does not mean the investigation succeeded.

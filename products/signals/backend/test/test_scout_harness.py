@@ -3132,11 +3132,25 @@ async def test_run_pins_sandbox_to_resolved_scout_model(
         (False, None, None, None, None),
     ],
 )
-async def test_first_report_experiment_routes_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
+async def test_first_report_experiment_restarts_and_records_assignment(ateam, variant, runtime, adapter, model, tier):
+    Task = apps.get_model("tasks", "Task")
+    TaskRun = apps.get_model("tasks", "TaskRun")
     await database_sync_to_async(LLMSkill.objects.create)(
         team=ateam, name="signals-scout-first-report", description="First report", body="Investigate"
     )
-    session, _ = await database_sync_to_async(_make_fake_session)(ateam)
+    previous_task = await database_sync_to_async(Task.objects.create)(
+        team=ateam,
+        title="First investigation",
+        origin_product=Task.OriginProduct.SIGNALS_SCOUT,
+        origin_key="first-report",
+        idempotency_key="first-report",
+    )
+    previous_run = await database_sync_to_async(TaskRun.objects.create)(
+        team=ateam, task=previous_task, status=TaskRun.Status.FAILED
+    )
+    await database_sync_to_async(SignalScoutRun.objects.create)(
+        team=ateam, task_run=previous_run, skill_name="signals-scout-first-report", skill_version=1
+    )
     result = scout_prompt.FirstReportScoutRunSummary(
         summary="No actionable finding", first_report_result={"outcome": "no_actionable_finding"}
     )
@@ -3144,7 +3158,14 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
 
     async def start(*args, before_task_dispatch=None, **kwargs):
         captured.update(kwargs)
+        session, _ = await database_sync_to_async(_make_fake_session)(ateam)
+        await database_sync_to_async(Task.objects.filter(pk=session.task_run.task_id).update)(
+            origin_key=kwargs["origin_key"], idempotency_key=kwargs["origin_key"]
+        )
         await database_sync_to_async(before_task_dispatch)(session.task_run.id)
+        await database_sync_to_async(TaskRun.objects.filter(pk=session.task_run.id).update)(
+            status=TaskRun.Status.COMPLETED
+        )
         return session, result
 
     with (
@@ -3166,6 +3187,13 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         outcome = await arun_signals_scout(
             team_id=ateam.id, skill_name="signals-scout-first-report", triggered_by="onboarding"
         )
+        if runtime is not None:
+            assert outcome.status == "completed"
+            first_run_id = outcome.run_id
+            outcome = await arun_signals_scout(
+                team_id=ateam.id, skill_name="signals-scout-first-report", triggered_by="onboarding"
+            )
+            assert outcome.run_id != first_run_id
 
     if runtime is None:
         assert outcome.skip_reason == (
@@ -3183,7 +3211,13 @@ async def test_first_report_experiment_routes_and_records_assignment(ateam, vari
         model,
         tier,
     )
-    run = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam)
+    run = await database_sync_to_async(SignalScoutRun.objects.get)(team=ateam, id=outcome.run_id)
+    assert await database_sync_to_async(SignalScoutRun.objects.filter(team=ateam).count)() == 3
+    await database_sync_to_async(previous_task.refresh_from_db)()
+    await database_sync_to_async(previous_run.refresh_from_db)()
+    assert previous_task.origin_key == "first-report"
+    assert previous_task.idempotency_key == "first-report"
+    assert previous_run.status == TaskRun.Status.FAILED
     assert run.metadata is not None
     assert run.metadata["experiment_variant"] == variant
     assert run.metadata["runtime"] == runtime

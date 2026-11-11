@@ -1314,7 +1314,7 @@ async def _spawn_and_run(
             ai_agent_name=skill.name,
             before_task_dispatch=_create_bridge_row,
             origin_key=(
-                "first-report"
+                f"first-report:{run_id}"
                 if skill.name == FIRST_REPORT_SCOUT
                 else f"scout-trial:{trial.id}"
                 if trial is not None
