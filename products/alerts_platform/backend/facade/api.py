@@ -426,6 +426,27 @@ def control_changes_by_public_id(
     return platform_reads.control_changes_by_public_id(team_id=team_id, public_id=public_id, kinds=kinds, limit=limit)
 
 
+def alert_list_history(
+    *, team_id: int, configuration_ids: Collection[UUID], since: datetime, until: datetime
+) -> tuple[dict[UUID, PlatformLastCheck], dict[UUID, PlatformAlertHistory], dict[UUID, PlatformControlHistory]]:
+    """Each configuration's newest check, its state changes across every group, and its control-plane
+    changes in `[since, until)`, keyed by configuration id.
+
+    Raises when ClickHouse fails, so a caller can show the list without them.
+    """
+    return platform_reads.alert_list_history(
+        team_id=team_id, configuration_ids=configuration_ids, since=since, until=until
+    )
+
+
+def alert_events(
+    *, team_id: int, configuration_id: UUID, since: datetime, limit: int
+) -> tuple[PlatformCheckEventPage, PlatformControlChangePage]:
+    """A configuration's notable checks across every group and its control-plane changes since `since`,
+    each newest first. Raises when ClickHouse fails."""
+    return platform_reads.alert_events(team_id=team_id, configuration_id=configuration_id, since=since, limit=limit)
+
+
 def control_history_by_public_id(
     *, team_id: int, public_ids: Collection[UUID], since: datetime, until: datetime
 ) -> dict[UUID, PlatformControlHistory]:
@@ -441,16 +462,18 @@ def state_timeline(
     *,
     history: PlatformAlertHistory | None,
     control: PlatformControlHistory | None,
-    current_state: PlatformAlertState,
+    current_group_states: Mapping[str, PlatformAlertState],
     current_enabled: bool,
+    snooze_until: datetime | None,
     window: tuple[datetime, datetime],
 ) -> tuple[StateInterval, ...]:
     """An alert's state over `window` from its check history and control-plane changes, oldest first."""
     return state_timeline_logic.state_timeline(
         history=history,
         control=control,
-        current_state=current_state,
+        current_group_states=current_group_states,
         current_enabled=current_enabled,
+        snooze_until=snooze_until,
         window=window,
     )
 
