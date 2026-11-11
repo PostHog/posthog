@@ -421,18 +421,29 @@ function groupBy<T>(items: T[], key: (item: T) => string | undefined): Map<strin
     return groups
 }
 
-export function buildReleaseIndex(
-    flags: FeatureFlagApi[],
-    experiments: ExperimentBasicApi[],
-    earlyAccess: EarlyAccessFeatureApi[],
-    scheduled: ScheduledChangeApi[],
-    status: { complete: boolean; resolvedFlagIds: number[]; unknownFlagIds: number[] }
-): ReleaseIndex {
+export interface ReleaseIndexStatus {
+    complete: boolean
+    resolvedFlagIds: number[]
+    unknownFlagIds: number[]
+}
+
+export type ScheduleIndex = Pick<ReleaseIndex, 'changesByFlagId' | 'scheduleEventsByFlagId'>
+
+export function indexFlags(flags: FeatureFlagApi[]): Map<number, FeatureFlagApi> {
+    return new Map(flags.filter((flag) => !flag.deleted).map((flag) => [flag.id, flag]))
+}
+
+export function indexExperiments(experiments: ExperimentBasicApi[]): Map<string, ExperimentBasicApi[]> {
+    return groupBy(experiments, (experiment) => experiment.feature_flag_key)
+}
+
+export function indexEarlyAccess(earlyAccess: EarlyAccessFeatureApi[]): Map<string, EarlyAccessFeatureApi[]> {
+    return groupBy(earlyAccess, (item) => item.feature_flag?.key)
+}
+
+export function indexSchedules(flags: FeatureFlagApi[], scheduled: ScheduledChangeApi[]): ScheduleIndex {
     const changesByFlagId = groupBy(scheduled, (change) => String(change.record_id))
     return {
-        flagsById: new Map(flags.filter((flag) => !flag.deleted).map((flag) => [flag.id, flag])),
-        experimentsByFlagKey: groupBy(experiments, (experiment) => experiment.feature_flag_key),
-        earlyAccessByFlagKey: groupBy(earlyAccess, (item) => item.feature_flag?.key),
         changesByFlagId,
         scheduleEventsByFlagId: new Map(
             flags.map((flag) => [
@@ -440,10 +451,45 @@ export function buildReleaseIndex(
                 (changesByFlagId.get(String(flag.id)) ?? []).flatMap((change) => scheduleEvents(change, flag.key)),
             ])
         ),
+    }
+}
+
+export function composeReleaseIndex(
+    parts: {
+        flagsById: Map<number, FeatureFlagApi>
+        experimentsByFlagKey: Map<string, ExperimentBasicApi[]>
+        earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
+        schedules: ScheduleIndex
+    },
+    status: ReleaseIndexStatus
+): ReleaseIndex {
+    return {
+        flagsById: parts.flagsById,
+        experimentsByFlagKey: parts.experimentsByFlagKey,
+        earlyAccessByFlagKey: parts.earlyAccessByFlagKey,
+        ...parts.schedules,
         complete: status.complete,
         resolvedFlagIds: new Set(status.resolvedFlagIds),
         unknownFlagIds: new Set(status.unknownFlagIds),
     }
+}
+
+export function buildReleaseIndex(
+    flags: FeatureFlagApi[],
+    experiments: ExperimentBasicApi[],
+    earlyAccess: EarlyAccessFeatureApi[],
+    scheduled: ScheduledChangeApi[],
+    status: ReleaseIndexStatus
+): ReleaseIndex {
+    return composeReleaseIndex(
+        {
+            flagsById: indexFlags(flags),
+            experimentsByFlagKey: indexExperiments(experiments),
+            earlyAccessByFlagKey: indexEarlyAccess(earlyAccess),
+            schedules: indexSchedules(flags, scheduled),
+        },
+        status
+    )
 }
 
 interface ReleaseFacts {
