@@ -18,7 +18,6 @@ function share(part: number, whole: number): string {
     return whole > 0 ? percentage(Math.min(part / whole, 1), 1) : '-'
 }
 
-/** Who a run reached and who it hasn't, so a small sent count next to a large audience explains itself. */
 export function BroadcastRunAudience(props: BroadcastPerformanceLogicProps): JSX.Element | null {
     const { audience, latestHeldSendAt } = useValues(broadcastPerformanceLogic(props))
     if (!audience) {

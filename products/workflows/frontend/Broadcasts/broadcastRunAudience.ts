@@ -6,7 +6,6 @@ const OPT_OUTS_COUNTED_SINCE = dayjs('2026-11-20T00:00:00Z')
 // The longest a person can wait: the longest frequency cap hold, or a slow send on a low sending limit.
 const STILL_SENDING_WINDOW_DAYS = 7
 
-/** The metrics a run records for the people in its audience. */
 export const RUN_AUDIENCE_METRICS = [
     'triggered',
     'email_sent',

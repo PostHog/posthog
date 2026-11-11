@@ -380,7 +380,7 @@ export const broadcastPerformanceLogic = kea<broadcastPerformanceLogicType>([
             (totals: Record<string, number> | null, runStartedAt: string): RunAudience | null =>
                 getRunAudience(totals, runStartedAt),
         ],
-        // The latest a person held by the frequency cap can go out. Null when the team doesn't hold capped emails.
+        // Null when the team doesn't hold capped emails.
         latestHeldSendAt: [
             (s) => [s.currentTeam, (_, props: BroadcastPerformanceLogicProps) => props.runStartedAt],
             (currentTeam: TeamPublicType | TeamType | null, runStartedAt: string): Dayjs | null => {
