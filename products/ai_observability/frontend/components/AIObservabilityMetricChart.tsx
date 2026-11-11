@@ -16,7 +16,7 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { TrendsQueryResponse } from '~/queries/schema/schema-general'
+import { HogQLQueryResponse } from '~/queries/schema/schema-general'
 
 import { AI_OBSERVABILITY_DATA_COLLECTION_NODE_ID } from '../aiObservabilitySharedLogic'
 import { aiObservabilityMetricChartLogic } from './aiObservabilityMetricChartLogic'
@@ -44,12 +44,13 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
     )
 
     const definition = METRIC_CHART_DEFINITIONS[metric]
-    const [result, traces] = (response as TrendsQueryResponse | null)?.results ?? []
-    const traceCounts: number[] | undefined = (metric === 'traces' ? result : traces)?.data
-    const labels = useMemo<string[]>(() => result?.days ?? [], [result])
+    const rows = (response as HogQLQueryResponse | null)?.results as [string, number | null, number][] | undefined
+    const labels = useMemo<string[]>(() => rows?.map(([label]) => label) ?? [], [rows])
+    const traceCounts = useMemo(() => rows?.map(([, , traces]) => traces), [rows])
     const series = useMemo<Series[]>(
-        () => [{ key: metric, label: definition.label, data: result?.data ?? [] }],
-        [metric, definition, result]
+        // An empty bucket has no average latency; it draws as zero.
+        () => [{ key: metric, label: definition.label, data: rows?.map(([, value]) => value ?? 0) ?? [] }],
+        [metric, definition, rows]
     )
     const config = useChartConfig<TimeSeriesBarChartConfig>(
         () => ({

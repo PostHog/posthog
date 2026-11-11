@@ -7,7 +7,9 @@ import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { aiObservabilityMetricChartLogic } from './aiObservabilityMetricChartLogic'
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
@@ -58,17 +60,21 @@ describe('aiObservabilityMetricChartLogic', () => {
     })
 
     it.each([
-        ['cost by minute', 'cost', '-1h', 2],
-        ['traces by minute', 'traces', '-1h', 1],
-        ['cost by hour', 'cost', '-24h', 1],
-    ] as const)(
-        'only adds a trace count series for %s when a bar can open a trace',
-        (_name, metric, dateFrom, count) => {
-            router.actions.push(urls.aiObservabilityTraces(), { date_from: dateFrom })
-            const logic = aiObservabilityMetricChartLogic({ metric })
-            logic.mount()
+        ['matches a property filter on any event of a trace', urls.aiObservabilityTraces(), undefined, true],
+        ['matches each generation on the Users tab', urls.aiObservabilityUsers(), 'users', false],
+    ] as const)('%s', (_name, url, metric, wholeTraces) => {
+        router.actions.push(url, { date_from: '-1h' })
+        const logic = aiObservabilityMetricChartLogic({ metric })
+        logic.mount()
+        aiObservabilitySharedLogic.actions.setPropertyFilters([
+            {
+                key: '$ai_trace_name',
+                value: 'checkout',
+                operator: PropertyOperator.Exact,
+                type: PropertyFilterType.Event,
+            },
+        ])
 
-            expect(logic.values.query.series).toHaveLength(count)
-        }
-    )
+        expect(logic.values.query.query.includes('properties.$ai_trace_id IN (SELECT')).toBe(wholeTraces)
+    })
 })
