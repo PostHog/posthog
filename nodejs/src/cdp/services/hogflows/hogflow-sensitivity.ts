@@ -11,7 +11,6 @@ export const hasSensitiveMessageStep = (hogFlow: Partial<Pick<HogFlow, 'actions'
             (action?.type === 'function_email' || action?.type === 'function_push') && action.config?.sensitive === true
     )
 
-// A code send's own `sensitive` replaces the step's, so a send can relax or tighten the template it runs on.
 export const isSensitiveMessage = (
     invocation: Pick<CyclotronJobInvocationHogFunction, 'state' | 'hogFunction'>
 ): boolean => invocation.state?.send?.sensitive ?? invocation.hogFunction?.metadata?.sensitive === true
