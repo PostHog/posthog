@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Any, Optional, cast
@@ -46,6 +47,7 @@ from products.access_control.backend.facade.user_access_control import (
     resource_to_display_name,
 )
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import RoleMembership
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -507,18 +509,40 @@ class AccessControlViewSetMixin(_GenericViewSet):
             raise exceptions.NotFound("User access information is not available for this resource.")
 
         obj = self.get_object()
+        organization = team.organization
 
-        org_memberships = (
-            OrganizationMembership.objects.filter(organization=team.organization, user__is_active=True)
-            .select_related("user")
-            .prefetch_related("role_memberships__role")
+        memberships = list(
+            OrganizationMembership.objects.filter(organization=organization, user__is_active=True).select_related(
+                "user"
+            )
         )
+
+        # Seeded subjects share these two fetches; a `UserAccessControl` per member would run
+        # both again for every member. Without the entitlement the resolvers ignore stored rules.
+        team_rows: list[AccessControl] = []
+        if organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+            team_rows = list(AccessControl.objects.filter(team_id=team.id))
+        role_ids_by_user: dict[int, list[str]] = defaultdict(list)
+        if organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            for user_id, role_id in (
+                RoleMembership.objects.filter(
+                    user_id__in=[membership.user_id for membership in memberships],
+                    role__organization_id=organization.id,
+                )
+                .valid_for_authorization()
+                .values_list("user_id", "role_id")
+            ):
+                role_ids_by_user[user_id].append(str(role_id))
 
         users_with_access = []
 
-        for membership in org_memberships:
+        for membership in memberships:
             user = membership.user
-            user_uac = UserAccessControl(user=user, team=team)
+            # Seed the organization that `rbac_supported` reads, so no member refetches the one
+            # organization every membership here belongs to.
+            membership.organization = organization
+            user_uac = SubjectAccessControl(user=user, team=team, org_membership=membership, member=membership)
+            user_uac.preload_access_controls(team_rows, subject_role_ids=role_ids_by_user.get(membership.user_id, []))
 
             # Check if user has access to the project first
             project_access = user_uac.check_access_level_for_object(team, required_level="member")
