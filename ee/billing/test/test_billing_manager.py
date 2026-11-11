@@ -11,7 +11,7 @@ from urllib.request import Request as UrllibRequest
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -21,6 +21,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import NotAuthenticated
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.constants import AvailableFeature
 from posthog.models.events_plan_deletion import cleanup_date, next_pass_on
 from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.oauth import OAuthApplication
@@ -137,6 +138,10 @@ _STANDARD_THREE_YEAR_RETENTION = [
     {"key": "product_analytics_data_retention", "name": "Data retention", "limit": 3, "unit": "years"},
     {"key": "product_analytics_standard_data_retention", "name": "Standard data retention"},
 ]
+
+
+def _refresh_interval(minutes: int) -> dict[str, object]:
+    return {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": minutes}
 
 
 class TestBillingManager(BaseTest):
@@ -539,6 +544,33 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         # Retention drops to the default; unrelated Logs settings survive.
         assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
+
+    @parameterized.expand(
+        [
+            ("limit_lowered", 60, [_refresh_interval(15)], True),
+            ("feature_granted", None, [_refresh_interval(30)], True),
+            ("feature_revoked", 30, [{"key": "alerts", "name": "Alerts"}], True),
+            ("other_feature_changed", 30, [_refresh_interval(30), {"key": "alerts", "name": "Alerts"}], False),
+            ("partial_response_keeps_the_features", 30, [], False),
+        ]
+    )
+    def test_update_org_details_reconciles_refresh_schedules_when_the_refresh_interval_changes(
+        self, _name: str, stored_limit: int | None, features: list[dict], expect_reconcile: bool
+    ) -> None:
+        organization = self.organization
+        organization.available_product_features = [] if stored_limit is None else [_refresh_interval(stored_limit)]
+        organization.save()
+        delay_path = "products.data_modeling.backend.tasks.reconcile_organization_schedules.reconcile_organization_schedules.delay"
+        status = cast(BillingStatus, {"customer": {"available_product_features": features}})
+
+        with patch(delay_path) as delay, self.captureOnCommitCallbacks(execute=True):
+            BillingManager(license=None).update_org_details(organization, status)
+        assert delay.call_args_list == ([call(str(organization.id))] if expect_reconcile else [])
+
+        organization.refresh_from_db()
+        with patch(delay_path) as delay, self.captureOnCommitCallbacks(execute=True):
+            BillingManager(license=None).update_org_details(organization, status)
+        delay.assert_not_called()
 
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization

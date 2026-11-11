@@ -13,6 +13,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.db import transaction
 from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -24,6 +25,7 @@ from requests import JSONDecodeError
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, Throttled
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
@@ -39,6 +41,8 @@ from posthog.models.team.event_retention import (
 )
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
+
+from products.data_modeling.backend.facade import api as data_modeling_api
 
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo, RatedUsageItem
@@ -140,6 +144,11 @@ def _has_quota_limiting_markers(usage: dict | None) -> bool:
 def _is_older_than_applied_billing_status(organization: Organization, computed_at: datetime) -> bool:
     applied_at = parse_datetime((organization.usage or {}).get("billing_status_computed_at") or "")
     return applied_at is not None and computed_at < applied_at
+
+
+def _refresh_interval_limit(organization: Organization) -> int | None:
+    feature = organization.get_available_feature(AvailableFeature.DATA_MODELING_REFRESH_INTERVAL)
+    return feature.get("limit") if feature else None
 
 
 def _free_trial_active(customer: CustomerInfo) -> bool:
@@ -850,6 +859,7 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
+        refresh_interval_changed = False
         previous_retention_months: int | None = None
         previous_standard_retention = False
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
@@ -863,7 +873,9 @@ class BillingManager:
             revoked_feature_keys = previous_feature_keys - new_feature_keys
             previous_retention_months = billed_events_retention_months(organization)
             previous_standard_retention = has_standard_retention(organization)
+            previous_refresh_interval = _refresh_interval_limit(organization)
             organization.available_product_features = data["available_product_features"]
+            refresh_interval_changed = _refresh_interval_limit(organization) != previous_refresh_interval
             events_retention_changed = organization_events_retention_months(organization) != previous_retention_months
             org_modified = True
 
@@ -917,7 +929,10 @@ class BillingManager:
             organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
 
         if org_modified:
-            organization.save()
+            with transaction.atomic():
+                organization.save()
+                if refresh_interval_changed:
+                    data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)
