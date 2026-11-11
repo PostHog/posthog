@@ -2,8 +2,20 @@
   $schema: 'https://docs.renovatebot.com/renovate-schema.json',
   extends: [
     'config:best-practices',
-    ':dependencyDashboardApproval',
   ],
+  // Wednesdays from 14:00 to 17:59 UTC, when DevEx reviews the week's PRs. The hosted Renovate app
+  // chooses its own run times, so the window spans several hours
+  schedule: ['* 14-17 * * 3'],
+  // A PR does not change between its review and its merge. To rebase a conflicted PR outside
+  // the window, tick the rebase box in the PR body
+  updateNotScheduled: false,
+  // The schedule bounds the volume, and the default of 2 PRs an hour cannot open every group inside the window
+  prHourlyLimit: 0,
+  // Renovate opens groups in a fixed order, so a limit below the number of groups holds back the same groups every week
+  prConcurrentLimit: 20,
+  lockFileMaintenance: {
+    dependencyDashboardApproval: true,
+  },
   enabledManagers: [
     'pep621',
     'npm',
@@ -20,7 +32,6 @@
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
-  prConcurrentLimit: 5,
   gitIgnoredAuthors: [
     '206114724+posthog[bot]@users.noreply.github.com',
     '250237707+tests-posthog[bot]@users.noreply.github.com',
@@ -86,28 +97,23 @@
       ],
     },
   },
-  // Use one branch per package across catalogs and overrides; preset family rules take precedence.
-  npm: {
-    minor: {
-      groupName: 'npm non-major {{packageName}}',
-    },
-    patch: {
-      groupName: 'npm non-major {{packageName}}',
-    },
-  },
-  pep621: {
-    minor: {
-      groupName: 'python non-major {{packageName}}',
-    },
-    patch: {
-      groupName: 'python non-major {{packageName}}',
-    },
-  },
   packageRules: [
-    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
+    // Majors, replacements and pins can need code changes, so each waits for approval on the dashboard
     {
-      matchDatasources: ['npm', 'pypi', 'crate'],
+      matchUpdateTypes: ['major', 'replacement', 'pin', 'pinDigest'],
+      dependencyDashboardApproval: true,
+    },
+    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml.
+    // Go modules and GitHub Actions have no package manager cooldown, so this is their only one
+    {
+      matchDatasources: ['npm', 'pypi', 'crate', 'go', 'github-tags'],
       matchUpdateTypes: ['major', 'minor', 'patch'],
+      minimumReleaseAge: '7 days',
+    },
+    // A Go pseudo-version moves to a new commit as a digest update
+    {
+      matchDatasources: ['go'],
+      matchUpdateTypes: ['digest'],
       minimumReleaseAge: '7 days',
     },
     // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
@@ -149,50 +155,101 @@
       ],
       minimumReleaseAge: null,
     },
+    // One PR per area each week, so that the number of PRs stays the same when the number of releases changes.
+    // These rules override the preset monorepo groups, which would otherwise open one PR per upstream repository.
+    // The first four rules cover the root pnpm and uv workspaces, every cargo workspace and every Go module
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'npm non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'python non-major',
+    },
     {
       matchManagers: ['cargo'],
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'cargo non-major',
     },
-    // Directories with their own lock file
+    // Digest updates join the group because a pseudo-version pin (such as x/vt in tools/phrocs)
+    // can depend on the same libraries as its tagged neighbors
     {
-      matchManagers: ['cargo', 'gomod'],
+      matchManagers: ['gomod'],
+      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      groupName: 'go non-major',
+    },
+    // Products with their own pnpm workspace and lock file
+    {
+      matchManagers: ['npm'],
       matchUpdateTypes: ['minor', 'patch'],
-      matchFileNames: ['**/go.mod', 'cli/**', 'funnel-udf/**', 'rust/common/hogvm/node/Cargo.toml'],
-      groupName: '{{manager}} non-major in {{packageFileDir}}',
+      matchFileNames: ['products/desktop/**'],
+      groupName: 'desktop non-major',
     },
     {
-      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
-      matchUpdateTypes: ['minor'],
-      matchCurrentVersion: '/^v?0\\./',
-      groupName: null,
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['products/mobile/**'],
+      groupName: 'mobile non-major',
     },
-    // Each package in these groups requires an exact version of another package in the group, so
-    // they must update together. The rules come after the 0.x rule because some Dagster libraries
-    // are 0.x and must stay in the group on a minor update
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['packages/agent/**'],
+      groupName: 'agent non-major',
+    },
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['products/canvas/packages/canvas_builder/**'],
+      groupName: 'canvas builder non-major',
+    },
+    // Small directories with their own lock file. Each has few updates, so they share one PR
+    {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: [
+        'rust/batch-import-worker/scripts/**',
+        'tools/hedgebox-dummy/**',
+        'frontend/@posthog/lemon-ui/**',
+        'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/**',
+        '.depot/actions/paths-filter/**',
+        '.github/actions/paths-filter/**',
+        '.github/actions/shared-image-releases/**',
+        'products/visual_review/cli/**',
+      ],
+      groupName: 'npm standalone packages non-major',
+    },
+    {
+      matchManagers: ['pep621'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchFileNames: ['services/llm-gateway/**', 'services/stripe-mock/**'],
+      groupName: 'python services non-major',
+    },
+    // Families that release many packages at once get their own PR, so that one release
+    // does not fill the PR of its area. These rules come after the area rules so that their groupName wins
+    {
+      extends: ['monorepo:tiptap'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'tiptap monorepo',
+    },
+    {
+      extends: ['monorepo:aws-sdk-js-v3'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'aws-sdk-js-v3 monorepo',
+    },
+    {
+      extends: ['monorepo:expo'],
+      matchUpdateTypes: ['minor', 'patch'],
+      groupName: 'expo monorepo',
+    },
+    // Dagster and its 0.x libraries require exact versions of each other, so they update together
     {
       matchManagers: ['pep621'],
       matchUpdateTypes: ['minor', 'patch'],
       matchPackageNames: ['dagster*'],
       groupName: 'python dagster non-major',
-    },
-    {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['@connectrpc/connect', '@connectrpc/connect-node'],
-      groupName: 'npm connectrpc non-major',
-    },
-    {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['@bufbuild/protobuf', '@bufbuild/protoc-gen-es'],
-      groupName: 'npm protobuf-es non-major',
-    },
-    {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['@earendil-works/pi-*'],
-      groupName: 'npm pi non-major',
     },
     {
       matchDepTypes: ['requires-python', 'packageManager'],
@@ -219,19 +276,19 @@
       enabled: false,
     },
     // The sandbox images and the Modal slim image rebuild only when this pin changes,
-    // so skip the dashboard approval and open the PR as soon as nodesource ships a release
+    // so open the PR as soon as nodesource ships a release
     {
       matchDatasources: ['deb'],
       matchDepNames: ['nodejs'],
-      dependencyDashboardApproval: false,
+      schedule: ['at any time'],
       groupName: 'sandbox nodejs',
     },
-    // A stale Node pin keeps known vulnerabilities in CI, so skip the dashboard approval
-    // for `.node-version` and `.nvmrc` updates. A major bump still waits for approval
+    // A stale Node pin keeps known vulnerabilities in CI, so `.node-version` and `.nvmrc`
+    // updates skip the weekly schedule. A major bump still waits for approval
     {
       matchManagers: ['nodenv', 'nvm'],
       matchUpdateTypes: ['minor', 'patch'],
-      dependencyDashboardApproval: false,
+      schedule: ['at any time'],
     },
     // When `[tool.uv.sources]` routes a package to a PyTorch wheel index, Renovate looks it up there.
     // That index lists local versions like `+cpu`, and Renovate cannot write those into a `~=` specifier.
