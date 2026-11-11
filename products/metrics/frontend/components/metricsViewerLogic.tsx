@@ -594,6 +594,7 @@ export interface metricsViewerLogicValues {
     rangeFunction: MetricRangeFunction | null
     reduce: MetricsReducer
     refreshCount: number
+    statSparkline: boolean
     savedInsight: InsightModel | null
     savedInsightLoading: boolean
     savedQueryNode: MetricsHistogramQuery | MetricsQuery | null
@@ -828,6 +829,9 @@ export interface metricsViewerLogicActions {
     setReduce: (reduce: MetricsReducer) => {
         reduce: MetricsReducer
     }
+    setStatSparkline: (statSparkline: boolean) => {
+        statSparkline: boolean
+    }
     setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
         metricType: OtelMetricTypeEnumApi | null
     }
@@ -884,7 +888,8 @@ export interface metricsViewerLogicMeta {
             displayType: MetricsDisplayType,
             goalLines: GoalLine[],
             yAxisSettings: MetricsYAxisSettings,
-            reduce: MetricsReducer
+            reduce: MetricsReducer,
+            statSparkline: boolean
         ) => MetricsDisplaySettings | undefined
         metricsQueryNode: (
             namedClauses: MetricsViewerClause[],
@@ -1020,6 +1025,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
             value,
         }),
         setReduce: (reduce: MetricsReducer) => ({ reduce }),
+        setStatSparkline: (statSparkline: boolean) => ({ statSparkline }),
         // PromQL and SQL modes: the draft follows each keystroke, and only a run moves it into the
         // query, so typing does not run a half-written query.
         setQueryDraft: (queryDraft: string) => ({ queryDraft }),
@@ -1243,6 +1249,10 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         reduce: [
             resolveReducer(props.initialQuery?.display) as MetricsReducer,
             { setReduce: (_, { reduce }) => reduce },
+        ],
+        statSparkline: [
+            props.initialQuery?.display?.statSparkline !== false,
+            { setStatSparkline: (_, { statSparkline }) => statSparkline },
         ],
         isAddToDashboardModalOpen: [
             false,
@@ -1779,18 +1789,20 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         // Chart settings as they'd be persisted, with every default omitted — an all-defaults
         // object would change the shape of newly-saved nodes for no gain.
         metricsDisplay: [
-            (s) => [s.displayType, s.goalLines, s.yAxisSettings, s.reduce],
+            (s) => [s.displayType, s.goalLines, s.yAxisSettings, s.reduce, s.statSparkline],
             (
                 displayType: MetricsDisplayType,
                 goalLines: GoalLine[],
                 yAxisSettings: MetricsYAxisSettings,
-                reduce: MetricsReducer
+                reduce: MetricsReducer,
+                statSparkline: boolean
             ): MetricsDisplaySettings | undefined => {
                 const display: MetricsDisplaySettings = {
                     ...(displayType !== DEFAULT_DISPLAY_TYPE ? { type: displayType } : {}),
                     ...(goalLines.length ? { goalLines } : {}),
                     ...(Object.keys(yAxisSettings).length ? { yAxis: yAxisSettings } : {}),
                     ...(reduce !== DEFAULT_REDUCER ? { reduce } : {}),
+                    ...(statSparkline ? {} : { statSparkline: false }),
                 }
                 return Object.keys(display).length ? display : undefined
             },
