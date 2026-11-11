@@ -16,6 +16,7 @@ from rest_framework import status
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
@@ -1089,6 +1090,18 @@ class TestEarlyAccessFeature(APIBaseTest):
         feature.refresh_from_db()
         assert feature.payload == {}
 
+    def test_list_filters_by_ids(self):
+        features = [
+            EarlyAccessFeature.objects.create(team=self.team, name=name, description="", stage="beta")
+            for name in ("Listed", "Also listed", "Unlisted")
+        ]
+
+        ids = ",".join(str(feature.id) for feature in features[:2])
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?ids={ids}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(feature["name"] for feature in response.json()["results"]) == ["Also listed", "Listed"]
+
     def test_payload_in_list_response(self):
         EarlyAccessFeature.objects.create(
             team=self.team,
@@ -1947,6 +1960,22 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["user_access_level"], "editor")
+
+    @parameterized.expand([("by ids", "?ids={id}", True), ("plain list", "", False)])
+    def test_admin_lists_private_feature(self, _name: str, query: str, expected: bool) -> None:
+        feature = self._create_feature()
+        AccessControl.objects.create(
+            resource="early_access_feature", resource_id=str(feature.id), team=self.team, access_level="none"
+        )
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        self.client.force_login(self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{query.format(id=feature.id)}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(str(feature.id) in [item["id"] for item in response.json()["results"]], expected)
 
     def test_access_controls_endpoint_route_exists(self) -> None:
         feature = self._create_feature()

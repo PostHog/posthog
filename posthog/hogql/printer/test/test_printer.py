@@ -2027,16 +2027,25 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
-            ("toFloat", "toFloat('1.3')"),
-            ("toFloatOrNull", "toFloatOrNull('1.3')"),
-            ("toFloat64OrNull", "toFloat64OrNull('1.3')"),
+            ("toFloatOrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64OrNull('1.3')", "toFloat('1.3')"),
+            ("toFloat64(event)", "toFloat(event)"),
+            ("toFloat64OrZero(event)", "toFloatOrZero(event)"),
+            ("toFloat64OrDefault(event, 1.5)", "toFloatOrDefault(event, 1.5)"),
+            ("toFloat64OrDefault(event)", "toFloatOrDefault(event)"),
+            ("toInt64(event)", "toInt(event)"),
+            ("toInt64OrNull(event)", "toInt(event)"),
+            ("toIntOrNull(event)", "toInt(event)"),
+            ("toInt64OrZero(event)", "toIntOrZero(event)"),
+            ("toInt64OrDefault(event, 3)", "toIntOrDefault(event, 3)"),
+            ("toInt64OrDefault(event)", "toIntOrDefault(event)"),
         ]
     )
-    def test_to_float_aliases(self, _name: str, expr: str) -> None:
-        # toFloatOrNull / toFloat64OrNull are accepted ClickHouse-name aliases of toFloat,
-        # all routing through accurateCastOrNull so unparseable input becomes NULL.
-        context = HogQLContext(team_id=self.team.pk)
-        self.assertEqual(self._expr(expr, context), "accurateCastOrNull(%(hogql_val_0)s, %(hogql_val_1)s)")
+    def test_numeric_conversion_aliases_print_as_hogql_names(self, alias_expr: str, hogql_expr: str) -> None:
+        alias_context = HogQLContext(team_id=self.team.pk)
+        hogql_context = HogQLContext(team_id=self.team.pk)
+        self.assertEqual(self._expr(alias_expr, alias_context), self._expr(hogql_expr, hogql_context))
+        self.assertEqual(alias_context.values, hogql_context.values)
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
@@ -2072,6 +2081,14 @@ class TestPrinter(BaseTest):
         self._assert_expr_error(
             "tostring(event)",
             "Unsupported function call 'tostring(...)'. Perhaps you meant 'toString(...)'?",
+        )
+        self._assert_expr_error(
+            "toInt8OrNull(event)",
+            "Unsupported function call 'toInt8OrNull(...)'. Perhaps you meant 'toIntOrNull(...)'?",
+        )
+        self._assert_expr_error(
+            "toUInt32(event)",
+            "Unsupported function call 'toUInt32(...)'. Perhaps you meant 'toInt(...)'?",
         )
         self._assert_expr_error(
             "int(event)",

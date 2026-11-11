@@ -17,6 +17,7 @@ export const EarlyAccessFeatureListParams = () => zod.object({
 })
 
 export const EarlyAccessFeatureListQueryParams = () => zod.object({
+    ids: zod.string().optional().describe('Comma-separated early access feature IDs, at most 200.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
