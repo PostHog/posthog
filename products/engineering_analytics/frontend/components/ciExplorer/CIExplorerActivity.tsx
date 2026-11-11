@@ -17,7 +17,6 @@ const EVENT: Record<CIActivityEventKind, { text: string; icon: JSX.Element }> = 
     closed: { text: 'closed this pull request', icon: <IconXCircle /> },
 }
 
-/** A pull request's activity as a timeline, oldest first and grouped by day. A commit row opens that commit's CI. */
 export function CIExplorerActivity(): JSX.Element {
     const { activity } = useValues(ciExplorerLogic)
 
