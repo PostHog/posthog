@@ -12,8 +12,6 @@ import requests
 
 from posthog.dataclasses import frozen
 
-# A copy of the request schemas in nodejs/src/cdp/services/hogflows/transactional-email.ts. Like the zod
-# schemas there, the code-send `send` object and every object in it refuse a key they don't name.
 RECIPIENT_ADDRESS_PATTERN = re.compile(
     r"^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*"
     r"@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$"
@@ -178,9 +176,6 @@ def _is_recipient_format_issue(issue: dict[str, Any]) -> bool:
 
 @frozen
 class FakeCdpApi:
-    """Stands in for cdp-api's transactional email routes: it validates a request as those routes do and
-    queues what it accepts."""
-
     before_the_contract: bool = False
     received: list[dict[str, Any]] = field(default_factory=list)
     queued: list[dict[str, Any]] = field(default_factory=list)
@@ -233,8 +228,6 @@ class FakeCdpApi:
 
 @frozen
 class FakeAnalytics:
-    """Stands in for `posthoganalytics.capture` and keeps the events it was given."""
-
     events: list[dict[str, Any]] = field(default_factory=list)
 
     def capture(self, **event: Any) -> str:
