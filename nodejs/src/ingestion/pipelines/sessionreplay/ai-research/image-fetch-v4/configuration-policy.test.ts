@@ -317,7 +317,7 @@ describe('ConfigurationPolicyService', () => {
         }
     })
 
-    it('parses each cached policy revision once in a fetch pass', async () => {
+    it('parses each cached policy item once, in whichever fetch pass asks first', async () => {
         const { ParsedRobots } = await import('@trybyte/robotstxt-parser')
         const parseRobots = jest.spyOn(ParsedRobots, 'parse')
         const parseJson = jest.spyOn(JSON, 'parse')
@@ -347,8 +347,8 @@ describe('ConfigurationPolicyService', () => {
 
             await policy.createPass().check(`${ORIGIN}/fourth.png`, cache, NOW_MS)
 
-            expect(parseRobots.mock.calls.filter(([body]) => body === 'User-agent:*\nAllow:/')).toHaveLength(3)
-            expect(parseJson.mock.calls.filter(([body]) => body === tdmrepBody)).toHaveLength(3)
+            expect(parseRobots.mock.calls.filter(([body]) => body === 'User-agent:*\nAllow:/')).toHaveLength(2)
+            expect(parseJson.mock.calls.filter(([body]) => body === tdmrepBody)).toHaveLength(2)
         } finally {
             parseRobots.mockRestore()
             parseJson.mockRestore()

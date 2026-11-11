@@ -221,23 +221,21 @@ interface ParsedRobotsConfiguration {
     fields: Array<{ name: string; value: string }>
 }
 
+/** Keyed by the item object, so a parse is used only for the body it came from, and it is freed with the item. */
 interface ParsedConfigurationCache {
-    robots: Map<string, Promise<ParsedRobotsConfiguration>>
-    tdmrep: Map<string, unknown>
+    robots: WeakMap<ConfigurationCacheItem, Promise<ParsedRobotsConfiguration>>
+    tdmrep: WeakMap<ConfigurationCacheItem, { document: unknown }>
 }
 
 export class ConfigurationPolicyService {
     private readonly inFlight = new Map<string, Promise<ConfigurationFetchResult>>()
+    private readonly parsed: ParsedConfigurationCache = { robots: new WeakMap(), tdmrep: new WeakMap() }
 
     constructor(private readonly fetcher: HttpConfigurationFetcher) {}
 
     public createPass(): ConfigurationPolicyPass {
-        const parsed: ParsedConfigurationCache = {
-            robots: new Map(),
-            tdmrep: new Map(),
-        }
         return {
-            check: (url, cached, nowMs) => this.checkWithParsedCache(url, cached, nowMs, parsed),
+            check: (url, cached, nowMs) => this.checkWithParsedCache(url, cached, nowMs, this.parsed),
         }
     }
 
@@ -668,25 +666,23 @@ async function parsedRobotsConfiguration(
     item: ConfigurationCacheItem,
     parsed: ParsedConfigurationCache
 ): Promise<ParsedRobotsConfiguration> {
-    const revision = configurationRevision(item)
-    let configuration = parsed.robots.get(revision)
+    let configuration = parsed.robots.get(item)
     if (!configuration) {
         configuration = parseRobotsConfiguration(item.body ?? '')
-        parsed.robots.set(revision, configuration)
+        parsed.robots.set(item, configuration)
+        // A failed parse must not answer for the item for as long as the process holds it.
+        configuration.catch(() => parsed.robots.delete(item))
     }
     return await configuration
 }
 
 function parsedTdmrepDocument(item: ConfigurationCacheItem, parsed: ParsedConfigurationCache): unknown {
-    const revision = configurationRevision(item)
-    if (!parsed.tdmrep.has(revision)) {
-        parsed.tdmrep.set(revision, parseTdmrepDocument(item.body ?? ''))
+    let held = parsed.tdmrep.get(item)
+    if (!held) {
+        held = { document: parseTdmrepDocument(item.body ?? '') }
+        parsed.tdmrep.set(item, held)
     }
-    return parsed.tdmrep.get(revision)
-}
-
-function configurationRevision(item: ConfigurationCacheItem): string {
-    return `${item.key}\0${item.fetchedAtMs}`
+    return held.document
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
