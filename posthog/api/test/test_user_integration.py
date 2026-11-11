@@ -1270,16 +1270,29 @@ class TestGetGithubLoginPrecedence(APIBaseTest):
         UserSocialAuth.objects.create(user=self.user, provider="github", uid="99", extra_data={"login": "ghuser"})
         self.assertEqual(self.user.get_github_login(), "ghuser")
 
-    def test_uses_team_integration_when_only_source(self):
+    @parameterized.expand(
+        [
+            ("own_row_in_current_team", "current", "self", "teamuser"),
+            ("own_row_in_another_organization", "other_org", "self", "teamuser"),
+            ("row_of_another_user", "current", "other", None),
+        ]
+    )
+    def test_uses_team_integration_when_only_source(self, _name, team_kind, creator, expected):
+        team = self.team
+        if team_kind == "other_org":
+            team = Team.objects.create(organization=Organization.objects.create(name="Other org"))
+        created_by = self.user
+        if creator == "other":
+            created_by = User.objects.create_and_join(self.organization, "other@example.com", None)
         Integration.objects.create(
-            team=self.team,
+            team=team,
             kind="github",
             integration_id="inst-1",
             config={"connecting_user_github_login": "teamuser"},
             sensitive_config={},
-            created_by=self.user,
+            created_by=created_by,
         )
-        self.assertEqual(self.user.get_github_login(), "teamuser")
+        self.assertEqual(self.user.get_github_login(), expected)
 
     def test_user_integration_takes_precedence_over_social_auth(self):
         from social_django.models import UserSocialAuth

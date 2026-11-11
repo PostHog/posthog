@@ -502,6 +502,7 @@ class TestGithubSource:
         integration.access_token = "gho_token"
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
+            mock_github_integration.return_value.integration = integration
             assert self.source._get_access_token(config, self.team_id) == "gho_token"
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.github.source.GitHubIntegration")
@@ -515,6 +516,7 @@ class TestGithubSource:
         integration.access_token = None
         with mock.patch.object(self.source, "get_oauth_integration", return_value=integration):
             mock_github_integration.return_value.access_token_expired.return_value = False
+            mock_github_integration.return_value.integration = integration
             with pytest.raises(ValueError, match="GitHub access token not found"):
                 self.source._get_access_token(config, self.team_id)
 
