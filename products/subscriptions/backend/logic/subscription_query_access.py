@@ -15,10 +15,11 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade import api as dashboards_api
+from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.models.subscription import Subscription
 
 _RECIPIENT_FIELDS = ("target_type", "target_value", "integration_id")
-_TARGET_FIELDS = ("insight", "dashboard")
 
 
 def _subscription(team_id: int, subscription_id: int | None) -> Subscription | None:
@@ -43,10 +44,9 @@ def should_check_table_access(*, team_id: int, subscription_id: int | None, attr
         return True
     if any(field in attrs and attrs[field] != getattr(instance, field) for field in _RECIPIENT_FIELDS):
         return True
-    if any(
-        field in attrs and getattr(attrs[field], "id", None) != getattr(instance, f"{field}_id")
-        for field in _TARGET_FIELDS
-    ):
+    if "insight" in attrs and getattr(attrs["insight"], "id", None) != instance.insight_id:
+        return True
+    if "dashboard_id" in attrs and attrs["dashboard_id"] != instance.dashboard_id:
         return True
     if "dashboard_export_insights" in attrs and set(attrs["dashboard_export_insights"]) != set(
         instance.dashboard_export_insights.values_list("id", flat=True)
@@ -59,7 +59,7 @@ def should_check_table_access(*, team_id: int, subscription_id: int | None, attr
     )
 
 
-def delivered_queries(instance: Subscription | None, attrs: dict[str, Any]) -> list[dict[str, Any]]:
+def delivered_queries(team_id: int, instance: Subscription | None, attrs: dict[str, Any]) -> list[dict[str, Any]]:
     """The saved queries of the insights a delivery exports once this write is applied.
 
     The selection follows `_resolve_exportable_insights` in the delivery activities: the selected
@@ -68,19 +68,23 @@ def delivered_queries(instance: Subscription | None, attrs: dict[str, Any]) -> l
     tile restore brings it back into the delivery without a subscription write, so the check
     covers it now rather than never.
     """
-    dashboard = attrs["dashboard"] if "dashboard" in attrs else (instance.dashboard if instance else None)
-    if dashboard is not None:
-        if dashboard.deleted:
+    dashboard_id = attrs["dashboard_id"] if "dashboard_id" in attrs else (instance.dashboard_id if instance else None)
+    if dashboard_id is not None:
+        dashboard = dashboards_api.get_dashboard(team_id=team_id, dashboard_id=dashboard_id, include_deleted=True)
+        if dashboard is None or dashboard.deleted:
             return []
         if "dashboard_export_insights" in attrs:
             selected_ids = list(attrs["dashboard_export_insights"])
         else:
             selected_ids = list(instance.dashboard_export_insights.values_list("id", flat=True)) if instance else []
         if selected_ids:
-            tiles = dashboard.tiles(manager="objects_including_soft_deleted").filter(insight_id__in=selected_ids)
+            placements = dashboards_api.insight_placements(
+                team_id=team_id, dashboard_ids=[dashboard_id], insight_ids=selected_ids, include_deleted=True
+            )
+            insight_ids = [placement.insight_id for placement in placements]
         else:
-            tiles = dashboard.tiles.all()
-        queries = tiles.filter(insight__isnull=False, insight__deleted=False).values_list("insight__query", flat=True)
+            insight_ids = dashboards_api.live_tile_insight_ids(dashboard_id)
+        queries = Insight.objects.filter(team_id=team_id, id__in=insight_ids).values_list("query", flat=True)
         return [query for query in queries if isinstance(query, dict)]
 
     insight = attrs["insight"] if "insight" in attrs else (instance.insight if instance else None)
@@ -108,4 +112,6 @@ def denied_resources_in_subscription(
         return []
     if user_access_control.is_organization_admin:
         return []
-    return denied_query_resources(user, team, delivered_queries(_subscription(team.id, subscription_id), attrs))
+    return denied_query_resources(
+        user, team, delivered_queries(team.id, _subscription(team.id, subscription_id), attrs)
+    )
