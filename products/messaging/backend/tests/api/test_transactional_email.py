@@ -1787,10 +1787,10 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    def test_a_folder_delete_loads_access_rules_once_however_many_linked_templates_it_holds(self, mock_post, _flag):
+    def test_a_folder_delete_checks_linked_workflows_in_one_read_without_their_content(self, mock_post, _flag):
         self._login_member("editor@example.com", {None: "editor"})
 
-        def access_rule_reads_deleting_a_folder_of(count: int, folder: str) -> int:
+        def reads_deleting_a_folder_of(count: int, folder: str) -> tuple[int, int, int]:
             for index in range(count):
                 template = MessageTemplate.objects.create(
                     team=self.team,
@@ -1812,9 +1812,16 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
 
             assert response.status_code in (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT), response.content
             assert not MessageTemplate.objects.filter(team=self.team, name__startswith=folder, deleted=False).exists()
-            return sum("accesscontrol" in query["sql"] for query in queries.captured_queries)
+            sqls = [query["sql"] for query in queries.captured_queries]
+            access_rule_reads = sum("accesscontrol" in sql for sql in sqls)
+            workflow_reads = sum(sql.startswith("SELECT") and 'FROM "posthog_hogflow"' in sql for sql in sqls)
+            workflow_content_reads = sum('"posthog_hogflow"."encrypted_inputs"' in sql for sql in sqls)
+            return access_rule_reads, workflow_reads, workflow_content_reads
 
-        assert access_rule_reads_deleting_a_folder_of(1, "One") == access_rule_reads_deleting_a_folder_of(3, "Three")
+        one = reads_deleting_a_folder_of(1, "One")
+        three = reads_deleting_a_folder_of(3, "Three")
+        assert (one[0], one[1]) == (three[0], three[1])
+        assert (one[2], three[2]) == (0, 0)
 
     def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_the_project_tree(self, mock_post, _flag):
         self.template.refresh_from_db()
