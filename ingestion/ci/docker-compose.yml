@@ -172,6 +172,7 @@ services:
             - AWS_ACCESS_KEY_ID=object_storage_root_user
             - AWS_SECRET_ACCESS_KEY=object_storage_root_password
             - CLICKHOUSE_SKIP_USER_SETUP=1
+            - KAFKA_HOSTS=kafka:9092
         healthcheck:
             test:
                 - CMD-SHELL
