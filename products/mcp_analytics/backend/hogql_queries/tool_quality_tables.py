@@ -316,6 +316,29 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
             ]
         )
 
+    def _total_sessions_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT uniqIf(session_id, is_current), uniqIf(session_id, NOT is_current)
+            FROM (
+                SELECT nullIf({conversation_id}, '') AS session_id, timestamp >= {current_from} AS is_current
+                FROM events
+                WHERE {where}
+            )
+            """,
+            placeholders={
+                "conversation_id": parse_expr(CONVERSATION_ID_SQL),
+                "current_from": self.query_date_range.date_from_as_hogql(),
+                "where": _named_tool_where(
+                    self._both_windows(),
+                    None,
+                    self.team,
+                    self.query.properties,
+                    self.query.filterTestAccounts,
+                ),
+            },
+        )
+
     def _calculate(self) -> MCPToolQualityRowsQueryResponse:
         with tags_context(
             product=Product.MCP_ANALYTICS,
@@ -346,9 +369,26 @@ class MCPToolQualityRowsQueryRunner(AnalyticsQueryRunner[MCPToolQualityRowsQuery
                 )
                 first_row = first_row_response.results or []
                 totals_row = first_row[0] if first_row else None
-        total_count, total_sessions, previous_total_sessions = (
-            (int(totals_row[13] or 0), int(totals_row[17] or 0), int(totals_row[18] or 0)) if totals_row else (0, 0, 0)
-        )
+            if totals_row:
+                total_count, total_sessions, previous_total_sessions = (
+                    int(totals_row[13] or 0),
+                    int(totals_row[17] or 0),
+                    int(totals_row[18] or 0),
+                )
+            else:
+                total_sessions_response = execute_hogql_query(
+                    query=self._total_sessions_query(),
+                    team=self.team,
+                    user=self.user,
+                    query_type="mcp_tool_quality_total_sessions_query",
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+                total_sessions_row = (total_sessions_response.results or [[0, 0]])[0]
+                total_count = 0
+                total_sessions = int(total_sessions_row[0] or 0)
+                previous_total_sessions = int(total_sessions_row[1] or 0)
         results = [
             MCPToolQualityRowItem(
                 tool=str(row[0] or ""),
