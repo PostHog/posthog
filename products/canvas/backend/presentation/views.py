@@ -480,7 +480,8 @@ class CanvasViewSet(CanvasAccessMixin, AccessControlViewSetMixin, viewsets.Gener
 
     # Content writes. Every member who can see a canvas in a public space may
     # publish a new version of it, unless the canvas's access rules give them
-    # viewer access only (AccessControlPermission maps these to editor). A canvas
+    # viewer access only (AccessControlPermission maps these to editor). In a
+    # private space it takes the creator or an editor grant on the canvas. A canvas
     # in a personal space is only visible to its owner, so the creator rule is
     # implied there. partial_update is in
     # this set because a member must record their own generation task on the

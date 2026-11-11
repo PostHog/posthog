@@ -31,6 +31,7 @@ from posthog.storage.object_storage import ObjectStorageError
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 from products.annotations.backend.facade import api as annotations_api
 from products.annotations.backend.facade.contracts import AnnotationFilters
 from products.annotations.backend.facade.enums import AnnotationScope
@@ -899,6 +900,74 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
 
         assert self.client.get(f"{self.base}/").json()["user_access_level"] == "editor"
         assert self._publish(self.canvas_id).status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("member_editor_in_private_space", "private", "member", "editor", "session", status.HTTP_200_OK),
+            ("role_editor_in_private_space", "private", "role", "editor", "session", status.HTTP_200_OK),
+            ("member_viewer_in_private_space", "private", "member", "viewer", "session", status.HTTP_404_NOT_FOUND),
+            ("no_grant_in_private_space", "private", None, None, "session", status.HTTP_404_NOT_FOUND),
+            ("member_editor_in_personal_space", "personal", "member", "editor", "session", status.HTTP_404_NOT_FOUND),
+            ("sandbox_of_member_editor", "private", "member", "editor", "sandbox", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_explicit_editor_grant_lets_a_member_edit_outside_public_spaces(
+        self,
+        _name: str,
+        space: str,
+        subject: str | None,
+        level: str | None,
+        caller: str,
+        expected: int,
+    ) -> None:
+        with team_scope(self.team.id):
+            if space == "private":
+                channel = Channel.objects.create(
+                    team=self.team, name="team-private", channel_type=Channel.ChannelType.PRIVATE, created_by=self.user
+                )
+                for user in (self.user, self.member):
+                    channel.memberships.create(team=self.team, user=user)
+            else:
+                channel = Channel.objects.create(
+                    team=self.team, name="mine", channel_type=Channel.ChannelType.PERSONAL, created_by=self.user
+                )
+            canvas = Canvas.objects.create(team_id=self.team.id, channel=channel, name="Shared", created_by=self.user)
+        base = f"/api/projects/{self.team.id}/canvases/{canvas.id}"
+        if subject == "role":
+            self.organization.available_product_features.append(
+                {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS}
+            )
+            self.organization.save(update_fields=["available_product_features"])
+            role = Role.objects.create(organization=self.organization, name="Editors")
+            RoleMembership.objects.create(role=role, user=self.member, organization_member=self.member_membership)
+            grant = {"access_level": level, "role": str(role.id)}
+        else:
+            grant = {"access_level": level, "organization_member": str(self.member_membership.id)}
+        if subject is not None:
+            granted = self.client.put(f"{base}/access_controls/", grant, format="json")
+            assert granted.status_code == status.HTTP_200_OK, granted.json()
+
+        if caller == "sandbox":
+            task = Task.objects.create(
+                team=self.team,
+                channel=channel,
+                created_by=self.member,
+                title="Edit the board",
+                description="d",
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+            client = self._sandbox_client(task.id, user=self.member)
+            headers = {"HTTP_X_POSTHOG_TASK_ID": str(task.id)}
+        else:
+            self.client.force_login(self.member)
+            client, headers = self.client, {}
+        published = client.post(f"{base}/publish/", {"project": self._project()}, format="json", **headers)
+        assert published.status_code == expected, published.json()
+
+        if expected == status.HTTP_200_OK:
+            renamed = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
+            assert renamed.status_code == status.HTTP_403_FORBIDDEN, renamed.json()
+            assert self.client.delete(f"{base}/").status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand([("personal_api_key",), ("sandbox",)])
     def test_token_callers_of_a_view_only_member_cannot_publish(self, caller: str) -> None:
