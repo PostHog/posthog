@@ -1,3 +1,4 @@
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'fs'
@@ -57,6 +58,29 @@ const stateOf = (pid: number): string => {
 
 const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
+}
+
+const sendThrough = async (edgeUrl: string): Promise<string> => {
+    const ses = new SESv2Client({
+        endpoint: edgeUrl,
+        region: 'us-east-1',
+        credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
+        maxAttempts: 1,
+    })
+    try {
+        await ses.send(
+            new SendEmailCommand({
+                FromEmailAddress: 'flows@www.example.com',
+                Destination: { ToAddresses: ['run-1-1@www.example.com'] },
+                Content: { Simple: { Subject: { Data: 'Hello' }, Body: { Text: { Data: 'Hello there' } } } },
+            })
+        )
+        return 'sent'
+    } catch (error) {
+        return (error as Error).name
+    } finally {
+        ses.destroy()
+    }
 }
 
 const sesLimiterOn = ({
@@ -1138,6 +1162,12 @@ describe('scenario environment', () => {
             )
             try {
                 await limiter.claimUpTo(claim)
+                const fault = await internalFetch(`${environment.edgeUrl()}/_faults`, {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({ name: 'ses.reject', params: { type: 'rejected' }, dose: { share: 1 } }),
+                })
+                const sendBefore = await sendThrough(environment.edgeUrl())
 
                 await environment.reset({})
 
@@ -1145,10 +1175,12 @@ describe('scenario environment', () => {
                     jobs: await jobsLeft(),
                     tokens: await limiter.claimUpTo(claim),
                     offsets: offsetsOf(),
+                    sends: [fault.status, sendBefore, await sendThrough(environment.edgeUrl())],
                 }).toEqual({
                     jobs: ['completed'],
                     tokens: 5,
                     offsets: { [group]: { [topic]: 'end' } },
+                    sends: [201, 'MessageRejected', 'sent'],
                 })
             } finally {
                 await forgetSesBucket(testRedis)
@@ -1237,10 +1269,11 @@ describe('scenario environment', () => {
                 },
             ],
         ])(
-            'fails a reset at once naming a role that %s, why, and its log',
+            'fails a reset at once naming a role that %s, why, and its log, and tears the environment down',
             async (_name, role, why, arrange) => {
                 environment = environmentOf()
                 await environment.up()
+                const edgeUrl = environment.edgeUrl()
                 arrange()
 
                 const failure = await environment.reset({}).then(
@@ -1251,6 +1284,25 @@ describe('scenario environment', () => {
                 expect(failure).toMatch(new RegExp(`^${role} `))
                 expect(failure).toContain(why)
                 expect(failure).toContain(logOf(role))
+                const others = CdpRole.options.filter((other) => other !== role)
+                expect({
+                    edge: await internalFetch(`${edgeUrl}/_health`).then(
+                        (answer) => answer.status,
+                        () => 'unreachable'
+                    ),
+                    lock: await holdRunLock(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')).then(
+                        async (release) => {
+                            await release()
+                            return 'free'
+                        },
+                        (error: Error) => error.message
+                    ),
+                    rolePortsHeld: (
+                        await Promise.all(
+                            others.map(async (other) => ((await isPortFree(ROLE_PORTS[other])) ? [] : [other]))
+                        )
+                    ).flat(),
+                }).toEqual({ edge: 'unreachable', lock: 'free', rolePortsHeld: [] })
             },
             30_000
         )
