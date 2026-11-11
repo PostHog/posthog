@@ -314,6 +314,8 @@ def _resolve_with_swaps(
             # A view body's offsets come from the view's own text, not from the query the editor shows.
             if view_name is None:
                 context.flag_called_union_spans.update(union.literal_spans)
+            if swapper.swapped:
+                context.flag_calls_read.add("flag_evaluations")
             return FlagCallSwap(source=rewritten, resolved=swapped)
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.
