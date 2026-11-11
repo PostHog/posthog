@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -299,9 +300,8 @@ describe('workflowsOnboardingWizardLogic', () => {
         await reachSendingRules()
 
         logic.actions.next()
-        await expectLogic(teamLogic, () =>
-            teamLogic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
-        ).toDispatchActions(['updateCurrentTeamSuccess'])
+        teamLogic.actions.updateCurrentTeam({ timezone: 'Europe/Berlin' })
+        await waitFor(() => expect(teamLogic.values.currentTeam?.timezone).toBe('Europe/Berlin'))
         releaseSave()
         await expectLogic(teamLogic).toFinishAllListeners()
         await expectLogic(logic).toFinishAllListeners()
