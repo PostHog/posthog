@@ -52,6 +52,8 @@ export interface KubernetesSourceConfig {
 export interface DatabaseConfig {
     url: string
     poolSize: number
+    /** The user of CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL, when the pod can see that URL. */
+    migrateUser?: string
 }
 
 /** Where audit rows are sent as `$credentials_access` events. */
@@ -192,7 +194,16 @@ export function loadDatabaseConfig(): DatabaseConfig | undefined {
     if (!url) {
         return undefined
     }
-    return { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+    const database: DatabaseConfig = { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+    const migrateUrl = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
+    if (migrateUrl) {
+        try {
+            database.migrateUser = decodeURIComponent(new URL(migrateUrl).username) || undefined
+        } catch {
+            throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not a valid URL')
+        }
+    }
+    return database
 }
 
 function auditExportFromEnv(): AuditExportConfig | undefined {

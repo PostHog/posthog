@@ -27,7 +27,8 @@ export type IntegrationOp = (typeof INTEGRATION_OPS)[number]
 
 /**
  * Operations that read or change rows of more than one team. A token that holds these holds
- * no other op and carries no `owner`. `delete_owner` is not one of them: it deletes the rows of
+ * no other op and carries no `owner`. `reverse_sync` reads the changes feed of every team.
+ * `delete_owner` is not one of them: it deletes the rows of
  * the token's owner.
  */
 export const CROSS_TEAM_OPS = [
@@ -35,6 +36,7 @@ export const CROSS_TEAM_OPS = [
     'read_by_external_id',
     'write_by_external_id',
     'delete_by_external_id',
+    'reverse_sync',
 ] as const satisfies readonly IntegrationOp[]
 
 export type CrossTeamOp = (typeof CROSS_TEAM_OPS)[number]
@@ -64,6 +66,11 @@ export interface DeploymentPolicy {
      * keep up. The route tells the auth layer when a row is a source row.
      */
     sourceRows?: boolean
+    /**
+     * Narrows the kinds for one op to a subset of `kinds`. An op without an entry here gets
+     * all of `kinds`.
+     */
+    opKinds?: Readonly<Partial<Record<IntegrationOp, readonly string[]>>>
 }
 
 const WORKER_OPS = [
@@ -127,6 +134,9 @@ const BATCH_EXPORT_KINDS = [
 // The GitHub App reads that mint installation tokens (`GitHubIntegration`).
 const GITHUB_APP_OPS = ['read', 'resolve', 'refresh', 'mint'] as const satisfies readonly IntegrationOp[]
 
+// Callers that read, resolve and mint for GitHub but never refresh a token themselves.
+const GITHUB_READ_OPS = ['read', 'resolve', 'mint'] as const satisfies readonly IntegrationOp[]
+
 const RESOLVE_ANY_KIND: DeploymentPolicy = { ops: ['resolve'], kinds: ALL_KINDS }
 
 /**
@@ -155,11 +165,17 @@ const TABLE: Record<string, DeploymentPolicy> = {
 
     // The tasks sandbox mints GitHub installation tokens, and the Slack app activities on the
     // same queue post to Slack (products/slack_app/backend/services/workspace_integrations.py).
-    'temporal-worker-tasks-agent': { ops: GITHUB_APP_OPS, kinds: ['github', 'slack', 'slack-posthog-code'] },
+    // Those activities count Slack workspaces by external id, so only the Slack kinds may use
+    // the cross-team read.
+    'temporal-worker-tasks-agent': {
+        ops: [...GITHUB_APP_OPS, 'read_by_external_id'],
+        kinds: ['github', 'slack', 'slack-posthog-code'],
+        opKinds: { read_by_external_id: ['slack', 'slack-posthog-code'] },
+    },
     // The tasks Max tools list and use GitHub repos (products/tasks/backend/max_tools.py).
-    'temporal-worker-max-ai': { ops: GITHUB_APP_OPS, kinds: ['github'] },
+    'temporal-worker-max-ai': { ops: GITHUB_READ_OPS, kinds: ['github'] },
     // products/wizard/backend/logic/workers/repository_publisher.py.
-    'temporal-worker-wizard': { ops: GITHUB_APP_OPS, kinds: ['github'] },
+    'temporal-worker-wizard': { ops: GITHUB_READ_OPS, kinds: ['github'] },
     // Despite the name, this queue runs the signals, conversations, customer analytics,
     // business knowledge and review workflows (posthog/management/commands/start_temporal_worker.py).
     'temporal-worker-video-export': {

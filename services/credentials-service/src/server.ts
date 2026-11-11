@@ -14,15 +14,16 @@ import { AuditExporter, captureSender } from './audit/exporter'
 import { IntegrationKeyLoader } from './auth/integration-keys'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
-import { PostgresReplayStore } from './auth/replay-postgres'
 import { SigningKeyLoader } from './auth/registry'
+import { PostgresReplayStore } from './auth/replay-postgres'
 import { Envelope } from './crypto/envelope'
 import { createKms } from './crypto/kms'
 import { createPool, pingDatabase } from './db/pool'
+import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
 import { type AppOptions, createApp } from './http/app'
 import { AuditQueue } from './integrations/audit'
 import { IntegrationsService } from './integrations/service'
-import type { Config } from './lib/config'
+import type { Config, DatabaseConfig } from './lib/config'
 import { logger } from './lib/logging'
 import { register, shuttingDown } from './metrics'
 import { SecretMount } from './mount'
@@ -79,6 +80,7 @@ export class CredentialsServer {
     private audit: AuditQueue | undefined
     private secretsReady = false
     private databaseReady = false
+    private databaseRefused = false
     private cancelTimers: (() => void)[] = []
     private processListeners = new Map<string, (...args: unknown[]) => void>()
     private stopping = false
@@ -137,24 +139,54 @@ export class CredentialsServer {
     // The database gates readiness only until it first answers. After that, an outage must not
     // take the platform secrets down with it: those do not need the database.
     private updateReadiness(): void {
-        this.lifecycle.ready = this.secretsReady && (!this.config.database || this.databaseReady)
+        this.lifecycle.ready =
+            this.secretsReady && (!this.config.database || this.databaseReady || this.databaseRefused)
     }
 
-    private async connectDatabase(pool: Pool): Promise<void> {
-        const connected = (): void => {
-            this.databaseReady = true
-            logger.info('db:connected', {})
-            this.updateReadiness()
+    /** The pool, once the database answered and the runtime role passed the production check. */
+    integrationsPool(): Pool | undefined {
+        return this.databaseReady ? this.pool : undefined
+    }
+
+    // True when the database answered. A refused role counts as settled: the integration
+    // features stay off, and the platform secrets keep serving.
+    private async admitDatabase(pool: Pool, config: DatabaseConfig): Promise<boolean> {
+        if (!(await pingDatabase(pool))) {
+            return false
         }
-        if (await pingDatabase(pool)) {
-            connected()
+        if (isProductionEnv(this.config.env)) {
+            let refusal: string | null
+            try {
+                refusal = await runtimeRoleRefusal(pool, config)
+            } catch (err) {
+                logger.error('startup:database_role_check_failed', {
+                    error: err instanceof Error ? err.message : String(err),
+                })
+                return false
+            }
+            if (refusal) {
+                logger.error('startup:database_role_refused', { reason: refusal, env: this.config.env })
+                this.databaseRefused = true
+                this.pool = undefined
+                await pool.end().catch(() => undefined)
+                this.updateReadiness()
+                return true
+            }
+        }
+        this.databaseReady = true
+        logger.info('db:connected', {})
+        this.updateReadiness()
+        return true
+    }
+
+    private async connectDatabase(pool: Pool, config: DatabaseConfig): Promise<void> {
+        if (await this.admitDatabase(pool, config)) {
             return
         }
         logger.error('startup:database_unreachable', {})
         const cancel = every(DATABASE_RETRY_MS, async () => {
-            if (!this.databaseReady && (await pingDatabase(pool))) {
+            if (!this.databaseReady && !this.databaseRefused && (await this.admitDatabase(pool, config))) {
                 cancel()
-                connected()
             }
         })
         this.cancelTimers.push(cancel)
@@ -181,7 +213,7 @@ export class CredentialsServer {
 
         if (config.database) {
             this.pool = createPool(config.database)
-            await this.connectDatabase(this.pool)
+            await this.connectDatabase(this.pool, config.database)
         }
 
         const appOptions: AppOptions = {
@@ -189,7 +221,10 @@ export class CredentialsServer {
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
         }
-        if (this.pool && config.kms && config.integrationCallerPublicKeysDir) {
+        // In production the pool serves integrations only after the runtime role check passed.
+        // A database that is unreachable at boot leaves them off until the pod restarts.
+        const poolAdmitted = this.pool !== undefined && (this.databaseReady || !isProductionEnv(config.env))
+        if (this.pool && poolAdmitted && config.kms && config.integrationCallerPublicKeysDir) {
             const integrationKeys = new IntegrationKeyLoader(config.integrationCallerPublicKeysDir)
             await integrationKeys.load()
             this.cancelTimers.push(every(config.reloadSeconds * 1000, () => integrationKeys.reload()))
@@ -205,7 +240,7 @@ export class CredentialsServer {
             }
         } else if (this.pool || config.kms) {
             logger.warn('integrations:disabled', {
-                database: Boolean(this.pool),
+                database: poolAdmitted,
                 kms: Boolean(config.kms),
                 keys: Boolean(config.integrationCallerPublicKeysDir),
             })
