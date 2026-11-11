@@ -1092,23 +1092,26 @@ class TestWorktreeBoxes:
             assert devbox_config.load_worktree_boxes() == {str(worktree): record}
         assert worktree.exists() is (change != "worktree-removed")
 
+    @pytest.mark.parametrize("takes_over_the_box_before_clean_acts", [True, False])
     def test_clean_leaves_the_box_alone_when_its_worktree_comes_back_while_it_asks(
-        self, tmp_path, monkeypatch, git
+        self, tmp_path, monkeypatch, git, takes_over_the_box_before_clean_acts: bool
     ) -> None:
         repo, worktree, admin, record, boundary = self._worktree_with_a_running_box(tmp_path, monkeypatch, git)
         git(repo, "worktree", "remove", "--force", str(worktree))
         worktree.mkdir(parents=True)
         (worktree / "README.md").write_text("synced back from the box\n")
         taken_over = dataclasses.replace(record, worktree_id="id-of-the-recreated-worktree")
+        expected_record = taken_over if takes_over_the_box_before_clean_acts else record
 
-        def recreate_and_take_over_the_box_then_confirm(*args, **kwargs) -> bool:
+        def recreate_the_worktree_then_confirm(*args, **kwargs) -> bool:
             if not (worktree / ".git").exists():
                 shutil.rmtree(worktree)
                 git(repo, "worktree", "add", "-q", str(worktree), "feature")
-                devbox_config.record_worktree_box(worktree, taken_over)
+                if takes_over_the_box_before_clean_acts:
+                    devbox_config.record_worktree_box(worktree, taken_over)
             return True
 
-        monkeypatch.setattr(worktrees.click, "confirm", recreate_and_take_over_the_box_then_confirm)
+        monkeypatch.setattr(worktrees.click, "confirm", recreate_the_worktree_then_confirm)
 
         result = CliRunner().invoke(
             cli, ["worktrees:clean", "--before", "all", "--mode", "full", "--delete-boxes", "--repo", str(repo)]
@@ -1116,7 +1119,7 @@ class TestWorktreeBoxes:
 
         assert result.exit_code == 0, result.output
         assert boundary.commands() == []
-        assert devbox_config.load_worktree_boxes() == {str(worktree): taken_over}
+        assert devbox_config.load_worktree_boxes() == {str(worktree): expected_record}
 
     def _worktree_with_a_running_box(self, tmp_path, monkeypatch, git):
         repo = tmp_path / "repo"
