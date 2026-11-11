@@ -2,6 +2,7 @@ import { Context, Emitter, Liquid, Tag, TagToken, Template, TopLevelToken } from
 
 import { rowScopedTriggerTypeForEvent } from '../schema/hogflow'
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
+import { deadlineRemainingMs } from './deadline'
 
 // Rendering is synchronous on shared multi-tenant workers, so an unbounded template would
 // stall or OOM the whole process. These budgets make an over-budget template fail only its own invocation.
@@ -14,7 +15,7 @@ const LIQUID_PARSE_LIMIT_CHARS = 5_000_000
 const LIQUID_MEMORY_LIMIT_UNITS = 1_000_000
 // Time and output are budgeted per invocation, not per template, because one invocation renders
 // every string leaf of every liquid input and those leaves would otherwise each get a full budget.
-const LIQUID_RENDER_LIMIT_MS = 500
+export const LIQUID_RENDER_LIMIT_MS = 500
 const LIQUID_OUTPUT_LIMIT_CHARS = 10_000_000
 
 const LIQUID_TAG_CLOSERS: Record<string, string> = { '{': '}}', '%': '%}' }
@@ -28,8 +29,12 @@ export class LiquidRenderBudget {
     private usedMs = 0
     private outputChars = 0
 
+    constructor(private readonly deadline?: AbortSignal) {}
+
     remainingMs(): number {
-        return Math.max(0, LIQUID_RENDER_LIMIT_MS - this.usedMs)
+        const ownMs = Math.max(0, LIQUID_RENDER_LIMIT_MS - this.usedMs)
+        const deadlineMs = deadlineRemainingMs(this.deadline)
+        return deadlineMs === undefined ? ownMs : Math.min(ownMs, Math.ceil(deadlineMs) + 1)
     }
 
     useTime(ms: number): void {
