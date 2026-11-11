@@ -43,7 +43,7 @@ export interface workflowFoldersLogicValues {
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     filteredRows: WorkflowListRow[] // workflowsListV2Logic
     isUnfilteredAutomationView: boolean // workflowsListV2Logic
-    listLoaded: boolean // workflowsListV2Logic
+    listComplete: boolean // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     rows: WorkflowListRow[] // workflowsListV2Logic
     serverSearchStatus: ServerSearchStatus // workflowsListV2Logic
@@ -165,7 +165,7 @@ export interface workflowFoldersLogicMeta {
         ) => (FileSystemEntry | FileSystemImport)[]
         workflowFacets: (
             facets: FacetDefinition<WorkflowListRow>[],
-            placements: any,
+            placements: Record<string, FileSystemEntry> | null,
             hasActiveQuery: boolean
         ) => FacetDefinition<WorkflowListRow>[]
         matchingRows: (
@@ -176,7 +176,7 @@ export interface workflowFoldersLogicMeta {
         ) => WorkflowListRow[]
         hasActiveQuery: (value: FacetSearchValue) => boolean
         showsAutomationSetup: (
-            listLoaded: boolean,
+            listComplete: boolean,
             isUnfilteredAutomationView: boolean,
             filteredRows: WorkflowListRow[],
             serverSearchStatus: ServerSearchStatus
@@ -194,7 +194,7 @@ export interface workflowFoldersLogicMeta {
         ) => FileSystemEntry[]
         folderCounts: (
             matchingRows: WorkflowListRow[],
-            placements: any,
+            placements: Record<string, FileSystemEntry> | null,
             matchingTemplates: FileSystemEntry[]
         ) => Record<string, number>
         childFolders: (
@@ -210,13 +210,13 @@ export interface workflowFoldersLogicMeta {
         folderRows: (
             matchingRows: WorkflowListRow[],
             currentFolder: string | null,
-            placements: any,
+            placements: Record<string, FileSystemEntry> | null,
             hasActiveQuery: boolean
         ) => WorkflowListRow[]
         folderSearchItems: (
             rows: WorkflowListRow[],
             savedItems: FileSystemEntry[],
-            placements: any,
+            placements: Record<string, FileSystemEntry> | null,
             currentTeamId: number | null
         ) => WorkflowFolderFileRow[]
         folderFacets: (
@@ -387,7 +387,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 'rows',
                 'facets',
                 'matchesText',
-                'listLoaded',
+                'listComplete',
                 'isUnfilteredAutomationView',
                 'filteredRows',
                 'serverSearchStatus',
@@ -571,14 +571,15 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 !!value.text.trim() || value.filters.some((filter) => filter.facet !== 'in' || filter.negated),
         ],
         showsAutomationSetup: [
-            (s) => [s.listLoaded, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus],
+            (s) => [s.listComplete, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus],
             (
-                listLoaded: boolean,
+                listComplete: boolean,
                 isUnfilteredAutomationView: boolean,
                 filteredRows: WorkflowListRow[],
                 serverSearchStatus: ServerSearchStatus
             ): boolean =>
-                listLoaded &&
+                // A later page can still hold an automation workflow.
+                listComplete &&
                 isUnfilteredAutomationView &&
                 filteredRows.length === 0 &&
                 serverSearchStatus !== 'pending',
