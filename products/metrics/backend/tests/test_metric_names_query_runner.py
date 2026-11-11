@@ -404,6 +404,13 @@ class TestFoldClassicHistograms(APIBaseTest):
         rows = [self._row(name, "2026-01-01T00:00:00+00:00") for name in names]
         self.assertEqual(fold_classic_histograms(rows), rows)
 
+    def test_leaves_gauges_with_histogram_suffixes_alone(self):
+        rows = [
+            {**self._row(name, "2026-01-01T00:00:00+00:00"), "metric_type": "gauge"}
+            for name in ["x_bucket", "x_sum", "x_count"]
+        ]
+        self.assertEqual(fold_classic_histograms(rows), rows)
+
     def test_keeps_a_native_histogram_beside_its_classic_triple(self):
         rows = [
             {**self._row("x", "2026-01-01T00:00:00+00:00"), "metric_type": "histogram"},

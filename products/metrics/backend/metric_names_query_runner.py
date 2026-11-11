@@ -280,18 +280,19 @@ class MetricNamesQueryRunner:
         return rows
 
     def _first_seen(self, names: Sequence[str]) -> dict[str, Any]:
-        """The earliest hour each name arrived in, over the names table's whole retention.
+        """The earliest hour each name arrived in, over the series table's whole retention.
 
-        The names rollup holds one row per name, service and hour, so this stays far smaller
-        than a samples scan. It ignores the lookback on purpose: the point is to tell a metric
-        that only started arriving inside the window from one that was there all along.
+        It ignores the lookback on purpose: the point is to tell a metric that only started
+        arriving inside the window from one that was there all along.
         """
         if not names:
             return {}
+        # metric_series is sorted by metric_name first, so this reads only these names' ranges.
+        # The names table is sorted by hour first, so the same lookup there reads all retention.
         query = parse_select(
             """
                 SELECT metric_name, min(time_bucket) AS first_seen
-                FROM posthog.metric_names
+                FROM posthog.metric_series
                 WHERE metric_name IN {names}
                 GROUP BY metric_name
             """,
@@ -406,7 +407,7 @@ def name_matches(name: str, search: str, match: str = "substring") -> bool:
 def fold_classic_histograms(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
     """Fold each Prometheus classic histogram's `_bucket`, `_sum` and `_count` rows into its `_bucket` row.
 
-    Only a complete triple folds, and only when all three are in `rows`. The folded row keeps
+    Only a complete triple of `sum` rows folds, and only when all three are in `rows`. The folded row keeps
     the `_bucket` name, which is the one PromQL's `histogram_quantile` reads, and lists the three
     underlying names under `classic_histogram`. Its `last_seen` is the newest and its
     `first_seen` the oldest of the three.
@@ -418,7 +419,8 @@ def fold_classic_histograms(rows: Sequence[dict[str, Any]]) -> list[dict[str, An
             continue
         base = name.removesuffix("_bucket")
         triple = [f"{base}{suffix}" for suffix in _CLASSIC_HISTOGRAM_SUFFIXES]
-        if base and all(member in by_name for member in triple):
+        # Ingestion only treats `sum` rows as histogram components, so gauges that share the suffixes stay apart.
+        if base and all(by_name.get(member, {}).get("metric_type") == "sum" for member in triple):
             folded[name] = {"base_name": base, "bucket": triple[0], "sum": triple[1], "count": triple[2]}
 
     absorbed = {members[key] for members in folded.values() for key in ("sum", "count")}
