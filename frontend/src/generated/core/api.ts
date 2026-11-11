@@ -103,8 +103,10 @@ import type {
     ProjectSecretAPIKeyApi,
     ProjectSecretApiKeysListParams,
     PropertyDefinitionsListParams,
+    PropertyDefinitionsValueCountsRetrieveParams,
     PropertyUsageMetricsRequestApi,
     PropertyUsageMetricsResponseApi,
+    PropertyValueCountsResponseApi,
     ResolvedWorkloadSubjectApi,
     RevokeOtherSessionsResponseApi,
     SCIMTokenResponseApi,
@@ -2755,6 +2757,40 @@ export const propertyDefinitionsUsageMetricsCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(propertyUsageMetricsRequestApi),
+    })
+}
+
+export const getPropertyDefinitionsValueCountsRetrieveUrl = (
+    projectId: string,
+    params: PropertyDefinitionsValueCountsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/property_definitions/value_counts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/property_definitions/value_counts/`
+}
+
+/**
+ * Returns how many times one property was sent and its 10 most common values with a count each. A value counts for as long as it keeps being sent: values not sent for 30 days drop out. Event and person properties count each event that carried them, group properties count each group update. Session properties are not supported.
+ * @summary How often a property was sent, and its most common values
+ */
+export const propertyDefinitionsValueCountsRetrieve = async (
+    projectId: string,
+    params: PropertyDefinitionsValueCountsRetrieveParams,
+    options?: RequestInit
+): Promise<PropertyValueCountsResponseApi> => {
+    return apiMutator<PropertyValueCountsResponseApi>(getPropertyDefinitionsValueCountsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

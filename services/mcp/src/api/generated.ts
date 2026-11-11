@@ -98242,6 +98242,24 @@ export namespace Schemas {
       results: PropertyUsageMetricsItem[];
     }
 
+    export interface PropertyValueCount {
+      /** Property value as sent, with non-string values in their JSON form. */
+      value: string;
+      /** Number of times this value was sent. */
+      count: number;
+    }
+
+    export interface PropertyValueCountsResponse {
+      /** Number of times the property was sent with any value. */
+      total_count: number;
+      /** Approximate number of distinct values the property was sent with. */
+      distinct_value_count: number;
+      /** The 10 most common values, most common first. */
+      values: PropertyValueCount[];
+      /** True when the property has too many distinct values to rank exactly, so the top values and their counts are estimates. */
+      is_approximate: boolean;
+    }
+
     export interface PropertyValueItem {
       count?: number | null;
       name?: string | number | boolean | null;
@@ -138345,6 +138363,42 @@ export namespace Schemas {
 
 
     export const PropertyDefinitionsListType = {
+      Event: 'event',
+      Person: 'person',
+      Group: 'group',
+      Session: 'session',
+    } as const;
+
+    export type PropertyDefinitionsValueCountsRetrieveParams = {
+    /**
+     * Group type index of a group property. Required when `type` is `group`, otherwise omit it.
+     * @minimum 0
+     * @maximum 4
+     * @nullable
+     */
+    group_type_index?: number | null;
+    /**
+     * Property name, for example `$current_url`.
+     * @minLength 1
+     * @maxLength 400
+     */
+    name: string;
+    /**
+     * Property definition type the name belongs to.
+     *
+     * * `event` - Event
+     * * `person` - Person
+     * * `group` - Group
+     * * `session` - Session
+     * @minLength 1
+     */
+    type?: PropertyDefinitionsValueCountsRetrieveType;
+    };
+
+    export type PropertyDefinitionsValueCountsRetrieveType = typeof PropertyDefinitionsValueCountsRetrieveType[keyof typeof PropertyDefinitionsValueCountsRetrieveType];
+
+
+    export const PropertyDefinitionsValueCountsRetrieveType = {
       Event: 'event',
       Person: 'person',
       Group: 'group',

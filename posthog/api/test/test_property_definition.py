@@ -1,7 +1,8 @@
 import json
+from datetime import datetime
 from typing import Any, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, patch
 
 from django.core.cache import cache
@@ -10,6 +11,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models import ActivityLog, Organization, Team
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionQuerySerializer,
@@ -19,6 +22,8 @@ from posthog.taxonomy.property_definition_api import (
     QueryContext,
 )
 
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.event_definitions.backend.models import EventDefinition, EventProperty, PropertyDefinition
 
 
@@ -1234,3 +1239,89 @@ class TestPropertyUsageMetricsAPI(APIBaseTest):
             f"/api/projects/{self.team.pk}/property_definitions/usage_metrics/", {"properties": []}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestPropertyValueCountsAPI(ClickhouseTestMixin, APIBaseTest):
+    def _insert_rows(self, rows: list[tuple[int, str, str, str, int]]) -> None:
+        now = datetime.now()
+        sync_execute(
+            "INSERT INTO property_values (team_id, property_type, property_key, property_value, property_count, last_seen) VALUES",
+            [(*row, now) for row in rows],
+        )
+
+    def _get(self, params: dict[str, Any]):
+        return self.client.get(f"/api/projects/{self.team.pk}/property_definitions/value_counts/", params)
+
+    @parameterized.expand(
+        [
+            ("event", {"name": "plan"}, 1),
+            ("person", {"type": "person", "name": "plan"}, 2),
+            ("first group type", {"type": "group", "name": "plan", "group_type_index": 0}, 3),
+            ("second group type", {"type": "group", "name": "plan", "group_type_index": 1}, 4),
+        ]
+    )
+    def test_counts_only_the_requested_property(self, _name: str, params: dict[str, Any], expected_count: int) -> None:
+        other_team = Team.objects.create(organization=self.organization)
+        self._insert_rows(
+            [
+                (self.team.pk, "event", "plan", "free", 1),
+                (self.team.pk, "person", "plan", "free", 2),
+                (self.team.pk, "group_0", "plan", "free", 3),
+                (self.team.pk, "group_1", "plan", "free", 4),
+                (self.team.pk, "event", "tier", "free", 50),
+                (other_team.pk, "event", "plan", "free", 60),
+                (other_team.pk, "person", "plan", "free", 70),
+            ]
+        )
+
+        response = self._get(params)
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "total_count": expected_count,
+            "distinct_value_count": 1,
+            "values": [{"value": "free", "count": expected_count}],
+            "is_approximate": False,
+        }
+
+    def test_returns_the_most_common_values_first_and_sums_unmerged_rows(self) -> None:
+        self._insert_rows(
+            [(self.team.pk, "event", "plan", f"plan-{count}", count) for count in range(1, 13)]
+            + [(self.team.pk, "event", "plan", "plan-1", 20)]
+        )
+
+        response = self._get({"name": "plan"})
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "total_count": 98,
+            "distinct_value_count": 12,
+            "values": [
+                {"value": "plan-1", "count": 21},
+                *({"value": f"plan-{count}", "count": count} for count in range(12, 3, -1)),
+            ],
+            "is_approximate": False,
+        }
+
+    def test_rejects_session_properties(self) -> None:
+        response = self._get({"type": "session", "name": "$entry_pathname"})
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_hides_values_of_a_restricted_property(self) -> None:
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name="email", type=PropertyDefinition.Type.EVENT
+            ),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        self._insert_rows([(self.team.pk, "event", "email", "someone@example.com", 1)])
+
+        response = self._get({"name": "email"})
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN

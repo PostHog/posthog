@@ -15,7 +15,7 @@ from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import mixins, request, response, serializers, status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import ValidatedRequest, validated_request
@@ -25,6 +25,7 @@ from posthog.api.statement_timeout import statement_timeout
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.dataclasses import frozen
@@ -236,6 +237,105 @@ class PropertyUsageMetricsResponseSerializer(serializers.Serializer):
     results = PropertyUsageMetricsItemSerializer(
         many=True,
         help_text="One entry per requested property, in request order.",
+    )
+
+
+TOP_PROPERTY_VALUES_LIMIT = 10
+# approx_top_sum keeps TOP_PROPERTY_VALUES_LIMIT * load factor counters. Rows reach the aggregate in
+# property_value order, so a small counter table holds whichever values came last, not the most
+# common ones. 10,000 keeps the top values right for keys with millions of distinct values.
+TOP_PROPERTY_VALUES_LOAD_FACTOR = 10_000
+
+
+@frozen
+class PropertyValueCount:
+    value: str
+    count: int
+
+
+@frozen
+class PropertyValueCounts:
+    total_count: int
+    distinct_value_count: int
+    values: list[PropertyValueCount]
+    is_approximate: bool
+
+
+def _property_values_table_type(property_type: str, group_type_index: int | None) -> str:
+    # property-vals-rs writes one property_type per group type, for example `group_0`.
+    if property_type == PropertyDefinitionTypeName.GROUP:
+        return f"group_{group_type_index}"
+    return property_type
+
+
+def _fetch_property_value_counts(team: Team, key: _PropertyUsageKey) -> PropertyValueCounts:
+    tag_queries(
+        product=Product.PRODUCT_ANALYTICS,
+        feature=Feature.PROPERTY_DEFINITION_SCENE,
+        query_type="property_definition_value_counts",
+    )
+    # One property key is a primary key prefix, so the read stays small. A GROUP BY over every
+    # value of a high-cardinality key, such as a URL, needs gigabytes of memory, so the top values
+    # come from approx_top_sum instead.
+    rows = sync_execute(
+        """
+        SELECT
+            sum(property_count),
+            uniq(property_value),
+            approx_top_sum(%(limit)s, %(load_factor)s)(property_value, property_count)
+        FROM property_values_distributed
+        WHERE team_id = %(team_id)s
+          AND property_type = %(property_type)s
+          AND property_key = %(property_key)s
+        """,
+        {
+            "team_id": team.pk,
+            "property_type": _property_values_table_type(key.type, key.group_type_index),
+            "property_key": key.name,
+            "limit": TOP_PROPERTY_VALUES_LIMIT,
+            "load_factor": TOP_PROPERTY_VALUES_LOAD_FACTOR,
+        },
+        workload=Workload.ONLINE,
+        team_id=team.pk,
+    )
+    total_count, distinct_value_count, top_values = rows[0]
+    return PropertyValueCounts(
+        total_count=int(total_count),
+        distinct_value_count=int(distinct_value_count),
+        values=[PropertyValueCount(value=value, count=int(count)) for value, count, _error in top_values],
+        is_approximate=any(error > 0 for _value, _count, error in top_values),
+    )
+
+
+class PropertyValueCountsQuerySerializer(PropertyUsageEntrySerializer):
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        if attrs["type"] == PropertyDefinitionTypeName.SESSION:
+            raise ValidationError({"type": "Values are not recorded for session properties."})
+        return attrs
+
+
+class PropertyValueCountSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="Property value as sent, with non-string values in their JSON form.")
+    count = serializers.IntegerField(help_text="Number of times this value was sent.")
+
+
+class PropertyValueCountsResponseSerializer(serializers.Serializer):
+    total_count = serializers.IntegerField(
+        help_text="Number of times the property was sent with any value.",
+    )
+    distinct_value_count = serializers.IntegerField(
+        help_text="Approximate number of distinct values the property was sent with.",
+    )
+    values = PropertyValueCountSerializer(
+        many=True,
+        help_text=f"The {TOP_PROPERTY_VALUES_LIMIT} most common values, most common first.",
+    )
+    is_approximate = serializers.BooleanField(
+        help_text=(
+            "True when the property has too many distinct values to rank exactly, "
+            "so the top values and their counts are estimates."
+        ),
     )
 
 
@@ -1160,6 +1260,33 @@ class PropertyDefinitionViewSet(
             for key in keys
         ]
         return response.Response(PropertyUsageMetricsResponseSerializer({"results": results}).data)
+
+    @validated_request(
+        query_serializer=PropertyValueCountsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=PropertyValueCountsResponseSerializer,
+                description="How often the property was sent, and its most common values.",
+            )
+        },
+        summary="How often a property was sent, and its most common values",
+        description=(
+            "Returns how many times one property was sent and its "
+            f"{TOP_PROPERTY_VALUES_LIMIT} most common values with a count each. "
+            "A value counts for as long as it keeps being sent: values not sent for 30 days drop out. "
+            "Event and person properties count each event that carried them, "
+            "group properties count each group update. Session properties are not supported."
+        ),
+    )
+    @action(methods=["GET"], detail=False, required_scopes=["property_definition:read"], url_path="value_counts")
+    def value_counts(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> response.Response:
+        query = request.validated_query_data
+        if query["name"] in self._get_restricted_property_names(query["type"]):
+            raise PermissionDenied("You don't have access to this property's values.")
+        key = _PropertyUsageKey(type=query["type"], name=query["name"], group_type_index=query.get("group_type_index"))
+        return response.Response(
+            PropertyValueCountsResponseSerializer(_fetch_property_value_counts(self.team, key)).data
+        )
 
     def destroy(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         instance: PropertyDefinition = self.get_object()

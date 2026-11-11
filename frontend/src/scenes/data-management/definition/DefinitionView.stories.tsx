@@ -94,12 +94,28 @@ function insightsListMock(insights: Record<string, unknown>[]): Record<string, u
     return { count: insights.length, next: null, previous: null, results: insights }
 }
 
+const MOCK_VALUE_COUNTS = {
+    total_count: 18342,
+    distinct_value_count: 4,
+    values: [
+        { value: 'free', count: 11204 },
+        { value: 'pro', count: 5120 },
+        { value: 'team', count: 1873 },
+        { value: 'enterprise', count: 145 },
+    ],
+    is_approximate: false,
+}
+
+const MOCK_NO_VALUE_COUNTS = { total_count: 0, distinct_value_count: 0, values: [], is_approximate: false }
+
 function propertyUsageDecorator(
     queryUsage: number,
-    insights: Record<string, unknown>[]
+    insights: Record<string, unknown>[],
+    valueCounts: Record<string, unknown>
 ): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         get: {
+            '/api/projects/:project_id/property_definitions/value_counts/': valueCounts,
             '/api/projects/:project_id/property_definitions/:id/': MOCK_PROPERTY_DEFINITION,
             '/api/projects/:project_id/insights/': insightsListMock(insights),
         },
@@ -179,7 +195,7 @@ export const PropertyDefinitionUsage: Story = {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
     },
-    decorators: [propertyUsageDecorator(4821, MOCK_INSIGHTS)],
+    decorators: [propertyUsageDecorator(4821, MOCK_INSIGHTS, MOCK_VALUE_COUNTS)],
 }
 
 export const PropertyDefinitionUsageEmpty: Story = {
@@ -187,5 +203,5 @@ export const PropertyDefinitionUsageEmpty: Story = {
         pageUrl: urls.propertyDefinition(MOCK_PROPERTY_DEFINITION.id),
         testOptions: { waitForLoadersToDisappear: true },
     },
-    decorators: [propertyUsageDecorator(0, [])],
+    decorators: [propertyUsageDecorator(0, [], MOCK_NO_VALUE_COUNTS)],
 }
