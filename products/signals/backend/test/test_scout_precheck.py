@@ -353,7 +353,7 @@ class TestSkillDefaultPrecheck(ClickhouseTestMixin, BaseTest):
 ANOMALY_SKILL = "signals-scout-anomaly-detection"
 TEAM = SignalScoutConfig.ManagedBy.TEAM
 BACKGROUND = SignalScoutConfig.ManagedBy.BACKGROUND
-# Two quiet weeks with a weekly rhythm, then one bucket far off both medians.
+# Four quiet weeks with a weekly rhythm. Each case appends its own latest bucket.
 QUIET_SERIES = [(day, 100.0 if day % 7 else 80.0, 0) for day in range(29, 1, -1)]
 
 
