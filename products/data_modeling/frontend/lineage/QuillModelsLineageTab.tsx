@@ -53,7 +53,7 @@ export function QuillModelsLineageTab(): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-quill>
             <div className="flex flex-wrap items-center gap-2">
-                <InputGroup size="sm" className="w-full @min-[40rem]/main-content:w-72">
+                <InputGroup size="sm" className="min-w-40 max-w-72 flex-1">
                     <InputGroupAddon>
                         <IconSearch />
                     </InputGroupAddon>
