@@ -738,17 +738,38 @@ describe('workflowsListV2Logic', () => {
         expect(screen.queryByRole('alert')).toBeNull()
     })
 
+    const RENEWAL_ACTIONS = [
+        { id: 'trigger_node', name: 'Trigger', type: 'trigger', config: { type: 'event', filters: {} } },
+        { id: 'action_email', name: 'Send reminder', type: 'function_email', config: { inputs: {} } },
+        { id: 'exit_node', name: 'Exit', type: 'exit', config: { reason: 'Default exit' } },
+    ]
+    const RENEWAL_EDGES = [
+        { from: 'trigger_node', to: 'action_email', type: 'continue' },
+        { from: 'action_email', to: 'exit_node', type: 'continue' },
+    ]
+
     it.each([
-        ['succeeds', 200, 1],
-        ['fails', 500, 0],
-    ])('sends one duplicate at a time and clears the pending state when the copy %s', async (_, status, copies) => {
+        [
+            'succeeds',
+            200,
+            [
+                expect.objectContaining({
+                    name: 'Renewal reminder (copy)',
+                    status: 'draft',
+                    actions: RENEWAL_ACTIONS,
+                    edges: RENEWAL_EDGES,
+                }),
+            ],
+        ],
+        ['fails', 500, []],
+    ])('sends one duplicate at a time and clears the pending state when the copy %s', async (_, status, posted) => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
 
         let answerRetrieve: () => void = () => {}
-        let posts = 0
+        const postedBodies: Record<string, unknown>[] = []
         const retrieveSent = new Promise<void>((markSent) => {
             useMocks({
                 get: {
@@ -758,16 +779,24 @@ describe('workflowsListV2Logic', () => {
                             answerRetrieve = () =>
                                 resolve(
                                     status === 200
-                                        ? [200, { ...FIXTURE_WORKFLOWS[1], actions: [], edges: [] }]
+                                        ? [
+                                              200,
+                                              {
+                                                  ...FIXTURE_WORKFLOWS[1],
+                                                  status: 'active',
+                                                  actions: RENEWAL_ACTIONS,
+                                                  edges: RENEWAL_EDGES,
+                                              },
+                                          ]
                                         : [500, {}]
                                 )
                             markSent()
                         }),
                 },
                 post: {
-                    '/api/projects/:team_id/hog_flows/': () => {
-                        posts++
-                        return [200, { id: `wf-copy-${posts}` }]
+                    '/api/projects/:team_id/hog_flows/': async ({ request }) => {
+                        postedBodies.push((await request.json()) as Record<string, unknown>)
+                        return [200, { id: `wf-copy-${postedBodies.length}` }]
                     },
                 },
             })
@@ -781,7 +810,7 @@ describe('workflowsListV2Logic', () => {
         await retrieveSent
         answerRetrieve()
         await expectLogic(logic).toFinishAllListeners()
-        expect(posts).toEqual(copies)
+        expect(postedBodies).toEqual(posted)
         expect(logic.values.pendingRowActions).toEqual({})
     })
 
