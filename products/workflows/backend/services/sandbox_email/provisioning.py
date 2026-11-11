@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from posthog.integrations import IntegrationManager
+from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -34,8 +34,13 @@ def provision_sandbox_sender(team: Team, user: User) -> IntegrationRecord:
     existing = accessor.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID)
     if existing is not None:
         return existing
-    row, _created = accessor.upsert(team.id, SANDBOX_SENDER_INTEGRATION_ID, config={}, created_by_id=user.id)
-    return row
+    try:
+        return accessor.create(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID, config={}, created_by_id=user.id)
+    except IntegrationConflict:
+        winner = accessor.find(team.id, external_id=SANDBOX_SENDER_INTEGRATION_ID)
+        if winner is None:
+            raise
+        return winner
 
 
 def sandbox_sender_status(team: Team, user: User | None = None) -> SandboxSenderStatus:

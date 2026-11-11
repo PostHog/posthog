@@ -3,6 +3,7 @@ import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed
 import type { ImageFetchBlockReason } from './block-reason'
 import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
+import { SIGNATURE_BYTES } from './image-transport'
 import { ImageFetchRequestMetrics } from './metrics'
 import { REQUEST_IDENTITY_HEADERS } from './request-identity'
 import { URL_ASSET_RULES } from './url-asset-rules'
@@ -287,9 +288,17 @@ export class HttpImageFetcher implements ImageFetcher {
                 return { kind: 'done', result: { outcome: 'too_large', status, cache } }
             }
 
-            const { bytes, overLimit } = await response.read(maxBytes, false)
+            const head =
+                contentEncoding === undefined
+                    ? { bytes: SIGNATURE_BYTES, accept: (first: Buffer) => rules.canStartWith(first, contentType) }
+                    : undefined
+            const { bytes, overLimit, refused } = await response.read(maxBytes, false, head)
             if (overLimit) {
                 return { kind: 'done', result: { outcome: 'too_large', status, cache } }
+            }
+            if (refused) {
+                // The store counts a result without bytes as an invalid file, as it does a body that fails `prepare`.
+                return { kind: 'done', result: { outcome: 'ok', status, contentType, contentEncoding, cache } }
             }
             return { kind: 'done', result: { outcome: 'ok', status, bytes, contentType, contentEncoding, cache } }
         } finally {

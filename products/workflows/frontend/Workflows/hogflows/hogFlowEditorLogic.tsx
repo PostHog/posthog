@@ -2297,6 +2297,28 @@ export type hogFlowEditorLogicType = MakeLogicType<
     hogFlowEditorLogicMeta
 >
 
+function withSandboxSenderOnInsert(
+    action: HogFlowAction,
+    values: Pick<
+        hogFlowEditorLogicValues,
+        'integrations' | 'workflow' | 'canAdoptSandbox' | 'sandboxStatus' | 'currentTeam'
+    >,
+    editingTemplate: boolean,
+    provisionSandboxSender: () => void
+): HogFlowAction {
+    if (
+        hasOwnSender(values.integrations) !== false ||
+        !sandboxSenderAllowed(values.workflow, editingTemplate) ||
+        !needsSandboxSender(action, values.canAdoptSandbox, getTeamUtmDefaults(values.currentTeam?.workflows_config))
+    ) {
+        return action
+    }
+    if (values.sandboxStatus?.integration_id === null) {
+        provisionSandboxSender()
+    }
+    return toSandboxAction(action)
+}
+
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     props({} as WorkflowLogicProps),
     path((key) => ['scenes', 'hogflows', 'hogFlowEditorLogic', key]),
@@ -2769,20 +2791,10 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             : {}),
                     } as HogFlowAction
 
-                    if (
-                        !isHogFlowActionNode &&
-                        hasOwnSender(values.integrations) === false &&
-                        sandboxSenderAllowed(values.workflow, !!props.editTemplateId) &&
-                        needsSandboxSender(
-                            newAction,
-                            values.canAdoptSandbox,
-                            getTeamUtmDefaults(values.currentTeam?.workflows_config)
-                        )
-                    ) {
-                        newAction = toSandboxAction(newAction)
-                        if (values.sandboxStatus?.integration_id === null) {
+                    if (!isHogFlowActionNode) {
+                        newAction = withSandboxSenderOnInsert(newAction, values, !!props.editTemplateId, () =>
                             actions.provisionSandboxSender('inserted_step')
-                        }
+                        )
                     }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)

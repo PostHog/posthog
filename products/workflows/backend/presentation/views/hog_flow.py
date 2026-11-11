@@ -59,6 +59,7 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemViewSetMixin,
 )
+from posthog.api.utils import MAX_LISTED_IDS, parse_id_list
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -277,6 +278,7 @@ from products.workflows.backend.facade.sandbox_email import (
     has_verified_own_sender,
     own_only_settings,
     provision_sandbox_sender,
+    require_sandbox_runtime,
     sandbox_adoption_enabled,
     to_own_email_action,
     to_sandbox_action,
@@ -677,6 +679,8 @@ def _is_finished_condition(condition: Any) -> bool:
     try:
         Property(**condition)
     except (PropertyValidationError, exceptions.ValidationError, TypeError):
+        return False
+    if condition.get("type") == "cohort" and not str(condition.get("value")).isdigit():
         return False
     return (
         condition.get("value") != []
@@ -2278,6 +2282,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
+                        stored_filters = (self.context.get("stored_batch_audience_filters") or {}).get(data.get("id"))
+                        if filters != stored_filters:
+                            reject_unusable_audience_conditions(self.context["get_team"](), filters)
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
@@ -2886,6 +2893,13 @@ class SendCalendarQuerySerializer(serializers.Serializer):
             "days after start."
         )
     )
+    ids = serializers.CharField(
+        required=False,
+        help_text=f"Comma-separated workflow IDs, at most {MAX_LISTED_IDS}. Only these workflows are returned.",
+    )
+
+    def validate_ids(self, value: str) -> list[uuid_mod.UUID]:
+        return parse_id_list(value, name="ids", parse=uuid_mod.UUID) or []
 
     def validate(self, data: dict) -> dict:
         if data["end"] <= data["start"]:
@@ -3798,6 +3812,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
+
+        self.context["stored_batch_audience_filters"] = {
+            action["id"]: (action.get("config") or {}).get("filters")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+        }
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -5726,6 +5749,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             start=request.validated_query_data["start"],
             end=request.validated_query_data["end"],
+            workflow_ids=request.validated_query_data.get("ids"),
             # Service credentials are synthetic users that UserAccessControl cannot evaluate.
             user_access_control=None if is_service_auth(request) else self.user_access_control,
         )
@@ -7007,11 +7031,13 @@ class HogFlowViewSet(
                 draft["actions"] = rehydrate_flow_secrets(draft["actions"], draft_secrets)
             payload["configuration"] = draft
 
+        configuration = payload.get("configuration") or {}
+        # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
+        actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
+        require_sandbox_runtime(actions)
+
         test_run_row = None
         if not payload.get("mock_async_functions", True):
-            configuration = payload.get("configuration") or {}
-            # The worker runs `{...stored, ...configuration}`, so a field the request omits runs as stored.
-            actions = configuration["actions"] if "actions" in configuration else (hog_flow.actions if hog_flow else [])
             self._require_replay_vision_caller_access(request, actions)
             test_run_row = log_workflow_test_run(
                 actor=self._activity_actor(),
