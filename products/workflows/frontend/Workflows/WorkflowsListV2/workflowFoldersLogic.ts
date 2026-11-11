@@ -388,10 +388,11 @@ function applyFullScan(
     owns: (entry: FileSystemEntry) => boolean
 ): void {
     const freshPaths = new Map(scanned.map((entry) => [entry.id, entry.path]))
-    for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
-        if (owns(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path) {
-            projectTreeDataLogic.actions.deleteSavedItem(cached)
-        }
+    const stale = Object.values(projectTreeDataLogic.values.folders)
+        .flat()
+        .filter((cached) => owns(cached) && !cached.shortcut && freshPaths.get(cached.id) !== cached.path)
+    if (stale.length > 0) {
+        projectTreeDataLogic.actions.dropStaleItems(stale)
     }
     projectTreeDataLogic.actions.addLoadedResults({
         searchTerm: '',
@@ -970,6 +971,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             const index = fileIndex(cache)
             for (const [id, entry] of index) {
                 if (id === savedItem.id || (savedItem.type === 'folder' && isPathUnder(entry.path, savedItem.path))) {
+                    index.delete(id)
+                }
+            }
+        },
+        [projectTreeDataLogic.actionTypes.dropStaleItems]: ({ items }) => {
+            cache.changes = changeCount(cache) + 1
+            const ids = new Set(items.map((item) => item.id))
+            const folders = items.filter((item) => item.type === 'folder').map((item) => item.path)
+            const index = fileIndex(cache)
+            for (const [id, entry] of index) {
+                if (ids.has(id) || folders.some((path) => isPathUnder(entry.path, path))) {
                     index.delete(id)
                 }
             }

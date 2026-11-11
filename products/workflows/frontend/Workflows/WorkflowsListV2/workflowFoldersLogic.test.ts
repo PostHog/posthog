@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -607,6 +608,41 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
         expect(logic.values.folderPaths).not.toContain('Empty')
         expect(logic.values.folderPaths).toContain('Reports')
+    })
+
+    it('drops every stale file from the shared tree in one update when a full reload no longer lists them', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const stale = Array.from(
+            { length: 40 },
+            (_, index): FileSystemEntry => ({
+                id: `stale-${index}`,
+                path: `Billing/Old workflow ${index}`,
+                type: 'hog_flow',
+                ref: `stale-ref-${index}`,
+            })
+        )
+        addProjectFiles(stale)
+        const fileCount = (): number => Object.values(projectTreeDataLogic.values.folders).flat().length
+        let removals = 0
+        let previous = fileCount()
+        const unsubscribe = getContext().store.subscribe(() => {
+            const current = fileCount()
+            if (current < previous) {
+                removals++
+            }
+            previous = current
+        })
+
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        unsubscribe()
+
+        const ids = new Set(
+            Object.values(projectTreeDataLogic.values.folders)
+                .flat()
+                .map((entry) => entry.id)
+        )
+        expect(stale.filter((entry) => ids.has(entry.id))).toEqual([])
+        expect(removals).toBe(1)
     })
 
     it('rejects a folder name that only another product uses', async () => {
