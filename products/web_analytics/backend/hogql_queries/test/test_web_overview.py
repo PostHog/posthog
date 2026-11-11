@@ -22,6 +22,7 @@ from posthog.schema import (
     BounceRatePageViewMode,
     CompareFilter,
     CustomEventConversionGoal,
+    DashboardFilter,
     DateRange,
     EventPropertyFilter,
     HogQLQueryModifiers,
@@ -1498,7 +1499,27 @@ class TestWebOverviewSessionIdSetFastPath(ClickhouseTestMixin, APIBaseTest):
                 properties=[property_filter],
                 modifiers=HogQLQueryModifiers(sessionFilterGlobalJoin=requested),
             )
-        assert runner.modifiers.sessionFilterGlobalJoin == expected
+        assert bool(runner.modifiers.sessionFilterGlobalJoin) == expected
+
+    def test_session_filter_global_join_follows_dashboard_session_filter(self):
+        with patch(
+            "products.web_analytics.backend.hogql_queries.first_pageview_flag.posthoganalytics.feature_enabled",
+            return_value=True,
+        ):
+            runner = self._make_runner(
+                properties=[EventPropertyFilter(key="$pathname", operator=PropertyOperator.EXACT, value="/pricing")]
+            )
+            assert not runner.modifiers.sessionFilterGlobalJoin
+            runner.apply_dashboard_filters(
+                DashboardFilter(
+                    properties=[
+                        SessionPropertyFilter(
+                            key="$entry_referring_domain", operator=PropertyOperator.EXACT, value="a.example.com"
+                        )
+                    ]
+                )
+            )
+        assert runner.modifiers.sessionFilterGlobalJoin
 
     @parameterized.expand(
         [
