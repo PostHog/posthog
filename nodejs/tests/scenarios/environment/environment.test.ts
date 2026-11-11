@@ -665,7 +665,12 @@ describe('scenario environment', () => {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            const members = Date.now() < Number(fs.readFileSync(path.join(__dirname, 'dead-member-leaves-at'), 'utf8')) ? 1 : 0
+            const leaves = path.join(__dirname, 'dead-member-leaves-at')
+            if (!fs.existsSync(leaves)) {
+                const session = Number(fs.readFileSync(path.join(__dirname, 'dead-member-session-ms'), 'utf8'))
+                fs.writeFileSync(leaves, String(Date.now() + session))
+            }
+            const members = Date.now() < Number(fs.readFileSync(leaves, 'utf8')) ? 1 : 0
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
@@ -710,8 +715,11 @@ describe('scenario environment', () => {
             }
             return () => holder.kill('SIGKILL')
         }
-        const deadMemberLeavesAt = (at: number): void =>
-            writeFileSync(path.join(fakes, 'dead-member-leaves-at'), String(at))
+        const deadMemberStaysFor = (sessionMs: number): void => {
+            writeFileSync(path.join(fakes, 'dead-member-session-ms'), String(sessionMs))
+            rmSync(path.join(fakes, 'dead-member-leaves-at'), { force: true })
+        }
+        const deadMemberLeftAt = (): number => Number(readFileSync(path.join(fakes, 'dead-member-leaves-at'), 'utf8'))
         const startedAt = (role: Role): number =>
             Number(/^started at (\d+)$/m.exec(readFileSync(logOf(role), 'utf8'))?.[1])
         const writeStack = (stack: { running: boolean; ready: boolean }): void =>
@@ -747,7 +755,7 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeStack({ running: true, ready: true })
-            deadMemberLeavesAt(0)
+            deadMemberStaysFor(0)
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -842,14 +850,16 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
-            const leavesAt = Date.now() + 3000
-            deadMemberLeavesAt(leavesAt)
+            deadMemberStaysFor(2000)
             environment = environmentOf()
 
             await environment.up()
 
             const firstStart = Math.min(...(Object.keys(ROLE_PORTS) as Role[]).map(startedAt))
-            expect({ startedAfterItLeft: firstStart >= leavesAt, apiHealth: await healthOf('cdp-api') }).toEqual({
+            expect({
+                startedAfterItLeft: firstStart >= deadMemberLeftAt(),
+                apiHealth: await healthOf('cdp-api'),
+            }).toEqual({
                 startedAfterItLeft: true,
                 apiHealth: 200,
             })
