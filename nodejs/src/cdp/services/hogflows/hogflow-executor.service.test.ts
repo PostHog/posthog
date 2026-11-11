@@ -3267,7 +3267,12 @@ describe('Hogflow Executor', () => {
     })
 
     describe('a step whose integration lookup fails on a dropped connection', () => {
-        it('waits on the step instead of taking its on_error path, then runs it once the lookup recovers', async () => {
+        let hogFlow: HogFlow
+        let lookupFails: boolean
+        let integrationsDb: { postgres: PostgresRouter; close: () => Promise<void> }
+        let runner: HogFlowExecutorService
+
+        beforeEach(async () => {
             const integration = await insertIntegration(hub.postgres, team.id, {
                 kind: 'oauth',
                 config: {},
@@ -3279,7 +3284,7 @@ describe('Hogflow Executor', () => {
                 code: `fetch('https://example.com/hook', {'headers': {'Authorization': f'Bearer {inputs.oauth.access_token}'}})`,
                 inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
             })
-            const hogFlow = new FixtureHogFlowBuilder()
+            hogFlow = new FixtureHogFlowBuilder()
                 .withTeamId(team.id)
                 .withWorkflow({
                     actions: {
@@ -3303,44 +3308,62 @@ describe('Hogflow Executor', () => {
                     ],
                 })
                 .build()
-            let lookupFails = true
-            const integrationsDb = await postgresThatDropsConnections(
+            lookupFails = true
+            integrationsDb = await postgresThatDropsConnections(
                 hub.DATABASE_URL,
                 (message) => lookupFails && message.toString('latin1').includes('fetchIntegrations')
             )
-            const { executor: runner } = createExecutor(
+            runner = createExecutor(
                 createEmailService(),
                 new IntegrationManagerService(
                     hub.pubSub,
                     new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
                 )
-            )
-
-            try {
-                const held = await runner.execute(createExampleHogFlowInvocation(hogFlow))
-                expect({ finished: held.finished, action: held.invocation.state.currentAction?.id }).toEqual({
-                    finished: false,
-                    action: 'function_id_1',
-                })
-                expect(held.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
-                expect(mockFetch).not.toHaveBeenCalled()
-
-                lookupFails = false
-                const result = await runner.execute(held.invocation)
-
-                expect(result.finished).toBe(true)
-                expect(mockFetch.mock.calls).toEqual([
-                    [
-                        'https://example.com/hook',
-                        expect.objectContaining({
-                            headers: expect.objectContaining({ Authorization: 'Bearer fake-access-token-value' }),
-                        }),
-                    ],
-                ])
-            } finally {
-                await integrationsDb.close()
-            }
+            ).executor
         })
+
+        afterEach(async () => {
+            await integrationsDb.close()
+        })
+
+        it('waits on the step instead of taking its on_error path, then runs it once the lookup recovers', async () => {
+            const held = await runner.execute(createExampleHogFlowInvocation(hogFlow))
+            expect({ finished: held.finished, action: held.invocation.state.currentAction?.id }).toEqual({
+                finished: false,
+                action: 'function_id_1',
+            })
+            expect(held.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(Date.now())
+            expect(mockFetch).not.toHaveBeenCalled()
+
+            lookupFails = false
+            const result = await runner.execute(held.invocation)
+
+            expect(result.finished).toBe(true)
+            expect(mockFetch.mock.calls).toEqual([
+                [
+                    'https://example.com/hook',
+                    expect.objectContaining({
+                        headers: expect.objectContaining({ Authorization: 'Bearer fake-access-token-value' }),
+                    }),
+                ],
+            ])
+        })
+
+        it('takes the on_error path once the step has used its last retry', async () => {
+            let result = await runner.execute(createExampleHogFlowInvocation(hogFlow))
+            let waits = 0
+            while (!result.finished && waits < hub.CDP_FETCH_RETRIES + 2) {
+                waits++
+                result = await runner.execute(result.invocation)
+            }
+
+            expect({ waits, finished: result.finished, action: result.invocation.state.currentAction?.id }).toEqual({
+                waits: hub.CDP_FETCH_RETRIES - 1,
+                finished: true,
+                action: 'exit',
+            })
+            expect(mockFetch).not.toHaveBeenCalled()
+        }, 60_000)
     })
 
     describe('billing metrics', () => {

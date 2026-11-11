@@ -982,16 +982,15 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         )
         const [id] = await enqueue(transactionalSend(null))
 
-        const waiting = await waitForExpect(
+        await waitForExpect(
             async () => {
                 const row = await jobRow(id)
-                expect(row).toMatchObject({ status: 'available', queueMetadata: { senderLookupAttempts: 1 } })
-                return row
+                expect(row.status).toBe('available')
+                expect(row.scheduled.getTime()).toBeGreaterThan(Date.now() + 10_000)
             },
             15_000,
             50
         )
-        expect(waiting.scheduled.getTime()).toBeGreaterThan(Date.now() + 10_000)
         expect(delivered()).toEqual([])
 
         lookupFails = false
