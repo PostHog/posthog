@@ -770,6 +770,24 @@ def google_search_console_source(
 
         session = google_search_console_session(config.google_search_console_integration_id, team_id)
 
+        if "searchAppearance" in dimensions:
+            # These rows carry no date, so the loop below makes one slow call per day of the window,
+            # and a property with no rich results never sets a watermark to shrink the window. One
+            # call over the whole window returns a row for each appearance type that has any data in
+            # it, so an empty answer means every per-day call would also return nothing.
+            probe_start = max(start_date, dt.date.fromisoformat(resume_date)) if resume_date else start_date
+            if probe_start > end_date or not _query_search_analytics(
+                session=session,
+                site_url=site_url,
+                start_date=probe_start.isoformat(),
+                end_date=end_date.isoformat(),
+                dimensions=dimensions,
+                start_row=0,
+                data_state=data_state,
+                search_type=search_type,
+            ):
+                return
+
         for current in _iter_dates(start_date, end_date):
             iso = current.isoformat()
             # Skip past dates already fully fetched on resume.
