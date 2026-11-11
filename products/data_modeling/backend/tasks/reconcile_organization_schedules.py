@@ -73,11 +73,12 @@ def retry_pending_organization_reconciles() -> None:
             oldest_plan_change_hours=round((now - min(changed_at for _id, changed_at in stuck)).total_seconds() / 3600),
         )
     for organization_id, _changed_at in stuck:
-        reconcile_organization_schedules.delay(str(organization_id))
-        # Moved forward so the next sweep doesn't start a second chain of retries beside this one.
-        PendingOrganizationReconcile.objects.filter(
+        # Claimed before dispatch, so an overlapping sweep that read the same rows doesn't start a second chain.
+        claimed = PendingOrganizationReconcile.objects.filter(
             organization_id=organization_id, requested_at__lt=retry_before
         ).update(requested_at=now)
+        if claimed:
+            reconcile_organization_schedules.delay(str(organization_id))
 
 
 @shared_task(ignore_result=True, **RECONCILE_RETRY_OPTIONS)

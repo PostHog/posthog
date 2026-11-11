@@ -742,6 +742,9 @@ class TestMaybeReconcileDag(BaseTest):
             PendingOrganizationReconcile.objects.filter(organization_id=organization_id).update(
                 requested_at=old, plan_changed_at=old
             )
+            dispatch.side_effect = lambda _id: (
+                retry_pending_organization_reconciles() if dispatch.call_count == 1 else None
+            )
             retry_pending_organization_reconciles()
             retry_pending_organization_reconciles()
             dispatch.assert_called_once_with(organization_id)
