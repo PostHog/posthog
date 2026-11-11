@@ -20,8 +20,10 @@ To run:
 
 from __future__ import annotations
 
+import io
 import os
 import asyncio
+from functools import cache
 
 from openai import OpenAI
 
@@ -32,6 +34,7 @@ from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.subscriptions.backend.logic.report_text import ReportSummary
 from products.subscriptions.backend.temporal.llm_change_summary import (
     SUMMARY_OUTPUT_INSTRUCTIONS,
+    _attach_images_to_user_message,
     build_summary_messages,
     generate_report_summary,
     request_summary_completion,
@@ -64,6 +67,27 @@ def live_eval_enabled() -> bool:
     return os.environ.get(LIVE_EVAL_ENV_VAR, "").strip().lower() in {"1", "true", "yes"}
 
 
+@cache
+def _chart_images(case_name: str) -> dict[int, bytes]:
+    import matplotlib  # noqa: PLC0415 - only live runs draw charts
+
+    matplotlib.use("Agg")
+    from matplotlib import pyplot  # noqa: PLC0415
+
+    images: dict[int, bytes] = {}
+    for insight_id, series_list in CASES_BY_NAME[case_name].chart_series.items():
+        figure, axis = pyplot.subplots(figsize=(6, 3), dpi=80)
+        for series in series_list:
+            axis.plot(series["days"], series["data"], label=series["label"])
+        axis.set_yscale("log")
+        axis.set_xticks(axis.get_xticks()[::7])
+        buffer = io.BytesIO()
+        figure.savefig(buffer, format="png")
+        pyplot.close(figure)
+        images[insight_id] = buffer.getvalue()
+    return images
+
+
 def _markdown_messages(case: SummaryCase) -> list[dict]:
     messages = build_summary_messages(case.previous_states, case.current_states, case.subscription_title, team=None)
     system = messages[0]["content"]
@@ -74,6 +98,7 @@ def _markdown_messages(case: SummaryCase) -> list[dict]:
             raise ValueError(f"Production summary prompt no longer contains: {production_text[:60]}")
     system = system.replace(SUMMARY_OUTPUT_INSTRUCTIONS, MARKDOWN_OUTPUT_INSTRUCTIONS)
     messages[0]["content"] = system.replace(STRUCTURED_TAGGING_LINE, MARKDOWN_STYLING_LINE)
+    _attach_images_to_user_message(messages, case.current_states, _chart_images(case.name) or None)
     return messages
 
 
@@ -89,6 +114,7 @@ def _live_structured(case: SummaryCase) -> str:
         case.current_states,
         case.subscription_title,
         team=None,
+        insight_images=_chart_images(case.name) or None,
         client=_direct_openai_client(),
     )
     return summary.model_dump_json() if summary else ""

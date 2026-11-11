@@ -31,6 +31,8 @@ class SummaryCase:
     stub_markdown: str
     subscription_title: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    # Series to draw as chart images, keyed by insight id. Production attaches one chart per insight.
+    chart_series: dict[int, list[dict[str, Any]]] = field(default_factory=dict)
 
     @property
     def results_summaries(self) -> list[str]:
@@ -370,5 +372,88 @@ CASES: list[SummaryCase] = [
         ),
     ),
 ]
+
+_DASHBOARD_METRICS = [
+    ("File preview render time", "Time to first preview frame per file opened. Lower is better.", 420),
+    ("Upload completion time", "Time from drop to confirmed upload. Lower is better.", 2600),
+    ("Share link open time", "Time to render a shared file page. Lower is better.", 640),
+    ("Folder listing time", "Time to list a folder's contents. Lower is better.", 310),
+    ("Search response time", "Time to first search result. Lower is better.", 520),
+    ("Sync round trip", "Time for a desktop sync cycle to settle. Lower is better.", 4100),
+    ("Thumbnail generation time", "Time to generate a thumbnail after upload. Lower is better.", 1900),
+    ("Download start time", "Time from click to first downloaded byte. Lower is better.", 280),
+    ("Login time", "Time from submit to the files page. Lower is better.", 870),
+    ("Billing page load", "Time to render the billing page. Lower is better.", 1150),
+    ("Slow frames when dragging files", "Frames over 50ms per drag gesture. Lower is better.", 9),
+    ("Files page heap memory", "JS heap in MB on the files page. Lower is better.", 210),
+]
+_PERCENTILE_SCALE = (1.0, 2.4, 6.1)
+
+
+def _daily_days(end_day: int) -> list[str]:
+    return [
+        f"2026-10-{day:02d}" if day <= 31 else f"2026-11-{day - 31:02d}" for day in range(end_day - 29, end_day + 1)
+    ]
+
+
+def _percentile_series(base: float, end_day: int, *, worsen: float) -> list[dict[str, Any]]:
+    days = _daily_days(end_day)
+    series = []
+    for scale in _PERCENTILE_SCALE:
+        data = []
+        for index, day in enumerate(range(end_day - 29, end_day + 1)):
+            weekly = 1 + 0.08 * ((day % 7) - 3) / 3
+            drift = 1 + worsen * index / 29
+            data.append(round(base * scale * weekly * drift))
+        series.append({"label": "file performance", "data": data, "days": days})
+    return series
+
+
+def _dashboard_states(
+    end_day: int, timestamp: str, *, worsen: float, charts: dict[int, list[dict[str, Any]]] | None = None
+) -> list[dict[str, Any]]:
+    states = []
+    for index, (name, description, base) in enumerate(_DASHBOARD_METRICS):
+        is_duration = "memory" not in name and "frames" not in name
+        series = _percentile_series(base, end_day, worsen=worsen if index % 3 == 0 else -worsen / 2)
+        if charts is not None:
+            charts[100 + index] = series
+        states.append(
+            _state(
+                100 + index,
+                name,
+                "TrendsQuery",
+                series,
+                timestamp=timestamp,
+                description=description,
+                value_format={"format": "duration_ms"} if is_duration else None,
+                last_period_incomplete=True,
+            )
+        )
+    return states
+
+
+_DASHBOARD_CHARTS: dict[int, list[dict[str, Any]]] = {}
+
+CASES.append(
+    SummaryCase(
+        name="large_performance_dashboard",
+        description="Twelve percentile trends with identical series labels, as on a real performance dashboard",
+        subscription_title="Daily file performance",
+        previous_states=_dashboard_states(41, "2026-11-10T09:00:00Z", worsen=0.18),
+        current_states=_dashboard_states(42, "2026-11-11T09:00:00Z", worsen=0.22, charts=_DASHBOARD_CHARTS),
+        chart_series=_DASHBOARD_CHARTS,
+        names=[name for name, _, _ in _DASHBOARD_METRICS],
+        stub_findings=[
+            "File preview render time worsened over the last 30 days, with the slowest views reaching 3s on 2026-11-10.",
+            "Upload completion time and Sync round trip were stable between deliveries.",
+        ],
+        stub_markdown=(
+            "- **File preview render time** worsened over _the last 30 days_, with the slowest views at **3s** "
+            "on _2026-11-10_.\n"
+            "- **Upload completion time** and **Sync round trip** were stable between deliveries."
+        ),
+    )
+)
 
 CASES_BY_NAME = {case.name: case for case in CASES}

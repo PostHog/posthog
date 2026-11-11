@@ -1,5 +1,6 @@
 import pytest
 
+from products.subscriptions.backend.logic.report_text import ReportSummary
 from products.subscriptions.evals.styling import (
     ARM_STRUCTURED,
     DatesStyled,
@@ -7,13 +8,14 @@ from products.subscriptions.evals.styling import (
     NotMisstyled,
     ValuesStyled,
     extract_input_values,
+    findings_named,
 )
 
 
 def _output(rendered: str) -> dict:
     return {
         "arms": {ARM_STRUCTURED: rendered},
-        "input_values": ["1,463", "18%", "4d 4h"],
+        "input_values": ["1,463", "18%", "4d 4h", "9"],
         "input_names": ["Weekly signups", "Upgrades this week"],
     }
 
@@ -71,3 +73,17 @@ def test_input_values_keep_thousands_separators_and_durations() -> None:
     )
 
     assert set(extract_input_values([summary])) == {"1,463", "18%", "$1,067.50", "4d 4h"}
+
+
+def test_findings_named_counts_only_known_names_tagged_as_names() -> None:
+    summary = ReportSummary.model_validate(
+        {
+            "findings": [
+                {"items": [{"kind": "name", "text": "Weekly signups"}, {"kind": "text", "text": " rose."}]},
+                {"items": [{"kind": "text", "text": "Weekly signups rose."}]},
+                {"items": [{"kind": "name", "text": "signup rendering"}, {"kind": "text", "text": " held."}]},
+            ]
+        }
+    )
+
+    assert findings_named(summary, ["Weekly signups"]).score == pytest.approx(1 / 3)

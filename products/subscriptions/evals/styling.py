@@ -173,7 +173,15 @@ def values_styled(view: SlackView, values: list[str]) -> Ratio:
     hits, misses, spans = 0, [], []
     for value in values:
         spans.extend(_occurrences(view.text, value))
-    kept = _without_overlaps([span for span in spans if not view.in_code(*span)])
+    # A number inside a date ("November 10") belongs to the date, which dates_styled scores.
+    dates = [(m.start(), m.end()) for m in _DATE_PATTERN.finditer(view.text)]
+    kept = _without_overlaps(
+        [
+            span
+            for span in spans
+            if not view.in_code(*span) and not any(start < span[1] and span[0] < end for start, end in dates)
+        ]
+    )
     for start, end in kept:
         value = view.text[start:end]
         # The report instructions call a duration a time, so a duration in italic counts as styled.
@@ -350,8 +358,40 @@ class FindingsTagged(Scorer):
         return Score(name=self._name(), score=1.0 - rate, metadata={"single_text_finding_rate": rate})
 
 
+def findings_named(summary: ReportSummary, names: list[str]) -> Ratio:
+    known = {name.lower() for name in names}
+    misses = []
+    for finding in summary.findings:
+        if not any(item.kind == "name" and item.text.lower() in known for item in finding.items):
+            misses.append("".join(item.text for item in finding.items)[:80])
+    return Ratio(hits=len(summary.findings) - len(misses), total=len(summary.findings), misses=tuple(misses))
+
+
+class FindingsNamed(Scorer):
+    """Share of structured findings with a name item that matches a known insight, event, or series name.
+
+    `names_tagged` only sees names the text spells exactly, so it cannot catch a model that paraphrases
+    "Dashboard render performance (worst frame)" as "worst-frame rendering" and tags nothing.
+    """
+
+    def _name(self) -> str:
+        return "structured__findings_named"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
+        if not output or not output.get("structured_json"):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No structured findings"})
+        ratio = findings_named(
+            ReportSummary.model_validate_json(output["structured_json"]), output.get("input_names") or []
+        )
+        return Score(
+            name=self._name(),
+            score=ratio.score,
+            metadata={"hits": ratio.hits, "total": ratio.total, "misses": list(ratio.misses)},
+        )
+
+
 def all_scorers() -> list[Scorer]:
-    scorers: list[Scorer] = [FindingsTagged()]
+    scorers: list[Scorer] = [FindingsTagged(), FindingsNamed()]
     for arm in ARMS:
         scorers.extend([ValuesStyled(arm), DatesStyled(arm), NotMisstyled(arm), NamesTagged(arm), LinkIntegrity(arm)])
     return scorers

@@ -426,8 +426,13 @@ def _previous_states_rendered_in_current_delivery(
     return [state for state in previous_states if state["insight_id"] in current_insight_ids]
 
 
+SUMMARY_TAGGING_INSTRUCTIONS = """Start each finding with the exact insight name from the data headers as a kind=name item; do not paraphrase it.
+Every number with its unit is a kind=value item, including approximate ones ("about 30%"). A difference against the previous point is a kind=change item. Every date and window ("November 10", "30-day window") is a kind=time item.
+Example items for one finding: [{"kind":"name","text":"Signup conversion"},{"kind":"text","text":" fell "},{"kind":"change","text":"12%","direction":"decrease"},{"kind":"text","text":" to "},{"kind":"value","text":"31%"},{"kind":"text","text":" on "},{"kind":"time","text":"November 10"},{"kind":"text","text":", the lowest point in the "},{"kind":"time","text":"30-day window"},{"kind":"text","text":"."}]"""
+
 SUMMARY_OUTPUT_INSTRUCTIONS = (
-    f"{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend."
+    f"{REPORT_TEXT_INSTRUCTIONS}\nReturn one finding per bullet. Include the time window when describing a trend.\n"
+    f"{SUMMARY_TAGGING_INSTRUCTIONS}"
 )
 
 
