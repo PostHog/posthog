@@ -69093,6 +69093,14 @@ export namespace Schemas {
       draft_content?: MessageTemplateContent | null;
     }
 
+    export interface MessageTemplatePlacement {
+      /**
+         * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+         * @nullable
+         */
+      path: string | null;
+    }
+
     export interface MessagingError {
       /** Human-readable description of what went wrong. */
       error: string;

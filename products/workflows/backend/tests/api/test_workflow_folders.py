@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from typing import Any
+from uuid import UUID
 
 from posthog.test.base import APIBaseTest, NonAtomicBaseTest
 from unittest.mock import patch
@@ -314,6 +315,34 @@ class TestWorkflowFolders(APIBaseTest):
             FileSystem.objects.filter(team=self.team, type="message_template").delete()
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
         self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
+
+    @parameterized.expand([("list_v2_on", True), ("list_v2_off", False)])
+    def test_a_template_placement_is_its_own_file_whether_or_not_the_tree_shows_it(self, _name, enabled) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        filed = self.client.post(
+            templates_url, {"name": "Synthetic email", "type": "email", "_create_in_folder": "Campaigns"}, format="json"
+        ).json()
+        FileSystem.objects.create(
+            id=UUID(int=0),
+            team=self.team,
+            path="Shortcuts/Synthetic email",
+            depth=2,
+            type="message_template",
+            ref=filed["id"],
+            shortcut=True,
+        )
+        unfiled = self.client.post(templates_url, {"name": "Synthetic draft", "type": "email"}, format="json").json()
+        FileSystem.objects.filter(team=self.team, type="message_template", ref=unfiled["id"]).delete()
+
+        with patch("posthoganalytics.feature_enabled", return_value=enabled):
+            placements = [
+                self.client.get(f"{templates_url}{template['id']}/placement/") for template in (filed, unfiled)
+            ]
+
+        self.assertEqual([response.status_code for response in placements], [200, 200])
+        self.assertEqual(
+            [response.json() for response in placements], [{"path": "Campaigns/Synthetic email"}, {"path": None}]
+        )
 
     def test_a_folder_delete_lists_the_team_surfaces_once_however_many_types_it_holds(self) -> None:
         templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
