@@ -14,6 +14,9 @@ from typing import Any, cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
+import s3fs
 import pyarrow as pa
 import pyarrow.parquet as pq
 from parameterized import parameterized
@@ -219,6 +222,9 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
         def __init__(self) -> None:
             self.copy_calls: list[tuple[list[str], list[str], int]] = []
 
+        def invalidate_cache(self, path: str | None = None) -> None:
+            pass
+
         def find(self, prefix: str, detail: bool = False):
             files = {
                 f"{prefix}/_ph_partition_key=2026-07/a.parquet": {"Size": 100, "type": "file"},
@@ -370,6 +376,41 @@ def test_copy_activity_uses_s3_copy_and_local_duckgres_postgres_connection(monke
     workload_metrics.files.record.assert_called_once_with(2.0)
     workload_metrics.rows.record.assert_called_once_with(2.0)
     workload_metrics.bytes.record.assert_called_once_with(300.0)
+
+
+def test_copy_prepared_files_sees_a_rotating_folder_rewritten_after_an_earlier_copy(monkeypatch) -> None:
+    def local_s3() -> s3fs.S3FileSystem:
+        return s3fs.S3FileSystem(
+            key=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+            secret=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+            skip_instance_cache=True,
+        )
+
+    worker_s3 = local_s3()
+    monkeypatch.setattr(registration_module, "get_s3_client", lambda: worker_s3)
+    bucket = settings.OBJECT_STORAGE_BUCKET
+    prefix = f"{bucket}/test_copy_rotating_folder_{uuid.uuid4().hex}"
+    source_folder = f"{prefix}/source/table__query_a"
+    partition_folder = f"{source_folder}/_ph_partition_key=2026-07"
+    writer_s3 = local_s3()
+    try:
+        writer_s3.pipe(f"{partition_folder}/old.parquet", b"old")
+        registration_module._copy_prepared_parquet_files(f"s3://{source_folder}", f"s3://{prefix}/first")
+
+        writer_s3.rm(f"{partition_folder}/old.parquet")
+        writer_s3.pipe(f"{partition_folder}/new.parquet", b"new")
+        landing_paths, copied_bytes = registration_module._copy_prepared_parquet_files(
+            f"s3://{source_folder}", f"s3://{prefix}/second"
+        )
+
+        expected = f"s3://{prefix}/second/_ph_partition_key=2026-07/new.parquet"
+        assert landing_paths == [expected]
+        assert copied_bytes == 3
+        assert writer_s3.cat(expected.removeprefix("s3://")) == b"new"
+        assert not writer_s3.exists(f"{prefix}/second/_ph_partition_key=2026-07/old.parquet")
+    finally:
+        writer_s3.rm(prefix, recursive=True)
 
 
 def test_production_register_connection_requests_right_sized_duckgres_worker(
