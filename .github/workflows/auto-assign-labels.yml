@@ -113,7 +113,7 @@ jobs:
                   GITHUB_TOKEN: ${{ github.token }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  AI_GATEWAY_MINT_KEY: ${{ secrets.AGENT_INFRA_TRIAGE_AI_GATEWAY_MINT_KEY }}
+                  AI_GATEWAY_MINT_KEY: ${{ secrets.AGENT_INFRA_TRIAGE_AI_GATEWAY_KEY }}
               run: node .github/scripts/agent-infra-review-triage.js
 
             - name: Get app token
