@@ -175,7 +175,7 @@ describe('snapshotDataLogic', () => {
         const BLOCK_PATH = '/replay-blocks/1/2/u1/v1.ref0'
         const DIRECT_SOURCE: SessionRecordingSnapshotSource = {
             ...BLOB_SOURCE,
-            url: `${window.location.origin}${BLOCK_PATH}`,
+            url: BLOCK_PATH,
         }
 
         it.each([
@@ -197,6 +197,14 @@ describe('snapshotDataLogic', () => {
                 'not_a_block',
             ],
             ['shows the recording as deleted on a 410', [410], 1, false, 'loadSnapshotsForSourceFailure', null],
+            [
+                'reads through the snapshots endpoint when a block url names another host',
+                ['foreign'],
+                0,
+                true,
+                'loadSnapshotsForSourceSuccess',
+                null,
+            ],
             [
                 'retries a rate-limited block from recording-api instead of the snapshots endpoint',
                 [429, 429, 200],
@@ -220,6 +228,7 @@ describe('snapshotDataLogic', () => {
                 const capture = jest.spyOn(posthog, 'capture')
                 let snapshotsEndpointBlockReads = 0
                 let blockReads = 0
+                const blockRequestHeaders: { referrerPolicy: string; cookie: string | null }[] = []
                 overrideSessionRecordingMocks({
                     getMocks: {
                         '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
@@ -227,9 +236,17 @@ describe('snapshotDataLogic', () => {
                                 snapshotsEndpointBlockReads += 1
                                 return new HttpResponse(snapshotsAsJSONLines())
                             }
-                            return [200, { sources: [DIRECT_SOURCE], block_token: 'block.token.sig' }]
+                            const source =
+                                blockStatuses[0] === 'foreign'
+                                    ? { ...DIRECT_SOURCE, url: `//attacker.example.com${BLOCK_PATH}` }
+                                    : DIRECT_SOURCE
+                            return [200, { sources: [source], block_token: 'block.token.sig' }]
                         },
-                        [BLOCK_PATH]: () => {
+                        [BLOCK_PATH]: ({ request }) => {
+                            blockRequestHeaders.push({
+                                referrerPolicy: request.referrerPolicy,
+                                cookie: request.headers.get('cookie'),
+                            })
                             const blockStatus = blockStatuses[Math.min(blockReads++, blockStatuses.length - 1)]
                             return blockStatus === 200
                                 ? new HttpResponse(snapshotsAsJSONLines(), {
@@ -265,6 +282,10 @@ describe('snapshotDataLogic', () => {
 
                 expect(snapshotsEndpointBlockReads > 0).toBe(expectsSnapshotsEndpoint)
                 expect(blockReads).toBe(expectedBlockReads)
+                // Cookies and a long page URL as the Referer both push the headers past recording-api's size limit.
+                expect(blockRequestHeaders).toEqual(
+                    Array(expectedBlockReads).fill({ referrerPolicy: 'no-referrer', cookie: null })
+                )
                 expect(logic.values.isRecordingDeleted).toBe(blockStatuses[0] === 410)
                 const fallbackEvents = capture.mock.calls.filter(
                     ([event]) => event === 'replay direct block fetch fell back'
@@ -300,7 +321,7 @@ describe('snapshotDataLogic', () => {
             const secondSource: SessionRecordingSnapshotSource = {
                 ...BLOB_SOURCE,
                 blob_key: '1',
-                url: `${window.location.origin}${SECOND_BLOCK_PATH}`,
+                url: SECOND_BLOCK_PATH,
             }
             let snapshotsEndpointBlockReads = 0
             let firstBlockReads = 0

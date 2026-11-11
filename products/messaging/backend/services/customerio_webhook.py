@@ -1,6 +1,8 @@
 import logging
 from typing import Any
 
+from posthog.integrations import IntegrationManager
+
 from products.messaging.backend.models.message_category import MessageCategory
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
@@ -14,12 +16,15 @@ logger = logging.getLogger(__name__)
 
 def signing_secret(team_id: int) -> tuple[str | None, int] | None:
     try:
-        config = OptOutSyncConfig.objects.select_related("webhook_integration").get(team_id=team_id)
+        config = OptOutSyncConfig.objects.get(team_id=team_id)
     except OptOutSyncConfig.DoesNotExist:
         return None
-    if not config.webhook_enabled or not config.webhook_integration:
+    integration_id = config.webhook_integration_id
+    if not config.webhook_enabled or integration_id is None:
         return None
-    integration = config.webhook_integration
+    integration = IntegrationManager.customerio_webhook.any.get_many(team_id, [integration_id]).get(integration_id)
+    if integration is None:
+        return None
     return integration.sensitive_config.get("webhook_signing_secret"), integration.id
 
 

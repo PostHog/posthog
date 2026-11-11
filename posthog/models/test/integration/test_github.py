@@ -37,6 +37,7 @@ from posthog.egress.github.transport import (
 )
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations import AuthAccessor
 from posthog.models.github_integration_base import (
     GITHUB_BRANCH_CACHE_TTL_SECONDS,
     GITHUB_BRANCH_REFRESH_LOCK_SECONDS,
@@ -1931,11 +1932,12 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 
         with time_machine.travel("2024-01-01T12:00:00Z", tick=False):
-            integration = GitHubIntegration.integration_from_installation_id(
+            record = GitHubIntegration.integration_from_installation_id(
                 "INSTALLATION_ID",
                 self.team.id,
                 self.user,
             )
+            integration = Integration.objects.get(pk=record.id)
             integration.errors = "TOKEN_REFRESH_FAILED"
             integration.save()
 
@@ -1943,6 +1945,24 @@ class TestGitHubIntegrationModel(BaseTest):
 
         integration.refresh_from_db()
         assert integration.errors == ""
+
+    @patch("posthog.models.integration.github.reload_integrations_on_workers")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
+    def test_github_refresh_keeps_config_that_another_writer_stored_meanwhile(self, mock_client_request, mock_reload):
+        mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
+        integration = self.create_integration({"installation_id": "INSTALLATION_ID"})
+        github = GitHubIntegration(
+            Integration.objects.get(id=integration.id), source="test", priority=Priority.CRITICAL
+        )
+        integration.config = {**integration.config, "written_meanwhile": True}
+        integration.save()
+
+        github.refresh_access_token()
+
+        stored = Integration.objects.get(id=integration.id)
+        assert stored.config["written_meanwhile"] is True
+        assert stored.sensitive_config["access_token"] == "ACCESS_TOKEN"
+        assert github.integration.config["written_meanwhile"] is True
 
     @parameterized.expand(
         [
@@ -2229,11 +2249,13 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.save(update_fields=["repository_cache", "repository_cache_updated_at"])
         mock_list_all.return_value = cached_repositories
 
-        with patch.object(integration, "save", wraps=integration.save) as mock_save:
+        store = AuthAccessor.set_repository_cache
+        with patch.object(AuthAccessor, "set_repository_cache", autospec=True, side_effect=store) as mock_store:
             repos = GitHubIntegration(integration, source="test", priority=Priority.CRITICAL).sync_repository_cache()
 
         assert repos == cached_repositories
-        mock_save.assert_called_once_with(update_fields=["repository_cache_updated_at"])
+        mock_store.assert_called_once()
+        assert mock_store.call_args.kwargs["repositories"] is None
         integration.refresh_from_db()
         assert integration.repository_cache == cached_repositories
         assert integration.repository_cache_updated_at is not None
@@ -2578,6 +2600,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_list_branches.assert_not_called()
         mock_refresh_delay.assert_called_once()
         assert mock_refresh_delay.call_args.args[:3] == (str(integration.id), repo, False)
+        assert mock_refresh_delay.call_args.args[4] == integration.team_id
 
     @patch("posthog.models.github_integration_base.get_redis_client", side_effect=ConnectionError("redis down"))
     def test_list_cached_branches_serves_stale_cache_when_the_refresh_lock_is_unavailable(
