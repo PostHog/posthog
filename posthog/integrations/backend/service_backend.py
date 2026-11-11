@@ -4,8 +4,9 @@ The routes are in `services/credentials-service` ("Integrations API" in its READ
 returns no secret from a plain read, so a team read loads the secrets of its rows with
 `POST /resolve`, and an in-process cache holds those results for a short time.
 
-`change_external_id` and `refresh_access_token` have no route yet. They raise `NotImplementedError`,
-and `test_backends.py` skips their cases for this backend.
+`change_external_id`, `refresh_access_token`, `count_by_external_ids`, `update_where` and the
+repository cache operations have no route yet. They raise `NotImplementedError`, and
+`test_backends.py` skips their cases for this backend.
 """
 
 import json
@@ -46,11 +47,14 @@ from posthog.integrations.contracts import (
     IntegrationNotFound,
     IntegrationPatch,
     IntegrationRecord,
+    RepositoryCache,
     UnsupportedAuthType,
+    UpdatedRows,
 )
+from posthog.integrations.secret_reads import UndecryptedIntegrationSecretError
 from posthog.jwt import PosthogJwtAudience
 from posthog.models.integration.auth_types import effective_auth_type
-from posthog.models.integration.model import Integration, UndecryptedIntegrationSecretError
+from posthog.models.integration.model import Integration
 from posthog.security.outbound_proxy import internal_requests
 
 INTEGRATIONS_PATH = "/v1/integrations"
@@ -882,3 +886,26 @@ class ServiceBackend:
         self, scope: RowScope, *, team_id: int, id: int, stale_access_token: str | None
     ) -> TokenRefresh:
         raise _unsupported("refresh_access_token")
+
+    def count_by_external_ids(self, scope: RowScope, *, external_ids: Sequence[str]) -> dict[str, int]:
+        raise _unsupported("count_by_external_ids")
+
+    def update_where(self, scope: RowScope, row_filter: RowFilter, patch: IntegrationPatch) -> UpdatedRows:
+        raise _unsupported("update_where")
+
+    def get_repository_cache(self, scope: RowScope, *, team_id: int, id: int) -> RepositoryCache:
+        raise _unsupported("get_repository_cache")
+
+    def set_repository_cache(
+        self,
+        scope: RowScope,
+        *,
+        team_id: int,
+        id: int,
+        repositories: builtins.list[dict[str, object]] | None,
+        updated_at: datetime,
+    ) -> None:
+        raise _unsupported("set_repository_cache")
+
+    def expire_repository_cache_by_external_id(self, scope: RowScope, *, external_id: str) -> int:
+        raise _unsupported("expire_repository_cache_by_external_id")
