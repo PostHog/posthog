@@ -37,6 +37,21 @@ import { WarehouseAccessGate } from './WarehouseAccessGate'
 
 const VISIBLE_SECTIONS: DataCatalogTab[] = ['overview', 'tables', 'lineage', 'metrics']
 
+const OVERFLOW_BREAKPOINTS: { showTab: string; hideMoreButton: string }[] = [
+    {
+        showTab: 'hidden @min-[33rem]/catalog-tabs:inline-flex',
+        hideMoreButton: '@min-[33rem]/catalog-tabs:hidden',
+    },
+    {
+        showTab: 'hidden @min-[38rem]/catalog-tabs:inline-flex',
+        hideMoreButton: '@min-[38rem]/catalog-tabs:hidden',
+    },
+    {
+        showTab: 'hidden @min-[40rem]/catalog-tabs:inline-flex',
+        hideMoreButton: '@min-[40rem]/catalog-tabs:hidden',
+    },
+]
+
 const SECTION_LABELS: Record<DataCatalogTab, string> = {
     overview: 'Overview',
     tables: 'Tables & views',
@@ -91,7 +106,8 @@ export function DataCatalogSections(): JSX.Element {
     const { activeTab, availableTabs, defaultTab, lineageVisited } = useValues(dataCatalogSceneLogic)
     const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
     const moreSections = availableTabs.filter((tab) => !VISIBLE_SECTIONS.includes(tab))
-    const activeMoreSection = moreSections.includes(activeTab) ? activeTab : null
+    const inactiveMoreSections = moreSections.filter((tab) => tab !== activeTab)
+    const lastInactiveMoreIndex = moreSections.findLastIndex((tab) => tab !== activeTab)
 
     const openSection = (tab: DataCatalogTab): void => {
         router.actions.push(urls.dataCatalog(tab === defaultTab ? undefined : tab))
@@ -106,27 +122,42 @@ export function DataCatalogSections(): JSX.Element {
                 actions={<SceneActions />}
             />
             <Tabs value={activeTab} onValueChange={(tab: DataCatalogTab) => openSection(tab)} data-quill>
-                <div className="flex flex-wrap items-center gap-2 border-b border-border">
+                <div className="@container/catalog-tabs flex flex-wrap items-center gap-2 border-b border-border">
                     <TabsList variant="line" aria-label="Data catalog sections">
                         {VISIBLE_SECTIONS.map((tab) => (
                             <TabsTrigger key={tab} value={tab} data-attr={`data-catalog-section-${tab}`}>
                                 {SECTION_LABELS[tab]}
                             </TabsTrigger>
                         ))}
-                        {activeMoreSection && (
-                            <TabsTrigger value={activeMoreSection}>{SECTION_LABELS[activeMoreSection]}</TabsTrigger>
-                        )}
+                        {moreSections.map((tab, index) => (
+                            <TabsTrigger
+                                key={tab}
+                                value={tab}
+                                className={tab === activeTab ? undefined : OVERFLOW_BREAKPOINTS[index]?.showTab}
+                                data-attr={`data-catalog-section-${tab}`}
+                            >
+                                {SECTION_LABELS[tab]}
+                                {tab === 'relationships' && proposedJoins > 0 && <Badge>{proposedJoins}</Badge>}
+                            </TabsTrigger>
+                        ))}
                     </TabsList>
-                    {moreSections.length > 0 && (
+                    {lastInactiveMoreIndex >= 0 && (
                         <DropdownMenu>
                             <DropdownMenuTrigger
-                                render={<Button variant="default" size="sm" data-attr="data-catalog-section-more" />}
+                                render={
+                                    <Button
+                                        variant="default"
+                                        size="sm"
+                                        className={OVERFLOW_BREAKPOINTS[lastInactiveMoreIndex]?.hideMoreButton}
+                                        data-attr="data-catalog-section-more"
+                                    />
+                                }
                             >
                                 More
                                 <IconChevronDown />
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="start">
-                                {moreSections.map((tab) => (
+                                {inactiveMoreSections.map((tab) => (
                                     <DropdownMenuItem
                                         key={tab}
                                         onClick={() => openSection(tab)}
