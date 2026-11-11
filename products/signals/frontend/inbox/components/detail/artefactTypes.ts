@@ -352,11 +352,7 @@ export function selectVisibleReportActivity(artefacts: SignalReportArtefact[]): 
     )
 }
 
-/**
- * Entries that record how an agent worked rather than what happened to the report: its assessments,
- * the code and signals it read, and the measurements a check took. The log hides them until asked.
- * The API returns every entry, so agents that read the log still get all of it.
- */
+/** How an agent worked, not what happened to the report. Only the UI hides these; the API returns them all. */
 const INTERNAL_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
     'priority_judgment',
     'actionability_judgment',

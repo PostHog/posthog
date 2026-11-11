@@ -12,10 +12,7 @@ import { getReviewerDisplayName } from './reviewerDisplay'
 import { ReviewerClaim } from './SuggestedReviewerClaimControls'
 import { SuggestedReviewersList } from './SuggestedReviewersList'
 
-/**
- * The reviewers as a row of avatars. The full list, with each reason, the claim controls and the remove
- * menu, opens in a dropdown, so the section stays one line high near the top of the rail.
- */
+/** Avatars keep the section one line high near the top of the rail; the full list opens in a dropdown. */
 export function SuggestedReviewersSectionView({
     reviewers,
     disabled,
@@ -59,7 +56,6 @@ export function SuggestedReviewersSectionView({
                         closeOnClickInside={false}
                         placement="bottom-start"
                         overlay={
-                            // The rail is ~26rem wide; on a phone the dropdown keeps a margin on each side.
                             <div className="w-[min(26rem,calc(100vw-2rem))] p-1">
                                 <SuggestedReviewersList
                                     reviewers={reviewers}

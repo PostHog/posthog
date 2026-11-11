@@ -479,7 +479,6 @@ export function InboxDetailFrame({
                             pullRequestInHeader={!!primaryAction}
                             onToggleCollapsed={captureSectionToggle('status')}
                         />
-                        {/* The pull request picker (when present), then the reviewers, one line each. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
                         {isMonitoring && (

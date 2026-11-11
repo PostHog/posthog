@@ -301,10 +301,7 @@ export function reportMetricUnitWord(metric: Pick<ReportMetricApi, 'kind' | 'uni
     }
 }
 
-/**
- * The unit beside a figure on the report page. A metric without an authored unit gets the word for its
- * kind, so a bare count still says whether it counts users, sessions, or events.
- */
+/** A metric without an authored unit gets its kind's word, so a bare count says what it counts. */
 export function reportMetricDetailUnit(
     metric: Pick<ReportMetricApi, 'kind' | 'unit' | 'value_format'>,
     parts: ReportMetricValueParts

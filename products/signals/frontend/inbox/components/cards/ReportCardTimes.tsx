@@ -6,10 +6,7 @@ import { SignalReport } from '../../types'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
-/**
- * When the report opened, so a reader sees how old the problem is, and when it last changed if that was on
- * a later day. The time the list sorts by comes first.
- */
+/** When the report opened, and when it last changed if that was on a later day. The sorted-by time comes first. */
 export function ReportCardTimes({
     report,
     sortField,
@@ -17,7 +14,6 @@ export function ReportCardTimes({
 }: {
     report: Pick<SignalReport, 'created_at' | 'updated_at'>
     sortField: 'created_at' | 'updated_at'
-    /** One time per line, right-aligned, for the narrow impact column. */
     stacked: boolean
 }): JSX.Element {
     const updatedAt = report.updated_at ?? report.created_at
