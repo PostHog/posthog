@@ -232,12 +232,80 @@ class TestMotherDuck:
         conn.execute.side_effect = Exception("Catalog Error")
         assert impl.get_primary_keys_for_table(conn, "analytics", "users") is None
 
+    @pytest.mark.parametrize("primary_keys", [None, []])
+    def test_has_duplicate_primary_keys_returns_false_without_keys(self, impl, primary_keys):
+        conn = _conn()
+        logger = MagicMock()
+        assert impl.has_duplicate_primary_keys(conn, "analytics", "users", primary_keys, logger) is False
+        conn.execute.assert_not_called()
+
+    def test_has_duplicate_primary_keys_returns_false_when_no_duplicates(self, impl):
+        conn = _conn()
+        conn.fetchall.return_value = []
+        logger = MagicMock()
+
+        result = impl.has_duplicate_primary_keys(conn, "analytics", "users", ["id"], logger)
+
+        assert result is False
+        conn.execute.assert_called_once_with(
+            'SELECT 1 FROM "analytics"."users" GROUP BY "id" HAVING count(*) > 1 LIMIT 1'
+        )
+
+    def test_has_duplicate_primary_keys_returns_true_when_duplicates_exist(self, impl):
+        conn = _conn()
+        conn.fetchall.return_value = [(1,)]
+        logger = MagicMock()
+
+        result = impl.has_duplicate_primary_keys(conn, "analytics", "users", ["id", "org_id"], logger)
+
+        assert result is True
+        conn.execute.assert_called_once_with(
+            'SELECT 1 FROM "analytics"."users" GROUP BY "id", "org_id" HAVING count(*) > 1 LIMIT 1'
+        )
+
+    def test_has_duplicate_primary_keys_deduplicates_input_keys(self, impl):
+        conn = _conn()
+        conn.fetchall.return_value = []
+        logger = MagicMock()
+
+        result = impl.has_duplicate_primary_keys(conn, "analytics", "users", ["id", "id"], logger)
+
+        assert result is False
+        conn.execute.assert_called_once_with(
+            'SELECT 1 FROM "analytics"."users" GROUP BY "id" HAVING count(*) > 1 LIMIT 1'
+        )
+
+    def test_has_duplicate_primary_keys_returns_true_and_captures_on_error(self, impl):
+        conn = _conn()
+        conn.execute.side_effect = Exception("Driver query timeout")
+        logger = MagicMock()
+
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.capture_exception") as mock_capture:
+            result = impl.has_duplicate_primary_keys(conn, "analytics", "users", ["id"], logger)
+
+        assert result is True
+        mock_capture.assert_called_once()
+        logger.warning.assert_called_once()
+
     # ------------------------------------------------------------------
     # build_pipeline
     # ------------------------------------------------------------------
 
-    def _pipeline_mocks(self, primary_key_rows, rows_to_sync, batches):
+    def _pipeline_mocks(self, primary_key_rows, rows_to_sync, batches, duplicate_rows=None):
         metadata_conn = _conn()
+
+        def _execute(sql, *args, **kwargs):
+            res = MagicMock()
+            if "duckdb_constraints" in sql:
+                res.fetchall.return_value = primary_key_rows
+            elif "HAVING count" in sql:
+                res.fetchall.return_value = duplicate_rows if duplicate_rows is not None else []
+            else:
+                res.fetchall.return_value = primary_key_rows
+            res.fetchone.return_value = (rows_to_sync,)
+            return res
+
+        metadata_conn.execute.side_effect = _execute
         metadata_conn.fetchall.return_value = primary_key_rows
         metadata_conn.fetchone.return_value = (rows_to_sync,)
 
@@ -302,6 +370,49 @@ class TestMotherDuck:
             with pytest.raises(ValueError):
                 impl.build_pipeline(_make_config(schema=""), _make_inputs(schema_name="users"))
             mock_connect.assert_not_called()
+
+    def test_build_pipeline_sets_has_duplicate_primary_keys_when_incremental(self, impl):
+        metadata_conn = _conn()
+
+        def _execute(sql, *args, **kwargs):
+            res = MagicMock()
+            if "duckdb_constraints" in sql:
+                res.fetchall.return_value = [(["id"],)]
+            elif "HAVING count" in sql:
+                res.fetchall.return_value = [(1,)]
+            else:
+                res.fetchall.return_value = []
+            res.fetchone.return_value = (1,)
+            return res
+
+        metadata_conn.execute.side_effect = _execute
+
+        streaming_conn = _conn()
+        batch = pa.RecordBatch.from_pydict({"id": [1]})
+        streaming_conn.to_arrow_reader.return_value = pa.RecordBatchReader.from_batches(batch.schema, [batch])
+
+        inputs = _make_inputs(
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            incremental_field_type=IncrementalFieldType.Timestamp,
+            db_incremental_field_last_value="2025-01-01T00:00:00",
+        )
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            response = impl.build_pipeline(_make_config(), inputs)
+
+        assert response.has_duplicate_primary_keys is True
+
+    def test_build_pipeline_does_not_probe_duplicate_keys_for_full_refresh(self, impl):
+        metadata_conn, streaming_conn = self._pipeline_mocks([(["id"],)], 1, [pa.RecordBatch.from_pydict({"id": [1]})])
+        inputs = _make_inputs(should_use_incremental_field=False)
+
+        with patch(_CONNECT_PATH, side_effect=[metadata_conn, streaming_conn]):
+            with patch.object(impl, "has_duplicate_primary_keys") as mock_probe:
+                response = impl.build_pipeline(_make_config(), inputs)
+                mock_probe.assert_not_called()
+
+        assert response.has_duplicate_primary_keys is False
 
     # ------------------------------------------------------------------
     # Source-level behavior
