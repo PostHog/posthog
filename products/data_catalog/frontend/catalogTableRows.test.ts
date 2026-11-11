@@ -253,7 +253,7 @@ describe('catalogTableRows', () => {
         expect(freshnessText(rowNamed(buildRows(overrides), name))).toEqual(expectedFreshness)
     })
 
-    it('shows a view whose materialization was turned off as stopped and up to date, not suspended', () => {
+    it('keeps the suspension of a view whose materialization is off and says it runs on each query', () => {
         const revenue = rowNamed(
             buildRows({
                 savedQueries: [
@@ -268,13 +268,11 @@ describe('catalogTableRows', () => {
         expect({
             kind: revenue.kind,
             problems: revenue.problems,
-            materializationStopped: revenue.materializationStopped,
             freshness: freshnessText(revenue),
         }).toEqual({
             kind: 'view',
-            problems: [],
-            materializationStopped: true,
-            freshness: 'Up to date, runs on each query',
+            problems: ['suspended'],
+            freshness: 'Materialization off, runs on each query',
         })
     })
 

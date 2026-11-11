@@ -107,6 +107,8 @@ const LIVE_LABELS: Partial<Record<TableKind, string>> = {
     self_managed: 'Queried in place',
 }
 
+const MATERIALIZATION_OFF_LABEL = 'Materialization off, runs on each query'
+
 const LAST_REFRESHED_LABEL = 'Last refreshed'
 const NO_SUCCESSFUL_REFRESH_LABEL = 'No successful refresh yet'
 
@@ -132,7 +134,6 @@ export interface CatalogTableRow {
     certificationTarget: CertificationTarget | null
     refreshedAt: string | null
     refreshing: boolean
-    materializationStopped: boolean
     freshness: Freshness
     detailUrl: string | null
 }
@@ -170,14 +171,7 @@ export interface CatalogTableSources {
 
 type RowBase = Omit<
     CatalogTableRow,
-    | 'attention'
-    | 'problems'
-    | 'certification'
-    | 'subtitle'
-    | 'checkCounts'
-    | 'refreshing'
-    | 'materializationStopped'
-    | 'freshness'
+    'attention' | 'problems' | 'certification' | 'subtitle' | 'checkCounts' | 'refreshing' | 'freshness'
 > & {
     origin: string
     node: DataModelingNode | null
@@ -210,29 +204,22 @@ function stoppedRefreshKind(attention: AttentionRow, syncFailed: boolean): Issue
     return STOPPED_REFRESH_KINDS.find((kind) => attention.issueKinds.includes(kind)) ?? (syncFailed ? 'failed' : null)
 }
 
-interface RowMaterialization {
-    shownProblem: MaterializationProblem | null
-    stopped: boolean
-}
-
-function rowMaterialization(
+function liveLabelFor(
+    kind: TableKind,
     problem: MaterializationProblem | null,
     savedQuery: DataWarehouseSavedQuerySummary | null
-): RowMaterialization {
-    if (savedQuery?.is_materialized !== false) {
-        return { shownProblem: problem, stopped: false }
-    }
-    return { shownProblem: null, stopped: problem !== null && problem.kind !== 'behind' }
+): string | undefined {
+    return problem && savedQuery?.is_materialized === false ? MATERIALIZATION_OFF_LABEL : LIVE_LABELS[kind]
 }
 
 function freshnessFor(
     kind: TableKind,
+    liveLabel: string | undefined,
     refreshedAt: string | null,
     attention: AttentionRow,
     refreshing: boolean,
     syncFailed: boolean
 ): Freshness {
-    const liveLabel = LIVE_LABELS[kind]
     if (liveLabel) {
         return { state: liveLabel, timeLabel: null, time: null }
     }
@@ -258,10 +245,7 @@ function freshnessFor(
 
 function attentionRank(row: CatalogTableRow): number {
     const [firstProblem] = row.problems
-    if (firstProblem) {
-        return ISSUE_KIND_ORDER.indexOf(firstProblem)
-    }
-    return row.materializationStopped ? ISSUE_KIND_ORDER.length : ISSUE_KIND_ORDER.length + 1
+    return firstProblem ? ISSUE_KIND_ORDER.indexOf(firstProblem) : ISSUE_KIND_ORDER.length
 }
 
 export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTableRow[] {
@@ -296,15 +280,12 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         certificationLookupKey: string | null
     ): CatalogTableRow => {
         const failingChecks = row.checkGroup?.checks.filter(isFailingCheck) ?? []
-        const materialization = rowMaterialization(
-            node ? (problemsByNodeId.get(node.id) ?? null) : null,
-            row.savedQuery
-        )
+        const materialization = node ? (problemsByNodeId.get(node.id) ?? null) : null
         const attention = buildAttentionRow(
             {
                 key: row.key,
                 node,
-                materialization: materialization.shownProblem,
+                materialization,
                 failingChecks,
             },
             sources.healthBySubjectKey,
@@ -319,8 +300,14 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         return {
             ...row,
             refreshing,
-            materializationStopped: materialization.stopped,
-            freshness: freshnessFor(row.kind, row.refreshedAt, attention, refreshing, syncStatus === FAILED_STATUS),
+            freshness: freshnessFor(
+                row.kind,
+                liveLabelFor(row.kind, materialization, row.savedQuery),
+                row.refreshedAt,
+                attention,
+                refreshing,
+                syncStatus === FAILED_STATUS
+            ),
             subtitle: subtitleFor(origin, node),
             checkCounts: rolledUpCheckCounts(subjectHealth, row.checkGroup),
             attention,
@@ -462,7 +449,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
 }
 
 export function rowNeedsAttention(row: CatalogTableRow): boolean {
-    return row.problems.length > 0 || row.materializationStopped
+    return row.problems.length > 0
 }
 
 function matchesTrust(row: CatalogTableRow, trust: TrustFilter): boolean {
