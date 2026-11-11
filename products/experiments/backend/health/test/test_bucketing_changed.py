@@ -236,11 +236,11 @@ class TestBucketingChangedMidRun(TestCase):
             ),
             (
                 "not_checked",
-                _context((KEY, "old-key", "new-key"), not_checked=FlagHistoryNotCheckedReason.EXPOSURE_FILTERS),
+                _context((KEY, "old-key", "new-key"), not_checked=FlagHistoryNotCheckedReason.EXPOSURE_ACTION),
                 ("not_checked", ExperimentHealthFindingSeverity.INFO, "Variant assignment changes were not checked"),
                 f'The flag key changed from "old-key" to "new-key" on {FIRST_CHANGE}. This check can\'t tell whether '
-                "anyone was exposed before the change, because the exposure criteria filter by properties. Review "
-                "the change in the flag history.",
+                "anyone was exposed before the change, because exposures come from an action. Review the change in "
+                "the flag history.",
             ),
         ]
     )

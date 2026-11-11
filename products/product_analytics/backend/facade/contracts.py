@@ -169,6 +169,12 @@ class SavedTrendsInsight:
 
 
 @dataclass(frozen=True)
+class AgentInsightRead:
+    short_id: str
+    read_days: tuple[date, ...]
+
+
+@dataclass(frozen=True)
 class ViewableInsight:
     id: int
     short_id: str
