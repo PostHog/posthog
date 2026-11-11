@@ -93,19 +93,19 @@ flowchart TB
     Runner -->|up, reset, health| Environment["Environment: up, reset, role, actuate, health, exits, down"]
     Runner -->|seed, drive| Generator["Generator: seed, drive"]
     Runner -->|start, releaseAll| Valves["Valves: start, releaseAll, timeline"]
-    Runner -->|open, converge, check, evidence, measure()| Judge["Judge: open, record, converge, check, evidence; measure()"]
+    Runner -->|"open, converge, check, evidence, measure()"| Judge["Judge: open, record, converge, check, evidence; measure()"]
     Runner -->|scorecard properties| Scorecard["Scorecard: publish"]
     Generator -->|record| Judge
     Generator -->|events, intake calls| Roles["Node roles: one process group per CDP mode"]
     Valves -->|kill, freeze, drop connections| Environment
     Valves -->|faults| Edge["Provider edge: SES v2, proxy, SNS, webhooks, truth"]
-    Valves -->|running_on_queue| Probe["Cyclotron probe: unfinishedJobs"]
+    Valves -->|running_on_queue| Probe["Cyclotron probe: unfinishedJobs, runningJobs"]
     Environment -->|start, signal| Roles
     Environment -->|startProviderEdge| Edge
     Roles -->|SES, HTTPS| Edge
     Judge -->|truth| Edge
     Judge -->|unfinished jobs| Probe
-    Probe -->|one SQL query| Jobs[("cyclotron_jobs")]
+    Probe -->|SQL counts| Jobs[("cyclotron_jobs")]
     Scorecard -->|capture, read back| Store[("Scorecard project")]
 ```
 
@@ -121,7 +121,7 @@ The Environment holds everything that differs between a local box and a cloud sl
 | **Valves**          | `start`, `releaseAll`, `timeline`                                                       | The valve definitions, scheduling by `at` or `when`, translating each valve into an Environment action or an edge fault, and the timeline of requested, applied, observed and released. |
 | **Generator**       | `seed`, `drive`                                                                         | The traffic kinds: seeding teams, email integrations and flows, sampling the profile, offering units, and recording each unit with the Judge.                                           |
 | **Judge**           | `open`, `record`, `converge`, `check`, `evidence`, and the `measure()` function         | The journal, convergence, and the invariant and measurement definitions.                                                                                                                |
-| **Cyclotron probe** | `unfinishedJobs`                                                                        | One SQL query against `cyclotron_jobs`. It reaches past Cyclotron's seam on purpose and is the only place that does.                                                                    |
+| **Cyclotron probe** | `unfinishedJobs`, `runningJobs`                                                         | Two SQL counts against `cyclotron_jobs`. They reach past Cyclotron's seam on purpose, and the probe is the only place that does.                                                        |
 | **Scorecard**       | `scorecardOf`, `publish`                                                                | The scorecard properties, the provenance they carry, and capturing the event and reading it back.                                                                                       |
 
 **One definition per name.**
@@ -786,7 +786,7 @@ These seams are hard to reverse, surprising without context, or a real trade-off
 - **Why.** This repository is public, and a measured profile describes production.
 - **Cost.** Capacity numbers mean something only with a measured profile. A measured profile carries the card's profile name, so only `profile_hash` tells it from the shipped one.
 
-### One query past Cyclotron's seam, on purpose
+### Queries past Cyclotron's seam, on purpose
 
 - **Decision.** The Cyclotron probe reads `cyclotron_jobs` directly.
 - **Why.** Adding the read to Cyclotron would be a production change.
