@@ -33,6 +33,7 @@ from posthog.tasks.push_notifications import send_user_push
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.tasks.backend.metrics import PUSH_DISPATCHER_FAILURES_TOTAL, PUSH_DISPATCHER_OUTCOMES_TOTAL
 from products.tasks.backend.mobile_push import (
+    POSTHOG_AI_PUSH_BODIES,
     enqueue_mobile_pr_outcome,
     mobile_push_user_ids,
     suppressed_push_token_ids_for_task,
@@ -299,7 +300,7 @@ def _enqueue_inner(
     task = Task.objects.filter(id=task_run.task_id, team_id=task_run.team_id).first()
     if task is None:
         return False
-    recipient_ids = mobile_push_user_ids(task)
+    recipient_ids = set() if task.origin_product == Task.OriginProduct.POSTHOG_AI else mobile_push_user_ids(task)
     if task.created_by_id is not None:
         recipient_ids.add(task.created_by_id)
     if not recipient_ids:
@@ -340,9 +341,13 @@ def _enqueue_user(
     pull_request_url: str | None = None,
     on_enqueued: Callable[[], None] | None = None,
 ) -> bool:
-    task.refresh_from_db(fields=["state"])
+    task.refresh_from_db(fields=["state", "origin_product", "created_by_id", "archived", "deleted"])
     if task.is_scout_experiment:
         return False
+    if task.origin_product == Task.OriginProduct.POSTHOG_AI:
+        if kind not in POSTHOG_AI_PUSH_BODIES:
+            return False
+        body = POSTHOG_AI_PUSH_BODIES[kind]
     if not task_mobile_push_eligible(task, user.id):
         PUSH_DISPATCHER_OUTCOMES_TOTAL.labels(kind=kind, outcome="source_disabled").inc()
         return False
