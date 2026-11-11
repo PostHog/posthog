@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import timedelta
 
 import pytest
@@ -27,10 +29,22 @@ from products.signals.backend.inbox_report_events import (
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun
 from products.signals.backend.report_generation.research import ReportLayer
 from products.signals.backend.stack_plan import create_layer_reports
+from products.signals.backend.tasks import retry_inbox_report_ready_event
 from products.signals.backend.test.inbox_report_events_recorder import (
     inbox_report_ready_events,
     recorded_internal_events,
 )
+
+
+@contextmanager
+def celery_runs_every_retry() -> Iterator[None]:
+    conf = retry_inbox_report_ready_event.app.conf
+    propagates = conf["task_eager_propagates"]
+    conf["task_eager_propagates"] = False
+    try:
+        yield
+    finally:
+        conf["task_eager_propagates"] = propagates
 
 
 class TestInboxReportReadyEvent(BaseTest):
@@ -131,23 +145,25 @@ class TestInboxReportReadyEvent(BaseTest):
 
         assert sent == []
 
-    def test_a_report_the_database_failed_to_claim_is_sent_by_the_retry(self):
+    @parameterized.expand([("one failed read", 1), ("an outage across many retries", 20)])
+    def test_a_report_the_database_failed_to_claim_is_sent_by_the_retry(self, _name: str, failed_reads: int):
         report = self._report()
         failed: list[str] = []
 
-        def database_drops_the_first_read(execute, sql, params, many, context):
-            if not failed and SignalScoutRun._meta.db_table in sql:
+        def database_is_down_for_a_while(execute, sql, params, many, context):
+            if len(failed) < failed_reads and SignalScoutRun._meta.db_table in sql:
                 failed.append(sql)
                 raise OperationalError("server closed the connection unexpectedly")
             return execute(sql, params, many, context)
 
         with (
             recorded_internal_events() as (sent, _),
-            connection.execute_wrapper(database_drops_the_first_read),
+            connection.execute_wrapper(database_is_down_for_a_while),
+            celery_runs_every_retry(),
         ):
             emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=["scout"])
 
-        assert failed
+        assert len(failed) == failed_reads
         assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
             (str(report.id), ["scout"])
         ]
