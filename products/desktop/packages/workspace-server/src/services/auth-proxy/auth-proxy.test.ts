@@ -1198,6 +1198,7 @@ describe("AuthProxyService gateway sessions", () => {
     expect(authFetch.mock.calls[0][0]).toBe(
       "https://us.posthog.com/api/projects/42/tasks/models/",
     );
+    expect(authFetch.mock.calls[0][1]).toMatchObject({ redirect: "manual" });
     expect(await res.json()).toMatchObject({
       data: [{ id: "claude-opus-5-5", owned_by: "anthropic" }],
     });

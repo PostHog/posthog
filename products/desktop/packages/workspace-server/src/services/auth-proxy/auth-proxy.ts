@@ -71,7 +71,7 @@ export class AuthProxyService {
       listTaskModels: async (projectId, signal) =>
         this.auth.authenticatedFetch(
           taskModelsUrl(await this.auth.apiHost(), projectId),
-          { signal },
+          { signal, redirect: "manual" },
         ),
     });
   }
