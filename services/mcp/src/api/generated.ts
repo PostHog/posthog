@@ -16439,6 +16439,20 @@ export namespace Schemas {
       limit: number;
     }
 
+    /**
+     * * `off` - off
+     * * `preview` - preview
+     * * `on` - on
+     */
+    export type AutoQuarantineModeEnum = typeof AutoQuarantineModeEnum[keyof typeof AutoQuarantineModeEnum];
+
+
+    export const AutoQuarantineModeEnum = {
+      Off: 'off',
+      Preview: 'preview',
+      On: 'on',
+    } as const;
+
     export type AutocompleteCompletionItemKind = typeof AutocompleteCompletionItemKind[keyof typeof AutocompleteCompletionItemKind];
 
 
@@ -75625,6 +75639,8 @@ export namespace Schemas {
       created_by?: UserBasicInfo | null;
       /** Run whose failing snapshot prompted this quarantine. Null when quarantine was created without run context. */
       source_run?: QuarantineSourceRun | null;
+      /** Why visual review lifted this quarantine by itself, for example after 500 clean default-branch runs. Empty when a person, an agent, a merged fix, or the expiry ended it, and while it is active. */
+      readonly lift_reason: string;
       id: string;
       identifier: string;
       run_type: string;
@@ -76086,6 +76102,7 @@ export namespace Schemas {
       baseline_file_paths: RepoBaselineFilePaths;
       enable_pr_comments: boolean;
       debt_digest_enabled: boolean;
+      auto_quarantine_mode: AutoQuarantineModeEnum;
       created_at: string;
     }
 
@@ -92861,6 +92878,12 @@ export namespace Schemas {
          * @nullable
          */
       debt_digest_enabled?: boolean | null;
+      /** Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.
+       *
+       * * `off` - off
+       * * `preview` - preview
+       * * `on` - on */
+      auto_quarantine_mode?: AutoQuarantineModeEnum | null;
     }
 
     /**

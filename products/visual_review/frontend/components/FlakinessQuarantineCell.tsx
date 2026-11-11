@@ -1,6 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { FlakinessEntryApi } from '../generated/api.schemas'
+import { quarantineAuthor } from '../lib/quarantineAuthor'
 
 function formatExpiry(expiresAt: string | null | undefined): { label: string; isOverdue: boolean } {
     if (!expiresAt) {
@@ -18,12 +19,12 @@ export function QuarantineCell({ entry }: { entry: FlakinessEntryApi }): JSX.Ele
         return <span className="text-muted">—</span>
     }
     const expiry = formatExpiry(entry.quarantine.expires_at)
-    const author = entry.quarantine.created_by
+    const author = quarantineAuthor(entry.quarantine)
     return (
         <div className="text-xs max-w-48">
             <div>{entry.quarantine.reason || 'No reason given'}</div>
             <div className="text-[11px] text-muted mt-0.5">
-                {author ? `${author.first_name || author.email} · ` : ''}
+                {author ? `${author} · ` : ''}
                 <span className={expiry.isOverdue ? 'text-danger font-semibold' : 'font-semibold'}>{expiry.label}</span>
             </div>
         </div>
