@@ -14,8 +14,11 @@
                 "backend/temporal/**",
                 "backend/tasks/**",
                 "backend/webhook_consumers.py",
+                "backend/data_freshness.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/scopes.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

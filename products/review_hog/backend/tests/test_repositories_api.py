@@ -84,6 +84,76 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
 
         assert getattr(self.client, method)(self._url(path), body, format="json").status_code in (200, 201)
 
+    @parameterized.expand(
+        [
+            ("turn_on_for_everyone", "all", None, {"flash_for": "everyone"}, 200),
+            ("include_into_selected", "selected", None, {"selected": True}, 200),
+            ("raise_listed_to_everyone", "all", {"flash_for": "listed"}, {"flash_for": "everyone"}, 200),
+            (
+                "raise_listed_to_everyone_over_a_listed_and_excepted_person",
+                "all",
+                {"flash_for": "listed", "people": ["listed", "excepted"]},
+                {"flash_for": "everyone"},
+                403,
+            ),
+            ("turn_drafts_on", "all", None, {"review_drafts": True}, 200),
+            ("lower_everyone_to_off", "all", {"flash_for": "everyone"}, {"flash_for": "off"}, 403),
+            ("clear_the_exception", "all", {"flash_for": "everyone"}, {"flash_for": None}, 403),
+            ("pin_the_project_default", "all", None, {"flash_for": "off"}, 403),
+            ("remove_from_the_project", "selected", {"selected": True}, {"selected": False}, 403),
+            ("turn_drafts_off", "all", {"review_drafts": True}, {"review_drafts": False}, 403),
+            ("take_from_another_project", "selected_while_other_claims_all", None, {"selected": True}, 403),
+        ]
+    )
+    def test_members_can_only_turn_repository_reviews_up(
+        self, _name: str, claim_scope: str, row: dict | None, body: dict, expected_status: int
+    ) -> None:
+        if claim_scope == "selected_while_other_claims_all":
+            self._claim(self.other_team, ReviewInstallationClaim.Scope.ALL)
+            claim_scope = "selected"
+        self._claim(self.team, claim_scope)
+        if row is not None:
+            fields = {key: value for key, value in row.items() if key != "people"}
+            repository = ReviewRepository.objects.for_team(self.team.id).create(
+                team=self.team, installation_id=INSTALLATION, github_repo_id=501, full_name="example-org/web", **fields
+            )
+            for kind in row.get("people", []):
+                ReviewRepositoryPerson.objects.for_team(self.team.id).create(
+                    team=self.team, repository=repository, user=self.user, kind=kind
+                )
+        before = list(ReviewRepository.objects.unscoped().values("team_id", "selected", "flash_for", "review_drafts"))
+        self._set_level(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.post(self._url("repositories/"), {**WEB, **body}, format="json")
+
+        assert res.status_code == expected_status, res.json()
+        after = list(ReviewRepository.objects.unscoped().values("team_id", "selected", "flash_for", "review_drafts"))
+        assert (after == before) is (expected_status == 403)
+
+    @parameterized.expand(
+        [
+            ("add_myself_to_listed", "post", "people/", "me", "listed", 201),
+            ("add_someone_else", "post", "people/", "other", "listed", 403),
+            ("add_myself_to_excepted", "post", "people/", "me", "excepted", 403),
+            ("delete_the_repository", "delete", "", None, None, 403),
+        ]
+    )
+    def test_members_cannot_narrow_a_repository_exception(
+        self, _name: str, method: str, suffix: str, who: str | None, kind: str | None, expected_status: int
+    ) -> None:
+        other = User.objects.create_and_join(self.organization, "colleague@example.com", None)
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        repository = ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=INSTALLATION, full_name="example-org/web", flash_for="listed"
+        )
+        self._set_level(OrganizationMembership.Level.MEMBER)
+        body = {"user_id": (self.user if who == "me" else other).id, "kind": kind} if who else None
+
+        res = getattr(self.client, method)(self._url(f"repositories/{repository.id}/{suffix}"), body, format="json")
+
+        assert res.status_code == expected_status
+        assert ReviewRepository.objects.for_team(self.team.id).filter(id=repository.id).exists()
+
     @parameterized.expand(ADMIN_WRITES)
     def test_admin_of_an_environment_cannot_change_the_parent_project(self, path: str, method: str, body: dict) -> None:
         self._set_level(OrganizationMembership.Level.MEMBER)
@@ -280,7 +350,9 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("exception_without_ownership", {**WEB, "flash_for": "everyone"}, 400),
+            ("drafts_without_ownership", {**WEB, "review_drafts": True}, 400),
             ("nothing_to_store", {**WEB, "selected": False}, 200),
+            ("drafts_off_is_nothing_to_store", {**WEB, "review_drafts": False}, 200),
             ("unknown_to_the_installation", {**WEB, "full_name": "example-org/secret", "selected": True}, 400),
             ("id_of_another_repository", {**WEB, "github_repo_id": 502, "selected": True}, 400),
             (
@@ -404,6 +476,26 @@ class TestReviewRepositorySettingsAPI(APIBaseTest):
         searched = self.client.get(f"{url}&search=API").json()
         assert [entry["full_name"] for entry in searched["results"]] == ["example-org/api"]
         assert searched["folded"] == 0
+
+    @patch(
+        "posthog.models.integration.GitHubIntegration.list_all_cached_repositories", return_value=CACHED_REPOSITORIES
+    )
+    def test_draft_reviews_alone_keep_a_repository_row_out_of_the_fold(self, _cached: object) -> None:
+        self._claim(self.team, ReviewInstallationClaim.Scope.ALL)
+        url = self._url(f"repository_overview/?installation_id={INSTALLATION}&view=differs")
+
+        turned_on = self.client.post(self._url("repositories/"), {**WEB, "review_drafts": True}, format="json")
+
+        assert turned_on.status_code == 200, turned_on.json()
+        assert turned_on.json()["repository"]["review_drafts"] is True
+        [entry] = [entry for entry in self.client.get(url).json()["results"] if entry["full_name"] == "example-org/web"]
+        assert entry["review_drafts"] is True
+
+        turned_off = self.client.post(self._url("repositories/"), {**WEB, "review_drafts": False}, format="json")
+
+        assert turned_off.json()["repository"] is None
+        assert not ReviewRepository.objects.for_team(self.team.id).exists()
+        assert "example-org/web" in self.client.get(url).json()["folded_preview"]
 
     def test_overview_needs_a_connected_installation(self) -> None:
         res = self.client.get(self._url("repository_overview/?installation_id=9999"))

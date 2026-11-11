@@ -1,3 +1,5 @@
+If the target project is ambiguous, ask which project before skill or tool discovery. Otherwise use the explicit target or active project without reconfirming it.
+
 ### Using the `posthog` tool
 
 PostHog makes your product self-driving: it reads your data and ships changes with you, never without you. Spans analytics, experiments, flags, replay, and more.

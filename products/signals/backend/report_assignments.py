@@ -23,6 +23,7 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import Dismissal, TaskRunArtefact, WorkClaim, WorkRelease
 from products.signals.backend.claim_display_name import claim_display_name
+from products.signals.backend.claim_takeover_notification import notify_claim_taken_over
 from products.signals.backend.models import (
     InvalidStatusTransition,
     SignalReport,
@@ -43,7 +44,8 @@ from products.signals.backend.report_claims import (
     actor_works_under_claim,
     claim_from_artefact,
     get_active_claim,
-    is_user_claim_of_task_creator,
+    is_claim_of_person,
+    is_claim_of_task_creator,
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.tasks.backend.facade import api as tasks_facade
@@ -138,15 +140,16 @@ def assignment_snapshot(
     return {"assignee": assignee, "implementation_pr": implementation_pr}
 
 
-def create_claim(report: SignalReport, actor: ArtefactAttribution) -> ReportClaim:
+def create_claim(report: SignalReport, actor: ArtefactAttribution, *, task_id: str | None = None) -> ReportClaim:
     claim = SignalReportArtefact.add_log(
         team_id=report.team_id,
         report_id=str(report.id),
         content=WorkClaim(display_name=claim_display_name(report, actor)),
         attribution=actor,
     )
-    if actor.task_id:
-        _associate_task_with_claim(report, actor.task_id, claim)
+    task_id = actor.task_id or task_id
+    if task_id:
+        _associate_task_with_claim(report, task_id, claim)
     return claim_from_artefact(claim)
 
 
@@ -157,16 +160,17 @@ def _associate_task_with_claim(report: SignalReport, task_id: str, claim: Signal
         type="task_run",
         task_id=task_id,
     )
-    if not associations.exists():
-        SignalReportArtefact.add_log(
-            team_id=report.team_id,
-            report_id=str(report.id),
-            content=TaskRunArtefact(task_id=task_id, product="tasks", type="agent_run"),
-            attribution=ArtefactAttribution.from_task(task_id),
-            claim_id=str(claim.id),
-        )
-    else:
-        associations.filter(claim__isnull=True).update(claim=claim)
+    if associations.filter(claim__isnull=True).update(claim=claim) or associations.filter(claim=claim).exists():
+        return
+    # A rerun under a new claim needs its own association, so the run's PR links to the current claim and not
+    # to one an earlier run released.
+    SignalReportArtefact.add_log(
+        team_id=report.team_id,
+        report_id=str(report.id),
+        content=TaskRunArtefact(task_id=task_id, product="tasks", type="agent_run"),
+        attribution=ArtefactAttribution.from_task(task_id),
+        claim_id=str(claim.id),
+    )
 
 
 def assignment_actor(assignment: SignalReportAssignment) -> ArtefactAttribution:
@@ -193,13 +197,19 @@ def release_claim(claim: ReportClaim, actor: ArtefactAttribution, *, takeover: b
     )
 
 
-def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaim:
+def claim_report_for_task(*, team_id: int, report_id: str, task_id: str, for_task_creator: bool = False) -> ReportClaim:
+    """Claim the report for the work of a task, unless the task already works under the active claim.
+
+    With `for_task_creator`, a new claim goes to the person who started the task, because that
+    person chose to do the work, and readers hide task claims. A task without a creator keeps a
+    task claim.
+    """
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
         import_report_pull_requests(report)
         claim = get_active_claim(team_id=team_id, report_id=report_id)
         actor = ArtefactAttribution.from_task(task_id)
-        if claim is not None and is_user_claim_of_task_creator(claim, task_id):
+        if claim is not None and is_claim_of_task_creator(claim, task_id):
             # The person who claimed the report started this task, so the task works under their
             # claim. Replacing it would remove the person from the report while they still own the work.
             claim_artefact = SignalReportArtefact.objects.filter(team_id=team_id, id=claim.claim_id).first()
@@ -208,7 +218,49 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
             return claim
         if claim is not None and not actor_owns_claim(claim, actor):
             raise ReportClaimConflict("This report already has an active claim.")
-        return claim or create_claim(report, actor)
+        if claim is not None:
+            return claim
+        creator_id = tasks_facade.get_task_creator_ids([task_id], [team_id]).get(task_id) if for_task_creator else None
+        if creator_id is None:
+            return create_claim(report, actor)
+        return create_claim(report, ArtefactAttribution.from_user(creator_id), task_id=task_id)
+
+
+def hand_off_task_claims(*, team_id: int, task_id: str, previous_user_id: int) -> None:
+    """Move the report claims a task works under from its previous owner to the person who owns it now.
+
+    The task's runs work under its creator's claim, so a claim left with the previous owner would refuse
+    every later run of the task. Call after the handoff commits: each report is locked here, and holding
+    the task's lock at the same time would invert the lock order a rerun takes.
+    """
+    report_ids = (
+        SignalReportArtefact.objects.filter(team_id=team_id, type="task_run", task_id=task_id, claim__isnull=False)
+        .values_list("report_id", flat=True)
+        .distinct()
+    )
+    # A later handoff can commit before this runs, so the claim goes to whoever owns the task now.
+    current_owner_id = tasks_facade.get_task_creator_ids([task_id], [team_id]).get(task_id)
+    if current_owner_id is None or current_owner_id == previous_user_id:
+        return
+    target = ArtefactAttribution.from_user(current_owner_id)
+    for report_id in list(report_ids):
+        with transaction.atomic():
+            report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+            claim = get_active_claim(team_id=team_id, report_id=str(report_id)) if report is not None else None
+            if report is None or claim is None or not is_claim_of_person(claim, previous_user_id):
+                continue
+            tasks_under_claim = {
+                str(other)
+                for other in SignalReportArtefact.objects.filter(
+                    team_id=team_id, type="task_run", claim_id=claim.claim_id
+                ).values_list("task_id", flat=True)
+            }
+            # Another task of the previous owner, such as a replacement implementation, works under the same
+            # claim and still needs it.
+            if tasks_under_claim != {task_id}:
+                continue
+            release_claim(claim, target, takeover=True)
+            create_claim(report, target, task_id=task_id)
 
 
 def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
@@ -342,14 +394,25 @@ def sync_task_pull_request_to_assignments(
                 .order_by("-created_at", "-id")
                 .first()
             )
-            claim_id = str(historical.id) if historical else None
+            # A task that works under its creator's claim holds no claim of its own, so its PR
+            # goes to the claim that its run artefact is attached to.
+            claim_id = (
+                historical.id
+                if historical
+                else SignalReportArtefact.objects.filter(
+                    team_id=team_id, report_id=report.id, type="task_run", task_id=task_id, claim__isnull=False
+                )
+                .order_by("-created_at", "-id")
+                .values_list("claim_id", flat=True)
+                .first()
+            )
             link_pull_request(
                 report=report,
                 details=PullRequestDetails(
                     url=pr_url, repository=repository, number=parsed.number, state=state, merged=merged
                 ),
                 actor=actor,
-                claim_id=claim_id,
+                claim_id=str(claim_id) if claim_id else None,
                 state_source=PullRequestStateSource.TASK_OUTPUT,
             )
         return len(reports)
@@ -403,6 +466,19 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
                 content=Dismissal(state="suppressed"),
                 attribution=ArtefactAttribution.system(),
             )
+
+
+def _held_by_another_person(claim: ReportClaim, user: User) -> bool:
+    # Task claims are left out: auto-start runs tasks as a suggested reviewer who never took the work on.
+    return claim.actor_kind in ("user", "agent") and claim.actor_user_id not in (None, user.id)
+
+
+def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
+    if claim.actor_kind == "agent" and claim.actor_user_id is not None:
+        return ArtefactAttribution.from_agent(claim.actor_user_id, claim.actor_agent or "")
+    if claim.actor_user_id is not None:
+        return ArtefactAttribution.from_user(claim.actor_user_id)
+    return ArtefactAttribution.system()
 
 
 def claim_report(
@@ -475,6 +551,18 @@ def claim_report(
                 if not takeover:
                     raise ReportClaimConflict(
                         "This report already has an active claim. Use takeover=true to take ownership."
+                    )
+                if _held_by_another_person(assignment, user):
+                    # takeover_claim_id shows the caller read who holds the claim, so an agent cannot take a
+                    # teammate's work with a bare takeover=true.
+                    if not takeover_claim_id:
+                        holder = claim_display_name(locked_report, _claim_holder(assignment))
+                        raise ReportClaimConflict(
+                            f"{holder} is working on this report. Check with your user before you take it over, "
+                            f"then send takeover=true with takeover_claim_id={assignment.claim_id}."
+                        )
+                    transaction.on_commit(
+                        partial(notify_claim_taken_over, report=locked_report, previous=assignment, actor=actor)
                     )
                 release_claim(assignment, actor, takeover=True)
                 assignment = None

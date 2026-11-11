@@ -64,6 +64,7 @@ def list_notes(
     skill_name: str | None = None,
     include_general: bool = True,
     include_expired: bool = False,
+    only_without_expiry: bool = False,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     limit: int = DEFAULT_NOTES_LIST_LIMIT,
@@ -80,8 +81,10 @@ def list_notes(
 
     Expired notes (`expires_at` in the past) are excluded by default so time-boxed
     steering retires itself; `include_expired=True` brings them back for humans
-    auditing the history. `date_from` / `date_to` are a half-open window on
-    `created_at` (`>= date_from`, `< date_to`) for walking past the cap.
+    auditing the history. `only_without_expiry=True` keeps only the standing notes (no
+    `expires_at`), so a run can re-read those past the newest-first cap. `date_from` /
+    `date_to` are a half-open window on `created_at` (`>= date_from`, `< date_to`) for
+    walking past the cap.
 
     `content_max_chars` truncates each `content` to a preview — a wide scan's guard
     against notes stacking up to `MAX_NOTE_CONTENT_LENGTH × limit` characters of
@@ -110,6 +113,8 @@ def list_notes(
         qs = qs.filter(target)
     if not include_expired:
         qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=timezone.now()))
+    if only_without_expiry:
+        qs = qs.filter(expires_at__isnull=True)
     if date_from is not None:
         qs = qs.filter(created_at__gte=date_from)
     if date_to is not None:

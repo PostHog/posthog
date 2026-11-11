@@ -5,6 +5,8 @@ import { IconDatabase } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { langchainCerebrasImageError } from '../sampleFixtures/langchainCerebrasImageError'
+import { jsonContent, messagesContent } from '../sampleFixtures/sampleContent'
+import { sampleRaw } from '../sampleFixtures/sampleTraceFixture'
 import {
     FIXTURE_EVALS,
     FIXTURE_GENERATION_INPUT,
@@ -12,13 +14,14 @@ import {
     FIXTURE_GENERATION_PROPERTIES,
     FIXTURE_LONG_AGENT_INPUT,
     FIXTURE_LONG_AGENT_OUTPUT,
+    FIXTURE_LONG_ANSWER_MESSAGE,
     FIXTURE_SPAN_PROPERTIES,
     FIXTURE_STEP_FEEDBACK,
     FIXTURE_TREE,
     withStepScroller,
     withWidth,
 } from '../storyFixtures'
-import { MessagesOpening, NodeDetailTab } from '../types'
+import { MessagesOpening, NodeContent, NodeDetailTab } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 
 const generation = FIXTURE_TREE[0].children[1]
@@ -26,11 +29,15 @@ const span = FIXTURE_TREE[0].children[0]
 
 const base: Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'messagesOpening' | 'onMessagesOpeningChange'> = {
     node: generation,
-    content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: FIXTURE_GENERATION_OUTPUT },
+    content: messagesContent(FIXTURE_GENERATION_INPUT, FIXTURE_GENERATION_OUTPUT),
     error: null,
     properties: FIXTURE_GENERATION_PROPERTIES,
     evals: { status: 'ready', results: FIXTURE_EVALS },
-    raw: { event: '$ai_generation', id: 'gen-answer' },
+    raw: sampleRaw('generation', generation.id, {
+        name: '$ai_generation',
+        timestamp: '2026-09-01T10:15:02Z',
+        properties: { $ai_model: 'gpt-4.1-mini', $ai_provider: 'openai', $ai_input_tokens: 1822 },
+    }),
     onViewInThread: () => {},
     onSelectNode: () => {},
 }
@@ -68,11 +75,20 @@ export const SpanInputOutput: Story = {
     args: {
         ...base,
         node: span,
-        content: { kind: 'io', input: { query: 'invoice went up' }, output: { hits: 3 } },
+        content: jsonContent({ query: 'invoice went up' }, { hits: 3 }),
         properties: FIXTURE_SPAN_PROPERTIES,
         onViewInThread: null,
     },
 }
+const mixedStepContent: NodeContent = {
+    kind: 'loaded',
+    input: { kind: 'json', value: { question: 'Why did my invoice go up?', account_id: 'acct_42' } },
+    output: { kind: 'messages', messages: FIXTURE_GENERATION_OUTPUT },
+}
+export const MixedStep: Story = {
+    args: { ...base, node: span, content: mixedStepContent, properties: FIXTURE_SPAN_PROPERTIES, onViewInThread: null },
+}
+export const MixedStepNarrow: Story = { args: MixedStep.args, decorators: [withWidth(380)] }
 export const GenerationDetailsTab: Story = { args: { ...base, initialTab: 'details' } }
 export const SpanDetailsTab: Story = {
     args: { ...base, node: span, properties: FIXTURE_SPAN_PROPERTIES, onViewInThread: null, initialTab: 'details' },
@@ -93,8 +109,8 @@ export const ContentNotFound: Story = {
         },
     },
 }
-export const RawTabWhileLoading: Story = {
-    args: { ...base, content: { kind: 'loading' }, initialTab: 'raw' },
+export const DetailsTabWhileLoading: Story = {
+    args: { ...base, content: { kind: 'loading' }, initialTab: 'details' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {
@@ -102,10 +118,14 @@ export const WithError: Story = {
         ...base,
         node: { ...generation, hasError: true },
         error: 'RateLimitError: 429 Too Many Requests',
-        content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT.slice(0, 2), output: [] },
+        content: messagesContent(FIXTURE_GENERATION_INPUT.slice(0, 2), []),
     },
 }
-export const NothingCaptured: Story = { args: { ...base, content: { kind: 'messages', input: [], output: [] } } }
+export const NothingCaptured: Story = { args: { ...base, content: messagesContent([], []) } }
+export const RawTab: Story = {
+    args: { ...base, initialTab: 'raw' },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
 export const EvalsTab: Story = { args: { ...base, initialTab: 'evals' } }
 export const EvalsLoadError: Story = {
     args: {
@@ -117,7 +137,7 @@ export const EvalsLoadError: Story = {
 export const LongConversation: Story = {
     args: {
         ...base,
-        content: { kind: 'messages', input: FIXTURE_LONG_AGENT_INPUT, output: FIXTURE_LONG_AGENT_OUTPUT },
+        content: messagesContent(FIXTURE_LONG_AGENT_INPUT, FIXTURE_LONG_AGENT_OUTPUT),
     },
     decorators: [withStepScroller],
 }
@@ -145,4 +165,12 @@ export const FailedGenerationWithImage: Story = {
 export const WithFeedback: Story = {
     args: { ...base, stepFeedback: { feedback: FIXTURE_STEP_FEEDBACK, onOpen: () => {} } },
     decorators: [withWidth(520)],
+}
+export const LongMessage: Story = {
+    args: {
+        ...base,
+        content: messagesContent(FIXTURE_GENERATION_INPUT, [FIXTURE_LONG_ANSWER_MESSAGE]),
+    },
+    decorators: [withStepScroller],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }

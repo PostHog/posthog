@@ -24,6 +24,7 @@ use super::{make_batch_id, BatcherCompletion, BatcherOutputs, RevokeId};
 use crate::debug_recorder::{partition_offsets, record_if, DebugEventKind, DebugRecorder};
 use crate::grpc_transport::{GrpcTransport, SendOptions};
 use crate::order_sentinel::{KeyOrderSentinel, SendKind, SentinelBatch};
+use crate::routing::Candidate;
 use crate::transport::{SendError, SendOutcome};
 use crate::types::{Accumulator, SerializedKafkaMessage};
 use crate::worker_registry::WorkerId;
@@ -90,7 +91,7 @@ pub(super) trait RequestSender: Send + Sync + 'static {
 }
 
 pub(super) trait Workers: Send + 'static {
-    fn candidates(&self) -> Vec<WorkerId>;
+    fn candidates(&self) -> Vec<Candidate>;
 
     fn record_outcome(&self, worker: &WorkerId, fault: bool);
 
@@ -116,7 +117,7 @@ impl RequestSender for GrpcTransport {
 }
 
 impl Workers for WorkerPoolSource {
-    fn candidates(&self) -> Vec<WorkerId> {
+    fn candidates(&self) -> Vec<Candidate> {
         WorkerPoolSource::candidates(self)
     }
 
@@ -572,7 +573,7 @@ mod tests {
 
     #[derive(Default)]
     struct WorkersState {
-        candidates: Vec<WorkerId>,
+        candidates: Vec<Candidate>,
         outcomes: Vec<(WorkerId, bool)>,
         idle: Vec<WorkerId>,
     }
@@ -581,7 +582,7 @@ mod tests {
     struct FakeWorkers(Arc<Mutex<WorkersState>>);
 
     impl Workers for FakeWorkers {
-        fn candidates(&self) -> Vec<WorkerId> {
+        fn candidates(&self) -> Vec<Candidate> {
             self.0.lock().unwrap().candidates.clone()
         }
 
@@ -720,8 +721,10 @@ mod tests {
 
     impl FakeWorkers {
         fn set_candidates(&self, workers: &[&str]) {
-            self.0.lock().unwrap().candidates =
-                workers.iter().map(|w| WorkerId::from(*w)).collect();
+            self.0.lock().unwrap().candidates = workers
+                .iter()
+                .map(|w| Candidate::uniform(WorkerId::from(*w)))
+                .collect();
         }
 
         fn outcomes(&self) -> Vec<(WorkerId, bool)> {

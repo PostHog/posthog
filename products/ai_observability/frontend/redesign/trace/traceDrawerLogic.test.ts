@@ -199,6 +199,11 @@ describe('traceDrawerLogic', () => {
     it.each<[TraceDrawerListId, string, Record<string, unknown>]>([
         ['traces', LIST_PATH, { mode: 'spans', detailTab: 'messages', openingMode: null }],
         [
+            'offline-experiment',
+            urls.aiObservabilityOfflineEvaluationExperiment('experiment-1'),
+            { mode: 'spans', detailTab: 'messages', openingMode: null },
+        ],
+        [
             'evaluation-runs',
             urls.aiObservabilityEvaluation('e1'),
             { mode: 'spans', detailTab: 'evals', openingMode: null },

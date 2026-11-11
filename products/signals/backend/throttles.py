@@ -34,3 +34,16 @@ class UserReportCreateBurstThrottle(UserRateThrottle):
     # This rate limits how far parallel creates can pass the cap during that wait.
     scope = "signal_report_user_create_burst"
     rate = "10/minute"
+
+
+class ReportSearchThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Per project, because a semantic search reads every report vector of the project from ClickHouse
+    # and a fleet of scouts shares one project's budget.
+    scope = "signal_report_search"
+    rate = "120/minute"
+
+    def get_cache_key(self, request: Request, view: Any) -> str | None:
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id is not None:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)

@@ -27,7 +27,8 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     config.review_mode = StamphogRepoConfig._meta.get_field("review_mode").get_default()
     config.trigger_label = StamphogRepoConfig._meta.get_field("trigger_label").get_default()
     config.routing_mode = StamphogRepoConfig._meta.get_field("routing_mode").get_default()
-    return ["review_mode", "trigger_label", "routing_mode"]
+    config.routing_fork_labels = StamphogRepoConfig._meta.get_field("routing_fork_labels").get_default()
+    return ["review_mode", "trigger_label", "routing_mode", "routing_fork_labels"]
 
 
 def _write_db() -> str:

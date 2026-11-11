@@ -25,6 +25,7 @@ import { QuillScoreNowButton } from './pipeline/QuillScoreNowButton'
 import { ScoreNowButton } from './pipeline/ScoreNowButton'
 import { SetupTab } from './pipeline/SetupTab'
 import { pipelineQuestion, pipelineSubtitle } from './pipelineQuestion'
+import { notLiveExplanation } from './trainingScheduleLogic'
 
 export const scene: SceneExport = {
     component: AutoresearchPipelineScene,
@@ -46,6 +47,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
     ]
 
     const heading = pipeline ? pipelineQuestion(pipeline) : pipelineLoading ? '' : 'Model'
+    const notLive = pipeline ? notLiveExplanation(pipeline) : null
 
     if (!isEnabled) {
         return <NotFound object="Autoresearch" caption="This feature is not enabled for your project." />
@@ -85,6 +87,14 @@ export function AutoresearchPipelineScene(): JSX.Element {
                 <>
                     <PipelineSummary />
                     {lifecycleSteps && <LifecycleStrip steps={lifecycleSteps} />}
+                    {notLive && (
+                        <LemonBanner type="warning">
+                            <div>{notLive}</div>
+                            <div className="text-xs font-mono mt-1 break-words">
+                                Reason: {pipeline?.not_promoted_reason}
+                            </div>
+                        </LemonBanner>
+                    )}
                     <LemonTabs
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as AutoresearchPipelineTab)}

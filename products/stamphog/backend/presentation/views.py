@@ -57,6 +57,8 @@ from .serializers import (
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    RoutingRunDetailSerializer,
+    RoutingRunSerializer,
     StamphogAddRepositorySerializer,
     StamphogAvailableRepositoriesQuerySerializer,
     StamphogAvailableRepositoriesSerializer,
@@ -64,6 +66,7 @@ from .serializers import (
     StamphogOwnersFileSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
+    StamphogRoutingRunsQuerySerializer,
     StamphogSyncInstallationRequestSerializer,
     StamphogSyncInstallationResponseSerializer,
 )
@@ -81,8 +84,9 @@ _INSTALL_STATE_MAX_AGE_SECONDS = 60 * 60
 # `enabled` is split by direction: turning reviews on takes editor, turning them off takes manager.
 REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # Reviewer requests decide which teams get asked on every pull request, and turning them off can leave
-# pull requests with no reviewer at all, so both directions take manager.
-MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode")
+# pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
+# team's review request on fork pull requests, so it decides who gets asked too.
+MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels")
 
 ReviewLevel = Literal["editor", "manager"]
 
@@ -756,3 +760,36 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         slack_channel_id = request.query_params.get("slack_channel_id") or None
         runs = facade_api.list_digest_runs(self.canonical_team_id, slack_channel_id=slack_channel_id)
         return self.get_paginated_response(self.get_serializer(self.paginate_queryset(runs), many=True).data)
+
+
+class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
+    """Reviewer routing runs: which owners each run requested, cut or left out, and why."""
+
+    scope_object = "stamphog"
+    serializer_class = RoutingRunSerializer
+
+    @extend_schema(
+        description=(
+            "List reviewer routing runs, newest first. Each run holds its decision for every owner of the "
+            "changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a "
+            "team or person was or was not asked to review. Get one run for the files each owner owns."
+        ),
+        parameters=[StamphogRoutingRunsQuerySerializer],
+        responses={200: RoutingRunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        query = StamphogRoutingRunsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        runs = facade_api.list_routing_runs(self.canonical_team_id, **query.validated_data)
+        page = self.paginate_queryset(runs)
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+
+    @extend_schema(
+        description="One reviewer routing run, with every changed file each owner owns.",
+        responses={200: RoutingRunDetailSerializer},
+    )
+    def retrieve(self, request: Request, pk: UUID, **kwargs) -> Response:
+        run = facade_api.get_routing_run(self.canonical_team_id, str(pk))
+        if run is None:
+            raise NotFound()
+        return Response(RoutingRunDetailSerializer(run, context=self.get_serializer_context()).data)

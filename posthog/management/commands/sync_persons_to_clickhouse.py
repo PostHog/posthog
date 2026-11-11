@@ -1,8 +1,9 @@
 """Reconcile a team's person, distinct-id, and group rows from Postgres to ClickHouse.
 
-LOCAL/DEV USE ONLY for now: this loads the whole team's rows into memory (no batching), so it
-is not safe to run against large production teams. It exists to seed local ClickHouse from the
-local persons database (e.g. via the generate_persons command).
+LOCAL DEV AND SELF-HOSTED ONLY: this loads the whole team's rows into memory (no batching), so it
+is not safe to run against large production teams, and it refuses to run on deployed PostHog Cloud.
+It exists to seed local ClickHouse from the local persons database (e.g. via the generate_persons
+command). On PostHog Cloud, `person_consistency` scans a team and repairs what it finds.
 """
 
 import json
@@ -10,7 +11,7 @@ import logging
 from typing import Literal, cast
 from uuid import UUID
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 import structlog
 
@@ -29,6 +30,7 @@ from posthog.models.person.util import (
     set_distinct_id_version_floor,
 )
 from posthog.persons_db import persons_db_connection
+from posthog.run_mode import run_mode
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -66,6 +68,11 @@ class Command(BaseCommand):
 
 
 def run(options):
+    if run_mode().is_deployed_cloud:
+        raise CommandError(
+            "sync_persons_to_clickhouse runs only in local dev and self-hosted deployments. "
+            "On PostHog Cloud, use person_consistency to scan and repair a team."
+        )
     live_run = options["live_run"]
     deletes = options["deletes"]
 
@@ -110,7 +117,7 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, force: bool = F
         ]
     rows = sync_execute(
         """
-            SELECT id, max(version) FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING max(is_deleted) = 0
+            SELECT id, max(version) FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING argMax(is_deleted, version) = 0
         """,
         {
             "team_id": team_id,
@@ -297,7 +304,7 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool):
         ]
     rows = sync_execute(
         """
-            SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0
+            SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING argMax(is_deleted, version) = 0
         """,
         {
             "team_id": team_id,

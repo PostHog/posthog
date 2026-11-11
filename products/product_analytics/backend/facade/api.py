@@ -12,18 +12,22 @@ project's root team, because that is the team ``RootTeamMixin.save()`` writes th
 """
 
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.contracts import (
+    AgentInsightRead,
+    ChartExplanation,
+    ChartExplanationAuthor,
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
@@ -32,6 +36,7 @@ from products.product_analytics.backend.facade.contracts import (
     ViewableInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
@@ -86,6 +91,47 @@ def create_insight_variable(
     return _to_variable_definition(variable)
 
 
+def _to_chart_explanation(explanation: InsightExplanation) -> ChartExplanation:
+    author = explanation.created_by
+    return ChartExplanation(
+        id=explanation.id,
+        insight_id=explanation.insight_id,
+        data=explanation.data,
+        created_by=ChartExplanationAuthor(
+            id=author.id, first_name=author.first_name, last_name=author.last_name, email=author.email
+        )
+        if author is not None
+        else None,
+        created_at=explanation.created_at,
+    )
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> ChartExplanation:
+    """Save a new chart explanation of the insight. Pass the insight's own team."""
+    return _to_chart_explanation(
+        logic.create_insight_explanation(team_id=team_id, insight_id=insight_id, user_id=user_id, data=data)
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> ChartExplanation | None:
+    """Replace the data of an explanation this person saved of this insight, so its link shows the fix.
+    None when they saved no explanation with this id."""
+    explanation = logic.update_insight_explanation(
+        team_id=team_id, insight_id=insight_id, explanation_id=explanation_id, user_id=user_id, data=data
+    )
+    return _to_chart_explanation(explanation) if explanation is not None else None
+
+
+def get_insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> ChartExplanation | None:
+    """The saved chart explanation with this id, only when it belongs to this insight."""
+    explanation = logic.insight_explanation(team_id=team_id, insight_id=insight_id, explanation_id=explanation_id)
+    return _to_chart_explanation(explanation) if explanation is not None else None
+
+
 def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     """Hold the insight definition stable while saving a dependent evaluation.
 
@@ -113,6 +159,28 @@ def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insigh
     logic.record_insight_views(
         team_id=team_id, user_id=user_id, last_viewed_at_by_insight_id=last_viewed_at_by_insight_id
     )
+
+
+def record_agent_insight_read(*, team: Team, user_id: int, insight_id: int) -> None:
+    try:
+        logic.record_agent_insight_read(team=team, user_id=user_id, insight_id=insight_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id, "insight_id": insight_id})
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[AgentInsightRead]:
+    return [
+        AgentInsightRead(short_id=short_id, read_days=tuple(read_days))
+        for short_id, read_days in logic.insight_reads_by_agents(
+            team_id=team_id, user_id=user_id, since=since, min_days=min_days, limit=limit
+        )
+    ]
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    logic.delete_agent_insight_reads_for_teams(team_ids)
 
 
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:
@@ -323,6 +391,14 @@ def viewable_insight_definitions(
         )
         for insight in insights
         if str(insight.pk) not in denied
+    }
+
+
+def viewable_insights_are_trends(*, team: Team, user: User, short_ids: Collection[str]) -> dict[str, bool]:
+    """Whether each insight the person can view is a trends insight, by short ID. Other insights are left out."""
+    return {
+        short_id: (definition.query.get("source") or {}).get("kind") == "TrendsQuery"
+        for short_id, definition in viewable_insight_definitions(team=team, user=user, short_ids=short_ids).items()
     }
 
 

@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import React from 'react'
 
 import { IconExpand45, IconFeatures, IconHelmet, IconMap, IconWarning } from '@posthog/icons'
@@ -18,7 +18,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { BillingPlan, BillingType, SidePanelTab } from '~/types'
 
 import { SidePanelTickets } from 'products/conversations/frontend/components/SidePanel/SidePanelTickets'
-import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
+import {
+    liveTicketsLogic,
+    sidepanelTicketsLogic,
+} from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
 
 import { SidePanelPaneHeader } from '../../components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '../../SidePanelContentContainer'
@@ -77,9 +80,14 @@ const StatusPageAlert = (): JSX.Element | null => {
 // In order to set these turn on the `support-message-override` feature flag.
 
 //Support offsite messaging
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
+    "Many of our support engineers are attending an offsite (from 16th to 20th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries may experience a slight delay. We'll be catching up from the 23rd and back to full speed shortly after!"
+
+//Support post-offsite catch-up messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
 
 //Support Christmas messaging
 //const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
@@ -191,14 +199,13 @@ export function SidePanelSupport(): JSX.Element {
     useValues(userLogic)
     const { openSidePanel, closeSidePanel } = useActions(sidePanelStateLogic)
     const { billing, billingLoading, billingPlan } = useValues(billingLogic)
-    const { tickets, canCreateTicket, view, currentTicket } = useValues(sidepanelTicketsLogic)
+    useMountedLogic(liveTicketsLogic)
+    const { canAccessTickets, canCreateTicket, myTicketsUrl } = useValues(sidepanelTicketsLogic)
 
     const isCloudOrDev = preflight?.cloud || process.env.NODE_ENV === 'development'
     const showMaxAI = isCloudOrDev
     const isBillingLoaded = !billingLoading && billing !== undefined
-    // Free plans can't open new tickets, but tickets they already have (billing questions, PostHog AI
-    // bug reports) stay readable and repliable here
-    const showTickets = isCloudOrDev && (canCreateTicket || tickets.length > 0)
+    const showTickets = isCloudOrDev && canAccessTickets
 
     return (
         <div className="SidePanelSupport contents">
@@ -208,7 +215,7 @@ export function SidePanelSupport(): JSX.Element {
                         <LemonButton
                             size="xsmall"
                             icon={<IconExpand45 />}
-                            to={urls.myTickets(view === 'ticket' ? currentTicket?.id : undefined)}
+                            to={myTicketsUrl}
                             onClick={() => closeSidePanel()}
                             tooltip="View your tickets full screen"
                             // LemonButton's tooltip→aria-label fallback only applies to plain buttons,

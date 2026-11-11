@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { memo } from 'react'
+import { memo, useEffect } from 'react'
 
-import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
+import { saveToDatasetButtonLogic } from '../../../datasets/saveToDatasetButtonLogic'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
 import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
@@ -17,6 +17,7 @@ import {
     TraceMode,
 } from '../types'
 import { confirmRemoveFromQueue } from './confirmRemoveFromQueue'
+import { DatasetButtonSlot } from './DatasetButtonSlot'
 import { TraceReviewActions } from './TraceReviewActions'
 import { traceReviewBridgeLogic } from './traceReviewBridgeLogic'
 
@@ -38,6 +39,8 @@ type ReadyValues = Pick<
     | 'detailData'
     | 'detailTab'
     | 'datasetItemSource'
+    | 'datasetsEnabled'
+    | 'selectedRaw'
     | 'canViewInThread'
     | 'thread'
     | 'timeline'
@@ -76,6 +79,7 @@ interface ReadyActions {
     setDetailTab: (tab: NodeDetailTab) => void
     viewInThread: () => void
     prefetchNode: (id: string) => void
+    loadRawNode: (id: string) => void
     exportTrace: () => void
     copyTrace: () => void
     showFailingEvals: () => void
@@ -141,12 +145,20 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         detail: values.detailData
             ? {
                   ...values.detailData,
+                  raw: values.selectedRaw,
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
                   messagesOpening: values.messagesOpening,
                   onMessagesOpeningChange: actions.setMessagesOpening,
-                  actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
+                  actions: values.datasetsEnabled ? (
+                      <DatasetButtonSlot
+                          key={values.selectedNodeId}
+                          raw={values.selectedRaw}
+                          source={values.datasetItemSource}
+                          onLoad={() => actions.loadRawNode(values.selectedNodeId)}
+                      />
+                  ) : null,
                   stepFeedback: values.selectedStepFeedback
                       ? {
                             feedback: values.selectedStepFeedback,
@@ -199,6 +211,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         detailData,
         detailTab,
         datasetItemSource,
+        datasetsEnabled,
+        selectedRaw,
         canViewInThread,
         thread,
         timeline,
@@ -228,6 +242,9 @@ export const TraceViewContainer = memo(function TraceViewContainer({
         useValues(reviewLogic)
     const { loadReviewStatus, removeFromQueue } = useActions(reviewLogic)
     useMountedLogic(traceReviewBridgeLogic({ traceId }))
+    // The dataset button unmounts while a step loads. Its logic has no key, so it would refetch datasets and recents
+    // on every remount without this mount.
+    useEffect(() => (datasetsEnabled ? saveToDatasetButtonLogic.mount() : undefined), [datasetsEnabled])
     const { messagesOpening } = useValues(traceMessagesOpeningLogic)
     const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 
@@ -244,6 +261,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       detailData,
                       detailTab,
                       datasetItemSource,
+                      datasetsEnabled,
+                      selectedRaw,
                       canViewInThread,
                       thread,
                       timeline,

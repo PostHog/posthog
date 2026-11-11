@@ -1,14 +1,22 @@
 import { BrandMark } from '../components/BrandMark'
+import { CustomHarnessIcon } from '../components/CustomHarnessIcon'
 import { harnessMark } from './harnessRegistry'
 
 export function HarnessLogo({
     category,
+    label,
     className = 'h-4 w-4',
 }: {
     category: string
+    label?: string
     className?: string
 }): JSX.Element {
-    return <BrandMark name={harnessMark(category)} className={className} />
+    const mark = harnessMark(category)
+    return mark === 'Other harnesses' ? (
+        <CustomHarnessIcon harness={category} label={label} className={className} />
+    ) : (
+        <BrandMark name={mark} label={label} className={className} />
+    )
 }
 
 export function HarnessPill({ category, title }: { category: string; title?: string }): JSX.Element {

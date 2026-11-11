@@ -181,6 +181,10 @@ class TaskRunSpend:
     complete: bool
     is_terminal: bool
     stage: str
+    accounting_failed: bool
+    compute_cost_microusd: int = 0
+    trial_grant_id: str | None = None
+    billing_exempt: bool = False
 
 
 @dataclass(frozen=True)
@@ -335,6 +339,8 @@ class TaskDetailDTO:
     slack_thread_references: list[SlackThreadReferenceDTO] = Field(default_factory=list)
     origin_key: str | None = None
     client_provenance: str | None = None
+    last_client: str | None = None
+    last_client_at: datetime | None = None
 
 
 @dataclass(frozen=True)

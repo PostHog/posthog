@@ -1,9 +1,12 @@
+import json
 import base64
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlencode
 
+import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -25,6 +28,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.ai_observability.backend.logic.traces import trace_queries
 from products.ai_observability.backend.logic.traces.summary import ReadySummary, SummaryItem
 from products.ai_observability.backend.logic.traces.summary_store import summary_key, write_summary
+from products.ai_observability.backend.models.parser_recipe import ParserRecipe
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
@@ -46,6 +50,29 @@ SCORE = "00000000-0000-0000-0000-000000000004"
 FEEDBACK = "00000000-0000-0000-0000-000000000005"
 QUESTION = [{"role": "user", "content": "Why did my invoice go up?"}]
 ANSWER = [{"role": "assistant", "content": "Two seats were added."}]
+
+
+def _tool_call_answer(arguments: str) -> list[dict[str, object]]:
+    return [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [{"id": "c1", "type": "function", "function": {"name": "f", "arguments": arguments}}],
+        }
+    ]
+
+
+DEEP_TOOL_CALL_ANSWER = _tool_call_answer("[" * 300 + "]" * 300)
+TICKET = {"ticket_id": "T-42", "summary": "Refund requested"}
+TICKET_RECIPE = """
+rules:
+  - on:
+      ticket_id: { exists: true }
+      summary: { is: string }
+    emit:
+      role: system
+      content: 'Ticket $.ticket_id: $.summary'
+"""
 
 
 def _create_trace(team: Team, trace_id: str = "trace-1", *, extra_properties: dict[str, object] | None = None) -> None:
@@ -148,6 +175,90 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
     def _url(self, segment: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{segment}/"
 
+    @time_machine.travel(T0 + timedelta(days=1), tick=False)
+    def test_availability_reads_both_tables_with_a_read_key_and_stays_in_the_project(self) -> None:
+        _create_trace(self.team, "application,trace")
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        bulk_create_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "event_uuid": event_id,
+                    "distinct_id": "user-1",
+                    "team": team,
+                    "timestamp": T0,
+                    "properties": {"$ai_trace_id": trace_id},
+                }
+                for event_id, team, trace_id in [
+                    (GENERATION, self.team, "evaluator/trace"),
+                    (TRACE_EVENT, other_team, "other-trace"),
+                ]
+            ]
+        )
+        key = self.create_personal_api_key_with_scopes(["llm_analytics:read"])
+        self.client.logout()
+        headers = {"authorization": f"Bearer {key}"}
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "evaluator/trace"]},
+                format="json",
+                headers=headers,
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace", "evaluator/trace"]}
+        probes = [query for query in queries if "FROM system.columns" not in query]
+        assert len(probes) == 2
+        for query in probes:
+            self.assertQueryMatchesSnapshot(query)
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["missing", "other-trace"]},
+                format="json",
+                headers=headers,
+            )
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": []}
+        probes = [query for query in queries if "FROM system.columns" not in query]
+        assert len(probes) == 2
+        for query in probes:
+            self.assertQueryMatchesSnapshot(query)
+
+        with self.capture_select_queries() as queries:
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "application,trace"]},
+                format="json",
+                headers=headers,
+            )
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace"]}
+        assert len([query for query in queries if "FROM system.columns" not in query]) == 1
+
+    def test_availability_rejects_more_than_two_traces(self) -> None:
+        response = self.client.post(self._url("availability"), {"trace_ids": ["one", "two", "three"]}, format="json")
+
+        assert response.status_code == 400
+
+    def test_availability_preserves_known_traces_when_the_fallback_times_out(self) -> None:
+        with patch.object(
+            trace_queries,
+            "execute_hogql_query",
+            side_effect=[SimpleNamespace(results=[["application,trace"]]), ClickHouseQueryTimeOut()],
+        ):
+            response = self.client.post(
+                self._url("availability"),
+                {"trace_ids": ["application,trace", "evaluator/trace"]},
+                format="json",
+            )
+
+        assert response.status_code == 200
+        assert response.json() == {"available_trace_ids": ["application,trace"]}
+
     @parameterized.expand([("plain id", "trace-1"), ("id with a dot", "run.42"), ("id with a slash", "a/b")])
     def test_returns_the_trace_in_camel_case(self, _name: str, trace_id: str) -> None:
         _create_trace(self.team, trace_id)
@@ -208,6 +319,7 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
             for read, suffix in [
                 ("trace", ""),
                 ("node", f"nodes/{_encode('trace-1')}/"),
+                ("raw node", f"nodes/{_encode('trace-1')}/raw/"),
                 ("evaluations", "evaluations/"),
                 ("clusters", "clusters/?created_at=2026-09-01T10:00:00Z"),
                 ("search", "search/?q=invoice"),
@@ -243,7 +355,7 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
     def _url(self, trace_id: str, node_segment: str) -> str:
         return f"/api/projects/{self.team.id}/ai_observability/traces/{_encode(trace_id)}/nodes/{node_segment}/"
 
-    def test_returns_the_properties_as_ingested_and_names_the_io_keys(self) -> None:
+    def test_returns_the_event_identity_without_its_raw_properties(self) -> None:
         _create_node_trace(self.team)
 
         response = self.client.get(self._url("trace-1", _encode(GENERATION)))
@@ -252,8 +364,60 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         body = response.json()
         assert (body["id"], body["kind"], body["error"]) == (GENERATION, "generation", None)
         assert body["metadata"]["provider"] == "openai"
-        assert body["event"]["ioKeys"] == {"input": "$ai_input", "output": "$ai_output_choices", "tools": "$ai_tools"}
-        assert body["event"]["properties"]["$ai_input"] == QUESTION
+        assert set(body["event"]) == {"name", "uuid", "timestamp"}
+        assert body["event"]["uuid"] == GENERATION
+
+    @parameterized.expand(
+        [
+            ("conversation", ANSWER, "messages"),
+            ("tool call arguments nested past the bound", DEEP_TOOL_CALL_ANSWER, "json"),
+            (
+                "tool call arguments with an integer past 64 bits",
+                _tool_call_answer('{"n": 100000000000000000000}'),
+                "json",
+            ),
+            ("tool call arguments with a lone surrogate", _tool_call_answer('{"text": "\\ud800"}'), "json"),
+            (
+                "message text with a lone surrogate",
+                [{"role": "assistant", "content": '[{"type": "text", "text": "\\ud800"}]'}],
+                "json",
+            ),
+        ]
+    )
+    def test_returns_render_ready_content_beside_the_event(
+        self, _name: str, output: list[dict[str, object]], output_kind: str
+    ) -> None:
+        _create_node_trace(self.team, extra_properties={"$ai_output_choices": output})
+
+        response = self.client.get(self._url("trace-1", _encode(GENERATION)))
+
+        assert response.status_code == 200, response.content
+        content = response.json()["content"]
+        assert (content["input"]["kind"], content["output"]["kind"]) == ("messages", output_kind)
+
+    @parameterized.expand([("visible", False, True), ("restricted for the viewer", True, False)])
+    def test_content_shows_the_input_unless_the_viewer_may_not_read_it(
+        self, _name: str, restricted: bool, input_shown: bool
+    ) -> None:
+        if restricted:
+            _restrict_property(self, "$ai_input")
+        _create_node_trace(self.team)
+
+        response = self.client.get(self._url("trace-1", _encode(GENERATION)))
+
+        assert response.status_code == 200, response.content
+        content = response.json()["content"]
+        assert ("Why did my invoice go up?" in json.dumps(content["input"])) is input_shown
+        assert content["output"]["kind"] == "messages"
+
+    def test_a_team_recipe_applies_to_the_content(self) -> None:
+        ParserRecipe.objects.unscoped().create(team=self.team, name="tickets", source=TICKET_RECIPE)
+        _create_node_trace(self.team, extra_properties={"$ai_input": TICKET})
+
+        content = self.client.get(self._url("trace-1", _encode(GENERATION))).json()["content"]
+
+        assert content["input"]["kind"] == "messages"
+        assert "Ticket T-42: Refund requested" in json.dumps(content["input"])
 
     @parameterized.expand([("plain id", "trace-1"), ("id with a slash", "a/b")])
     def test_root_node_is_the_trace_event(self, _name: str, trace_id: str) -> None:
@@ -262,7 +426,11 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         body = self.client.get(self._url(trace_id, _encode(trace_id))).json()
 
         assert (body["id"], body["kind"]) == (trace_id, "trace")
-        assert body["event"]["ioKeys"]["input"] == "$ai_input_state"
+        assert set(body["event"]) == {"name", "uuid", "timestamp"}
+        assert body["content"] == {
+            "input": {"kind": "json", "value": {"question": "Why?"}},
+            "output": {"kind": "json", "value": None},
+        }
 
     def test_root_without_a_trace_event_has_no_event(self) -> None:
         _create_node_trace(self.team, with_trace_event=False)
@@ -271,6 +439,10 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == 200
         assert response.json()["event"] is None
+        assert response.json()["content"] == {
+            "input": {"kind": "json", "value": None},
+            "output": {"kind": "json", "value": None},
+        }
 
     @parameterized.expand(
         [
@@ -296,11 +468,48 @@ class TestTraceNodeView(ClickhouseTestMixin, APIBaseTest):
         url = f"/api/projects/{self.team.id}/ai_observability/traces/{trace_segment}/nodes/{node_segment}/"
         assert self.client.get(url).status_code == 400
 
+
+class TestTraceNodeRawView(ClickhouseTestMixin, APIBaseTest):
+    def _url(self, trace_segment: str, node_segment: str) -> str:
+        return f"/api/projects/{self.team.id}/ai_observability/traces/{trace_segment}/nodes/{node_segment}/raw/"
+
+    def test_returns_the_event_without_content(self) -> None:
+        _create_node_trace(self.team)
+
+        response = self.client.get(self._url(_encode("trace-1"), _encode(GENERATION)))
+
+        assert response.status_code == 200, response.content
+        body = response.json()
+        assert (body["id"], body["kind"]) == (GENERATION, "generation")
+        assert "content" not in body
+        assert body["event"]["ioKeys"] == {"input": "$ai_input", "output": "$ai_output_choices", "tools": "$ai_tools"}
+        assert body["event"]["properties"]["$ai_input"] == QUESTION
+
+    def test_root_without_a_trace_event_has_no_event(self) -> None:
+        _create_node_trace(self.team, with_trace_event=False)
+
+        response = self.client.get(self._url(_encode("trace-1"), _encode("trace-1")))
+
+        assert response.status_code == 200
+        assert (response.json()["kind"], response.json()["event"]) == ("trace", None)
+
+    def test_node_not_found(self) -> None:
+        _create_node_trace(self.team)
+
+        response = self.client.get(self._url(_encode("trace-1"), _encode("00000000-0000-0000-0000-00000000ffff")))
+
+        assert response.status_code == 404
+
+    def test_rejects_a_malformed_segment(self) -> None:
+        _create_node_trace(self.team)
+
+        assert self.client.get(self._url(_encode("trace-1"), "A")).status_code == 400
+
     def test_masks_properties_the_viewer_may_not_read(self) -> None:
         _restrict_property(self, "secret_plan")
         _create_node_trace(self.team, extra_properties={"secret_plan": "enterprise"})
 
-        properties = self.client.get(self._url("trace-1", _encode(GENERATION))).json()["event"]["properties"]
+        properties = self.client.get(self._url(_encode("trace-1"), _encode(GENERATION))).json()["event"]["properties"]
 
         assert "secret_plan" not in properties
         assert properties["$ai_provider"] == "openai"

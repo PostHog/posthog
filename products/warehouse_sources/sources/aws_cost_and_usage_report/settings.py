@@ -11,8 +11,10 @@ DOWNLOAD_CHUNK_BYTES = 8 * 1024 * 1024
 # Rows per batch handed to the pipeline, matching its own batcher.
 ROWS_PER_BATCH = 5000
 
-# Data Exports names each partition directory `BILLING_PERIOD=YYYY-MM`.
-BILLING_PERIOD_DIRECTORY = re.compile(r"BILLING_PERIOD=(\d{4})-(\d{2})/?$")
+# Data Exports names each partition directory `BILLING_PERIOD=YYYY-MM`. A CUR 2.0 export writes the
+# name in upper case and a FOCUS export can write it in lower case, so the match ignores case and the
+# directory name found under data/ is reused for the metadata/ path.
+BILLING_PERIOD_DIRECTORY = re.compile(r"(BILLING_PERIOD=(\d{4})-(\d{2}))/?$", re.IGNORECASE)
 BILLING_PERIOD_INPUT = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 DATA_FILE_SUFFIXES = (".parquet", ".csv.gz")
 BUCKET_NAME = re.compile(r"^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$")

@@ -213,12 +213,13 @@ A cache entry without the level reads as `off`.
 
 `condition_type` is derived by Django on save.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
+A behavioral run refuses such a cohort, so it never reads as ready.
 
 Every other non-static cohort is evaluated dynamically from the person's properties, where a behavioral condition can never match.
 
 The team metadata cache that the flags service reads carries the team's access row level as `realtime_cohort_level`, or `off` when the team has no row.
 It carries the row's level, not Django's effective level, because `REALTIME_COHORT_TEAM_ALLOWLIST` can name every team.
-`realtime_cohort_team_access grant` and `revoke` queue a refresh of the team's entry after they commit.
+`realtime_cohort_team_access enable`, `grant` and `revoke` queue a refresh of the team's entry after they commit.
 The hourly team metadata verification repairs an entry whose level still differs from the row.
 
 ### How it reads

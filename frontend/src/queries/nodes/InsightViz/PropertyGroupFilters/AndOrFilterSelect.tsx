@@ -1,6 +1,11 @@
 import { LemonButtonProps, LemonSelect } from '@posthog/lemon-ui'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+
 import { FilterLogicalOperator } from '~/types'
+
+import { AND_OR_FILTER_OPTIONS, andOrFilterSuffix } from './andOrFilterOptions'
+import { QuillAndOrFilterSelect } from './QuillAndOrFilterSelect'
 
 export interface AndOrFilterSelectProps {
     onChange: (type: FilterLogicalOperator) => void
@@ -24,6 +29,21 @@ export function AndOrFilterSelect({
     disabledReason,
     size = 'small',
 }: AndOrFilterSelectProps): JSX.Element {
+    const quillSurface = useQuillSurface()
+
+    if (quillSurface) {
+        return (
+            <QuillAndOrFilterSelect
+                onChange={onChange}
+                value={value}
+                prefix={prefix}
+                suffix={suffix}
+                shortSuffix={shortSuffix}
+                disabledReason={disabledReason}
+            />
+        )
+    }
+
     return (
         <div className="flex items-center font-medium">
             <span className="ml-2 @max-[410px]/editor-panel:ml-0">{prefix}</span>
@@ -33,37 +53,23 @@ export function AndOrFilterSelect({
                 value={value}
                 onChange={(type) => onChange(type as FilterLogicalOperator)}
                 disabledReason={disabledReason}
-                options={[
-                    {
-                        label: 'all',
-                        value: FilterLogicalOperator.And,
-                        labelInMenu: (
-                            <SelectOption<FilterLogicalOperator>
-                                title="All"
-                                description="Every single filter must match"
-                                value={FilterLogicalOperator.And}
-                                selectedValue={value}
-                            />
-                        ),
-                    },
-                    {
-                        label: 'any',
-                        value: FilterLogicalOperator.Or,
-                        labelInMenu: (
-                            <SelectOption<FilterLogicalOperator>
-                                title="Any"
-                                description="One or more filters must match"
-                                value={FilterLogicalOperator.Or}
-                                selectedValue={value}
-                            />
-                        ),
-                    },
-                ]}
+                options={AND_OR_FILTER_OPTIONS.map((option) => ({
+                    label: option.label,
+                    value: option.value,
+                    labelInMenu: (
+                        <SelectOption<FilterLogicalOperator>
+                            title={option.title}
+                            description={option.description}
+                            value={option.value}
+                            selectedValue={value}
+                        />
+                    ),
+                }))}
                 optionTooltipPlacement={topLevelFilter ? 'bottom-end' : 'bottom-start'}
                 dropdownMatchSelectWidth={false}
             />
             <span className={shortSuffix ? '@max-[375px]/editor-panel:hidden' : undefined}>
-                {value === FilterLogicalOperator.Or ? suffix[0] : suffix[1]}
+                {andOrFilterSuffix(value, suffix)}
             </span>
             {shortSuffix && <span className="hidden @max-[375px]/editor-panel:inline">{shortSuffix}</span>}
         </div>

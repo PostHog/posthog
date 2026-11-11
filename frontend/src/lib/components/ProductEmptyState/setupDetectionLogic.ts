@@ -16,6 +16,7 @@ import {
     isBrowserNetworkFailure,
     isScopeNotFoundError,
     isUnavailableEndpointError,
+    NetworkError,
     readableErrorMessage,
 } from 'lib/api-error'
 import { projectLogic } from 'scenes/projectLogic'
@@ -303,7 +304,7 @@ async function detectOrNullOnOutageOrForbidden(
             onForbidden()
             return null
         }
-        if (isBrowserNetworkFailure(error) || isUnanswerableProbeResponse(error)) {
+        if (error instanceof NetworkError || isBrowserNetworkFailure(error) || isUnanswerableProbeResponse(error)) {
             return null
         }
         throw error

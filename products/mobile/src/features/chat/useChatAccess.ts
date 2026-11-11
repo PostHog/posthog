@@ -74,9 +74,10 @@ export function useChatAccess(): ChatAccessState {
         !verification ||
         verification.identity !== identity ||
         verification.checking
-    )
-        access = { kind: 'checking' }
-    else if (verification.failed) access = { kind: 'org_unknown' }
+    ) {
+        const cached = consentHydrated ? currentAiAccess() : null
+        access = cached && cached.kind !== 'org_unknown' ? cached : { kind: 'checking' }
+    } else if (verification.failed) access = { kind: 'org_unknown' }
     else access = currentAiAccess(verification.organization)
     return { access, rechecking: verification?.checking ?? false, accept, checkAgain }
 }

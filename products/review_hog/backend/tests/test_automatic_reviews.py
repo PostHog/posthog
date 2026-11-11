@@ -52,6 +52,8 @@ _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
 _INSTALLATION_ID = "1234"
 _REPO_ID = 5001
+_REQUESTER_ID = 4242
+_TEAM_REQUEST_QUEUE = "products.review_hog.backend.tasks.process_review_team_request.delay"
 
 
 def _dispatch_count(outcome: str) -> float:
@@ -80,6 +82,16 @@ def _payload(
             "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
             "base": {"repo": {"full_name": repository}},
         },
+    }
+
+
+def _review_request_payload(
+    *, team_slug: str = "posthog-review", sender: Mapping[str, object] | None = None
+) -> dict[str, object]:
+    return {
+        **_payload(action="review_requested"),
+        "requested_team": {"id": 1, "slug": team_slug},
+        "sender": sender or {"id": _REQUESTER_ID, "login": "OctoCat", "type": "User"},
     }
 
 
@@ -225,6 +237,33 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
         enqueue.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("review_team", _review_request_payload(), True),
+            ("another_team", _review_request_payload(team_slug="team-devex"), False),
+            ("bot_sender", _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), False),
+        ]
+    )
+    @patch(_TEAM_REQUEST_QUEUE)
+    @patch(_QUEUE)
+    def test_a_review_team_request_queues_a_requested_review(
+        self, _name: str, payload: dict[str, object], expected: bool, enqueue: MagicMock, enqueue_request: MagicMock
+    ) -> None:
+        assert self._post(json.dumps(payload).encode()).status_code == 202
+
+        enqueue.assert_not_called()
+        if expected:
+            enqueue_request.assert_called_once_with(
+                installation_id=_INSTALLATION_ID,
+                repository="PostHog/posthog",
+                github_repo_id=_REPO_ID,
+                pr_number=42,
+                requester_github_id=_REQUESTER_ID,
+                requester_login="OctoCat",
+            )
+        else:
+            enqueue_request.assert_not_called()
+
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:
         assert self.view(self.factory.get("/webhooks/github/")).status_code == 405
@@ -308,11 +347,17 @@ class TestAuthoredPRReviewTask(BaseTest):
         }
 
     @parameterized.expand(
-        [("own_flash_default",), ("listed_by_the_project",), ("repository_exception",), ("draft_by_default",)]
+        [
+            ("own_flash_default",),
+            ("listed_by_the_project",),
+            ("repository_exception",),
+            ("draft_in_a_repository_that_reviews_drafts",),
+        ]
     )
     @patch(_START)
     def test_eligible_author_schedules_flash_in_the_owning_project(self, setup: str, start: MagicMock) -> None:
-        if setup not in ("own_flash_default", "draft_by_default"):
+        drafts = setup == "draft_in_a_repository_that_reviews_drafts"
+        if setup not in ("own_flash_default", "draft_in_a_repository_that_reviews_drafts"):
             self.preferences.preferences = {}
             self.preferences.save(update_fields=["preferences"])
         if setup == "listed_by_the_project":
@@ -323,9 +368,12 @@ class TestAuthoredPRReviewTask(BaseTest):
         if setup == "repository_exception":
             self.repository.flash_for = "everyone"
             self.repository.save()
+        if drafts:
+            self.repository.review_drafts = True
+            self.repository.save()
         started_before = _dispatch_count("started")
 
-        process_authored_pr_event.run(**self._queued_event(draft=setup == "draft_by_default"))
+        process_authored_pr_event.run(**self._queued_event(draft=drafts))
 
         start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
         assert _dispatch_count("started") - started_before == 1.0
@@ -343,6 +391,7 @@ class TestAuthoredPRReviewTask(BaseTest):
             ("missing_installation", "installation_mismatch"),
             ("full_review_published", "full_review_published"),
             ("draft_with_drafts_off", "draft_skipped"),
+            ("draft_in_a_repository_without_drafts", "draft_skipped"),
             ("skip_agent_review_label", "label_skipped"),
         ]
     )
@@ -351,10 +400,12 @@ class TestAuthoredPRReviewTask(BaseTest):
         self, change: str, expected_outcome: str, start: MagicMock
     ) -> None:
         queued = self._queued_event(
-            draft=change == "draft_with_drafts_off",
+            draft=change in ("draft_with_drafts_off", "draft_in_a_repository_without_drafts"),
             labels=("skip-agent-review",) if change == "skip_agent_review_label" else (),
         )
         if change == "draft_with_drafts_off":
+            self.repository.review_drafts = True
+            self.repository.save()
             self.preferences.preferences = {"default_review_mode": "flash", "review_drafts": False}
             self.preferences.save(update_fields=["preferences"])
         elif change == "opted_out":
@@ -387,22 +438,41 @@ class TestAuthoredPRReviewTask(BaseTest):
         start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0
 
-    @parameterized.expand([("connector_runs_it", True, "started"), ("no_connector", False, "bot_no_connector")])
+    @parameterized.expand(
+        [
+            ("connector_runs_it", True, False, "started", False),
+            ("no_connector", False, False, "bot_no_connector", False),
+            ("draft_in_a_repository_without_drafts", True, True, "draft_skipped", False),
+            # The connector's own draft switch is off, and it must not apply to a bot's pull request.
+            ("draft_in_a_repository_that_reviews_drafts", True, True, "started", True),
+        ]
+    )
     @patch(_START)
     def test_bot_pull_requests_run_as_the_connector_when_the_project_reviews_bots(
-        self, _name: str, has_connector: bool, expected_outcome: str, start: MagicMock
+        self,
+        _name: str,
+        has_connector: bool,
+        draft: bool,
+        expected_outcome: str,
+        repository_drafts: bool,
+        start: MagicMock,
     ) -> None:
         ReviewProjectSettings.objects.for_team(self.team.id).create(
             team=self.team, bot_prs=ReviewProjectSettings.BotPullRequests.RUN
         )
+        if repository_drafts:
+            self.repository.review_drafts = True
+            self.repository.save()
+            self.preferences.preferences = {"default_review_mode": "flash", "review_drafts": False}
+            self.preferences.save(update_fields=["preferences"])
         if not has_connector:
             self.integration.created_by = None
             self.integration.save(update_fields=["created_by"])
         outcome_before = _dispatch_count(expected_outcome)
 
-        process_authored_pr_event.run(**self._queued_event(login="dependabot[bot]"))
+        process_authored_pr_event.run(**self._queued_event(login="dependabot[bot]", draft=draft))
 
-        if has_connector:
+        if expected_outcome == "started":
             start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
         else:
             start.assert_not_called()

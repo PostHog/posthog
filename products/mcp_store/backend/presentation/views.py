@@ -34,6 +34,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import SessionAuthentication
 from posthog.cloud_utils import is_dev_mode
 from posthog.event_usage import report_user_action
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.permissions import DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken
@@ -300,6 +301,12 @@ class MCPServerViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, viewsets.G
 
 class MCPServerInstallationSerializer(serializers.ModelSerializer):
     template_id = serializers.UUIDField(source="template.id", read_only=True, allow_null=True, default=None)
+    gateway_server_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="ID of the MCP server this connection belongs to. The MCP server page takes this ID, "
+        "not the connection id. Null for older connections that are not linked to a server yet.",
+    )
     needs_reauth = serializers.SerializerMethodField()
     pending_oauth = serializers.SerializerMethodField()
     name = serializers.SerializerMethodField()
@@ -334,6 +341,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "template_id",
+            "gateway_server_id",
             "name",
             "icon_key",
             "icon_domain",
@@ -351,7 +359,16 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "template_id", "created_at", "updated_at", "tool_count", "scope", "is_owner"]
+        read_only_fields = [
+            "id",
+            "template_id",
+            "gateway_server_id",
+            "created_at",
+            "updated_at",
+            "tool_count",
+            "scope",
+            "is_owner",
+        ]
 
     def get_tool_count(self, obj: MCPServerInstallation) -> int:
         # Prefer the annotation to avoid N+1 on list; fall back to a direct
@@ -750,30 +767,10 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     lookup_field = "id"
     permission_classes = [IsAuthenticated, DenyMCPBuiltInAgentOAuth, DenyWorkloadAccessToken]
 
-    # Installations are user-scoped or shared (safely_get_queryset returns both),
-    # so write actions don't need project admin access.
-    # Return project:read so AccessControlPermission requires "member" not "admin".
-    _USER_SCOPED_ACTIONS = {
-        "destroy",
-        "partial_update",
-        "install_custom",
-        "install_template",
-        "update_tool_approval",
-        "refresh_tools",
-        # share/unshare enforce their own owner/admin checks in the action bodies.
-        "share",
-        "unshare",
-    }
-
     # Mutations restricted to the credential owner (installer) on shared rows.
     # Tool approval is included: it gates which tools autonomous runs may execute
     # under the owner's credential, so a non-owner must not be able to flip it.
     _OWNER_ONLY_ACTIONS = {"destroy", "partial_update", "refresh_tools", "update_tool_approval"}
-
-    def dangerously_get_required_scopes(self, request: Any, view: Any) -> list[str] | None:
-        if self.action in self._USER_SCOPED_ACTIONS:
-            return ["project:read"]
-        return None
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return (
@@ -2313,6 +2310,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
     permission_classes: list = []
     authentication_classes = [SessionAuthentication]
     throttle_classes = [MCPOAuthRedirectBurstThrottle, MCPOAuthRedirectSustainedThrottle]
+    _ip_restrictions_use_view_scope = True
 
     def list(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         state_token = request.query_params.get("state")
@@ -2460,7 +2458,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             # FOR UPDATE on the nullable side of an outer join, so scope the lock with `of=`.
             oauth_state = (
                 MCPOAuthState.objects.select_for_update(of=("self",))
-                .select_related("installation", "template")
+                .select_related("installation__team", "installation__user", "template")
                 .filter(ownership_filter, **state_filters)
                 .first()
             )
@@ -2478,6 +2476,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 # does not share the API client's local PostHog session.
                 logger.info("OAuth redirect: allowing PostHog Code callback without user binding in dev mode")
 
+            enforce_ip_restrictions(
+                request,
+                request.user if is_authenticated else oauth_state.installation.user,
+                organization_id=str(oauth_state.installation.team.organization_id),
+            )
             oauth_state.consumed_at = now
             oauth_state.save(update_fields=["consumed_at", "updated_at"])
             return oauth_state

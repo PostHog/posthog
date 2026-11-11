@@ -22,10 +22,12 @@ from posthog.schema import (
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.insight_result import InsightResult
-from posthog.models.organization import Organization
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 
-from products.actions.backend.models.action import Action
+from products.access_control.backend.models.access_control import AccessControl
+from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.api.dashboard import DashboardsViewSet
 from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
@@ -65,6 +67,85 @@ class TestDashboardRunInsights(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         return response.json()
 
+    def _restrict_insight_for_new_member(self, insight_id: int, team: Team | None = None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=team or self.team, resource="insight", resource_id=str(insight_id), access_level="none"
+        )
+        member = self._create_user("member@posthog.com", level=OrganizationMembership.Level.MEMBER)
+        self.client.force_login(member)
+
+    @parameterized.expand([("json",), ("optimized",)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_masks_insights_the_caller_cannot_view(self, output_format: str, mock_calculate: MagicMock) -> None:
+        mock_calculate.return_value = InsightResult(
+            result=[],
+            last_refresh=timezone.now(),
+            cache_key="cache-key",
+            is_cached=True,
+            timezone=self.team.timezone,
+        )
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        restricted_id, _ = self.dashboard_api.create_insight(
+            {"name": "Revenue by account", "query": _trends_query_dict(), "dashboards": [dashboard_id]}
+        )
+        allowed_id, _ = self.dashboard_api.create_insight(
+            {"name": "Open", "query": _trends_query_dict("$autocapture"), "dashboards": [dashboard_id]}
+        )
+        self._restrict_insight_for_new_member(restricted_id)
+        mock_calculate.reset_mock()
+
+        body = self._run(dashboard_id, output_format=output_format)
+
+        by_insight = {tile["insight"]["id"]: tile["insight"] for tile in body["results"]}
+        restricted = by_insight[restricted_id]
+        self.assertEqual(set(restricted.keys()), {"id", "short_id", "user_access_level"})
+        self.assertEqual(restricted["user_access_level"], "none")
+        self.assertNotIn("Revenue by account", json.dumps(body))
+        self.assertIn("result", by_insight[allowed_id])
+        # Only the viewable insight's query runs.
+        self.assertEqual([call.args[0].id for call in mock_calculate.call_args_list], [allowed_id])
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_masks_insights_restricted_in_a_sibling_environment(self, mock_calculate: MagicMock) -> None:
+        sibling = Team.objects.create(organization=self.organization, project=self.team.project)
+        dashboard = Dashboard.objects.create(team=sibling, name="dash")
+        insight = Insight.objects.create(team=sibling, name="Revenue by account", query=_trends_query_dict())
+        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        self._restrict_insight_for_new_member(insight.id, team=sibling)
+
+        body = self._run(dashboard.id)
+
+        self.assertEqual(
+            body["results"][0]["insight"],
+            {"id": insight.id, "short_id": insight.short_id, "user_access_level": "none"},
+        )
+        mock_calculate.assert_not_called()
+
+    def test_restricted_insights_stay_out_of_budget_markers(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        # A runs and spends the budget, B becomes a "Not run" marker; the restricted tile after it must not.
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+        self.dashboard_api.create_insight(
+            {"name": "B", "query": _trends_query_dict("$autocapture"), "dashboards": [dashboard_id]}
+        )
+        restricted_id, _ = self.dashboard_api.create_insight(
+            {"name": "Revenue by account", "query": _trends_query_dict("$identify"), "dashboards": [dashboard_id]}
+        )
+        self._restrict_insight_for_new_member(restricted_id)
+
+        with patch(
+            "products.dashboards.backend.run_insights_output.RUN_INSIGHTS_MAX_TOTAL_CHARS",
+            RUN_INSIGHTS_MIN_TILE_CHARS,
+        ):
+            body = self._run(dashboard_id, refresh="blocking")
+
+        self.assertIn("Not run", json.dumps(body))
+        self.assertNotIn("Revenue by account", json.dumps(body))
+
     def test_records_dashboard_access(self) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="dash")
 
@@ -97,7 +178,7 @@ class TestDashboardRunInsights(APIBaseTest):
             insight = tile["insight"]
             self.assertEqual(
                 set(insight.keys()),
-                {"id", "short_id", "name", "derived_name", "result", "warnings"},
+                {"id", "short_id", "name", "derived_name", "result", "warnings", "user_access_level"},
             )
 
     def test_json_format_returns_raw_query_results(self) -> None:
@@ -128,9 +209,9 @@ class TestDashboardRunInsights(APIBaseTest):
 
     @override_settings(IN_UNIT_TESTING=True)
     def test_optimized_format_labels_compared_totals_with_their_ranges_and_saved_series_names(self) -> None:
-        action = Action.objects.create(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
+        action = create_action(team=self.team, name="Purchase made", steps_json=[{"event": "purchase"}])
         query = _trends_query_dict(
-            series=[ActionsNode(id=action.pk, name="Old purchase name")],
+            series=[ActionsNode(id=action.id, name="Old purchase name")],
             display=ChartDisplayType.BOLD_NUMBER,
             compare_filter=CompareFilter(compare=True),
         )

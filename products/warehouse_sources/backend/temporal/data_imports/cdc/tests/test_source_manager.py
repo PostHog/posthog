@@ -20,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import build_buffer_file_name
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
-from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import resnapshot_stays_in_buffer
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import (
+    CDC_SNAPSHOT_POSITION_KEY,
+    resnapshot_stays_in_buffer,
+)
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     COMPANION_WRITE_MODE,
     CONSOLIDATED_WRITE_MODE,
@@ -922,6 +925,29 @@ class TestBuildOutputLanes:
         assert HISTORY_NAMING.valid_to in history.column_names
         assert HISTORY_NAMING.valid_from not in merged.column_names
 
+    @parameterized.expand(
+        [
+            ("seed_only", _NO_POSITION, [51, 4]),
+            (
+                "buffered_write_landed",
+                LanePosition(position=25, applied=_held((51, "I")), key_columns=("id", CDC_OP_COLUMN)),
+                [4],
+            ),
+        ]
+    )
+    async def test_the_history_lane_skips_changes_the_snapshot_already_holds(self, _name, history_position, expected):
+        lanes, floor = await self._build(
+            _schema(cdc_table_mode="both", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}),
+            [_NO_POSITION, history_position],
+        )
+
+        batch = _ops([1, 3, 2, 51, 4], [10, 15, 20, 25, 30], ["U", "D", "U", "I", "U"])
+        merged, history = (lane.transform(batch) for lane in lanes)
+
+        assert merged.column("id").to_pylist() == [1, 3, 2, 51, 4]
+        assert history.column("id").to_pylist() == expected
+        assert floor is None
+
     async def test_the_floor_is_the_lowest_position_any_table_holds(self):
         _, floor = await self._build(
             _schema(cdc_table_mode="both"),
@@ -929,6 +955,13 @@ class TestBuildOutputLanes:
         )
 
         assert floor == 20
+
+    async def test_a_seed_only_history_table_settles_the_buffer_its_snapshot_holds(self):
+        _, floor = await self._build(
+            _schema(cdc_table_mode="cdc_only", sync_type_config={CDC_SNAPSHOT_POSITION_KEY: 20}), [_NO_POSITION]
+        )
+
+        assert floor == 21
 
     async def test_a_lane_with_no_position_holds_the_floor_open(self):
         _, floor = await self._build(

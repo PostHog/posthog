@@ -42,6 +42,7 @@ class RecordingWriter:
     holds_sync_lock = False
     runs_post_load = False
     calls: list[tuple[str, str, int]] = []
+    primary_keys: list[tuple[str, ...]] = []
     fail_for: set[str] = set()
     configuration_error_for: set[str] = set()
 
@@ -57,6 +58,7 @@ class RecordingWriter:
         if self._ctx.destination_name in RecordingWriter.configuration_error_for:
             raise DestinationConfigurationError(self._ctx.destination_name, "The host name does not exist.")
         RecordingWriter.calls.append(("write", self._ctx.destination_name, batch_ctx.batch_index))
+        RecordingWriter.primary_keys.append(batch_ctx.run.primary_keys)
         return BatchWriteOutcome(rows_written=1)
 
     async def finalize_run(self, ctx) -> None:
@@ -70,6 +72,7 @@ class DeliveryTestCase(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         RecordingWriter.calls = []
+        RecordingWriter.primary_keys = []
         RecordingWriter.fail_for = set()
         RecordingWriter.configuration_error_for = set()
 
@@ -114,6 +117,7 @@ class DeliveryTestCase(BaseTest):
         batch_index: int = 0,
         is_final: bool = False,
         schema_id: str | None = None,
+        primary_keys: list[str] | None = None,
     ) -> ExportSignalMessage:
         return ExportSignalMessage(
             team_id=self.team.pk,
@@ -132,7 +136,7 @@ class DeliveryTestCase(BaseTest):
             sync_type="incremental",
             data_folder=None,
             schema_path=None,
-            primary_keys=["id"],
+            primary_keys=["id"] if primary_keys is None else primary_keys,
             destination_ids=destination_ids,
         )
 
@@ -150,6 +154,24 @@ class TestDelivery(DeliveryTestCase):
 
         assert written == 2
         assert sorted(self._writes()) == ["warehouse a", "warehouse b"]
+
+    @parameterized.expand(
+        [
+            ("camel_case", ["AdId", "TimePeriod"], ("ad_id", "time_period")),
+            ("already_normalized", ["ad_id", "time_period"], ("ad_id", "time_period")),
+            ("lowercase", ["id"], ("id",)),
+            ("spaces_and_symbols", ["Order ID", "Line#"], ("order_id", "linex")),
+            ("no_keys", [], ()),
+        ]
+    )
+    def test_the_writer_merges_on_the_column_names_the_staged_batch_carries(
+        self, _name: str, source_keys: list[str], expected: tuple[str, ...]
+    ) -> None:
+        redshift = self._destination("Redshift")
+
+        delivery.deliver_batch_to_destinations(self._signal([str(redshift.id)], primary_keys=source_keys))
+
+        assert RecordingWriter.primary_keys == [expected]
 
     def test_the_logs_say_where_the_rows_went(self) -> None:
         # A run writing to several destinations is otherwise indistinguishable in the logs from
