@@ -186,6 +186,25 @@ describe('personsLogic', () => {
                     person: 'person from api',
                 })
         })
+
+        it('loads a person by UUID with a query that skips the cache', async () => {
+            let requestBody: Record<string, unknown> | undefined
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/query/HogQLQuery/': async ({ request }) => {
+                        requestBody = (await request.json()) as Record<string, unknown>
+                        return [200, { results: [['uuid-1', ['did-1'], '{"plan":"free"}', true, '2024-01-01', null]] }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPersonUUID('uuid-1')
+            }).toDispatchActions(['loadPersonUUIDSuccess'])
+
+            expect(logic.values.person).toMatchObject({ id: 'uuid-1', properties: { plan: 'free' } })
+            expect(requestBody).toMatchObject({ refresh: 'force_blocking' })
+        })
     })
 
     describe('loadPersonUUID error handling', () => {
