@@ -5,7 +5,7 @@ import { ConfigurationCacheItem, CrawlHistoryItem, CrawlHistoryStore, isConfigur
 
 const DEFAULT_LIFETIME_MS = 2 * 60 * 1000
 const DEFAULT_MAX_ENTRIES = 20_000
-const DEFAULT_MAX_BYTES = 32 * 1024 * 1024
+const DEFAULT_MAX_BYTES = 96 * 1024 * 1024
 const ENTRY_OVERHEAD_BYTES = 512
 
 const heldReads = new Counter({

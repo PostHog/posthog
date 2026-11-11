@@ -345,7 +345,10 @@ export class AiResearchV4ImageFetchServer extends AiResearchV4ConsumerServer {
             STORE_BATCH_BUDGET_MS
         )
         await storedCrawlHistory.validateAccess(Date.now())
-        const crawlHistory = new CachedConfigurationCrawlHistory(storedCrawlHistory)
+        // Each origin the pod tracks has a robots item and a TDMRep item.
+        const crawlHistory = new CachedConfigurationCrawlHistory(storedCrawlHistory, {
+            maxEntries: 2 * this.config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_TRACKED_ORIGINS,
+        })
 
         const keys = new TeamMonthKeys(
             new DynamoDBClient({ region, endpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT, maxAttempts: 5 }),

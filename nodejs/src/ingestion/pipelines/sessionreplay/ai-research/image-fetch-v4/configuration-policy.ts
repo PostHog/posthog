@@ -222,7 +222,7 @@ interface ParsedRobotsConfiguration {
     fields: Array<{ name: string; value: string }>
 }
 
-const PARSED_BODIES_MAX_BYTES = 32 * 1024 * 1024
+const PARSED_BODIES_MAX_BYTES = 128 * 1024 * 1024
 const PARSED_BODIES_MAX_ENTRIES = 20_000
 // A parse of a short body takes far more memory than the body, so each entry counts at least this much.
 const PARSED_BODY_OVERHEAD_BYTES = 1024
