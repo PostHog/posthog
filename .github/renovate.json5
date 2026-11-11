@@ -20,10 +20,6 @@
   ],
   dependencyDashboardOSVVulnerabilitySummary: 'all',
   dependencyDashboardReportAbandonment: false,
-  // Trunk's merge queue is the only path into master
-  automergeType: 'pr-comment',
-  automergeComment: '/trunk merge',
-  rebaseWhen: 'conflicted',
   prConcurrentLimit: 5,
   gitIgnoredAuthors: [
     '206114724+posthog[bot]@users.noreply.github.com',
@@ -108,18 +104,31 @@
     },
   },
   packageRules: [
-    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml.
-    // Go modules and GitHub Actions have no package manager cooldown, so this is their only one
+    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
     {
-      matchDatasources: ['npm', 'pypi', 'crate', 'go', 'github-tags'],
+      matchDatasources: ['npm', 'pypi', 'crate'],
       matchUpdateTypes: ['major', 'minor', 'patch'],
       minimumReleaseAge: '7 days',
     },
-    // A Go pseudo-version moves to a new commit as a digest update
+    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
     {
-      matchDatasources: ['go'],
-      matchUpdateTypes: ['digest'],
-      minimumReleaseAge: '7 days',
+      matchDatasources: ['npm'],
+      matchPackageNames: [
+        'posthog-js',
+        'posthog-js-lite',
+        'posthog-node',
+        '@posthog/*',
+        '@earendil-works/*',
+        'typebox',
+        '@oxfmt/*',
+        '@shadcn/react',
+        'kea-typegen',
+        '@typescript/native-preview*',
+        'shiki',
+        'shadcn',
+        '@shikijs/*',
+      ],
+      minimumReleaseAge: null,
     },
     // Keep in sync with exclude-newer-package in pyproject.toml
     {
@@ -145,49 +154,18 @@
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'cargo non-major',
     },
-    // Directories with their own lock file. Digest updates join the group because a pseudo-version
-    // pin (such as x/vt in tools/phrocs) can depend on the same libraries as its tagged neighbors
+    // Directories with their own lock file
     {
       matchManagers: ['cargo', 'gomod'],
-      matchUpdateTypes: ['minor', 'patch', 'digest'],
+      matchUpdateTypes: ['minor', 'patch'],
       matchFileNames: ['**/go.mod', 'cli/**', 'funnel-udf/**', 'rust/common/hogvm/node/Cargo.toml'],
       groupName: '{{manager}} non-major in {{packageFileDir}}',
-    },
-    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml. pnpm does not check these
-    // versions, so stamphog never approves them. Their own group keeps them out of the
-    // per-package and preset family groups, which stamphog can approve.
-    // Majors stay in their own PRs and keep the 7-day wait
-    {
-      matchDatasources: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: [
-        'posthog-js',
-        'posthog-js-lite',
-        'posthog-node',
-        '@posthog/*',
-        '@earendil-works/*',
-        'typebox',
-        '@oxfmt/*',
-        '@shadcn/react',
-        'kea-typegen',
-        '@typescript/native-preview*',
-        'shiki',
-        'shadcn',
-        '@shikijs/*',
-      ],
-      minimumReleaseAge: null,
-      groupName: 'npm without a release age',
-    },
-    {
-      matchUpdateTypes: ['minor', 'patch'],
-      automerge: true,
     },
     {
       matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
       matchUpdateTypes: ['minor'],
       matchCurrentVersion: '/^v?0\\./',
       groupName: null,
-      automerge: false,
     },
     // Each package in these groups requires an exact version of another package in the group, so
     // they must update together. The rules come after the 0.x rule because some Dagster libraries
@@ -211,9 +189,14 @@
       groupName: 'npm protobuf-es non-major',
     },
     {
+      matchManagers: ['npm'],
+      matchUpdateTypes: ['minor', 'patch'],
+      matchPackageNames: ['@earendil-works/pi-*'],
+      groupName: 'npm pi non-major',
+    },
+    {
       matchDepTypes: ['requires-python', 'packageManager'],
       groupName: null,
-      automerge: false,
     },
     {
       matchDepNames: ['chrome-headless-shell'],
