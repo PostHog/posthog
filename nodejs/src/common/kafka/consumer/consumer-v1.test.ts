@@ -366,6 +366,165 @@ describe('consumer', () => {
             p3.resolve()
             await delay(100)
         })
+
+        const watchLoopOutcome = (): Promise<unknown> =>
+            Promise.race([
+                consumer['consumerLoop']!.then(
+                    () => 'stopped cleanly',
+                    (error) => error
+                ),
+                delay(50).then(() => 'still consuming'),
+            ])
+
+        it('stores no offsets once a background task fails, and stops the loop so the batch replays', async () => {
+            const failure = new Error('Connection terminated unexpectedly')
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            const p2 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+            const loopOutcome = watchLoopOutcome()
+
+            p1.reject(failure)
+            p2.resolve()
+            await delay(1)
+            consumeCallback(null, [])
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            await expect(loopOutcome).resolves.toBe(failure)
+        })
+
+        type SettleStep = { resolve: number } | { reject: number } | { dispatchWithoutBackgroundTask: number }
+
+        it.each<{ name: string; pendingBatches: number; steps: SettleStep[]; storedOffsets: number[] }>([
+            {
+                name: 'the later batch fulfils first, then the earlier batch rejects',
+                pendingBatches: 2,
+                steps: [{ resolve: 2 }, { reject: 1 }],
+                storedOffsets: [],
+            },
+            {
+                name: 'the first batch fulfils, the second rejects, then the third fulfils',
+                pendingBatches: 3,
+                steps: [{ resolve: 1 }, { reject: 2 }, { resolve: 3 }],
+                storedOffsets: [2],
+            },
+            {
+                name: 'the middle batch rejects while the first is pending, then the first and third fulfil',
+                pendingBatches: 3,
+                steps: [{ reject: 2 }, { resolve: 1 }, { resolve: 3 }],
+                storedOffsets: [],
+            },
+            {
+                name: 'a batch with no background task arrives after a rejection',
+                pendingBatches: 1,
+                steps: [{ reject: 1 }, { dispatchWithoutBackgroundTask: 2 }],
+                storedOffsets: [],
+            },
+        ])(
+            'stores only the offsets of batches ahead of a failed one when $name',
+            async ({ pendingBatches, steps, storedOffsets }) => {
+                const tasks: ReturnType<typeof triggerablePromise>[] = []
+                for (let offset = 1; offset <= pendingBatches; offset++) {
+                    const task = triggerablePromise()
+                    tasks.push(task)
+                    await simulateMessageWithBackgroundTask(
+                        [createKafkaMessage({ offset, partition: 0 })],
+                        task.promise
+                    )
+                }
+                void consumer['consumerLoop']!.catch(() => {})
+
+                for (const step of steps) {
+                    if ('resolve' in step) {
+                        tasks[step.resolve - 1].resolve()
+                    } else if ('reject' in step) {
+                        tasks[step.reject - 1].reject(new Error('background task failed'))
+                    } else {
+                        consumeCallback(null, [
+                            createKafkaMessage({ offset: step.dispatchWithoutBackgroundTask, partition: 0 }),
+                        ])
+                    }
+                    await delay(1)
+                }
+
+                expect(mockRdKafkaConsumer.offsetsStore.mock.calls.map(([offsets]) => offsets[0].offset)).toEqual(
+                    storedOffsets
+                )
+            }
+        )
+
+        it.each([undefined, null, 0, '', false])(
+            'stores no offsets and stops the loop with an Error when a background task rejects with %p',
+            async (reason) => {
+                const p1 = triggerablePromise()
+                await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+                const p2 = triggerablePromise()
+                await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 2, partition: 0 })], p2.promise)
+                const loopOutcome = watchLoopOutcome()
+
+                p1.reject(reason)
+                p2.resolve()
+                await delay(1)
+                consumeCallback(null, [])
+                await delay(1)
+
+                expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+                await expect(loopOutcome).resolves.toBeInstanceOf(Error)
+            }
+        )
+
+        it('stores no offsets for a background task that rejects during disconnect, and still disconnects', async () => {
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            const loopOutcome = watchLoopOutcome()
+            const disconnecting = consumer.disconnect().catch(() => {})
+
+            p1.reject(undefined)
+            consumeCallback(null, [])
+            await disconnecting
+
+            await expect(loopOutcome).resolves.toBeInstanceOf(Error)
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            expect(mockRdKafkaConsumer.disconnect).toHaveBeenCalled()
+        })
+
+        it('stores no offsets for a background task that rejects during a revoke, and still unassigns', async () => {
+            mockRdKafkaConsumer.assignments.mockReturnValue([])
+            const p1 = triggerablePromise()
+            await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+            void consumer['consumerLoop']!.catch(() => {})
+
+            consumer.rebalanceCallback({ code: CODES.ERRORS.ERR__REVOKE_PARTITIONS } as any, [
+                { topic: 'test-topic', partition: 0 },
+            ])
+            p1.reject(new Error('background task failed'))
+            await delay(1)
+
+            expect(mockRdKafkaConsumer.incrementalUnassign).toHaveBeenCalledWith([
+                { topic: 'test-topic', partition: 0 },
+            ])
+            expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+        })
+
+        it.each([new Error('background task failed'), undefined, 0])(
+            'refuses a manual offsetsStore after a background task rejects with %p',
+            async (reason) => {
+                const offsets = [{ topic: 'test-topic', partition: 0, offset: 1 }]
+                consumer.offsetsStore(offsets)
+                expect(mockRdKafkaConsumer.offsetsStore).toHaveBeenCalledWith(offsets)
+
+                const p1 = triggerablePromise()
+                await simulateMessageWithBackgroundTask([createKafkaMessage({ offset: 1, partition: 0 })], p1.promise)
+                void consumer['consumerLoop']!.catch(() => {})
+                p1.reject(reason)
+                await delay(1)
+                mockRdKafkaConsumer.offsetsStore.mockClear()
+
+                expect(() => consumer.offsetsStore(offsets)).toThrow()
+                expect(mockRdKafkaConsumer.offsetsStore).not.toHaveBeenCalled()
+            }
+        )
     })
 
     describe('rebalancing', () => {

@@ -106,7 +106,7 @@ export class KafkaConsumerV2 {
 
     // Latched on the first backgroundTask failure: blocks further offset stores and
     // makes the loop exit on the next tick so the pod replays from the last good commit.
-    private fatalError: unknown | undefined
+    private fatalError: Error | undefined
 
     // Optional async hook invoked with the partitions being revoked, after the in-flight
     // drain and while the partitions are still assigned, before the unassign. The drain and
@@ -261,6 +261,10 @@ export class KafkaConsumerV2 {
     public offsetsStore(offsets: TopicPartitionOffset[]): void {
         // Manual offset path used by SessionRecording. Storing offsets after the consumer
         // has revoked the partitions is harmless — librdkafka will reject the store internally.
+        // After a background task failed, an offset stored here could pass the failed batch.
+        if (this.fatalError) {
+            throw new Error('Refusing to store offsets after a background task failed', { cause: this.fatalError })
+        }
         this.rdKafkaConsumer.offsetsStore(offsets)
     }
 
@@ -454,7 +458,9 @@ export class KafkaConsumerV2 {
             } catch (error) {
                 logger.error('🔥', 'kafka_consumer_v2_background_task_failed', { error: String(error) })
                 captureException(error)
-                this.fatalError ??= error
+                // A task can reject with a falsy value, so fatalError always holds an Error.
+                this.fatalError ??=
+                    error instanceof Error ? error : new Error(`Background task rejected with ${String(error)}`)
             } finally {
                 stopBackgroundTimer?.()
             }
