@@ -25,6 +25,12 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+# Org-level tables probed at source-create after `sessions` returns 403. Fan-out children are left out
+# because each one probes an org-level table instead.
+_FALLBACK_PROBE_ENDPOINTS = tuple(
+    name for name, endpoint in DEVIN_AI_ENDPOINTS.items() if endpoint.fanout is None and name != "sessions"
+)
+
 
 @SourceRegistry.register
 class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
@@ -150,13 +156,25 @@ Your organization ID is the `org-...` identifier shown in your Devin organizatio
         if status == 401:
             return False, "Invalid Devin API key. Check your service user key and organization ID, then reconnect."
         if status == 403:
-            # A valid key may legitimately lack the scope for some tables. Accept it at source-create so
-            # the user can still sync the tables they do have access to; only fail the per-schema check.
-            if schema_name is None:
+            if schema_name is not None:
+                return (
+                    False,
+                    f"Your Devin service user is missing the organization permission required to sync '{schema_name}'.",
+                )
+            # A valid key may lack the scope for some tables, so accept it at source-create when it can read
+            # at least one table. A key that reads none would only create tables that fail on their first sync.
+            try:
+                readable = any(
+                    validate_devin_ai_credentials(config.api_key, config.org_id, endpoint) == 200
+                    for endpoint in _FALLBACK_PROBE_ENDPOINTS
+                )
+            except Exception:
+                return False, "Could not reach the Devin API. Check your network connection and try again."
+            if readable:
                 return True, None
             return (
                 False,
-                f"Your Devin service user is missing the organization permission required to sync '{schema_name}'.",
+                "Your Devin service user can't read any data in this organization. Check that the organization ID belongs to the same organization as the API key, and grant the service user the permissions listed above.",
             )
         if status == 404:
             return False, "Organization not found. Check that your Devin organization ID is correct."
