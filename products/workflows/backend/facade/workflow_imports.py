@@ -8,15 +8,22 @@ from products.workflows.backend.services.customerio_import.service import (
     previous_import,
     record_import,
 )
-from products.workflows.backend.services.customerio_import.translator import referenced_segments, translate_campaign
+from products.workflows.backend.services.customerio_import.translator import (
+    STATIC_SEGMENT_TYPES,
+    segment_label,
+    segments_checked_through_cohorts,
+    translate_campaign,
+)
 
 __all__ = [
+    "STATIC_SEGMENT_TYPES",
     "import_content",
     "import_for_workflow",
     "previous_import",
     "record_import",
-    "referenced_segments",
     "rehost_images",
     "segment_cohort_filters",
+    "segment_label",
+    "segments_checked_through_cohorts",
     "translate_campaign",
 ]

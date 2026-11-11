@@ -1139,8 +1139,8 @@ class ImportOptions:
     topic_categories: dict[str, ImportCategory] = field(default_factory=dict)
     # Customer.io segment id to its name and type.
     segments: dict[str, ImportSegment] = field(default_factory=dict)
-    # In a preview, Customer.io segment id to the name of the cohort a real import would create for it.
-    pending_segment_cohorts: dict[str, str] = field(default_factory=dict)
+    # In a preview, the Customer.io segments a real import would turn into cohorts.
+    pending_segment_cohorts: frozenset[str] = frozenset()
 
 
 @frozen

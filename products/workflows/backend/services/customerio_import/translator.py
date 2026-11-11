@@ -20,6 +20,7 @@ from products.workflows.backend.facade.contracts import (
     CampaignSource,
     ImportNote,
     ImportOptions,
+    ImportSegment,
     SnippetRoom,
     TranslatedWorkflow,
 )
@@ -55,7 +56,7 @@ _MESSAGE_SUBJECT = re.compile(r"\{\{-?\s*message\.subject\s*(?:\|\s*default:\s*(
 _PLACEHOLDER_WEBHOOK_URL = "https://webhook-url-not-imported.invalid"
 _LIQUID_TAG = re.compile(r"\{\{.{0,500}?\}\}|\{%.{0,500}?%\}", re.DOTALL)
 _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
-_STATIC_SEGMENT_TYPES = {"static", "manual"}
+STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
     "push_action": "push notification",
@@ -331,13 +332,12 @@ class _Builder:
         return f"{match.group(1)} {', '.join(labels)}"
 
     def _segment_label(self, segment_id: str) -> str:
-        segment = self.options.segments.get(segment_id)
-        return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
+        return segment_label(segment_id, self.options.segments.get(segment_id))
 
     def _static_segment_notes(self) -> None:
         for segment_id in referenced_segments(self.campaign, list(self.source_actions.values())):
             segment = self.options.segments.get(segment_id)
-            if segment is None or segment.type not in _STATIC_SEGMENT_TYPES:
+            if segment is None or segment.type not in STATIC_SEGMENT_TYPES:
                 continue
             self.note(
                 NoteLevel.NEEDS_INPUT,
@@ -906,6 +906,35 @@ def referenced_segments(campaign: dict[str, Any], actions: list[dict[str, Any]])
         trees.append(conditions.decode(action.get("conditions")))
         trees.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
     return list(dict.fromkeys(segment for tree in trees for segment in _segment_references(tree)))
+
+
+def segments_checked_through_cohorts(campaign: dict[str, Any], actions: list[dict[str, Any]]) -> list[str]:
+    """The ids of the segments the translated workflow would check through a cohort, in order.
+
+    That is a trigger on one segment alone, and each condition that names exactly one segment. Exits and
+    multi-segment conditions never use a cohort, so a cohort made for them would go unused.
+    """
+    found: list[str] = []
+    trigger = campaign.get("trigger")
+    trigger_segments = _segment_references(trigger)
+    if len(trigger_segments) == 1 and not _attribute_leaves(trigger):
+        found.extend(trigger_segments)
+    condition_lists: list[Any] = [conditions.decode(campaign.get("filters"))]
+    for action in actions:
+        condition_lists.append(conditions.decode(action.get("preconditions")))
+        condition_lists.append(conditions.decode(action.get("conditions")))
+        condition_lists.extend(conditions.decode(item) for item in action.get("multi_conditions") or [])
+    for condition_list in condition_lists:
+        for condition in condition_list if isinstance(condition_list, list) else []:
+            if isinstance(condition, dict) and condition.get("type") in ("segments_negatable", "segments"):
+                segments = condition.get("segments") or []
+                if len(segments) == 1:
+                    found.append(str(segments[0]))
+    return list(dict.fromkeys(found))
+
+
+def segment_label(segment_id: str, segment: ImportSegment | None) -> str:
+    return f'"{segment.name}" ({segment_id})' if segment and segment.name else segment_id
 
 
 def _empty_trigger() -> dict[str, Any]:

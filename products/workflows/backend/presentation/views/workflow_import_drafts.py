@@ -3,6 +3,7 @@
 import time
 import dataclasses
 from dataclasses import asdict
+from functools import cached_property
 from typing import Any, cast
 from uuid import UUID
 
@@ -45,17 +46,19 @@ from products.workflows.backend.facade.enums import (
     WorkflowImportSegmentCohortStatus as SegmentCohortStatus,
 )
 from products.workflows.backend.facade.workflow_imports import (
+    STATIC_SEGMENT_TYPES,
     import_content,
     previous_import,
     record_import,
-    referenced_segments,
     rehost_images,
     segment_cohort_filters,
+    segment_label,
+    segments_checked_through_cohorts,
     translate_campaign,
 )
 from products.workflows.backend.facade.writes import create_workflow, defer_hog_flow_reloads, update_workflow
 from products.workflows.backend.presentation.views.data_suggestion_drafts import checked_draft
-from products.workflows.backend.presentation.views.hog_flow import _cohort_conditions_rolled_out
+from products.workflows.backend.presentation.views.hog_flow import cohort_conditions_rolled_out
 
 logger = structlog.get_logger(__name__)
 
@@ -131,7 +134,6 @@ class _ConvertedSegments:
     outcomes: list[dict[str, Any]]
 
 
-_STATIC_SEGMENT_TYPES = {"static", "manual"}
 MAX_COHORT_NAME_LENGTH = 400
 MAX_NEW_COHORTS_PER_IMPORT = 50
 _UNREADABLE = (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError)
@@ -162,7 +164,7 @@ def _convert_segments(
         if source_id in left_alone:
             continue
         try:
-            segment_ids = referenced_segments(source.campaign, source.actions)
+            segment_ids = segments_checked_through_cohorts(source.campaign, source.actions)
         except _UNREADABLE:
             continue
         for segment_id in segment_ids:
@@ -171,7 +173,7 @@ def _convert_segments(
                 segment_id in options.segment_cohorts
                 or segment is None
                 or segment.conditions is None
-                or segment.type in _STATIC_SEGMENT_TYPES
+                or segment.type in STATIC_SEGMENT_TYPES
             ):
                 continue
             referenced.setdefault(segment_id, []).append(source_id)
@@ -179,7 +181,7 @@ def _convert_segments(
         return _ConvertedSegments(options=options, notes={}, outcomes=[])
 
     mapped = dict(options.segment_cohorts)
-    pending: dict[str, str] = {}
+    pending: set[str] = set()
     notes: dict[str, list[ImportNote]] = {}
     outcomes: list[dict[str, Any]] = []
     creation = _CohortCreation(team=team, user=user, context=context, dry_run=dry_run)
@@ -189,7 +191,7 @@ def _convert_segments(
         if result.status in (SegmentCohortStatus.CREATED, SegmentCohortStatus.REUSED) and result.cohort_id is not None:
             mapped[segment_id] = result.cohort_id
         elif result.status == SegmentCohortStatus.WOULD_CREATE:
-            pending[segment_id] = _cohort_name(segment_id, segment)
+            pending.add(segment_id)
         outcomes.append(
             {
                 "segment_id": segment_id,
@@ -204,7 +206,7 @@ def _convert_segments(
                 notes.setdefault(source_id, []).append(result.note)
 
     return _ConvertedSegments(
-        options=dataclasses.replace(options, segment_cohorts=mapped, pending_segment_cohorts=pending),
+        options=dataclasses.replace(options, segment_cohorts=mapped, pending_segment_cohorts=frozenset(pending)),
         notes={source_id: tuple(source_notes) for source_id, source_notes in notes.items()},
         outcomes=outcomes,
     )
@@ -225,15 +227,18 @@ class _SegmentOutcome:
 class _CohortCreation:
     def __init__(self, team: Team, user: User, context: _RequestContext, dry_run: bool) -> None:
         self.team, self.user, self.context, self.dry_run = team, user, context, dry_run
-        # Why cohorts can't be used or created, each worked out once per request, when the first segment needs it.
-        self.unavailable: str | None = None
-        self.blocked: str | None = None
         self.new_cohorts = 0
 
+    @cached_property
+    def unavailable(self) -> str:
+        return _cohort_triggers_unavailable(self.team, self.user)
+
+    @cached_property
+    def blocked(self) -> str:
+        return _cohort_creation_blocked(self.context)
+
     def convert(self, segment_id: str, segment: ImportSegment) -> _SegmentOutcome:
-        label = f'"{segment.name}" ({segment_id})' if segment.name else segment_id
-        if self.unavailable is None:
-            self.unavailable = _cohort_triggers_unavailable(self.team, self.user)
+        label = segment_label(segment_id, segment)
         if self.unavailable:
             return _not_converted(label, self.unavailable)
         # Two imports of the same segment at once would otherwise both miss the lookup and make two cohorts.
@@ -272,8 +277,6 @@ class _CohortCreation:
                 "Create a realtime cohort for it by hand, then use that cohort in the workflow.",
             )
 
-        if self.blocked is None:
-            self.blocked = _cohort_creation_blocked(self.context)
         if self.blocked:
             return _not_converted(label, self.blocked)
         if self.new_cohorts >= MAX_NEW_COHORTS_PER_IMPORT:
@@ -340,7 +343,7 @@ def _cohort_triggers_unavailable(team: Team, user: User) -> str:
     # The draft's checks refuse a cohort trigger without both, so a cohort used anyway would only fail the draft.
     if not realtime_cohorts_available(team_id=team.id):
         return "Realtime cohorts aren't available in this project yet."
-    if not _cohort_conditions_rolled_out(user, str(team.organization_id)):
+    if not cohort_conditions_rolled_out(user, str(team.organization_id)):
         return "Cohort triggers aren't available in this organization yet."
     return ""
 
@@ -394,7 +397,7 @@ def import_campaign(
     """Imports one Customer.io automation, or previews it, and returns its result in the response shape."""
     try:
         translated = translate_campaign(source, options, context.snippet_room)
-    except (ValueError, TypeError, AttributeError, KeyError, IndexError, RecursionError) as error:
+    except _UNREADABLE as error:
         logger.info("workflows.import.unreadable_campaign", team_id=team.id, error=type(error).__name__)
         return {
             "source_id": _source_id(source),

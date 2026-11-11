@@ -24,8 +24,10 @@ def segment_cohort_filters(segment_conditions: Any) -> SegmentCohortFilters:
         return SegmentCohortFilters(filters=None, untranslated=("the segment has no rules",))
     translation = _Translation()
     groups, root_type = translation.root(segment_conditions)
-    if translation.untranslated or not groups:
+    if translation.untranslated:
         return SegmentCohortFilters(filters=None, untranslated=tuple(dict.fromkeys(translation.untranslated)))
+    if not groups:
+        return SegmentCohortFilters(filters=None, untranslated=("the segment has no rules",))
     return SegmentCohortFilters(filters={"properties": {"type": root_type, "values": groups}})
 
 

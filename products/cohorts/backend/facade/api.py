@@ -208,7 +208,7 @@ def queue_static_cohort_resyncs(*, cohort_ids: list[int]) -> StaticCohortResync:
 
 
 @frozen
-class CreatedCohort:
+class CohortSummary:
     id: int
     name: str
     # Whether the cohort's filters let it update in real time, which workflow triggers need.
@@ -222,7 +222,7 @@ def realtime_cohorts_available(*, team_id: int) -> bool:
     return is_serving_team(team_id)
 
 
-def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CreatedCohort | None:
+def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CohortSummary | None:
     """The oldest cohort of the team that is not deleted and whose description starts with `prefix`."""
     # Reads the writer, so a cohort created a moment ago by another import is found despite replica lag.
     cohort = (
@@ -235,7 +235,7 @@ def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CreatedCo
     if cohort is None:
         return None
     # A cohort switched to static keeps its realtime type, but it no longer updates.
-    return CreatedCohort(
+    return CohortSummary(
         id=cohort.id,
         name=cohort.name or "",
         is_realtime=cohort.cohort_type == CohortType.REALTIME and not cohort.is_static,
@@ -244,14 +244,14 @@ def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CreatedCo
 
 def create_cohort_from_filters(
     *, team_id: int, user_id: int, was_impersonated: bool, name: str, description: str, filters: dict[str, Any]
-) -> CreatedCohort:
+) -> CohortSummary:
     """Creates a dynamic cohort the way the cohort API does: checked filters, a queued calculation and an activity log entry.
 
     Raises `ValueError` when the filters are not valid cohort filters.
     """
     from posthog.api.cohort import validate_filters_and_compute_realtime_support
     from posthog.event_usage import report_user_action
-    from posthog.models import Team, User
+    from posthog.models import User
     from posthog.models.activity_logging.activity_log import Detail, log_activity
 
     team = Team.objects.get(id=team_id)
@@ -280,4 +280,4 @@ def create_cohort_from_filters(
         activity="created",
         detail=Detail(name=cohort.name),
     )
-    return CreatedCohort(id=cohort.id, name=cohort.name or "", is_realtime=cohort.cohort_type == CohortType.REALTIME)
+    return CohortSummary(id=cohort.id, name=cohort.name or "", is_realtime=cohort.cohort_type == CohortType.REALTIME)
