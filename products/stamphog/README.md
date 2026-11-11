@@ -35,7 +35,7 @@ So the label can be re-applied once the feedback is addressed.
 A verdict that says nothing about the PR keeps the label, and the next push retries.
 A label can request at most one review per PR every 10 minutes.
 A label added inside that window starts nothing, so stamphog removes it again and says in its status comment when a relabel will work.
-`WAIT` means a reviewer bot still had a review in flight, or the `Migration risk` check had not reported yet.
+`WAIT` means a reviewer bot still had a review in flight, or a check named in the policy's `attestations`, such as `Migration risk`, had not reported yet.
 `ERROR` means the run failed before it could judge the PR, because the LLM backend was unreachable or the reviewer hit a non-retryable analysis failure such as its turn limit.
 A transient failure must not silently drop labels across every queued PR.
 
@@ -50,6 +50,7 @@ Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from o
 A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
 The switch only makes sense in label mode, and only in a repository where PostHog Review runs automatic reviews when a PR opens or is marked ready.
 The API refuses it in `all` mode, because every PR gets a visible review there already, and a save that sets `review_mode` to `all` turns it off.
+Agents change it, and the other repo settings, with the `stamphog-repo-configs-update` MCP tool (`PATCH repo_configs/{id}/`). For reviewers only when stamphog does not approve, turn the switch on before setting `routing_mode` to `fallback`.
 Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
 Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
 A stored verdict that was not posted has an empty `verdict_posted_at`.
@@ -247,6 +248,7 @@ While another task holds a claim on any head, the event and verdict tasks retry 
 A claim older than two hours counts as abandoned, so a task that died does not block the PR.
 When GitHub lists fewer files than the PR's `changed_files`, the cut step is skipped (`files_truncated: true`, `llm_skipped: files_truncated`) and every owner found is requested.
 `model` is set only when a request reached the gateway.
+The `stamphog_reviewer_routing_completed` event carries `stamphog_routing_wait_ms`, the time from `waiting_since` to the routing, and null when the head never waited.
 
 ## How it runs
 

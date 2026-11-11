@@ -40,7 +40,7 @@ class _GateResultSummarySerializer(serializers.Serializer):
     """Allowlisted, content-free slice of ``ReviewRun.gate_result``.
 
     The raw gate blob nests ``gates``, ``classification``, and ``policy`` sub-objects that carry
-    repository content — changed-file paths (``safe_migration_files``, ``invalid_folder_files``),
+    repository content — changed-file paths (``lifted_files``, ``invalid_folder_files``),
     manifest gate messages, and declared ``policy.scopes`` — which a project member without repo
     access must not read. Only the terminal decision is exposed.
     """
@@ -866,9 +866,12 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
     """
 
     provider = serializers.CharField(
-        required=False, help_text="SCM provider this config talks to. Defaults to 'github'."
+        required=False,
+        help_text="SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it.",
     )
-    repository = serializers.CharField(help_text="Repository full name, e.g. 'PostHog/posthog'.")
+    repository = serializers.CharField(
+        help_text="Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it."
+    )
     enabled = serializers.BooleanField(
         required=False, help_text="Whether stamphog actively reviews pull requests for this repo."
     )

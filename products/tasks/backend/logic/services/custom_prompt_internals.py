@@ -31,6 +31,7 @@ from products.tasks.backend.logic.services.startup_failure import (
     read_startup_failure,
 )
 from products.tasks.backend.models import Task, TaskRun, stamp_pending_user_message_id
+from products.tasks.backend.task_run_sync import sync_task_statuses_on_commit
 
 if TYPE_CHECKING:
     from temporalio.client import WorkflowHandle
@@ -1009,7 +1010,9 @@ def _extract_agent_error(log_content: str | None, skip_lines: int = 0) -> AgentE
 
 
 def _update_task_run_error_message(run_id: str, message: str) -> None:
-    TaskRun.objects.filter(id=run_id).update(error_message=message)
+    runs = TaskRun.objects.filter(id=run_id)
+    runs.update(error_message=message)
+    sync_task_statuses_on_commit(runs.values_list("task_id", flat=True))
 
 
 async def _persist_task_run_error_message(run_id: str, message: str) -> None:
