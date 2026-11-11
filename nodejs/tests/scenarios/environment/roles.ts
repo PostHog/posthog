@@ -39,18 +39,21 @@ export function roleSpecs(
     secrets: Secrets,
     settings: Profile['settings'] = {}
 ): RoleSpec[] {
-    const { AWS_PROFILE: _profile, KAFKA_CONSUMER_GROUP_ID: _group, ...inherited } = base
+    const { AWS_PROFILE: _profile, ...inherited } = base
+    const { KAFKA_CONSUMER_GROUP_ID: _group, ...configured }: NodeJS.ProcessEnv = {
+        ...inherited,
+        NODE_ENV: 'dev',
+        SES_REGION: 'us-east-1',
+        AWS_ACCESS_KEY_ID: 'scenario',
+        AWS_SECRET_ACCESS_KEY: 'scenario',
+        PERSONHOG_ENABLED: 'true',
+        ...settings,
+    }
     const [markerKey, markerValue] = MARKER.split('=')
     return CdpRole.options.map((role) => ({
         role,
         env: {
-            ...inherited,
-            NODE_ENV: 'dev',
-            SES_REGION: 'us-east-1',
-            AWS_ACCESS_KEY_ID: 'scenario',
-            AWS_SECRET_ACCESS_KEY: 'scenario',
-            PERSONHOG_ENABLED: 'true',
-            ...settings,
+            ...configured,
             SES_ENDPOINT: edgeUrl,
             PERSONHOG_ADDR,
             SES_RATE_LIMITER_VALKEY_HOST: SES_RATE_LIMITER_VALKEY.host,

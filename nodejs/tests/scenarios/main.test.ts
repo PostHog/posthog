@@ -27,25 +27,48 @@ const passed = (cardId: string): RunResult => ({
 })
 
 describe('runCards', () => {
+    let stderr: jest.SpyInstance
+
     beforeEach(() => {
         jest.spyOn(process.stdout, 'write').mockReturnValue(true)
-        jest.spyOn(process.stderr, 'write').mockReturnValue(true)
+        stderr = jest.spyOn(process.stderr, 'write').mockReturnValue(true)
     })
 
     afterEach(() => {
         jest.restoreAllMocks()
     })
 
-    it.each<[string, 'up' | 'first run' | 'never', number]>([
-        ['every card ran and passed', 'never', EXIT_CODE.passed],
-        ['an interrupt during up skipped every card', 'up', EXIT_CODE.invalid],
-        ['an interrupt after the first card skipped the second', 'first run', EXIT_CODE.invalid],
-    ])('exits with the right code when %s', async (_story, interruptAt, code) => {
+    it.each<[string, 'up' | 'first run' | 'up fails' | 'never', number, string]>([
+        ['every card ran and passed', 'never', EXIT_CODE.passed, ''],
+        [
+            'an interrupt during up skipped every card',
+            'up',
+            EXIT_CODE.invalid,
+            'Interrupted before 2 of 2 cards ran.\n',
+        ],
+        [
+            'an interrupt after the first card skipped the second',
+            'first run',
+            EXIT_CODE.invalid,
+            'Interrupted before 1 of 2 cards ran.\n',
+        ],
+        [
+            'up failed before any card ran',
+            'up fails',
+            EXIT_CODE.invalid,
+            'the stack is held by another run\nSkipped 2 of 2 cards after the error.\n',
+        ],
+    ])('exits with the right code and says why cards were skipped when %s', async (_story, stopAt, code, said) => {
         const interrupt = new AbortController()
         const runner: Runner = {
-            up: () => Promise.resolve(interruptAt === 'up' ? interrupt.abort() : undefined),
+            up: () => {
+                if (stopAt === 'up fails') {
+                    return Promise.reject(new Error('the stack is held by another run'))
+                }
+                return Promise.resolve(stopAt === 'up' ? interrupt.abort() : undefined)
+            },
             run: (loaded) => {
-                if (interruptAt === 'first run') {
+                if (stopAt === 'first run') {
                     interrupt.abort()
                 }
                 return Promise.resolve(passed(loaded.card.id))
@@ -53,7 +76,12 @@ describe('runCards', () => {
             down: () => Promise.resolve(),
         }
 
-        expect(await runCards(runner, [SMOKE, SMOKE], interrupt.signal)).toBe(code)
+        const exitCode = await runCards(runner, [SMOKE, SMOKE], interrupt.signal)
+
+        expect({ exitCode, stderr: stderr.mock.calls.map(([text]) => text).join('') }).toEqual({
+            exitCode: code,
+            stderr: said,
+        })
     })
 
     it.each<[string, Partial<RunResult>, string[]]>([

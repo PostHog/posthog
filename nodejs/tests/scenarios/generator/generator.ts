@@ -1,5 +1,5 @@
 import Chance from 'chance'
-import { setTimeout as sleep } from 'timers/promises'
+import { once } from 'events'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
@@ -24,6 +24,17 @@ function trafficKind(name: string): TrafficKind {
     }
     return kind
 }
+
+async function untilAborted(work: Promise<unknown>, signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+        return
+    }
+    const settled = new AbortController()
+    await Promise.race([work, once(signal, 'abort', { signal: settled.signal })])
+    settled.abort()
+}
+
+const elapse = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
 export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Promise<SeedState> {
     const teamIds: number[] = []
@@ -60,11 +71,12 @@ export async function drive(
     const chance = new Chance(card.seed)
     const start = Date.now()
     const end = start + forMs
-    const offers: Promise<boolean>[] = []
+    let offeredUnits = 0
+    const offers: Promise<void>[] = []
     for (const [n, { kind, atMs }] of schedule.entries()) {
         const waitMs = start + atMs - Date.now()
         if (waitMs > 0) {
-            await sleep(waitMs, undefined, { signal }).catch(() => undefined)
+            await untilAborted(elapse(waitMs), signal)
         }
         if (signal.aborted || Date.now() > end) {
             break
@@ -82,10 +94,12 @@ export async function drive(
                     answer,
                     expect: { deliveries: kind.deliveries },
                 })
-                return answer.accepted && Date.now() <= end
+                if (answer.accepted && Date.now() <= end) {
+                    offeredUnits += 1
+                }
             })
         )
     }
-    const acknowledged = await Promise.all(offers)
-    return { targetUnits: schedule.length, offeredUnits: acknowledged.filter(Boolean).length }
+    await untilAborted(Promise.all(offers), signal)
+    return { targetUnits: schedule.length, offeredUnits }
 }

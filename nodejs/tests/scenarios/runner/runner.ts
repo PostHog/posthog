@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
+import type { ProducerGlobalConfig } from 'node-rdkafka'
 import path from 'path'
 import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
@@ -47,8 +48,19 @@ export interface Runner {
 }
 
 const HEALTH_INTERVAL_MS = 5000
+const PRODUCER_SETTING = 'KAFKA_PRODUCER_'
+const DELIVERY_TIMEOUT_MS = 10_000
 
 type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>
+
+function producerConfigOf(env: NodeJS.ProcessEnv): ProducerGlobalConfig {
+    const settings = Object.entries(env).flatMap(([key, value]) =>
+        key.startsWith(PRODUCER_SETTING) && value
+            ? [[key.slice(PRODUCER_SETTING.length).replace(/_/g, '.').toLowerCase(), value]]
+            : []
+    )
+    return { 'message.timeout.ms': DELIVERY_TIMEOUT_MS, ...Object.fromEntries(settings) }
+}
 
 function watchHealth(environment: Environment): () => Promise<string[]> {
     const down = new Set<string>()
@@ -68,15 +80,18 @@ function watchHealth(environment: Environment): () => Promise<string[]> {
 }
 
 function keepLogTails(stateDir: string): (evidenceDir: string) => Promise<void> {
-    const files = CdpRole.options.map((role) => path.join(stateDir, `${role}.log`))
-    const offsets = files.map((file) => (existsSync(file) ? statSync(file).size : 0))
+    const sizeOf = (file: string): number => (existsSync(file) ? statSync(file).size : 0)
+    const logs = CdpRole.options.map((role) => {
+        const file = path.join(stateDir, `${role}.log`)
+        return { file, offset: sizeOf(file) }
+    })
     return async (evidenceDir) => {
         mkdirSync(path.join(evidenceDir, 'logs'), { recursive: true })
-        for (const [i, file] of files.entries()) {
+        for (const { file, offset } of logs) {
             const tail = path.join(evidenceDir, 'logs', path.basename(file))
-            const size = existsSync(file) ? statSync(file).size : 0
-            if (size > offsets[i]) {
-                await pipeline(createReadStream(file, { start: offsets[i], end: size - 1 }), createWriteStream(tail))
+            const size = sizeOf(file)
+            if (size > offset) {
+                await pipeline(createReadStream(file, { start: offset, end: size - 1 }), createWriteStream(tail))
             } else {
                 writeFileSync(tail, '')
             }
@@ -109,7 +124,18 @@ function withEvidenceError(result: RunResult, error: string | undefined): RunRes
 
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
-    let producer: KafkaProducerWrapper | undefined
+    let kafka: { config: string; producer: KafkaProducerWrapper } | undefined
+
+    const producerFor = async (config: ProducerGlobalConfig): Promise<KafkaProducerWrapper> => {
+        const wanted = JSON.stringify(config)
+        if (kafka?.config !== wanted) {
+            const previous = kafka
+            kafka = undefined
+            await previous?.producer.disconnect()
+            kafka = { config: wanted, producer: await KafkaProducerWrapper.createWithConfig(undefined, config) }
+        }
+        return kafka.producer
+    }
 
     return {
         async up() {
@@ -139,10 +165,10 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             try {
+                const producer = await producerFor(producerConfigOf(specs[0].env))
                 await environment.reset(profile.settings)
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
-                producer ??= await KafkaProducerWrapper.create(undefined)
                 stopHealth = watchHealth(environment)
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, runId })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
@@ -203,9 +229,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
 
         async down() {
             try {
-                await producer?.disconnect()
+                await kafka?.producer.disconnect()
             } finally {
-                producer = undefined
+                kafka = undefined
                 await environment.down()
             }
         },

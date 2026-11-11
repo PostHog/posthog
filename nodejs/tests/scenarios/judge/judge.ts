@@ -11,14 +11,11 @@ import { INVARIANTS, deliveryKey } from './invariants'
 
 export type JournalEntry = {
     unitId: string
-    kind: 'event' | 'transactional'
+    kind: 'event'
     teamId: number
     offeredAt: number
-    answer:
-        | { accepted: true }
-        | { accepted: false; status: number; outcome?: string }
-        | { accepted: false; transportError: string }
-    expect: { deliveries: string[]; refusal?: string }
+    answer: { accepted: true } | { accepted: false; transportError: string }
+    expect: { deliveries: string[] }
 }
 
 export type Convergence = { converged: boolean; unfinishedJobs: number; unrecorded: string[]; tookMs: number }
@@ -94,11 +91,7 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
             const startedAt = Date.now()
             for (;;) {
                 await pullTruth()
-                const { running, available, scheduledLater } = await probe.counts({
-                    teams,
-                    queues: ['hogflow', 'email'],
-                })
-                const unfinishedJobs = running + available + scheduledLater
+                const unfinishedJobs = await probe.unfinishedJobs({ teams, queues: ['hogflow', 'email'] })
                 const unrecorded = unrecordedUnits()
                 const tookMs = Date.now() - startedAt
                 const converged = unfinishedJobs === 0 && unrecorded.length === 0

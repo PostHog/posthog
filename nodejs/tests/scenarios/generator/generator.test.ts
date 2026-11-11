@@ -1,5 +1,4 @@
 import path from 'path'
-import { setTimeout as sleep } from 'timers/promises'
 
 import { LoadedCard, load } from '../cards'
 import type { JournalEntry } from '../judge/judge'
@@ -9,6 +8,9 @@ import type { OfferContext } from './traffic'
 const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
 const NEVER_ABORTED = new AbortController().signal
 
+type Produce = OfferContext['producer']['produce']
+type Summary = Awaited<ReturnType<typeof drive>>
+
 function cardWith({ seed = 1, ratePerSecond, driveFor }: { seed?: number; ratePerSecond: number; driveFor: string }) {
     return {
         ...SMOKE,
@@ -17,63 +19,95 @@ function cardWith({ seed = 1, ratePerSecond, driveFor }: { seed?: number; ratePe
     } satisfies LoadedCard
 }
 
-async function driveWith(
+function startDrive(
     loaded: LoadedCard,
-    produce: OfferContext['producer']['produce'],
-    teamIds = [7]
-): Promise<{ summary: Awaited<ReturnType<typeof drive>>; journal: JournalEntry[] }> {
+    produce: Produce,
+    { teamIds = [7], signal = NEVER_ABORTED }: { teamIds?: number[]; signal?: AbortSignal } = {}
+): { driving: Promise<Summary>; journal: JournalEntry[] } {
     const journal: JournalEntry[] = []
-    const summary = await drive(loaded, { teamIds }, { record: (entry) => journal.push(entry) }, NEVER_ABORTED, {
+    const driving = drive(loaded, { teamIds }, { record: (entry) => journal.push(entry) }, signal, {
         producer: { produce },
         eventsTopic: 'scenario_events_test',
         runId: 'run-a',
     })
-    return { summary, journal }
+    return { driving, journal }
+}
+
+function heldKafka() {
+    const held: { resolve(): void; reject(error: Error): void }[] = []
+    return {
+        produce: (() => new Promise<void>((resolve, reject) => held.push({ resolve, reject }))) satisfies Produce,
+        acknowledge: (count = held.length) => held.splice(0, count).forEach(({ resolve }) => resolve()),
+        reject: () => held.splice(0).forEach(({ reject }) => reject(new Error('broker down'))),
+    }
 }
 
 describe('drive', () => {
-    type Summary = Awaited<ReturnType<typeof drive>>
-    const ACKNOWLEDGED: OfferContext['producer']['produce'] = () => Promise.resolve()
+    const ACKNOWLEDGED: Produce = () => Promise.resolve()
 
-    it.each<[string, { ratePerSecond: number; driveFor: string }, OfferContext['producer']['produce'], Summary]>([
-        [
-            'every produce acknowledged',
-            { ratePerSecond: 50, driveFor: '100ms' },
-            ACKNOWLEDGED,
-            { targetUnits: 5, offeredUnits: 5 },
-        ],
-        [
-            'every produce rejected',
-            { ratePerSecond: 50, driveFor: '100ms' },
-            () => Promise.reject(new Error('broker down')),
-            { targetUnits: 5, offeredUnits: 0 },
-        ],
+    beforeEach(() => {
+        jest.useFakeTimers()
+    })
+
+    afterEach(() => {
+        jest.useRealTimers()
+    })
+
+    it.each<[string, number, (kafka: ReturnType<typeof heldKafka>) => void, Summary]>([
+        ['every produce acknowledged', 100, (kafka) => kafka.acknowledge(), { targetUnits: 5, offeredUnits: 5 }],
+        ['every produce rejected', 100, (kafka) => kafka.reject(), { targetUnits: 5, offeredUnits: 0 }],
         [
             'every produce acknowledged after the window',
-            { ratePerSecond: 50, driveFor: '100ms' },
-            () => sleep(300).then(() => undefined),
+            101,
+            (kafka) => kafka.acknowledge(),
             { targetUnits: 5, offeredUnits: 0 },
         ],
     ])(
         'counts a unit as offered once Kafka acknowledged it inside the window: %s',
-        async (_story, card, produce, expected) => {
-            const { summary } = await driveWith(cardWith(card), produce)
+        async (_story, answeredAtMs, answer, expected) => {
+            const kafka = heldKafka()
+            const { driving } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), kafka.produce)
 
-            expect(summary).toEqual(expected)
+            await jest.advanceTimersByTimeAsync(answeredAtMs)
+            answer(kafka)
+
+            expect(await driving).toEqual(expected)
         }
     )
 
-    it('keeps up with a rate of many units per millisecond', async () => {
-        const { summary } = await driveWith(cardWith({ ratePerSecond: 10_000, driveFor: '300ms' }), ACKNOWLEDGED)
+    it('stops waiting for acknowledgements on an interrupt and counts the pending units as not offered', async () => {
+        const kafka = heldKafka()
+        const interrupt = new AbortController()
+        const { driving } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), kafka.produce, {
+            signal: interrupt.signal,
+        })
 
-        expect(summary.targetUnits).toBe(3000)
-        expect(summary.offeredUnits).toBeGreaterThanOrEqual(0.9 * summary.targetUnits)
+        await jest.advanceTimersByTimeAsync(100)
+        kafka.acknowledge(2)
+        await jest.advanceTimersByTimeAsync(0)
+        interrupt.abort()
+
+        expect(await driving).toEqual({ targetUnits: 5, offeredUnits: 2 })
+    })
+
+    it('offers every unit that fell due during a stall in one turn', async () => {
+        const startedAt = Date.now()
+        const { driving, journal } = startDrive(cardWith({ ratePerSecond: 1000, driveFor: '1s' }), ACKNOWLEDGED)
+
+        jest.setSystemTime(startedAt + 500)
+        await jest.runOnlyPendingTimersAsync()
+
+        expect(journal).toHaveLength(Date.now() - startedAt + 1)
+        await jest.advanceTimersByTimeAsync(1000)
+        expect(await driving).toEqual({ targetUnits: 1000, offeredUnits: 1000 })
     })
 
     it('picks the same teams for the same seed and other teams for another seed', async () => {
         const firstTeamsFor = async (seed: number): Promise<number[]> => {
             const card = cardWith({ seed, ratePerSecond: 100, driveFor: '100ms' })
-            const { journal } = await driveWith(card, ACKNOWLEDGED, [1, 2, 3, 4])
+            const { driving, journal } = startDrive(card, ACKNOWLEDGED, { teamIds: [1, 2, 3, 4] })
+            await jest.advanceTimersByTimeAsync(100)
+            await driving
             return journal.slice(0, 8).map(({ teamId }) => teamId)
         }
 
