@@ -215,13 +215,10 @@ def native_configuration_team_id(*, configuration_id: UUID, source_kind: str) ->
     """The team of a configuration of a kind with no source row, or None when there is none. For a
     caller with no team yet, such as a click on a button in a message, which then checks access
     against the team this returns."""
+    unscoped = PlatformAlertConfiguration.objects.unscoped()
     # nosemgrep: idor-lookup-without-team — resolves the team only; the caller authorizes against it
-    return (
-        PlatformAlertConfiguration.objects.unscoped()
-        .filter(id=configuration_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
-        .values_list("team_id", flat=True)
-        .first()
-    )
+    rows = unscoped.filter(id=configuration_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+    return rows.values_list("team_id", flat=True).first()
 
 
 def native_configuration_ids(
