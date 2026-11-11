@@ -5335,6 +5335,10 @@ class TestHogFlowAPI(APIBaseTest):
             ("is_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_set"}),
             ("is_not_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_not_set"}),
             ("hogql_expression", {"key": "properties.email = 'a@b.com'", "type": "hogql"}),
+            (
+                "hogql_expression_with_empty_value",
+                {"key": "properties.email = 'a@b.com'", "type": "hogql", "value": []},
+            ),
         ]
     )
     def test_hog_flow_user_blast_radius_counts_a_finished_condition_without_a_value(self, _name, condition):
