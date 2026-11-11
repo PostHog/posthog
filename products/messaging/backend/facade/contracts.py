@@ -140,8 +140,6 @@ class InvalidRequest(TransactionalEmailError):
 
 
 class SandboxFieldsUnsupported(TransactionalEmailError):
-    """The email would go out from the sandbox sender, which can't send copies, attachments or a custom sender."""
-
     code = "sandbox_fields_unsupported"
 
     def __init__(self, message: str, attr: str | None = None) -> None:
