@@ -99,7 +99,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "campaign_type": "The campaign optimization type: CPP, CPE, ad ROAS, IAP ROAS or ROAS.",
             "campaign_ad_type": "ua for user acquisition, or rt for retargeting.",
             "campaign_package_name": "Package name or bundle ID of the promoted app.",
-            "application": "Name of the source application the ad ran in.",
             "app_id_external": "Hashed application ID of the source app, commonly called the site ID.",
             "platform": "Platform of the source application: android, fireos, ios or tvos.",
             "country": _APP_DIMENSIONS["country"],
