@@ -78,6 +78,7 @@ LINE_END = "\x00"
 LINE_ENDS = re.compile(r"\n?\x00+\n?")
 URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
 SCRIPT_ESCAPE_TOKENS = re.compile(r"<!--(?!-*>)|-->|</?script[\t\n\f\r />]", re.IGNORECASE)
+SCRIPT_END_TAG_OPEN = "</script"
 
 
 def has_unsubscribe_link(html: str, text: str) -> bool:
@@ -193,6 +194,7 @@ class _TextParser(HTMLParser):
         end = super().parse_endtag(i)
         if self.keeps_script_open:
             self.keeps_script_open = False
+            end = i + len(SCRIPT_END_TAG_OPEN)
             self.script.append(self.rawdata[i:end])
         return end
 
