@@ -1,6 +1,6 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'fs'
 import http from 'http'
 import net from 'net'
 import os from 'os'
@@ -565,7 +565,7 @@ describe('scenario environment', () => {
         const realExecFile = childProcess.execFile as (...args: unknown[]) => ChildProcess
         const stubRolePids = new Set<number>()
         const stubRole =
-            "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "console.log('started at', Date.now()); require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -665,13 +665,11 @@ describe('scenario environment', () => {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            const members = Number(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
+            const members = Date.now() < Number(fs.readFileSync(path.join(__dirname, 'dead-member-leaves-at'), 'utf8')) ? 1 : 0
             process.stdout.write(
                 'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
             )
-            const answers = path.join(__dirname, 'answers')
-            fs.writeFileSync(answers, String((fs.existsSync(answers) ? Number(fs.readFileSync(answers, 'utf8')) : 0) + 1))
         `
         let fakes = ''
         let cacheDir = ''
@@ -712,9 +710,10 @@ describe('scenario environment', () => {
             }
             return () => holder.kill('SIGKILL')
         }
-        const answerMembers = (members: number): void => writeFileSync(path.join(fakes, 'members'), String(members))
-        const answersSoFar = (): number =>
-            existsSync(path.join(fakes, 'answers')) ? Number(readFileSync(path.join(fakes, 'answers'), 'utf8')) : 0
+        const deadMemberLeavesAt = (at: number): void =>
+            writeFileSync(path.join(fakes, 'dead-member-leaves-at'), String(at))
+        const startedAt = (role: Role): number =>
+            Number(/^started at (\d+)$/m.exec(readFileSync(logOf(role), 'utf8'))?.[1])
         const writeStack = (stack: { running: boolean; ready: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
         const stackOf = (): { running: boolean; ready: boolean } =>
@@ -748,7 +747,7 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeStack({ running: true, ready: true })
-            answerMembers(0)
+            deadMemberLeavesAt(0)
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -843,22 +842,17 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group before it starts the roles', async () => {
-            answerMembers(1)
+            const leavesAt = Date.now() + 3000
+            deadMemberLeavesAt(leavesAt)
             environment = environmentOf()
-            let settled = false
-            const upping = environment.up().finally(() => {
-                settled = true
-            })
-            upping.catch(() => undefined)
 
-            await waitForExpect(() => expect(answersSoFar()).toBeGreaterThan(1), 10_000)
-            expect({ settled, apiPortFree: await isPortFree(ROLE_PORTS['cdp-api']) }).toEqual({
-                settled: false,
-                apiPortFree: true,
-            })
-            answerMembers(0)
+            await environment.up()
 
-            await expect(upping).resolves.toBeUndefined()
+            const firstStart = Math.min(...(Object.keys(ROLE_PORTS) as Role[]).map(startedAt))
+            expect({ startedAfterItLeft: firstStart >= leavesAt, apiHealth: await healthOf('cdp-api') }).toEqual({
+                startedAfterItLeft: true,
+                apiHealth: 200,
+            })
         }, 30_000)
 
         it.each<[string, { running: boolean; ready: boolean }, string[]]>([
