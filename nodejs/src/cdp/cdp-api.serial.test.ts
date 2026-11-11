@@ -1230,7 +1230,9 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(200)
             expect(res.body.status).toEqual('error')
-            expect(lookupsBeforeFailing).toBeLessThan(0)
+            expect(res.body.logs.map((log: any) => log.message).join('\n')).toContain(
+                'Could not load the integrations for this request'
+            )
             expect(mockFetch).not.toHaveBeenCalled()
         })
 

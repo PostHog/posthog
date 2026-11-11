@@ -221,7 +221,7 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         expect(droppedLookups).toBeGreaterThan(0)
     })
 
-    it('leaves a fetch whose access token lookup fails to the janitor when its team is not on the retry allowlist, which sends it once the lookup recovers', async () => {
+    it('leaves a fetch whose access token lookup fails running for the janitor when its team is not on the retry allowlist, and sends it once it is requeued', async () => {
         const id = await queueFetchWithAccessToken()
         lookupFails = true
         await startWorker(String(team.id + 1))
