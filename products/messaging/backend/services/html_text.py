@@ -80,6 +80,8 @@ WHITESPACE = re.compile(r"\s+")
 LINE_END = "\x00"
 LINE_ENDS = re.compile(r"\n?\x00+\n?")
 URL_PARSER_TRIMS = "".join(chr(code) for code in range(0x21))
+SCRIPT_ESCAPE_START = re.compile(r"<!--(?!-*>)")
+SCRIPT_ESCAPE_TOKENS = re.compile(r"-->|<script[\t\n\f\r />]", re.IGNORECASE)
 
 
 def has_unsubscribe_link(html: str, text: str, *, liquid: bool) -> bool:
@@ -102,6 +104,21 @@ def _without_link_end(rest: str, *, liquid: bool) -> str:
     if liquid and (tag := LIQUID_TAG_START.search(rest)):
         rest = rest[: tag.start()]
     return rest.rstrip(TEXT_LINK_END_PUNCTUATION)
+
+
+def _script_stays_open_at_its_end_tag(script: str) -> bool:
+    position = 0
+    while (escape := SCRIPT_ESCAPE_START.search(script, position)) is not None:
+        position = escape.end()
+        double_escaped = False
+        while (token := SCRIPT_ESCAPE_TOKENS.search(script, position)) is not None:
+            position = token.end()
+            if token.group() == "-->":
+                break
+            double_escaped = True
+        else:
+            return double_escaped
+    return False
 
 
 def text_from_html(html: str, *, keep_unsubscribe_link: bool = False) -> str:
@@ -149,6 +166,7 @@ class _TextParser(HTMLParser):
         self.unreadable_from: int | None = None
         self.unreadable_tag = ""
         self.closing = ""
+        self.script: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in VOID_TAGS:
@@ -175,6 +193,9 @@ class _TextParser(HTMLParser):
             self.set_cdata_mode(tag, escapable=True)
 
     def handle_endtag(self, tag: str) -> None:
+        if self.reads_like_a_browser and self.cdata_elem == "script":
+            self.unreadable = self.unreadable or _script_stays_open_at_its_end_tag("".join(self.script))
+            self.script = []
         if tag in VOID_TAGS or not self.open_counts[tag]:
             return
         if self.reads_like_a_browser and tag != "template" and not self.open_counts_above_templates[-1][tag]:
@@ -186,6 +207,8 @@ class _TextParser(HTMLParser):
         self.closing = ""
 
     def handle_data(self, data: str) -> None:
+        if self.reads_like_a_browser and self.cdata_elem == "script":
+            self.script.append(data)
         if self.hidden_from is not None:
             return
         self.parts.append(WHITESPACE.sub(" ", data))
