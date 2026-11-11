@@ -118408,6 +118408,38 @@ export namespace Schemas {
       output: TraceMessagesSide | TraceJsonSide;
     }
 
+    /**
+     * The step's input value as ingested, or an empty object when it has none.
+     */
+    export type TraceNodeDatasetItemInput = { [key: string]: unknown } | unknown[] | string | number | boolean;
+
+    /**
+     * The step's output value as ingested, or null when it has none.
+     */
+    export type TraceNodeDatasetItemSourceOutput = { [key: string]: unknown } | unknown[] | string | number | boolean | null;
+
+    /**
+     * The step's custom event properties, without `$` names. Empty for the root.
+     */
+    export type TraceNodeDatasetItemMetadata = { [key: string]: unknown };
+
+    export interface TraceNodeDatasetItem {
+      /** An id that identifies the step among dataset items: the event's uuid, or the trace id for the root. */
+      clientItemId: string;
+      /** The id of the trace the step belongs to. */
+      sourceTraceId: string;
+      /** The step's event uuid, or the trace id for the root. */
+      sourceEventId: string;
+      /** When the trace happened, as given by the timestamp hint. */
+      sourceTimestamp: string;
+      /** The step's input value as ingested, or an empty object when it has none. */
+      input: TraceNodeDatasetItemInput;
+      /** The step's output value as ingested, or null when it has none. */
+      sourceOutput: TraceNodeDatasetItemSourceOutput;
+      /** The step's custom event properties, without `$` names. Empty for the root. */
+      metadata: TraceNodeDatasetItemMetadata;
+    }
+
     export interface TraceNodeMetadata {
       provider: string | null;
       temperature: number | null;
@@ -118610,6 +118642,67 @@ export namespace Schemas {
     export interface TrainingRunHistory {
       /** Recent completed training runs — the current pipeline first, then same-target sibling pipelines on the team — newest first. Mine these to reuse winning features and avoid repeating discarded approaches. */
       runs: TrainingRunHistoryEntry[];
+    }
+
+    export interface TransactionalEmailActivityEvent {
+      /** The event's UUID. */
+      uuid: string;
+      /** The event name, such as `$pageview` or a custom event. */
+      event: string;
+      /** When the event happened. */
+      timestamp: string;
+      /**
+         * The page the person was on. Null when not set.
+         * @nullable
+         */
+      current_url: string | null;
+      /**
+         * The path of that page, such as `/pricing`.
+         * @nullable
+         */
+      pathname: string | null;
+      /**
+         * The session the event belongs to. Use it to find the session recording. Null for events captured without a session, such as server-side events.
+         * @nullable
+         */
+      session_id: string | null;
+      /**
+         * What an autocaptured event did, such as `click` or `submit`. Null otherwise.
+         * @nullable
+         */
+      event_type: string | null;
+      /** The element an autocaptured event happened on, with its parents. Empty for other events. */
+      elements_chain: string;
+    }
+
+    export interface TransactionalEmailActivitySession {
+      /** The session ID, the same one session recordings use. */
+      session_id: string;
+      /** The first event of this session in the window. */
+      first_event_at: string;
+      /** The last event of this session in the window. */
+      last_event_at: string;
+      /** How many of the returned events belong to this session. */
+      event_count: number;
+      /** True when none of the session's events came before the send, so the person started it after the email. */
+      started_after_send: boolean;
+    }
+
+    export interface TransactionalEmailActivity {
+      /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+      distinct_id: string;
+      /** When the email went to the provider, or when it was queued if it was never sent. */
+      sent_at: string;
+      /** The person's events in the week before the send, oldest first. */
+      before: TransactionalEmailActivityEvent[];
+      /** The person's events in the week after the send, oldest first. */
+      after: TransactionalEmailActivityEvent[];
+      /** True when older events in the window were left out. */
+      has_more_before: boolean;
+      /** True when later events in the window were left out. */
+      has_more_after: boolean;
+      /** The sessions the returned events belong to, in the order they first appear. */
+      sessions: TransactionalEmailActivitySession[];
     }
 
     export interface TransactionalEmailLogEvent {
@@ -127751,6 +127844,13 @@ export namespace Schemas {
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
     timestamp_hint?: string;
+    };
+
+    export type AiObservabilityTracesNodesDatasetItemRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Saved as the dataset item's source timestamp, and lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint: string;
     };
 
     export type AiObservabilityTracesNodesRawRetrieveParams = {
