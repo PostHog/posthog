@@ -47,6 +47,7 @@ import {
     isFileSystemEntryTypeEnabled,
     isGroupViewShortcut,
     isPathUnder,
+    joinPath,
     matchesRefType,
     parentPath,
     refTypeParams,
@@ -1234,10 +1235,17 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                             newState[folder] = newState[folder].filter((item) => !ids.has(item.id))
                         }
                     }
-                    const droppedFolders = items.filter((item) => item.type === 'folder').map((item) => item.path)
-                    if (droppedFolders.length > 0) {
+                    // Each cached folder checks itself and its ancestors against the set, so the cost grows with the
+                    // number of folders instead of cached folders times stale ones.
+                    const droppedFolders = new Set(
+                        items.filter((item) => item.type === 'folder').map((item) => joinPath(splitPath(item.path)))
+                    )
+                    if (droppedFolders.size > 0) {
                         for (const folder of Object.keys(newState)) {
-                            if (droppedFolders.some((path) => isPathUnder(folder, path))) {
+                            const segments = splitPath(folder)
+                            if (
+                                segments.some((_, index) => droppedFolders.has(joinPath(segments.slice(0, index + 1))))
+                            ) {
                                 delete newState[folder]
                             }
                         }
