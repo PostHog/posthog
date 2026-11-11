@@ -139,11 +139,22 @@ class TestInboxOnboarding(APIBaseTest):
             ("guided", False, "control"),
             ("quick", False, None),
             ("quick", True, "test-sol"),
+            ("guided", True, None, True, True),
+            ("quick", True, None, True, False),
+            ("quick", True, None, None, False),
         ]
     )
     def test_completion_is_durable_and_retry_safe(
-        self, setup_mode: str | None, automatic_implementation: bool, arm: str | None
+        self,
+        setup_mode: str | None,
+        automatic_implementation: bool,
+        arm: str | None,
+        usage_based_pricing: bool | None = None,
+        expected_autostart: bool | None = None,
     ) -> None:
+        if expected_autostart is None:
+            usage_based_pricing = not automatic_implementation
+            expected_autostart = automatic_implementation
         self.draft["automatic_implementation"] = automatic_implementation
         if setup_mode:
             self.draft["setup_mode"] = setup_mode
@@ -160,7 +171,7 @@ class TestInboxOnboarding(APIBaseTest):
             patch("posthog.event_usage.posthoganalytics.capture") as capture,
             patch(
                 "products.signals.backend.onboarding_analytics.posthoganalytics.feature_enabled",
-                return_value=not automatic_implementation,
+                return_value=usage_based_pricing,
             ),
             patch("products.signals.backend.tasks.launch_inbox_onboarding_job.delay") as launch,
             patch(
@@ -183,7 +194,8 @@ class TestInboxOnboarding(APIBaseTest):
         assert {call.args for call in launch.call_args_list} == {(self.team.id, job) for job in pending_jobs}
         assert config.onboarding.get("first_report_variant") == arm
         assert bool(first.json().get("first_report")) is (arm == "test-sol")
-        assert config.autostart_enabled is automatic_implementation
+        assert config.autostart_enabled is expected_autostart
+        assert config.onboarding["draft"]["automatic_implementation"] is expected_autostart
         assert config.default_autostart_priority == "P1"
         assert config.onboarding["activated_by"] == self.user.id
         notification = SignalFirstReportNotification.objects.for_team(self.team.id).get()
@@ -195,8 +207,8 @@ class TestInboxOnboarding(APIBaseTest):
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
             "setup_mode": setup_mode or "guided",
-            "self_driving_ubp": not automatic_implementation,
-            "automatic_implementation": automatic_implementation,
+            "self_driving_ubp": usage_based_pricing,
+            "automatic_implementation": expected_autostart,
             "implementation_priority": "P1",
             "enabled_source_products": ["error_tracking", "signals_scout"] if has_scout else ["error_tracking"],
             "scout_count": 1 if has_scout else 0,
