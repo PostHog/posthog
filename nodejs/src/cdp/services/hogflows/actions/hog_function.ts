@@ -480,7 +480,8 @@ export class HogFunctionHandler implements ActionHandler {
         )
 
         const marketingRefusal =
-            invocation.hogFlow.trigger?.type === 'api' && marketingSendRefusal(action, invocation.state.send)
+            invocation.hogFlow.trigger?.type === 'api' &&
+            marketingSendRefusal(action, invocation.state.send, invocation.state.messageCategory)
         if (marketingRefusal) {
             const message =
                 marketingRefusal === 'copies_not_allowed'

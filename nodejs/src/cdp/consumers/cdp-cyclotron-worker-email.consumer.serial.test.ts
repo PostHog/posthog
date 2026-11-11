@@ -339,7 +339,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             type: 'function_email',
             config: {
                 template_id: template.template_id,
-                message_category_type: 'transactional',
                 inputs: {
                     email: {
                         value: {

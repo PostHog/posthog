@@ -435,6 +435,7 @@ export type CyclotronJobInvocationHogFunctionContext = {
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
+    messageCategory?: SendCategory
     renderedWorkflowVersion?: number
 }
 

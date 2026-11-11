@@ -34,7 +34,12 @@ import {
 } from './attachment-store'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
-import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
+import {
+    EmailStatusReason,
+    EmailStatusService,
+    isMarketingApiSend,
+    isTransactionalEmailSend,
+} from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
@@ -45,7 +50,7 @@ import { clickableHrefs, textLinksTo } from './helpers/clickable-links'
 import { UtmTagging, htmlForSes, tagEmailLinks, utmTagsFor } from './helpers/email-html'
 import { escapeHtml } from './helpers/escape-html'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
-import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
+import { SES_EMAIL_STATUS_TAG, SES_MARKETING_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
@@ -1078,7 +1083,9 @@ export class EmailService {
                     $workflow_invocation_id: invocation.id,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...(messageId ? { $email_message_id: messageId } : {}),
-                    ...(isTransactionalEmailSend(invocation) ? { $email_transactional: true } : {}),
+                    ...(isTransactionalEmailSend(invocation)
+                        ? { $email_transactional: !isMarketingApiSend(invocation) }
+                        : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
@@ -1490,6 +1497,9 @@ export class EmailService {
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
                     ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
                     : []),
+                ...(!isTest && isMarketingApiSend(result.invocation)
+                    ? [{ Name: SES_MARKETING_TAG, Value: 'true' }]
+                    : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
         }
@@ -1597,8 +1607,7 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): CyclotronInvocationQueueParametersEmailType {
-        const isMarketing = invocation.hogFunction?.metadata?.message_category_type !== 'transactional'
-        if (!invocation.state.send?.content || !isMarketing || !params.to?.email) {
+        if (!invocation.state.send?.content || !isMarketingApiSend(invocation) || !params.to?.email) {
             return params
         }
         const url = this.recipientTokensService.generatePreferencesUrl(
@@ -1616,10 +1625,7 @@ export class EmailService {
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
     ): boolean {
-        if (
-            !isTransactionalEmailSend(invocation) ||
-            invocation.hogFunction?.metadata?.message_category_type === 'transactional'
-        ) {
+        if (!isMarketingApiSend(invocation)) {
             return false
         }
         const recipient = params.to?.email && unquoteMailbox(params.to.email)

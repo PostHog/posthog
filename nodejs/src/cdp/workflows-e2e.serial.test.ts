@@ -3890,14 +3890,6 @@ describe('Workflows E2E (email queue)', () => {
                 error: 'copies_not_allowed',
             },
             {
-                name: 'a code send with a cc, when the email step is marketing',
-                kind: 'code',
-                step: 'marketing',
-                payload: { send: { ...codeSend(), cc: ['copy@example.com'] } },
-                status: 400,
-                error: 'copies_not_allowed',
-            },
-            {
                 name: 'a template send in a marketing category whose email step has a cc',
                 kind: 'template',
                 stepEmail: { cc: 'manager@example.com' },
@@ -3925,16 +3917,6 @@ describe('Workflows E2E (email queue)', () => {
                 name: 'a template send whose category is now marketing, to a recipient who opted out of it',
                 kind: 'template',
                 payload: { message_category: newsletter },
-                given: (to: string) => optOut(to, newsletterId),
-                status: 422,
-                error: 'recipient_opted_out',
-            },
-            {
-                name: "a template send to a recipient who opted out of its marketing step's category",
-                kind: 'template',
-                step: 'marketing',
-                stepCategoryId: newsletterId,
-                payload: {},
                 given: (to: string) => optOut(to, newsletterId),
                 status: 422,
                 error: 'recipient_opted_out',
@@ -4137,6 +4119,57 @@ describe('Workflows E2E (email queue)', () => {
             expect(await emailsTo(to)).toHaveLength(sent ? 1 : 0)
             if (!sent) {
                 await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: 'recipient_opted_out' })
+            }
+        })
+
+        it.each<ApiSend & { delivered: number; copyDelivered?: boolean; skipped?: string }>([
+            {
+                name: 'a template send whose marketing email step has no unsubscribe link',
+                kind: 'template',
+                step: 'marketing',
+                stepEmail: { html: '<p>News</p>', text: 'News' },
+                payload: {},
+                delivered: 1,
+            },
+            {
+                name: 'a code send from a marketing email step with a cc and no unsubscribe link',
+                kind: 'code',
+                step: 'marketing',
+                payload: {
+                    send: { ...codeSend(), content: { subject: 'News', html: '<p>News</p>', text: 'News' } },
+                },
+                delivered: 1,
+                copyDelivered: true,
+            },
+            {
+                name: "a template send to a recipient who opted out of its marketing step's category",
+                kind: 'template',
+                step: 'marketing',
+                stepCategoryId: newsletterId,
+                payload: {},
+                given: (to: string) => optOut(to, newsletterId),
+                delivered: 0,
+                skipped: 'recipient_opted_out',
+            },
+        ])('accepts $name with no category on the request, as master does', async (row) => {
+            const flow = await insertHogFlow(
+                hub.postgres,
+                sendFlow(row.kind, row.step ?? 'transactional', row.stepEmail, row.stepCategoryId)
+            )
+            const to = `reader-${new UUIDT().toString()}@example.com`
+            const copy = `copy-${new UUIDT().toString()}@example.com`
+            await row.given?.(to)
+            const copies = row.copyDelivered ? { cc: [copy] } : {}
+            const payload = row.kind === 'code' ? { send: { ...(row.payload.send as object), ...copies } } : row.payload
+
+            const res = await post(row.kind, flow, { to, distinct_id: 'reader', ...payload })
+            expect(res.status).toEqual(202)
+            await deliver()
+
+            expect(await emailsTo(to)).toHaveLength(row.delivered)
+            expect(await emailsTo(copy)).toHaveLength(row.copyDelivered ? 1 : 0)
+            if (row.skipped) {
+                await expectStoredStatus(res.body.invocation_id, { status: 'failed', reason: row.skipped })
             }
         })
 
@@ -4373,57 +4406,80 @@ describe('Workflows E2E (email queue)', () => {
                 kind: 'code',
                 step: 'transactional',
                 extra: { send: codeSend(newsletter) },
+                capped: false,
             },
             {
-                name: 'a template send whose workflow step is marketing',
+                name: 'a template send in a marketing category from a marketing step',
+                kind: 'template',
+                step: 'marketing',
+                extra: { message_category: newsletter },
+                capped: false,
+            },
+            {
+                name: 'a template send from a marketing step with no category on the request',
                 kind: 'template',
                 step: 'marketing',
                 extra: {},
+                capped: true,
             },
-        ] as const)('sends $name to a person past the frequency cap', async ({ kind, step, extra }) => {
-            await hub.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `INSERT INTO workflows_teamworkflowsconfig
+        ] as const)(
+            '$name to a person past the frequency cap is capped: $capped',
+            async ({ kind, step, extra, capped }) => {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO workflows_teamworkflowsconfig
                     (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
                      email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier,
                      marketing_frequency_cap_max_messages, marketing_frequency_cap_window_days)
                  VALUES ($1, false, 'off', '', '', 0, 1, 1)`,
-                [team.id],
-                'set-team-frequency-cap'
-            )
-            const frequencyCapValkey = createFrequencyCapValkeyPool(hub)!
-            await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
-            const to = `capped-${new UUIDT().toString()}@example.com`
-            const persons = new PostgresPersonRepository(hub.postgres)
-            await persons.createPerson(
-                DateTime.utc(),
-                { email: to },
-                {},
-                {},
-                team.id,
-                null,
-                true,
-                new UUIDT().toString(),
-                { distinctId: 'capped-reader' }
-            )
-            const personRepository: PersonReadRepository = {
-                fetchPerson: (teamId, distinctId) => persons.fetchPerson(teamId, distinctId),
-                fetchPersonsByDistinctIds: (teamPersons) => persons.fetchPersonsByDistinctIds(teamPersons),
-                fetchPersonsByPersonIds: (teamPersons) => persons.fetchPersonsByPersonIds(teamPersons),
-                fetchDistinctIdsForPersons: (teamId, personIds, options) =>
-                    persons.fetchDistinctIdsForPersons(teamId, personIds, options),
-            }
-            const personDeps = { ...deps, personRepository }
-            const flow = await insertHogFlow(hub.postgres, sendFlow(kind, step))
+                    [team.id],
+                    'set-team-frequency-cap'
+                )
+                const frequencyCapValkey = createFrequencyCapValkeyPool(hub)!
+                await deleteKeysWithPrefix(frequencyCapValkey, `@posthog/workflows-frequency-cap/${team.id}/`)
+                const to = `capped-${new UUIDT().toString()}@example.com`
+                const persons = new PostgresPersonRepository(hub.postgres)
+                await persons.createPerson(
+                    DateTime.utc(),
+                    { email: to },
+                    {},
+                    {},
+                    team.id,
+                    null,
+                    true,
+                    new UUIDT().toString(),
+                    { distinctId: 'capped-reader' }
+                )
+                const personRepository: PersonReadRepository = {
+                    fetchPerson: (teamId, distinctId) => persons.fetchPerson(teamId, distinctId),
+                    fetchPersonsByDistinctIds: (teamPersons) => persons.fetchPersonsByDistinctIds(teamPersons),
+                    fetchPersonsByPersonIds: (teamPersons) => persons.fetchPersonsByPersonIds(teamPersons),
+                    fetchDistinctIdsForPersons: (teamId, personIds, options) =>
+                        persons.fetchDistinctIdsForPersons(teamId, personIds, options),
+                }
+                const personDeps = { ...deps, personRepository }
+                const flow = await insertHogFlow(hub.postgres, sendFlow(kind, step))
 
-            for (const _ of [1, 2]) {
-                const res = await post(kind, flow, { to, distinct_id: 'capped-reader', ...extra })
-                expect(res.status).toEqual(202)
-            }
-            await deliver(personDeps)
+                const messageIds: string[] = []
+                for (const _ of [1, 2]) {
+                    const res = await post(kind, flow, { to, distinct_id: 'capped-reader', ...extra })
+                    expect(res.status).toEqual(202)
+                    messageIds.push(res.body.invocation_id)
+                }
+                await deliver(personDeps)
 
-            expect(await emailsTo(to)).toHaveLength(2)
-        })
+                expect(await emailsTo(to)).toHaveLength(capped ? 1 : 2)
+                await waitForExpect(async () => {
+                    const statuses = await Promise.all(
+                        messageIds.map((id) => storedEmailStatus(clickhouse, team.id, id))
+                    )
+                    expect(statuses.filter((stored) => stored?.reason === 'frequency_capped')).toHaveLength(
+                        capped ? 1 : 0
+                    )
+                    expect(statuses.filter((stored) => stored?.status === 'sent')).toHaveLength(capped ? 1 : 2)
+                }, 15000)
+            }
+        )
     })
 
     it('does not emit duplicate Resuming / Executing / pause logs for the email-queue routing reschedule', async () => {

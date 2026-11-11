@@ -1520,7 +1520,6 @@ describe('EmailService', () => {
             const sendAsTransactionalEmail = (): void => {
                 invocation.id = new UUIDT().toString()
                 invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             }
             const statusTopicEndOffsets = async (): Promise<TopicPartitionOffset[]> => {
                 const metadata = await new Promise<Metadata>((resolve, reject) =>
@@ -2116,7 +2115,6 @@ describe('EmailService', () => {
             service['emailStatusService'] = emailStatusService
             invocation.id = new UUIDT().toString()
             invocation.state.globals.event.event = triggerEvent
-            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             setup()
 
             await service.executeSendEmail(invocation, isTest)
@@ -3145,10 +3143,6 @@ describe('EmailService', () => {
                 invocation.state.renderedWorkflowVersion = workflowVersion
                 if (transactional) {
                     invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
-                    invocation.hogFunction.metadata = {
-                        ...invocation.hogFunction.metadata,
-                        message_category_type: 'transactional',
-                    }
                 }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
@@ -3176,6 +3170,40 @@ describe('EmailService', () => {
                 ).toEqual(
                     workflowVersion === undefined ? undefined : { id: invocation.functionId, version: workflowVersion }
                 )
+            }
+        )
+
+        it.each([
+            ['a marketing category', 'marketing', false, { ph_marketing: 'true' }],
+            ['a transactional category', 'transactional', true, {}],
+        ] as const)(
+            'marks an API send from a marketing step in %s, a %s category, with $email_transactional %s in its sent event and its SES tags',
+            async (_name, type, transactional, extraTags) => {
+                hub.SITE_URL = 'http://localhost:8000'
+                service = createService()
+                await captureEngagementEvents()
+                const body = '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
+                invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                invocation.state.messageCategory = { id: randomUUID(), type }
+                invocation.state.send = {
+                    content: { subject: 'News', html: body },
+                    from: { integrationId: getIntegrationId(1) },
+                    tracking: { captureEngagement: true },
+                }
+                invocation.hogFunction.metadata = {
+                    ...invocation.hogFunction.metadata,
+                    message_category_type: 'marketing',
+                }
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, html: body })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBeUndefined()
+                expect(result.emailSendResult).toEqual({ status: 'accepted' })
+                expect(result.capturedPostHogEvents[0].properties.$email_transactional).toEqual(transactional)
+                expect(ses.sent.map((email) => email.tags)).toEqual([
+                    { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true', ...extraTags },
+                ])
             }
         )
 

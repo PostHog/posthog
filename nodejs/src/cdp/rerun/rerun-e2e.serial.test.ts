@@ -58,11 +58,11 @@ jest.mock('node:dns/promises', () => {
                 ? Promise.resolve(records[name])
                 : Promise.reject(Object.assign(new Error(`queryMx ENOTFOUND ${name}`), { code: 'ENOTFOUND' }))
     return {
-        Resolver: jest.fn().mockImplementation(() => ({
-            resolveMx: lookup({ 'example.com': [{ exchange: 'mx.example.com', priority: 10 }] }),
-            resolve4: lookup({ 'example.com': ['192.0.2.1'], 'mx.example.com': ['192.0.2.1'] }),
-            resolve6: lookup<string[]>({}),
-        })),
+        Resolver: class {
+            resolveMx = lookup({ 'example.com': [{ exchange: 'mx.example.com', priority: 10 }] })
+            resolve4 = lookup({ 'example.com': ['192.0.2.1'], 'mx.example.com': ['192.0.2.1'] })
+            resolve6 = lookup<string[]>({})
+        },
     }
 })
 

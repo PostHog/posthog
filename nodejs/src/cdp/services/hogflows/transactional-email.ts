@@ -65,30 +65,29 @@ export const emailStepForApiSend = <Action extends HogFlowAction>(
     action: Action,
     category: SendCategory | undefined
 ): Action => {
-    if (action.type !== 'function_email') {
+    if (action.type !== 'function_email' || !category) {
         return action
     }
     const step: EmailStep = {
         ...action,
         config: {
             ...action.config,
-            ...(category && { message_category_type: category.type, message_category_id: category.id }),
+            message_category_type: category.type,
+            message_category_id: category.id,
             skip_frequency_cap: true,
         },
     }
     return step as Action
 }
 
-export const hogFlowForApiSend = (hogFlow: HogFlow, category: SendCategory | undefined): HogFlow => ({
-    ...hogFlow,
-    actions: hogFlow.actions.map((action) => emailStepForApiSend(action, category)),
-})
+export const hogFlowForApiSend = (hogFlow: HogFlow, category: SendCategory | undefined): HogFlow =>
+    category ? { ...hogFlow, actions: hogFlow.actions.map((action) => emailStepForApiSend(action, category)) } : hogFlow
 
 const isMarketingEmailStep = (action: HogFlowAction): action is EmailStep =>
     action.type === 'function_email' && action.config.message_category_type !== 'transactional'
 
-export const marketingEmailStep = (hogFlow: HogFlow): EmailStep | undefined =>
-    hogFlow.actions.find(isMarketingEmailStep)
+export const marketingEmailStep = (hogFlow: HogFlow, category: SendCategory | undefined): EmailStep | undefined =>
+    category?.type === 'marketing' ? hogFlow.actions.find(isMarketingEmailStep) : undefined
 
 const CODE_SEND_BODY = { placeholder: /\{\{\s*unsubscribe_url\s*\}\}/g, liquid: false }
 const LIQUID_BODY = {
@@ -115,9 +114,10 @@ export type MarketingSendRefusal = 'unsubscribe_link_required' | 'copies_not_all
 
 export const marketingSendRefusal = (
     action: HogFlowAction,
-    send: AcceptedSend | undefined
+    send: AcceptedSend | undefined,
+    category: SendCategory | undefined
 ): MarketingSendRefusal | undefined => {
-    if (!isMarketingEmailStep(action)) {
+    if (category?.type !== 'marketing' || !isMarketingEmailStep(action)) {
         return undefined
     }
     const email = action.config.inputs.email?.value ?? {}

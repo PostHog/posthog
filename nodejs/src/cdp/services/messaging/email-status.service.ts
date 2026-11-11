@@ -163,6 +163,9 @@ export const buildEmailStatusRow = (update: EmailStatusUpdate): EmailStatusRow =
 export const isTransactionalEmailSend = (invocation: CyclotronJobInvocationHogFunction): boolean =>
     invocation.state?.globals?.event?.event === TRANSACTIONAL_EMAIL_EVENT
 
+export const isMarketingApiSend = (invocation: CyclotronJobInvocationHogFunction): boolean =>
+    isTransactionalEmailSend(invocation) && invocation.state.messageCategory?.type === 'marketing'
+
 const isTransactionalEmailRun = (invocation: CyclotronJobInvocation): boolean =>
     'hogFlow' in invocation && invocation.state?.event?.event === TRANSACTIONAL_EMAIL_EVENT
 

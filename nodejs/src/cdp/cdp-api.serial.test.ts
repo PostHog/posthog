@@ -2251,13 +2251,7 @@ describe('CDP API', () => {
                         trigger: { type: 'trigger', config: { type: trigger } },
                         email: {
                             type: 'function_email',
-                            config: {
-                                template_id: 'template-email',
-                                inputs: {
-                                    email: { value: { html: '<a href="{{ unsubscribe_url }}">Unsubscribe</a>' } },
-                                },
-                                message_category_type: category,
-                            },
+                            config: { template_id: 'template-email', inputs: {}, message_category_type: category },
                         },
                     },
                     edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
