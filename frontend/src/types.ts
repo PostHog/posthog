@@ -7540,6 +7540,7 @@ export type HogFunctionConfigurationContextId =
     | 'billing-alerts'
     | 'replay-vision-alerts'
     | 'replay-vision-requests'
+    | 'inbox-reports'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7562,6 +7563,7 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-resolved'
     | 'batch-export-run-failed'
     | 'replay-vision-request-completed'
+    | 'inbox-report-ready'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

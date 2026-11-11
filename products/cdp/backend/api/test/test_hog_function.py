@@ -45,6 +45,8 @@ webhook_template = MOCK_NODE_TEMPLATES[0]
 geoip_template = MOCK_NODE_TEMPLATES[2]
 
 
+INBOX_REPORT_FILTERS = {"source": "internal-events", "events": [{"id": "$inbox_report_ready", "type": "events"}]}
+
 EXAMPLE_FULL: dict[str, Any] = {
     "name": "HogHook",
     "hog": "fetch(inputs.url, {\n  'headers': inputs.headers,\n  'body': inputs.payload,\n  'method': inputs.method\n});",
@@ -1742,6 +1744,72 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert created.status_code == status.HTTP_400_BAD_REQUEST, created.json()
         assert HogFunction.objects.filter(team=self.team).count() == 1
         assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+    @parameterized.expand([("no_tasks_access", "none", 400), ("tasks_viewer", "viewer", 201)])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_inbox_report_destination_needs_tasks_viewer_access(self, _name: str, task_access: str, expected: int):
+        AccessControl.objects.create(team=self.team, resource="task", access_level=task_access)
+        self.client.force_login(self._create_user("destination-member@example.com"))
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL, "type": "internal_destination", "filters": INBOX_REPORT_FILTERS},
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("without task:read", ["hog_function:write"], 400),
+            ("with task:read", ["hog_function:write", "task:read"], 201),
+        ]
+    )
+    def test_inbox_report_destination_api_key_needs_task_read_scope(self, _name: str, scopes: list[str], expected: int):
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={**EXAMPLE_FULL, "type": "internal_destination", "filters": INBOX_REPORT_FILTERS},
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("logs", "get", "logs/"),
+            ("update", "patch", ""),
+            ("rerun", "post", "rerun/"),
+            ("test invocation", "post", "invocations/"),
+        ]
+    )
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_member_without_tasks_access_cannot_reach_an_inbox_report_destination(
+        self, _name: str, method: str, path: str
+    ):
+        stored = HogFunction.objects.create(
+            team=self.team,
+            name="Inbox webhook",
+            hog="return event",
+            type="internal_destination",
+            enabled=True,
+            filters=INBOX_REPORT_FILTERS,
+        )
+        AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+        self.client.force_login(self._create_user("destination-member@example.com"))
+
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/hog_functions/{stored.id}/{path}", data={"name": "Renamed"}
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        stored.refresh_from_db()
+        assert stored.name == "Inbox webhook"
 
     def test_generates_filters_bytecode(self, *args):
         action = create_action(

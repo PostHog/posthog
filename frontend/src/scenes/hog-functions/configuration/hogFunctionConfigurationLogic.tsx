@@ -1098,6 +1098,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         template_name: res.template?.name,
                         type: res.type,
                         enabled: res.enabled,
+                        context_id: eventToHogFunctionContextId(res.filters?.events?.[0]?.id),
                     })
 
                     // Track product intent when creating a new hog function

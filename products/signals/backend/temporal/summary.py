@@ -44,6 +44,7 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
+from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event
 from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
@@ -875,6 +876,22 @@ class SignalReportSummaryWorkflow:
                     except Exception:
                         workflow.logger.exception(
                             f"Implementation buffer/auto-start failed for {inputs.report_id}",
+                        )
+                # After the buffer, so a destination receives the settled summary rather than one a
+                # re-research is about to replace. patched(): in-flight histories predate the event.
+                if workflow.patched("signals-inbox-report-ready-event"):
+                    try:
+                        await workflow.execute_activity(
+                            emit_inbox_report_ready_activity,
+                            EmitInboxReportReadyInput(
+                                team_id=inputs.team_id, report_id=inputs.report_id, source_products=source_products
+                            ),
+                            start_to_close_timeout=timedelta(minutes=1),
+                            retry_policy=RetryPolicy(maximum_attempts=3),
+                        )
+                    except Exception:
+                        workflow.logger.exception(
+                            f"Failed to emit the inbox report ready event for {inputs.report_id}",
                         )
                 # Slack notification is detached (ABANDON) so it can wait out the implementation PR.
                 # patched(): summary workflows already in flight at deploy replay the prior inline path.
@@ -1831,6 +1848,23 @@ async def dispatch_inbox_slack_notifications_activity(input: DispatchInboxSlackN
     return await database_sync_to_async(dispatch_inbox_item_notifications, thread_sensitive=False)(
         report_id=input.report_id,
         team_id=input.team_id,
+    )
+
+
+@frozen
+class EmitInboxReportReadyInput:
+    team_id: int
+    report_id: str
+    source_products: list[str] = field(default_factory=list)
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+@close_db_connections
+async def emit_inbox_report_ready_activity(input: EmitInboxReportReadyInput) -> None:
+    """Send a report that just settled to the project's real-time destinations."""
+    await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
+        team_id=input.team_id, report_id=input.report_id, source_products=input.source_products
     )
 
 

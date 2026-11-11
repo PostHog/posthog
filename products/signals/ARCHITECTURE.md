@@ -175,6 +175,12 @@ Defined in `backend/temporal/summary.py`.
    - If **immediately actionable** → `mark_report_ready_activity`
 8. If new signals arrived during the run, `mark_report_ready_activity` re-promotes the report to `candidate` and the workflow loops internally rather than spawning a new workflow
 9. When a run completes without immediately looping, the workflow publishes a Kafka `signals report completed` message via `publish_report_completed_activity`
+10. When the report settles as `ready` after the implementation buffer, `emit_inbox_report_ready_activity` writes one `$inbox_report_ready` internal event, so the project's real-time destinations receive it (`backend/inbox_report_events.py`).
+    The scout and custom-agent producers write the same event when they file a ready report.
+    A claim on the report (`ready_event_emitted_at`) keeps a re-settle from sending it again, and `reconcile_inbox_report_ready_events` re-sends every 10 minutes a claim the broker never confirmed, with the same event uuid.
+    Delivery is at least once, so receivers dedupe on `report_id`.
+    The `inbox-report-destinations` flag gates sending per project. A destination on this event needs viewer access to Tasks, plus `task:read` for an API key, to create, edit, test, rerun, or read its logs.
+    Gated with `workflow.patched("signals-inbox-report-ready-event")`.
 
 On any unhandled exception, the workflow marks the report `failed` and re-raises.
 

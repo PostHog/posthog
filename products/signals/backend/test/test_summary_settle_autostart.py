@@ -33,6 +33,7 @@ from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInp
 from products.signals.backend.temporal.signal_queries import FetchSignalsForReportInput, FetchSignalsForReportOutput
 from products.signals.backend.temporal.summary import (
     CheckReportQuotaGateInput,
+    EmitInboxReportReadyInput,
     ImplementationBufferInput,
     MarkReportInProgressInput,
     MarkReportReadyInput,
@@ -154,6 +155,7 @@ class _Recorder:
         # means the card ships without the PR link.
         self.autostarts_at_notification: list[int] = []
         self.autostart_inputs: list[MaybeAutostartImplementationInput] = []
+        self.ready_events: list[EmitInboxReportReadyInput] = []
 
 
 def _signal_data() -> SignalData:
@@ -264,6 +266,10 @@ async def _run_summary_workflow(
         recorder.autostarts += 1
         recorder.autostart_inputs.append(input)
 
+    @activity.defn(name="emit_inbox_report_ready_activity")
+    async def fake_emit_ready(input: EmitInboxReportReadyInput) -> None:
+        recorder.ready_events.append(input)
+
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
         recorder.autostarts_at_notification.append(recorder.autostarts)
@@ -292,6 +298,7 @@ async def _run_summary_workflow(
                 fake_candidate,
                 fake_autostart,
                 fake_notification_check,
+                fake_emit_ready,
             ],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
@@ -329,6 +336,7 @@ async def test_skipped_ready_does_not_settle():
     assert recorder.publications == 0
     assert recorder.autostarts == 0
     assert recorder.autostarts_at_notification == []
+    assert recorder.ready_events == []
 
 
 @pytest.mark.asyncio
@@ -341,6 +349,7 @@ async def test_no_buffer_autostarts_immediately_at_settle():
     assert recorder.autostarts == 1
     # The task exists before the notification looks, so its card can wait for the PR.
     assert recorder.autostarts_at_notification == [1]
+    assert [(event.team_id, event.source_products) for event in recorder.ready_events] == [(1, ["error_tracking"])]
 
 
 @pytest.mark.asyncio
@@ -377,3 +386,4 @@ async def test_signal_during_buffer_re_researches_instead_of_implementing():
     assert recorder.autostarts == 1
     # Only the settled run notifies, so no card goes out for the summary the re-research replaced.
     assert recorder.autostarts_at_notification == [1]
+    assert len(recorder.ready_events) == 1

@@ -110,6 +110,13 @@ export const getProductEventFilterOptions = (contextId: HogFunctionConfiguration
                     value: '$replay_vision_request_completed',
                 },
             ]
+        case 'inbox-reports':
+            return [
+                {
+                    label: 'Inbox report ready',
+                    value: '$inbox_report_ready',
+                },
+            ]
         default:
             return [
                 {

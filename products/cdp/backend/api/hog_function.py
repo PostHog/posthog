@@ -91,6 +91,7 @@ from products.cdp.backend.validation import (
     generate_template_bytecode,
     masked_dictionary_secret,
     masked_secret_input_keys,
+    read_gated_access_denial,
     require_viewer_access_to_added_actions,
     reserved_functions_used,
 )
@@ -784,6 +785,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
             )
 
+        read_gated_denial = read_gated_access_denial(
+            self.context.get("request"),
+            getattr(self.context.get("view"), "user_access_control", None),
+            proposed_filters,
+        )
+        if read_gated_denial:
+            raise serializers.ValidationError({"filters": read_gated_denial})
+
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Existing functions keep working (and can be updated/disabled) if the flag is
@@ -1210,6 +1219,34 @@ class HogFunctionViewSet(
             cast(APIScopeObject, alert_scope), required_level="editor"
         ):
             raise PermissionDenied(f"Editing this alert destination requires {alert_scope} write access.")
+        read_gated_denial = self._stored_read_gated_denial(request)
+        if read_gated_denial:
+            raise PermissionDenied(read_gated_denial)
+
+    def _stored_read_gated_denial(self, request: Request) -> Optional[str]:
+        """Why the caller may not act on this destination's stored or staged trigger, or None when it may.
+
+        Covers every write action, which changes, tests, or replays what the destination delivers, and the
+        logs, where a destination can print what it delivered. A new trigger is checked by the serializer.
+        """
+        hog_function_id = self.kwargs.get("pk")
+        if not hog_function_id or self.action not in [*self.scope_object_write_actions, "logs"]:
+            return None
+        try:
+            stored = (
+                HogFunction.objects.filter(team_id=self.team_id, id=str(hog_function_id))
+                .values_list("filters", "draft")
+                .first()
+            )
+        except (ValueError, DjangoValidationError):
+            stored = None
+        if stored is None:
+            return None
+        filters, draft = stored
+        draft_filters = draft.get("filters") if isinstance(draft, dict) else None
+        return read_gated_access_denial(request, self.user_access_control, filters) or read_gated_access_denial(
+            request, self.user_access_control, draft_filters
+        )
 
     def dangerously_get_required_scopes(self, request, view) -> Optional[list[str]]:
         # A managed alert destination is also gated by the owning product's write scope, so a

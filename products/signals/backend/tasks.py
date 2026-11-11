@@ -49,6 +49,7 @@ from products.signals.backend.implementation_dispatch_tasks import (
 from products.signals.backend.implementation_pr import PrCloseReason, close_implementation_pr_for_report
 from products.signals.backend.implementation_pr_cache import refresh_implementation_pr_cache_for_links
 from products.signals.backend.inbox_push_notifications import notify_pull_request_ready, notify_report_visible
+from products.signals.backend.inbox_report_events import reconcile_stranded_ready_events
 from products.signals.backend.inbox_summary import github_datetime, sync_pull_request_participants
 from products.signals.backend.models import (
     SignalReport,
@@ -396,6 +397,12 @@ def sweep_monitoring_tracker_issues() -> None:
 @skip_team_scope_audit
 def sweep_monitoring_research_requests() -> None:
     emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
+
+
+@shared_task(ignore_result=True, max_retries=0, soft_time_limit=270, time_limit=300)
+@skip_team_scope_audit
+def reconcile_inbox_report_ready_events() -> None:
+    reconcile_stranded_ready_events()
 
 
 @shared_task(

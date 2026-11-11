@@ -62,6 +62,7 @@ const INTERNAL_DESTINATION_CONTEXT: Partial<
     'billing-alerts': { label: 'Billing alerts' },
     'replay-vision-alerts': { label: 'Replay vision alerts' },
     'replay-vision-requests': { label: 'Replay vision requests' },
+    'inbox-reports': { label: 'Inbox reports' },
 }
 
 function NotificationContextTag({ hogFunction }: { hogFunction: HogFunctionType }): JSX.Element | null {

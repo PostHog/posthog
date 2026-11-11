@@ -67,6 +67,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
 from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -1774,6 +1775,10 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
 
+def _emit_report_ready_event(*, team_id: int, report_id: str) -> None:
+    emit_inbox_report_ready_event(team_id=team_id, report_id=report_id, source_products=[SOURCE_PRODUCT])
+
+
 # Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
 # finding's content on `signal_emitted` (via `_telemetry_props_from_extra`); the report channel now does
 # the same so internal consumers (dashboards, alerts, CDP forwards) can act on a report's substance, not
@@ -2530,6 +2535,9 @@ async def emit_report(
                     delivery_id=persisted.report_id,
                 )
             await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
+            await database_sync_to_async(_emit_report_ready_event, thread_sensitive=False)(
+                team_id=team.id, report_id=persisted.report_id
+            )
         return await finish(_emit_result(persisted.report_id, judgement))
 
 
@@ -2739,6 +2747,7 @@ def emit_report_sync(
                     delivery_id=persisted.report_id,
                 )
             async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
+            _emit_report_ready_event(team_id=team.id, report_id=persisted.report_id)
         return finish(_emit_result(persisted.report_id, judgement))
 
 
