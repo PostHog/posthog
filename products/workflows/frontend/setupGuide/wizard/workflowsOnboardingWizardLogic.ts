@@ -68,13 +68,21 @@ function journeyFirstForRun(
     return run.initialized && path === run.wizardPath ? run.journeyFirst : isJourneyFirst(path, featureFlags)
 }
 
-function finishWithoutPickReason(run: {
+function sendingRulesContinueReason(run: {
+    currentTeamLoading: boolean
+    frequencyCapError: string | null
     journeyFirst: boolean
     wizardPath: WorkflowsOnboardingPath
     selectedTemplate: HogFlowTemplate | null
     startsBlank: boolean
     workflowTemplatesLoading: boolean
 }): string | null {
+    if (run.currentTeamLoading) {
+        return 'Saving your sending rules'
+    }
+    if (run.frequencyCapError) {
+        return 'Fix the frequency cap to continue'
+    }
     if (!run.journeyFirst || run.wizardPath !== 'messaging' || run.selectedTemplate || run.startsBlank) {
         return null
     }
@@ -744,13 +752,9 @@ export const workflowsOnboardingWizardLogic = kea<workflowsOnboardingWizardLogic
                 workflowTemplatesLoading: boolean
             ): string | null => {
                 if (currentStep === 'sending-rules') {
-                    if (currentTeamLoading) {
-                        return 'Saving your sending rules'
-                    }
-                    if (frequencyCapError) {
-                        return 'Fix the frequency cap to continue'
-                    }
-                    return finishWithoutPickReason({
+                    return sendingRulesContinueReason({
+                        currentTeamLoading,
+                        frequencyCapError,
                         journeyFirst,
                         wizardPath,
                         selectedTemplate,
