@@ -21,7 +21,6 @@ import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import * as stack from './stack'
 import { STACK, forgetSesBucket, membersOf, pingRedis, seekFailures, withPostgres } from './stack'
 import { createSupervisor } from './supervisor'
 
@@ -697,9 +696,26 @@ describe('scenario environment', () => {
             const args = process.argv.slice(2)
             fs.appendFileSync(path.join(__dirname, 'docker-calls'), JSON.stringify(args) + '\\n')
             const [exec, container, rpk, noun, verb, group] = args
-            if ([exec, container, rpk, noun, verb].join(' ') !== 'exec posthog-kafka-1 rpk group describe') {
+            if (
+                [exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' ||
+                !['describe', 'seek'].includes(verb)
+            ) {
                 process.stderr.write('The up test ran docker ' + args.join(' '))
                 process.exit(1)
+            }
+            if (verb === 'seek') {
+                const topic = args[args.indexOf('--topics') + 1]
+                const answer = path.join(__dirname, 'seek')
+                const { stdout, stderr, code } = fs.existsSync(answer)
+                    ? JSON.parse(fs.readFileSync(answer, 'utf8'))
+                    : {
+                          stdout: 'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n',
+                          stderr: '',
+                          code: 0,
+                      }
+                process.stdout.write(stdout)
+                process.stderr.write(stderr)
+                process.exit(code)
             }
             const counts = JSON.parse(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
             const members = counts.length > 0 ? counts.shift() : 0
@@ -709,6 +725,24 @@ describe('scenario environment', () => {
                     '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
             )
         `
+        const jobsSchema = `scenario_reset_${process.pid}`
+        const cyclotronUrl = inSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, jobsSchema)
+        const cyclotronFromEnv = process.env.CYCLOTRON_NODE_DATABASE_URL
+        const testRedis = { host: '127.0.0.1', port: 6379 }
+        const jobsLeft = async (): Promise<string[]> =>
+            await withPostgres(
+                async (client) =>
+                    (
+                        await client.query<{ status: string }>(
+                            'SELECT status::text AS status FROM cyclotron_jobs ORDER BY status'
+                        )
+                    ).rows.map((row) => row.status),
+                cyclotronUrl
+            )
+        const eventsGroup = (): { group: string; topic: string } => {
+            const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({})))
+            return { group, topic: topics[0] }
+        }
         const rolePids = new Map<string, number>()
         let fakes = ''
         let stranger: ChildProcess | undefined
@@ -733,12 +767,8 @@ describe('scenario environment', () => {
                 hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
                 docker: path.join(fakes, 'docker'),
                 postgresUrl: templatesUrl,
+                sesRateLimiterValkey: testRedis,
             })
-        const stubTheReset = (): void => {
-            jest.spyOn(stack, 'deleteUnfinishedJobs').mockResolvedValue()
-            jest.spyOn(stack, 'forgetSesBucket').mockResolvedValue()
-            jest.spyOn(stack, 'seekToEnd').mockResolvedValue()
-        }
 
         beforeAll(async () => {
             await withPostgres(async (client) => {
@@ -748,12 +778,23 @@ describe('scenario environment', () => {
                     `CREATE TABLE ${templateSchema}.posthog_hogfunctiontemplate (LIKE public.posthog_hogfunctiontemplate INCLUDING ALL)`
                 )
             }, defaultConfig.DATABASE_URL)
+            await withPostgres(async (client) => {
+                await client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`)
+                await client.query(`CREATE SCHEMA ${jobsSchema}`)
+                await client.query(
+                    `CREATE TABLE ${jobsSchema}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)`
+                )
+            }, defaultConfig.CYCLOTRON_NODE_DATABASE_URL)
         })
 
         afterAll(async () => {
             await withPostgres(
                 (client) => client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`),
                 defaultConfig.DATABASE_URL
+            )
+            await withPostgres(
+                (client) => client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`),
+                defaultConfig.CYCLOTRON_NODE_DATABASE_URL
             )
         })
 
@@ -763,6 +804,8 @@ describe('scenario environment', () => {
             writeFake(path.join(fakes, 'docker'), fakeDocker)
             writeFileSync(path.join(fakes, 'hogli-wait'), '0')
             answerMembers([])
+            process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
+            await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
             await withPostgres(async (client) => {
                 await client.query('DELETE FROM posthog_hogfunctiontemplate')
                 await client.query(insertTemplates, [STACK.templates])
@@ -826,6 +869,11 @@ describe('scenario environment', () => {
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
             rolePids.clear()
+            if (cyclotronFromEnv === undefined) {
+                delete process.env.CYCLOTRON_NODE_DATABASE_URL
+            } else {
+                process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronFromEnv
+            }
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -977,7 +1025,6 @@ describe('scenario environment', () => {
         ])(
             'brings every role back healthy on reset%s',
             async (_name, arrange) => {
-                stubTheReset()
                 environment = environmentOf()
                 await environment.up()
                 await arrange()
@@ -987,6 +1034,109 @@ describe('scenario environment', () => {
                 const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
                 expect(Object.fromEntries(health)).toEqual(
                     Object.fromEntries(CdpRole.options.map((role) => [role, 200]))
+                )
+            },
+            30_000
+        )
+
+        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
+            const valkey = createRedisV2PoolFromConfig({
+                connection: { url: testRedis.host, options: { port: testRedis.port } },
+                poolMinSize: 1,
+                poolMaxSize: 1,
+            })
+            const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+            const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
+            const { group, topic } = eventsGroup()
+            environment = environmentOf()
+            await environment.up()
+            await withPostgres(
+                (client) =>
+                    client.query(
+                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), 9999001, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::text[]) AS status",
+                        [['available', 'running', 'completed']]
+                    ),
+                cyclotronUrl
+            )
+            try {
+                await limiter.claimUpTo(claim)
+
+                await environment.reset({})
+
+                expect({
+                    jobs: await jobsLeft(),
+                    tokens: await limiter.claimUpTo(claim),
+                    seeks: callsOf(path.join(fakes, 'docker-calls')).filter((call) => call[4] === 'seek'),
+                }).toEqual({
+                    jobs: ['completed'],
+                    tokens: 5,
+                    seeks: [
+                        [
+                            'exec',
+                            'posthog-kafka-1',
+                            'rpk',
+                            'group',
+                            'seek',
+                            group,
+                            '--to',
+                            'end',
+                            '--topics',
+                            topic,
+                            '--allow-new-topics',
+                        ],
+                    ],
+                })
+            } finally {
+                await forgetSesBucket(testRedis)
+            }
+        }, 30_000)
+
+        it.each<[string, (topic: string) => { stdout: string; stderr: string; code: number }, boolean]>([
+            [
+                'a topic that does not exist yet',
+                () => ({
+                    stdout: '',
+                    stderr: 'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+                    code: 1,
+                }),
+                true,
+            ],
+            [
+                'a partition the broker refused to move',
+                (topic) => ({
+                    stdout: [
+                        ['TOPIC', 'PARTITION', 'PRIOR-OFFSET', 'CURRENT-OFFSET', 'ERROR'],
+                        [topic, '0', '-1', '-1', 'INVALID_OPERATION: seeking a non-empty group is not allowed.'],
+                    ]
+                        .map(([name, ...columns]) =>
+                            [name.padEnd(topic.length + 2), ...columns.map((column) => column.padEnd(16))]
+                                .join('')
+                                .trimEnd()
+                        )
+                        .map((line) => `${line}\n`)
+                        .join(''),
+                    stderr: '',
+                    code: 1,
+                }),
+                false,
+            ],
+        ])(
+            'moves the events group past %s only when rpk reports no failed partition',
+            async (_name, answer, resets) => {
+                const { group, topic } = eventsGroup()
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(answer(topic)))
+                environment = environmentOf()
+                await environment.up()
+
+                const failure = await environment.reset({}).then(
+                    () => null,
+                    (error: Error) => error.message
+                )
+
+                expect(failure).toEqual(
+                    resets
+                        ? null
+                        : `Could not move ${group} to the end of ${topic}:\n${topic}/0: INVALID_OPERATION: seeking a non-empty group is not allowed.`
                 )
             },
             30_000
@@ -1012,7 +1162,6 @@ describe('scenario environment', () => {
         ])(
             'fails a reset at once naming a role that %s, why, and its log',
             async (_name, role, why, arrange) => {
-                stubTheReset()
                 environment = environmentOf()
                 await environment.up()
                 arrange()
@@ -1030,7 +1179,6 @@ describe('scenario environment', () => {
         )
 
         it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
-            stubTheReset()
             environment = environmentOf()
             await environment.up()
             takesPortOnExit = 'cdp-processed-events'

@@ -59,12 +59,18 @@ async function groupsWithMembers(groups: ConsumerGroup[], docker: string): Promi
     return groups.filter((_, i) => members[i] > 0).map(({ group }) => group)
 }
 
-export type EnvironmentOptions = { hogli: Hogli; docker: string; postgresUrl: string }
+export type EnvironmentOptions = {
+    hogli: Hogli
+    docker: string
+    postgresUrl: string
+    sesRateLimiterValkey: { host: string; port: number }
+}
 
 export function createEnvironment({
     hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
     docker = 'docker',
     postgresUrl = STACK.postgresUrl,
+    sesRateLimiterValkey = STACK.sesRateLimiterValkey,
 }: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     const stateDir = defaultStateDir(env)
@@ -103,7 +109,7 @@ export function createEnvironment({
             }
             const exitsBefore = supervisor.exits().length
             await supervisor.stop()
-            const specs = roleSpecs(env, edge.url, secrets, settings)
+            const specs = roleSpecs(env, edge.url, secrets, settings, sesRateLimiterValkey)
             const groups = consumerGroupsOf(specs)
             await waitForExpect(
                 async () => {
@@ -119,7 +125,7 @@ export function createEnvironment({
             )
             edge.clearFaults()
             await deleteUnfinishedJobs(cyclotronUrlOf(specs[0]))
-            await forgetSesBucket(STACK.sesRateLimiterValkey)
+            await forgetSesBucket(sesRateLimiterValkey)
             for (const group of groups) {
                 await seekToEnd(group, docker)
             }
@@ -131,7 +137,7 @@ export function createEnvironment({
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
         async health() {
-            const down = await downServices(edge?.url, postgresUrl)
+            const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
             return { healthy: down.length === 0, down }
         },
 
@@ -188,7 +194,7 @@ export function createEnvironment({
         }
         await terminate(plan, STOP_GRACE_MS)
         await startStack(hogli, stateDir, env)
-        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
+        const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets, {}, sesRateLimiterValkey)
         await refuseHeldPorts(specs.map((spec) => spec.role))
         const groups = consumerGroupsOf(specs)
         await waitForExpect(

@@ -235,12 +235,16 @@ export async function expectOk(url: string): Promise<void> {
     }
 }
 
-export async function downServices(edgeUrl: string | undefined, postgresUrl: string): Promise<string[]> {
+export async function downServices(
+    edgeUrl: string | undefined,
+    postgresUrl: string,
+    sesValkey: { host: string; port: number }
+): Promise<string[]> {
     const probes: Record<string, () => Promise<unknown>> = {
         postgres: () => withPostgres((client) => client.query('SELECT 1'), postgresUrl),
         kafka: pingKafka,
         redis: () => pingRedis(STACK.redis),
-        'ses-rate-limiter-valkey': () => pingRedis(STACK.sesRateLimiterValkey),
+        'ses-rate-limiter-valkey': () => pingRedis(sesValkey),
         personhog: () => expectOk(STACK.personhogReadinessUrl),
         'provider-edge': () => (edgeUrl ? expectOk(`${edgeUrl}/_health`) : Promise.reject(new Error('not started'))),
     }

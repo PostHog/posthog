@@ -37,7 +37,8 @@ export function roleSpecs(
     base: NodeJS.ProcessEnv,
     edgeUrl: string,
     secrets: Secrets,
-    settings: Profile['settings'] = {}
+    settings: Profile['settings'] = {},
+    sesValkey: { host: string; port: number } = SES_RATE_LIMITER_VALKEY
 ): RoleSpec[] {
     const { AWS_PROFILE: _profile, ...inherited } = base
     const { KAFKA_CONSUMER_GROUP_ID: _group, ...configured }: NodeJS.ProcessEnv = {
@@ -56,8 +57,8 @@ export function roleSpecs(
             ...configured,
             SES_ENDPOINT: edgeUrl,
             PERSONHOG_ADDR,
-            SES_RATE_LIMITER_VALKEY_HOST: SES_RATE_LIMITER_VALKEY.host,
-            SES_RATE_LIMITER_VALKEY_PORT: String(SES_RATE_LIMITER_VALKEY.port),
+            SES_RATE_LIMITER_VALKEY_HOST: sesValkey.host,
+            SES_RATE_LIMITER_VALKEY_PORT: String(sesValkey.port),
             ENCRYPTION_SALT_KEYS: secrets.encryptionSaltKeys,
             WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: secrets.transactionalEmailJwtSecret,
             PLUGIN_SERVER_MODE: role,
