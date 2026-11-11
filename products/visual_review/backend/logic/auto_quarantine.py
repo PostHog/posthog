@@ -255,28 +255,29 @@ def _window_runs(run: Run, default_branch: str, now: datetime) -> list[TrustedRu
     return [trusted for candidate in candidates if (trusted := _trusted_run(candidate, default_branch)) is not None]
 
 
+def _newest_default_branch_run_id(run: Run, default_branch: str) -> UUID | None:
+    return (
+        Run.objects.using(WRITER_DB)
+        .filter(
+            repo_id=run.repo_id,
+            team_id=run.team_id,
+            run_type=run.run_type,
+            status=RunStatus.COMPLETED,
+            is_partial=False,
+            branch=default_branch,
+            pr_number__isnull=True,
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)
+        .first()
+    )
+
+
 def _default_baselines(run: Run, current: TrustedRun, default_branch: str, identifiers: set[str]) -> dict[str, str]:
     """Identifier to the baseline hash the newest full default-branch run holds for it."""
-    if current.on_default_branch:
-        newest_id = run.id
-    else:
-        newest_id = (
-            Run.objects.using(WRITER_DB)
-            .filter(
-                repo_id=run.repo_id,
-                team_id=run.team_id,
-                run_type=run.run_type,
-                status=RunStatus.COMPLETED,
-                is_partial=False,
-                branch=default_branch,
-                pr_number__isnull=True,
-            )
-            .order_by("-created_at")
-            .values_list("id", flat=True)
-            .first()
-        )
-        if newest_id is None:
-            return {}
+    newest_id = run.id if current.on_default_branch else _newest_default_branch_run_id(run, default_branch)
+    if newest_id is None:
+        return {}
     return dict(
         RunSnapshot.objects.using(WRITER_DB)
         .filter(run_id=newest_id, team_id=run.team_id, identifier__in=identifiers)
