@@ -1523,6 +1523,11 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
             finally:
                 self._index_hint_depth -= 1
 
+        if node.name in ("isNull", "isNotNull") and len(node.args) == 1:
+            null_test = self._native_json_null_test(node.args[0], present=node.name == "isNotNull")
+            if null_test is not None:
+                return null_test
+
         if node.name in ("toFloat", "toInt") and len(node.args) == 1:
             access = self._lowered_property_operand(node.args[0])
             # An array index reads through the JSON text of the value, so the cast wraps that read instead.
@@ -2032,21 +2037,13 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
         return _json_subcolumn_presence_expr(field_type, [first_key], source=source)
 
-    def _optimize_native_json_null_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
-        """`properties.x IS [NOT] NULL` on the native table, as a test of the key's subcolumns.
+    def _native_json_null_test(self, operand: ast.Expr, *, present: bool) -> ast.Expr | None:
+        """The NULL test of a native property read, as a test of the key's subcolumns, or None to test the value read.
 
         Only a property that reads as text qualifies. A typed property arrives here inside its cast, and the NULL test
         of a cast also depends on whether the value converts.
         """
         if not self.context.uses_new_events_schema():
-            return None
-        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
-            return None
-        operand = node.left
-        null_side = node.right
-        if not (isinstance(null_side, ast.Constant) and null_side.value is None):
-            operand, null_side = node.right, node.left
-        if not (isinstance(null_side, ast.Constant) and null_side.value is None):
             return None
         access = self._lowered_property_operand(operand)
         if access is None or not all(isinstance(key, str) for key in access.keys):
@@ -2061,9 +2058,19 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         if source is None or source.kind != "json_subcolumn":
             return None
         _record_property_usage(self.context, source.kind)
-        return _json_subcolumn_presence_expr(
-            field_type, keys, source=source, present=node.op == ast.CompareOperationOp.NotEq
-        )
+        return _json_subcolumn_presence_expr(field_type, keys, source=source, present=present)
+
+    def _optimize_native_json_null_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        """`properties.x IS [NOT] NULL` on the native table."""
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return None
+        operand = node.left
+        null_side = node.right
+        if not (isinstance(null_side, ast.Constant) and null_side.value is None):
+            operand, null_side = node.right, node.left
+        if not (isinstance(null_side, ast.Constant) and null_side.value is None):
+            return None
+        return self._native_json_null_test(operand, present=node.op == ast.CompareOperationOp.NotEq)
 
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
         if self._in_grouped_clause:

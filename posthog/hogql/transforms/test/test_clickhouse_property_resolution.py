@@ -275,6 +275,8 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             exprs=[
                 ast.CompareOperation(op=ast.CompareOperationOp.NotEq, left=prop, right=ast.Constant(value=None)),
                 ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=prop, right=ast.Constant(value=None)),
+                ast.Call(name="isNotNull", args=[prop]),
+                ast.Call(name="isNull", args=[prop]),
             ]
         )
         null_tests_sql = print_prepared_ast(clickhouse_property_resolution(null_tests, context), context, "clickhouse")
@@ -333,4 +335,4 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
             else:
                 assert read_value == ("true" if sent is True else str(sent))
             assert has_key_result == int(read_value is not None)
-            assert null_tests_result == (int(read_value is not None), int(read_value is None))
+            assert null_tests_result == (int(read_value is not None), int(read_value is None)) * 2
