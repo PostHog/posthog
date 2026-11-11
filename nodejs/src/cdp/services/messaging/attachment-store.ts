@@ -276,7 +276,7 @@ const checksumSignedSoTheBucketRefusesAnotherBody = (): {
 const urlEncodedCopySource = (bucket: string, key: string): string =>
     `${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`
 
-function settleBeforeAbortEvenWhileCredentialsStall<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
+export function settleBeforeAbortEvenWhileCredentialsStall<T>(signal: AbortSignal, promise: Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
         const abort = (): void => reject(signal.reason)
         promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort))
