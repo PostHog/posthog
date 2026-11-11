@@ -595,6 +595,23 @@ export function LemonInputSelect<T = string>({
         }
     }
 
+    const _onBackspace = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+        if (!inputValue) {
+            e.preventDefault()
+            const newValues = [...values]
+            newValues.pop()
+            onChange?.(newValues)
+        } else if (mode === 'single') {
+            // In single mode, "selected all + backspace" should clear the selection
+            const input = e.currentTarget
+            if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
+                e.preventDefault()
+                setInputValue('')
+                onChange?.([])
+            }
+        }
+    }
+
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
@@ -605,20 +622,7 @@ export function LemonInputSelect<T = string>({
             }
             e.currentTarget.blur()
         } else if (e.key === 'Backspace') {
-            if (!inputValue) {
-                e.preventDefault()
-                const newValues = [...values]
-                newValues.pop()
-                onChange?.(newValues)
-            } else if (mode === 'single') {
-                // In single mode, "selected all + backspace" should clear the selection
-                const input = e.currentTarget
-                if (input.selectionStart === 0 && input.selectionEnd === input.value.length) {
-                    e.preventDefault()
-                    setInputValue('')
-                    onChange?.([])
-                }
-            }
+            _onBackspace(e)
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
             setSelectedIndex(Math.min(selectedIndex + 1, displayOptions.length - 1))
