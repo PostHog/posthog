@@ -91,7 +91,8 @@ const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: stri
     { param: 'trigger_type', facet: 'trigger', isValid: (value) => value in TRIGGER_LABELS },
     { param: 'created_by', facet: 'createdBy', isValid: isUUIDLike },
 ]
-const LEGACY_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search', 'page']
+const LEGACY_FILTER_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search']
+const LEGACY_PARAMS = [...LEGACY_FILTER_PARAMS, 'page']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
@@ -800,35 +801,35 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 filters: parseFacetQuery(rawSearchParam('q'), QUERY_FACETS),
                 text: rawSearchParam('text'),
             }
-            // Old filter links and the kept filters are read once, when the list opens. Later URLs are the list's own.
-            if (!cache.legacyChecked) {
-                cache.legacyChecked = true
-                const kept = values.value
-                if (
-                    !('q' in searchParams || 'text' in searchParams) &&
-                    !LEGACY_PARAMS.some((param) => param in searchParams) &&
-                    (kept.filters.length > 0 || kept.text)
-                ) {
-                    router.actions.replace(
-                        router.values.location.pathname,
-                        withFacetParams(searchParams, kept),
-                        hashParams
-                    )
-                    return
+            const opening = !cache.opened
+            cache.opened = true
+            // The kept filters come back only when the list opens without filters in the URL.
+            if (
+                opening &&
+                !('q' in searchParams || 'text' in searchParams) &&
+                !LEGACY_PARAMS.some((param) => param in searchParams) &&
+                (values.value.filters.length > 0 || values.value.text)
+            ) {
+                router.actions.replace(
+                    router.values.location.pathname,
+                    withFacetParams(searchParams, values.value),
+                    hashParams
+                )
+                return
+            }
+            // An old filter link can also arrive while the list is open. A later `page` param alone is not one.
+            if (LEGACY_FILTER_PARAMS.some((param) => param in searchParams) || (opening && 'page' in searchParams)) {
+                const legacy = legacyParamsToValue(searchParams)
+                const next = { ...searchParams }
+                for (const param of LEGACY_PARAMS) {
+                    delete next[param]
                 }
-                if (LEGACY_PARAMS.some((param) => param in searchParams)) {
-                    const legacy = legacyParamsToValue(searchParams)
-                    const next = { ...searchParams }
-                    for (const param of LEGACY_PARAMS) {
-                        delete next[param]
-                    }
-                    const merged = {
-                        filters: [...current.filters, ...legacy.filters],
-                        text: current.text || legacy.text,
-                    }
-                    router.actions.replace(router.values.location.pathname, withFacetParams(next, merged), hashParams)
-                    return
+                const merged = {
+                    filters: [...current.filters, ...legacy.filters],
+                    text: current.text || legacy.text,
                 }
+                router.actions.replace(router.values.location.pathname, withFacetParams(next, merged), hashParams)
+                return
             }
             if (
                 serializeFacetQuery(current.filters) !== serializeFacetQuery(values.value.filters) ||

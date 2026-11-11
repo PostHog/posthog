@@ -501,9 +501,18 @@ describe('workflowsListV2Logic', () => {
         toastError.mockRestore()
     })
 
-    it.each([urls.workflows(), urls.workflows('workflows')])(
-        'moves old filter params on %s into q and text once, replacing the history entry',
-        async (pathname) => {
+    it.each([
+        [urls.workflows(), 'the list opens', false],
+        [urls.workflows('workflows'), 'the list opens', false],
+        [urls.workflows(), 'the list is already open', true],
+    ])(
+        'moves old filter params on %s into q and text, replacing the history entry, when %s',
+        async (pathname, _, alreadyOpen) => {
+            logic = workflowsListV2Logic()
+            if (alreadyOpen) {
+                router.actions.push(pathname, { q: 'tag:old' })
+                logic.mount()
+            }
             router.actions.push(pathname, {
                 status: 'active',
                 type: 'loop',
@@ -514,8 +523,9 @@ describe('workflowsListV2Logic', () => {
                 page: '3',
                 other: 'kept',
             })
-            logic = workflowsListV2Logic()
-            logic.mount()
+            if (!alreadyOpen) {
+                logic.mount()
+            }
 
             expect(router.values.location.pathname).toEqual(`/project/${MOCK_DEFAULT_TEAM.id}${pathname}`)
             expect(router.values.searchParams).toEqual({
