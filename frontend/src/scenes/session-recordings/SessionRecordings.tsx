@@ -204,7 +204,7 @@ const REPLAY_VISION_PROMO_DISMISS_KEY = 'replay-vision-launch-promo'
 const FIELD_GUIDE_DISMISS_KEY = 'replay-field-guide-callout'
 
 function DebugHintBanner(): JSX.Element | null {
-    const { debugHintShown } = useValues(playerSettingsLogic)
+    const { debugHintShown, debugMode } = useValues(playerSettingsLogic)
     const { setDebugMode, dismissDebugHint } = useActions(playerSettingsLogic)
     const { setTab } = useActions(playerSidebarLogic)
 
@@ -216,16 +216,20 @@ function DebugHintBanner(): JSX.Element | null {
         <LemonBanner
             type="info"
             onClose={dismissDebugHint}
-            action={{
-                children: 'Open Debug',
-                center: true,
-                'data-attr': 'player-debug-hint-open',
-                onClick: () => {
-                    posthog.capture('session recording mode changed', { mode: 'debug', source: 'hint' })
-                    setDebugMode(true)
-                    setTab(SessionRecordingSidebarTab.INSPECTOR)
-                },
-            }}
+            action={
+                debugMode
+                    ? undefined
+                    : {
+                          children: 'Open Debug',
+                          center: true,
+                          'data-attr': 'player-debug-hint-open',
+                          onClick: () => {
+                              posthog.capture('session recording mode changed', { mode: 'debug', source: 'hint' })
+                              setDebugMode(true)
+                              setTab(SessionRecordingSidebarTab.INSPECTOR)
+                          },
+                      }
+            }
         >
             Looking for the inspector, network waterfall or linked issues? They are under the Watch / Debug toggle above
             the player now.
