@@ -35,7 +35,7 @@ from products.cdp.backend.api.test.secret_sender import (
     SENDER_SCHEMA,
     SENDER_URL,
     counted_reentries,
-    secret_host_binding_flag,
+    secret_reentry_flag,
     sender_inputs,
 )
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -1236,9 +1236,8 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "bytecode_contract": RUNTIME_CONTRACT,
                     "value": "I AM SECRET",
                     "order": 0,
-                    "allowed_origins": "*",
                 },
-                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1Txdova1LGOzaeT-wm3rcdlM5mHXFwD7MJIR5oxQdkx-xKJmAj9Ci6X1pSaRw4Uoavl3H6EbzY0-zxfjRHPEeZQhWrHYUcmcGciD3Tqoq8XTjF6CX0wS1UI0d-SbY1bnd4eTtg==",
+                "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1VQVJqL13wH-WALMn9obfpLYD_WWOUdMA6VurFg1Txdova1LGOzaeT-wm3rcdlM5mFI--I0NEHhfTCSP2c0mY9mHSdrOKj0biqX7SIAB_Zn7We1Xyp-msWTqSs1OYnnXHHg6kcpmjm2slU2WVlR5AJ_",
                 {"secret": True},
                 [],
             ),
@@ -1253,7 +1252,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "templating": False,
                 },
                 {"Authorization": "Bearer I AM SECRET"},
-                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0, "allowed_origins": "*"},
+                {"value": {"Authorization": "Bearer I AM SECRET"}, "order": 0},
                 None,
                 {"secret": True, "value": {"Authorization": "********"}},
                 [{"key": "headers", "type": "dictionary", "label": "Headers", "required": False}],
@@ -1269,7 +1268,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "templating": False,
                 },
                 {"I AM SECRET": "account-1"},
-                {"value": {"I AM SECRET": "account-1"}, "order": 0, "allowed_origins": "*"},
+                {"value": {"I AM SECRET": "account-1"}, "order": 0},
                 None,
                 {"secret": True},
                 [],
@@ -1499,7 +1498,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_legacy_secret_must_be_entered_again_to_change_code_inputs_or_mappings(
+    def test_stored_secret_must_be_entered_again_to_change_code_inputs_or_mappings(
         self,
         _name: str,
         method: str,
@@ -1513,7 +1512,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         function_id = res.json()["id"]
 
         surface = "update" if method == "put" else "partial_update"
-        with secret_host_binding_flag(flag_on), counted_reentries(surface) as counted:
+        with secret_reentry_flag(flag_on), counted_reentries(surface) as counted:
             res = getattr(self.client, method)(
                 f"/api/projects/{self.team.id}/hog_functions/{function_id}",
                 data={**SECRET_SENDER, **change} if method == "put" else change,
@@ -1525,32 +1524,6 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected_status == status.HTTP_400_BAD_REQUEST:
             assert (res.json()["attr"], res.json()["code"]) == ("inputs__token", "secret_reentry_required")
             assert stored["value"] == "I AM SECRET"
-        assert stored["allowed_origins"] == "*"
-
-    @parameterized.expand(
-        [
-            ("code_change", {"hog": MOVED_SENDER_HOG}),
-            ("input_change", {"inputs": sender_inputs(MOVED_URL)}),
-        ]
-    )
-    def test_secret_bound_to_platform_auth_saves_changes_without_entering_it_again(
-        self, _name: str, change: dict
-    ) -> None:
-        bound_schema = [
-            SENDER_SCHEMA[0],
-            {**SENDER_SCHEMA[1], "auth": {"scheme": "bearer", "origins": ["https://hooks.example.com"]}},
-        ]
-        res = self.client.post(
-            f"/api/projects/{self.team.id}/hog_functions/",
-            data={**SECRET_SENDER, "hog": "fetch(inputs.url, {'auth': inputs.token});", "inputs_schema": bound_schema},
-        )
-        assert res.status_code == status.HTTP_201_CREATED, res.json()
-
-        with secret_host_binding_flag(True), counted_reentries("partial_update") as counted:
-            res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{res.json()['id']}", data=change)
-
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        assert counted == {}
 
     @parameterized.expand(
         [
@@ -1566,12 +1539,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ),
         ]
     )
-    def test_secret_saved_before_origins_were_stored_is_a_legacy_secret(
+    def test_secret_stored_encrypted_or_in_plaintext_must_be_entered_again(
         self, _name: str, stored_in_plaintext: bool, change: dict, expected_status: int
     ) -> None:
         function = HogFunction.objects.create(
             team=self.team,
-            name="Saved before origins",
+            name="Stored secret",
             type="destination",
             hog=SENDER_HOG,
             inputs_schema=SENDER_SCHEMA,
@@ -1583,59 +1556,12 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 inputs={"url": {"value": SENDER_URL}, "token": {"value": "I AM SECRET"}}, encrypted_inputs=None
             )
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             res = self.client.patch(f"/api/projects/{self.team.id}/hog_functions/{function.id}", data=change)
 
         assert res.status_code == expected_status, res.json()
 
-    @parameterized.expand(
-        [
-            (
-                "declared_origins",
-                {"scheme": "bearer", "origins": ["https://hooks.example.com"]},
-                ["https://hooks.example.com"],
-            ),
-            ("origin_input", {"scheme": "bearer", "origin_input": "url"}, ["https://evil.example.com"]),
-            ("no_declaration", None, "*"),
-        ]
-    )
-    def test_secret_entered_into_a_customized_copy_stores_the_template_declared_origins(
-        self, _name: str, template_auth: Optional[dict], expected_origins: list[str] | str
-    ) -> None:
-        token_schema = {**SENDER_SCHEMA[1], **({"auth": template_auth} if template_auth else {})}
-        sync_template_to_db(
-            {**webhook_template, "id": "template-secret-sender", "inputs_schema": [SENDER_SCHEMA[0], token_schema]}
-        )
-        function = HogFunction.objects.create(
-            team=self.team,
-            name="Customized copy",
-            type="destination",
-            template_id="template-secret-sender",
-            hog=SENDER_HOG,
-            inputs_schema=SENDER_SCHEMA,
-            inputs={"url": {"value": SENDER_URL}},
-            encrypted_inputs={"token": {"value": "I AM SECRET"}},
-        )
-
-        with secret_host_binding_flag(True):
-            res = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_functions/{function.id}",
-                data={"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(MOVED_URL, {"value": "I AM NEW"})},
-            )
-
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        stored = HogFunction.objects.get(id=function.id).encrypted_inputs["token"]
-        assert (stored["value"], stored["allowed_origins"], "auth" in stored) == ("I AM NEW", expected_origins, False)
-
-        with secret_host_binding_flag(False):
-            res = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_functions/{function.id}", data={"inputs": sender_inputs(SENDER_URL)}
-            )
-
-        assert res.status_code == status.HTTP_200_OK, res.json()
-        assert HogFunction.objects.get(id=function.id).encrypted_inputs["token"]["allowed_origins"] == expected_origins
-
-    def test_internal_save_that_changes_legacy_code_is_counted_but_not_refused(self) -> None:
+    def test_internal_save_that_changes_code_is_counted_but_not_refused(self) -> None:
         res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=SECRET_SENDER)
         assert res.status_code == status.HTTP_201_CREATED, res.json()
         function = HogFunction.objects.get(id=res.json()["id"])
@@ -1647,7 +1573,7 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             context={"request": SimpleNamespace(user=self.user), "get_team": lambda: self.team},
         )
 
-        with secret_host_binding_flag(True), counted_reentries("internal") as counted:
+        with secret_reentry_flag(True), counted_reentries("internal") as counted:
             assert serializer.is_valid(), serializer.errors
 
         assert counted == {"would_refuse": 1.0}

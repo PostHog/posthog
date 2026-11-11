@@ -4,13 +4,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.cdp.backend.legacy_secrets import guarded_content, legacy_secret_keys, stored_secrets
+from products.cdp.backend.secret_reentry import filled_secret_keys, guarded_content, stored_secrets
 
 HOG = "fetch(inputs.url, {'headers': inputs.headers})"
 URL = {"key": "url", "type": "string", "label": "URL"}
 HEADERS = {"key": "headers", "type": "dictionary", "label": "Headers"}
 METHOD = {"key": "method", "type": "string", "label": "Method", "required": True, "default": "POST"}
-BOUND = {"scheme": "bearer", "origins": ["https://api.example.com"]}
 
 
 def content(hog: str = HOG, inputs: Any = None, schema: Any = None) -> dict:
@@ -70,18 +69,17 @@ class TestGuardedContent(SimpleTestCase):
         assert guarded(before) != guarded(after)
 
 
-class TestLegacySecretKeys(SimpleTestCase):
-    def test_only_a_secret_with_a_value_and_no_bound_auth_is_legacy(self) -> None:
+class TestFilledSecretKeys(SimpleTestCase):
+    def test_only_a_secret_with_a_value_needs_entering_again(self) -> None:
         secrets = {
             "token": {"value": "secret-token"},
             "headers": {"value": {"Authorization": "secret-header"}},
-            "bound": {"value": "secret-bound", "auth": BOUND},
             "blank": {"value": ""},
             "unset": {"value": None},
             "emptied": {"value": {}},
         }
 
-        assert legacy_secret_keys(secrets) == {"token", "headers"}
+        assert filled_secret_keys(secrets) == {"token", "headers"}
 
     def test_malformed_stored_inputs_hold_no_secret(self) -> None:
         assert stored_secrets(["token"], [{"key": "token", "secret": True}], None) == {}  # type: ignore[arg-type]

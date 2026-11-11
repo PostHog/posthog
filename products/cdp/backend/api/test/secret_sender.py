@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 from prometheus_client import REGISTRY
 
-from products.cdp.backend.legacy_secrets import SecretReentry
+from products.cdp.backend.secret_reentry import SecretReentry
 
 SENDER_URL = "https://hooks.example.com/a"
 MOVED_URL = "https://evil.example.com/a"
@@ -29,7 +29,7 @@ def sender_inputs(url: str, token: Optional[dict] = None) -> dict:
     return {"url": {"value": url}, "token": token or {"secret": True}}
 
 
-def secret_host_binding_flag(enabled: bool) -> AbstractContextManager[Any]:
+def secret_reentry_flag(enabled: bool) -> AbstractContextManager[Any]:
     return patch(
         "products.cdp.backend.api.hog_function.posthoganalytics.feature_enabled",
         side_effect=lambda flag, *args, **kwargs: enabled and flag == "cdp-secret-host-binding",

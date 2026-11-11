@@ -19,7 +19,7 @@ from products.cdp.backend.api.test.secret_sender import (
     SENDER_HOG,
     SENDER_URL,
     counted_reentries,
-    secret_host_binding_flag,
+    secret_reentry_flag,
     sender_inputs,
 )
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -420,7 +420,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             ),
         ]
     )
-    def test_draft_that_changes_a_legacy_function_needs_the_secret_to_test_or_publish(
+    def test_draft_that_changes_a_function_with_a_secret_needs_it_to_test_or_publish(
         self,
         _name: str,
         edits: list[dict],
@@ -430,7 +430,7 @@ class TestHogFunctionDrafts(DraftTestCase):
     ):
         function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             with counted_reentries("draft") as staged_outcomes:
                 for edit in edits:
                     self._stage(function_id, edit)
@@ -467,7 +467,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             inputs={"url": {"value": SENDER_URL}, "secret_headers": {"value": {"url": SENDER_URL, "token": "live"}}},
         )
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             self._stage(function_id, {"inputs": staged_inputs})
             published = self._publish(function_id)
 
@@ -515,7 +515,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             ),
         ]
     )
-    def test_test_invocation_that_changes_a_legacy_function_needs_the_secret(
+    def test_test_invocation_that_changes_a_function_with_a_secret_needs_it(
         self,
         _name: str,
         function_type: str,
@@ -547,7 +547,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             # The serializer fills omitted inputs from the stored function, plaintext secret included.
             del configuration["inputs"]
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             response, mock_invoke = self._test_invoke(
                 function_id, {"configuration": configuration, "mock_async_functions": False}
             )
@@ -601,7 +601,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             inputs={**sender_inputs(SENDER_URL, {"value": "live"}), "target": {"value": stored}},
         )
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             response = self.client.patch(
                 self._url(function_id),
                 {
@@ -629,12 +629,12 @@ class TestHogFunctionDrafts(DraftTestCase):
         if token is not None:
             change["inputs"] = {"url": {"value": SENDER_URL}, "token": token}
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             response = self.client.patch(self._url(function_id), change)
 
         assert response.status_code == expected_status, response.json()
 
-    def test_entering_one_secret_needs_its_legacy_siblings_entered_too(self):
+    def test_entering_one_secret_needs_its_siblings_entered_too(self):
         sibling_schema = {"key": "target", "type": "string", "label": "Target", "secret": True}
         function_id = self._create(
             hog="fetch(inputs.target, {'headers': {'Authorization': inputs.token}});",
@@ -642,7 +642,7 @@ class TestHogFunctionDrafts(DraftTestCase):
             inputs={**sender_inputs(SENDER_URL, {"value": "live"}), "target": {"value": SENDER_URL}},
         )
 
-        with secret_host_binding_flag(True):
+        with secret_reentry_flag(True):
             response = self.client.patch(
                 self._url(function_id),
                 {"inputs": {**sender_inputs(SENDER_URL), "target": {"value": MOVED_URL}}},
