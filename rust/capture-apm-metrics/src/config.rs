@@ -24,6 +24,10 @@ pub struct Config {
     #[envconfig(from = "REMOTE_WRITE_K8S_RESOURCE_ATTRIBUTE_TOKENS", default = "")]
     pub remote_write_k8s_resource_attribute_tokens: String,
 
+    /// Turn on only after every metrics reader skips stale markers.
+    #[envconfig(from = "PROMETHEUS_KEEP_STALE_MARKERS", default = "false")]
+    pub prometheus_keep_stale_markers: bool,
+
     /// When false the gate still tracks series and reports metrics but leaves
     /// every row labelled, so the switch can flip once the metrics2 read path
     /// takes labels from the series rollup.
