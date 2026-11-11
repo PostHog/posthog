@@ -45,6 +45,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
 from posthog.test.persons import create_group_type_mapping
 
@@ -1652,6 +1653,36 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             )
 
         assert [str(row[0]) for row in response.results] == [str(fresh.uuid)]
+
+    @parameterized.expand(
+        [
+            ("union", READ, f"SELECT count() FROM events WHERE {MIXED}", ["union"]),
+            ("swap", ONLY, "SELECT count() FROM events WHERE event = '$feature_flag_called'", ["flag_evaluations"]),
+            (
+                "union_and_swap",
+                ONLY,
+                "SELECT count() FROM events AS a JOIN events AS b ON a.uuid = b.uuid "
+                f"WHERE a.{MIXED} AND b.event = '$feature_flag_called'",
+                ["flag_evaluations", "union"],
+            ),
+            ("inline_cohort", ONLY, "SELECT id FROM persons WHERE id IN COHORT {cohort}", ["union"]),
+            ("no_flag_calls", ONLY, "SELECT count() FROM events WHERE event = '$pageview'", None),
+        ]
+    )
+    def test_log_comment_names_the_rewrites_that_read_flag_calls(
+        self, _name: str, mode: FlagEvaluationsMode, query: str, expected: list[str] | None
+    ):
+        cohort = _performed_flag_call_cohort(self.team, "probe-flag")
+        tagged: list[list[str] | None] = []
+
+        def record_tag(*args: Any, **kwargs: Any):
+            tagged.append(json.loads(get_query_tags().to_json()).get("flag_calls_read"))
+            return sync_execute(*args, **kwargs)
+
+        with patch("posthog.hogql.query.sync_execute", side_effect=record_tag):
+            self._run(query.format(cohort=cohort.pk), mode, inlineCohortCalculation=InlineCohortCalculation.ALWAYS)
+
+        assert tagged == [expected]
 
     def test_ratio_sample_keeps_the_same_distinct_ids_in_both_tables(self):
         now = datetime.now(UTC)

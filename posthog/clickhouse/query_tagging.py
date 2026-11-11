@@ -577,6 +577,10 @@ class QueryTags(BaseModel):
     directly_read_ids: Optional[list[str]] = None
     materialized_saved_query_id: Optional[str] = None
 
+    # The HogQL rewrites that moved this query's flag calls to `posthog.flag_evaluations`: "flag_evaluations" for a
+    # scan that reads that table instead of `events`, and "union" for a scan that reads both tables with UNION ALL.
+    flag_calls_read: Optional[list[str]] = None
+
     trend_volume_type: Optional[str] = None
 
     has_joins: Optional[bool] = None
