@@ -6,7 +6,7 @@ lifecycle machine in `facade.lifecycle`, and scheduling math in `facade.scheduli
 """
 
 import uuid
-from collections.abc import Collection
+from collections.abc import Collection, Iterable, Iterator
 from datetime import datetime, timedelta
 from itertools import islice
 from typing import Literal
@@ -381,29 +381,14 @@ def list_firing_alerts_created_by(
         alerts = alerts.exclude(id__in=alerts.filter(METRICS_INSIGHT_QUERY_FILTER).values("id"))
     access = UserAccessControl(user, team=team)
     rows = alerts.select_related("insight").order_by("-created_at")[:FIRING_ALERT_CANDIDATES]
-    native = _native_enabled_alerts(
-        team_id=team.id, limit=FIRING_ALERT_CANDIDATES, created_by_id=user.id, firing_at=now
+    native = (
+        (configuration, insight)
+        for configuration, insight in _native_enabled_alerts(
+            team_id=team.id, limit=FIRING_ALERT_CANDIDATES, created_by_id=user.id, firing_at=now
+        )
+        if include_metrics_insights or not _is_metrics_insight(insight)
     )
-    candidates = sorted(
-        [
-            *(
-                _EnabledCandidate(created_at=alert.created_at, id=alert.id, name=alert.name, insight=alert.insight)
-                for alert in rows
-            ),
-            *(
-                _EnabledCandidate(
-                    created_at=configuration.created_at, id=configuration.id, name=configuration.name, insight=insight
-                )
-                for configuration, insight in native
-                if include_metrics_insights or not _is_metrics_insight(insight)
-            ),
-        ],
-        key=lambda candidate: candidate.created_at,
-        reverse=True,
-    )[:FIRING_ALERT_CANDIDATES]
-    viewable = (
-        candidate for candidate in candidates if access.check_access_level_for_object(candidate.insight, "viewer")
-    )
+    viewable = _newest_viewable(rows, native, access=access, candidates=FIRING_ALERT_CANDIDATES)
     return [
         contracts.FiringAlert(
             id=candidate.id,
@@ -433,25 +418,8 @@ def list_enabled_alerts(team: Team, user: User, *, limit: int) -> list[contracts
         .select_related("insight")
         .order_by("-created_at")[:ENABLED_ALERT_CANDIDATES]
     )
-    candidates = sorted(
-        [
-            *(
-                _EnabledCandidate(created_at=alert.created_at, id=alert.id, name=alert.name, insight=alert.insight)
-                for alert in rows
-            ),
-            *(
-                _EnabledCandidate(
-                    created_at=configuration.created_at, id=configuration.id, name=configuration.name, insight=insight
-                )
-                for configuration, insight in _native_enabled_alerts(team_id=team.id, limit=ENABLED_ALERT_CANDIDATES)
-            ),
-        ],
-        key=lambda candidate: candidate.created_at,
-        reverse=True,
-    )[:ENABLED_ALERT_CANDIDATES]
-    viewable = (
-        candidate for candidate in candidates if access.check_access_level_for_object(candidate.insight, "viewer")
-    )
+    native = _native_enabled_alerts(team_id=team.id, limit=ENABLED_ALERT_CANDIDATES)
+    viewable = _newest_viewable(rows, native, access=access, candidates=ENABLED_ALERT_CANDIDATES)
     return [
         contracts.EnabledAlert(
             id=candidate.id,
@@ -469,6 +437,34 @@ class _EnabledCandidate:
     id: uuid.UUID
     name: str
     insight: Insight
+
+
+def _newest_viewable(
+    rows: Iterable[AlertConfiguration],
+    native: Iterable[tuple[EnabledNativeConfiguration, Insight]],
+    *,
+    access: UserAccessControl,
+    candidates: int,
+) -> Iterator[_EnabledCandidate]:
+    """Alerts with and without an insight row, newest first, cut to `candidates` before the access
+    check, then those on insights the user can view."""
+    merged = sorted(
+        [
+            *(
+                _EnabledCandidate(created_at=alert.created_at, id=alert.id, name=alert.name, insight=alert.insight)
+                for alert in rows
+            ),
+            *(
+                _EnabledCandidate(
+                    created_at=configuration.created_at, id=configuration.id, name=configuration.name, insight=insight
+                )
+                for configuration, insight in native
+            ),
+        ],
+        key=lambda candidate: candidate.created_at,
+        reverse=True,
+    )[:candidates]
+    return (candidate for candidate in merged if access.check_access_level_for_object(candidate.insight, "viewer"))
 
 
 def _native_enabled_alerts(
