@@ -187,7 +187,7 @@ describe('scorecard', () => {
         [
             'while it waits to read the event back again',
             (interrupt) => {
-                api.onQuery = () => setTimeout(() => interrupt.abort(), 50)
+                api.onQueryAnswered = () => setTimeout(() => interrupt.abort(), 200)
             },
         ],
     ])(

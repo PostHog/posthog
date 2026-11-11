@@ -31,7 +31,7 @@ export type FakeProjectApi = {
     hideForQueries: number
     throttleCaptures: number
     onCapture: (event: Captured) => void
-    onQuery: () => void
+    onQueryAnswered: () => void
     close(): Promise<void>
 }
 
@@ -69,7 +69,7 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
         hideForQueries: 0,
         throttleCaptures: 0,
         onCapture: (_event: Captured): void => undefined,
-        onQuery: (): void => undefined,
+        onQueryAnswered: (): void => undefined,
     }
     const cached = new Map<string, unknown>()
     const server: Server = createServer((request, response) => {
@@ -127,8 +127,8 @@ export async function startFakeProjectApi(): Promise<FakeProjectApi> {
                         .map(({ uuid }) => [uuid])
                     cached.set(key, { columns: ['uuid'], results: rows })
                 }
-                answer(response, 200, cached.get(key))
-                return fake.onQuery()
+                response.once('finish', () => fake.onQueryAnswered())
+                return answer(response, 200, cached.get(key))
             }
             return answer(response, 404, { type: 'invalid_request' })
         })()
