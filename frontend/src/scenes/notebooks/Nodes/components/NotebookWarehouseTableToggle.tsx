@@ -71,7 +71,7 @@ export function NotebookWarehouseTableToggle({
                 ) : (
                     <Link
                         key="saved"
-                        to={urls.sqlEditor({ query: `SELECT * FROM ${lastSave.name}` })}
+                        to={urls.sqlEditor({ query: `SELECT * FROM \`${lastSave.name}\`` })}
                         target="_blank"
                         className="max-w-full truncate"
                         title={lastSave.name}
