@@ -9,8 +9,6 @@ const PROJECT_ID = '42'
 
 type Step = { id: string; type: string; email: Record<string, unknown> }
 
-// Stands in for the email patch endpoint: it accepts only the body the real API's schema accepts, and
-// applies the sender switch to the stored step.
 function emailEndpoint(step: Step): { stored: Step; context: Context } {
     const stored = { ...step, email: { ...step.email } }
     const request = async ({
