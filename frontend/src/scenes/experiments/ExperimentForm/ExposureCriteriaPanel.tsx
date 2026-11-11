@@ -375,11 +375,9 @@ export function ExposureCriteriaPanel({
                                     return
                                 }
                                 if (value === 'warehouse_native') {
-                                    // The backend refuses to run a warehouse-native metric with the filter on
                                     onChange({
                                         exposure_config: DEFAULT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG,
                                         activation_config: undefined,
-                                        filterTestAccounts: false,
                                     })
                                 } else if (value === 'custom') {
                                     onChange({

@@ -589,11 +589,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         ):
             raise ExposedHogQLError("Warehouse-native experiments support mean and ratio metrics only.")
         # Test account filters match PostHog persons and events. The warehouse rows have neither, so a result
-        # that claimed to apply them would be wrong. Without filters on the project the setting changes nothing.
+        # that claimed to apply them would be wrong. A save turns the setting off for a warehouse-native exposure,
+        # so only an experiment saved before that rule still carries it on.
         if self.team.test_account_filters and resolve_filter_test_accounts(self.experiment.exposure_criteria):
             raise ExposedHogQLError(
                 "Warehouse-native metrics cannot filter test accounts. "
-                "Turn off the test account filter in the exposure criteria."
+                "Open the exposure criteria and save them again to turn the filter off."
             )
 
         statement = WarehouseNativeQueryBuilder(

@@ -3606,6 +3606,11 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
+        if update_data.get("exposure_criteria") is not None:
+            update_data = {
+                **update_data,
+                "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
+            }
         if _WAREHOUSE_NATIVE_SOURCE_FIELDS & update_data.keys():
             # The rule spans the exposure and every metric, so the fields left out of the update are read
             # from the experiment. An update that touches none of them skips the check, so a connection

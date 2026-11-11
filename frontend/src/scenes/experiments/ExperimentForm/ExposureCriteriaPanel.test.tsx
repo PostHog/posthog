@@ -74,7 +74,6 @@ describe('ExposureCriteriaPanel', () => {
                     query: '',
                 },
                 activation_config: undefined,
-                filterTestAccounts: false,
             })
         }
     })

@@ -207,7 +207,6 @@ export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCri
                             if (warehouseExposure) {
                                 return
                             }
-                            // The backend refuses to run a warehouse-native metric with the filter on
                             setExposureCriteria({
                                 ...exposureCriteria,
                                 exposure_config: {
@@ -216,7 +215,6 @@ export function ExposureCriteriaModal({ onSave, metricDataSources }: ExposureCri
                                     query: '',
                                 },
                                 activation_config: undefined,
-                                filterTestAccounts: false,
                             })
                         }}
                     />
