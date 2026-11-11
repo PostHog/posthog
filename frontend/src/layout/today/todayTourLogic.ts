@@ -78,6 +78,7 @@ export interface todayTourLogicValues {
     tour: TodayTourSession | null
     tourActive: boolean
     tourCompleted: boolean
+    tourJustCompleted: boolean
     tourStep: TodayTourStep | null
 }
 
@@ -86,6 +87,9 @@ export interface todayTourLogicActions {
     setHelpMenuOpen: (isOpen: boolean) => {
         isOpen: boolean
     } // helpMenuLogic
+    dismissNewNavDialog: () => {
+        value: true
+    } // navSwitchLogic
     setNewNavDialogOpen: (open: boolean) => {
         open: boolean
     } // navSwitchLogic
@@ -139,9 +143,8 @@ export type todayTourLogicType = MakeLogicType<
 
 /**
  * Walks through the main rail panes and the switch back in the "More" menu, then returns to the view the tour
- * started from. A tour that ends early opens the "PostHog is changing" dialog again. `TodayTourCursor` moves between
- * the steps: it calls `clickTourTarget` when it clicks, and `revealTourStep` with the point it stopped at, which is
- * where the card shows.
+ * started from. `TodayTourCursor` moves between the steps: it calls `clickTourTarget` when it clicks, and
+ * `revealTourStep` with the point it stopped at, which is where the card shows.
  */
 export const todayTourLogic = kea<todayTourLogicType>([
     path(['layout', 'today', 'todayTourLogic']),
@@ -151,7 +154,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
             todayShellLogic,
             ['showPane', 'restoreView'],
             navSwitchLogic,
-            ['setNewNavDialogOpen', 'showAdvertisement'],
+            ['setNewNavDialogOpen', 'dismissNewNavDialog', 'showAdvertisement'],
             helpMenuLogic,
             ['setHelpMenuOpen'],
         ],
@@ -181,6 +184,17 @@ export const todayTourLogic = kea<todayTourLogicType>([
             { persist: true },
             {
                 markTourCompleted: () => true,
+                resetDesignTour: () => false,
+            },
+        ],
+        // The dialog that opens when the tour ends congratulates someone who saw every step. Once that dialog closes,
+        // a later dialog shows its usual copy, so this is not persisted.
+        tourJustCompleted: [
+            false,
+            {
+                markTourCompleted: () => true,
+                setNewNavDialogOpen: (state, { open }) => open && state,
+                dismissNewNavDialog: () => false,
                 resetDesignTour: () => false,
             },
         ],
@@ -235,10 +249,7 @@ export const todayTourLogic = kea<todayTourLogicType>([
             // Only the last step opens the "More" menu. Closing a closed menu changes nothing.
             actions.setHelpMenuOpen(false)
             actions.restoreView(tour.returnTo)
-            // The last step already showed the switch back, so only a tour that ended early brings the dialog back.
-            if (!completed) {
-                actions.setNewNavDialogOpen(true)
-            }
+            actions.setNewNavDialogOpen(true)
         },
         // A local development shortcut that forgets what the switch flow saved in this browser, then reloads, so the
         // flow runs again from the start. The reload also drops logics that a hot reload left on an older version.

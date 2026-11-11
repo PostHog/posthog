@@ -16,26 +16,40 @@ const closeTourEarly = (logic: TourLogic): void => {
 }
 
 describe('todayTourLogic', () => {
+    let tourLogic: TourLogic
+    let switchLogic: ReturnType<typeof navSwitchLogic.build>
+
     beforeEach(() => {
         localStorage.clear()
         initKeaTests()
+        tourLogic = todayTourLogic()
+        tourLogic.mount()
+        switchLogic = navSwitchLogic()
+        switchLogic.mount()
+        switchLogic.actions.setNewNavDialogOpen(true)
+        tourLogic.actions.startTour({ x: 0, y: 0 })
     })
 
     test.each([
-        { ending: 'clicking Done on the last step', endTheTour: clickDoneOnLastStep, dialogOpen: false },
-        { ending: 'closing the tour early', endTheTour: closeTourEarly, dialogOpen: true },
-    ])('ending the tour by $ending leaves the dialog open: $dialogOpen', ({ endTheTour, dialogOpen }) => {
-        const tourLogic = todayTourLogic()
-        tourLogic.mount()
-        const switchLogic = navSwitchLogic()
-        switchLogic.mount()
-
-        switchLogic.actions.setNewNavDialogOpen(true)
-        tourLogic.actions.startTour({ x: 0, y: 0 })
+        { ending: 'clicking Done on the last step', endTheTour: clickDoneOnLastStep, finished: true },
+        { ending: 'closing the tour early', endTheTour: closeTourEarly, finished: false },
+    ])('ending the tour by $ending reopens the dialog, finished: $finished', ({ endTheTour, finished }) => {
         endTheTour(tourLogic)
 
         expect(tourLogic.values.tourActive).toBe(false)
-        expect(tourLogic.values.tourCompleted).toBe(!dialogOpen)
-        expect(switchLogic.values.newNavDialogOpen).toBe(dialogOpen)
+        expect(switchLogic.values.newNavDialogOpen).toBe(true)
+        expect(tourLogic.values.tourJustCompleted).toBe(finished)
+    })
+
+    test.each([
+        { closing: 'a dialog button', close: () => switchLogic.actions.setNewNavDialogOpen(false) },
+        { closing: 'a dismissal', close: () => switchLogic.actions.dismissNewNavDialog() },
+    ])('closing the finished-tour dialog with $closing brings back the usual copy', ({ close }) => {
+        clickDoneOnLastStep(tourLogic)
+        close()
+        switchLogic.actions.setNewNavDialogOpen(true)
+
+        expect(tourLogic.values.tourCompleted).toBe(true)
+        expect(tourLogic.values.tourJustCompleted).toBe(false)
     })
 })
