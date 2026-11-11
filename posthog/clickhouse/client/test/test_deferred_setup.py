@@ -6,8 +6,25 @@ from django.conf import settings
 from posthog.clickhouse.client.deferred_setup import DeferredSetup
 
 
-def test_a_concurrent_first_use_waits_until_the_setup_finished() -> None:
+class _ArrivalSignalingEvent(threading.Event):
+    def __init__(self) -> None:
+        super().__init__()
+        self.waiter_arrived = threading.Event()
+
+    def wait(self, timeout: float | None = None) -> bool:
+        self.waiter_arrived.set()
+        return super().wait(timeout)
+
+
+def _deferred_that_signals_waiters() -> tuple[DeferredSetup, _ArrivalSignalingEvent]:
     deferred = DeferredSetup()
+    finished = _ArrivalSignalingEvent()
+    deferred._finished = finished
+    return deferred, finished
+
+
+def test_a_concurrent_first_use_waits_until_the_setup_finished() -> None:
+    deferred, finished = _deferred_that_signals_waiters()
     setup_started = threading.Event()
     release_setup = threading.Event()
     seen_by_other_thread: list[bool] = []
@@ -27,6 +44,7 @@ def test_a_concurrent_first_use_waits_until_the_setup_finished() -> None:
     owner = threading.Thread(target=deferred.run)
     owner.start()
     setup_started.wait(timeout=5)
+    assert finished.waiter_arrived.wait(timeout=5)
     release_setup.set()
     owner.join(timeout=5)
     waiter.join(timeout=5)
@@ -92,7 +110,7 @@ def test_a_failed_setup_stays_pending() -> None:
 
 
 def test_a_waiting_caller_retries_a_setup_that_failed() -> None:
-    deferred = DeferredSetup()
+    deferred, finished = _deferred_that_signals_waiters()
     setup_started = threading.Event()
     release_setup = threading.Event()
     attempts: list[str] = []
@@ -117,6 +135,7 @@ def test_a_waiting_caller_retries_a_setup_that_failed() -> None:
     setup_started.wait(timeout=5)
     waiter = threading.Thread(target=deferred.run, name="waiter")
     waiter.start()
+    assert finished.waiter_arrived.wait(timeout=5)
     release_setup.set()
     first.join(timeout=5)
     waiter.join(timeout=5)
