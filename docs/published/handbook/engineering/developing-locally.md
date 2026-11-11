@@ -376,6 +376,8 @@ hogli test posthog/test/test_example.py -k test_something
 
 To see debug logs (such as ClickHouse queries), add argument `--log-cli-level=DEBUG`.
 
+Plain `pytest` works the same way. Backend tests need Postgres. The test ClickHouse database is created when a test first uses ClickHouse, so tests that never query ClickHouse also run while ClickHouse is down. A test that does query it fails with an error that says how to start it.
+
 You can also run tests for all files changed on the current branch:
 
 ```bash
