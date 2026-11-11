@@ -4,7 +4,8 @@ import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE, FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
@@ -12,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventPropertyDefinitions } from '~/test/mocks'
+import { PropertyDefinition, PropertyDefinitionType } from '~/types'
 
 describe('propertyDefinitionsTableLogic', () => {
     let logic: ReturnType<typeof propertyDefinitionsTableLogic.build>
@@ -241,5 +243,65 @@ describe('propertyDefinitionsTableLogic', () => {
                 })
             expect(api.get).toHaveBeenCalledTimes(2)
         })
+    })
+
+    describe('query usage', () => {
+        const definitions = [
+            { id: 'a', name: 'plan', type: PropertyDefinitionType.Event },
+            { id: 'b', name: '$virt', type: PropertyDefinitionType.Event, virtual: true },
+            { id: 'c', name: 'industry', type: PropertyDefinitionType.Group, group_type_index: 0 },
+            { id: 'd', name: 'industry', type: PropertyDefinitionType.Group },
+            { id: 'e', name: 'email', type: PropertyDefinitionType.Person },
+        ] as PropertyDefinition[]
+        let requestedProperties: unknown[] | null
+
+        beforeEach(() => {
+            requestedProperties = null
+            useMocks({
+                post: {
+                    '/api/projects/:team/property_definitions/usage_metrics/': async ({ request }) => {
+                        const { properties } = (await request.json()) as { properties: Record<string, unknown>[] }
+                        requestedProperties = properties
+                        return [
+                            200,
+                            {
+                                results: properties.map((entry, index) => ({
+                                    ...entry,
+                                    group_type_index: entry.group_type_index ?? null,
+                                    query_usage_30_day: (index + 1) * 10,
+                                })),
+                            },
+                        ]
+                    },
+                },
+            })
+        })
+
+        it.each([
+            [
+                'on',
+                { a: 10, c: 20, e: 30 },
+                [
+                    { type: 'event', name: 'plan' },
+                    { type: 'group', name: 'industry', group_type_index: 0 },
+                    { type: 'person', name: 'email' },
+                ],
+            ],
+            ['off', null, null],
+        ])(
+            'loads counts for the visible page by definition id when the flag is %s',
+            async (flag, expectedUsage, expectedRequest) => {
+                featureFlagLogic.actions.setFeatureFlags(
+                    [FEATURE_FLAGS.DEFINITION_USAGE_SECTION],
+                    flag === 'on' ? { [FEATURE_FLAGS.DEFINITION_USAGE_SECTION]: true } : {}
+                )
+
+                logic.actions.loadPropertyDefinitionsSuccess({ count: definitions.length, results: definitions })
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.queryUsage).toEqual(expectedUsage)
+                expect(requestedProperties).toEqual(expectedRequest)
+            }
+        )
     })
 })
