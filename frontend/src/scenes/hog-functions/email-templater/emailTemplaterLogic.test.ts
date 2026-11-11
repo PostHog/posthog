@@ -669,23 +669,46 @@ describe('emailTemplaterLogic', () => {
             expect(onChange).toHaveBeenCalledTimes(1)
         })
 
-        it('closing mid-debounce flushes the pending canvas edit instead of dropping it', async () => {
+        it.each([
+            {
+                trigger: 'closing and reopening the editor',
+                leave: (): void => logic.actions.closeWithConfirmation(),
+                reopen: true,
+            },
+            {
+                trigger: 'switching the sender',
+                leave: (): void => void logic.asyncActions.flushPendingDesignEdit(),
+                reopen: false,
+            },
+        ])('$trigger mid-debounce keeps the pending canvas edit', async ({ leave, reopen }) => {
             jest.useFakeTimers()
             editorDesign = DESIGN_EDITED
             editorListeners['design:updated']()
-            // Close before the 500ms debounce fires - the last edit must still propagate.
-            logic.actions.closeWithConfirmation()
+            leave()
             await jest.advanceTimersByTimeAsync(0)
             expect(onChange).toHaveBeenCalledTimes(1)
             expect(onChange.mock.calls[0][0]).toMatchObject({ design: DESIGN_EDITED, text: 'edited' })
-            expect(logic.values.isModalOpen).toBe(false)
 
-            // The debounced export still fires afterwards; the flush must have rebaselined so it
-            // does not propagate the same edit twice.
+            if (reopen) {
+                logic.actions.setIsModalOpen(true)
+            }
+            logic.actions.setEmailEditorRef({
+                editor: {
+                    loadDesign,
+                    addEventListener: () => {},
+                    registerProvider: () => {},
+                    registerCallback: () => {},
+                    exportHtml: (callback: (data: any) => void) =>
+                        callback({ html: '', design: { body: { id: 'blank', rows: [] } } }),
+                    exportPlainText: (callback: (data: any) => void) => callback({ text: '' }),
+                },
+            } as unknown as EditorRef)
+            logic.actions.onEmailEditorReady()
             await jest.advanceTimersByTimeAsync(500)
             jest.useRealTimers()
             await expectLogic(logic).toFinishAllListeners()
-            expect(onChange).toHaveBeenCalledTimes(1)
+
+            expect(onChange.mock.calls.map(([email]) => email.design)).toEqual([DESIGN_EDITED])
         })
 
         it('loads an externally changed design into the mounted canvas', async () => {
