@@ -269,3 +269,7 @@ class RedisValuesTool(ConsoleTool):
                 ),
             ),
         ]
+
+
+console.register_moved_page(old_path="admin/redisvalues", title="Redis values", url=TOOL_URL)
+console.register_moved_page(old_path="admin/redis/edit-ttl", title="Editing a Redis TTL", url=f"{TOOL_URL}set-ttl/")
