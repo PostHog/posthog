@@ -17,7 +17,6 @@ from posthog.api.sso import saml_metadata_view
 from posthog.ingress.vercel.provider import build_vercel_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.middleware import impersonated_session_logout
-from posthog.views import api_key_search_view, redis_edit_ttl_view, redis_values_view
 
 from products.cdp.backend.api import hooks
 
@@ -42,7 +41,7 @@ def extend_api_router() -> None:
         r"billing", organization_billing.OrganizationBillingViewSet, "organization_billing", ["organization_id"]
     )
     projects_router.register(r"billing", project_billing.ProjectBillingViewSet, "project_billing", ["team_id"])
-    root_router.register(r"integrations", integration.PublicIntegrationViewSet)
+    root_router.register(r"integrations", integration.PublicIntegrationViewSet, "integration")
     projects_router.register(r"hooks", hooks.HookViewSet, "project_hooks", ["team_id"])
 
     projects_router.register(r"conversations", conversation.ConversationViewSet, "project_conversations", ["team_id"])
@@ -66,13 +65,6 @@ if settings.ADMIN_PORTAL_ENABLED:
         except NotRegistered:
             pass
 
-    from posthog.admin.admins.distinct_id_usage_admin import distinct_id_usage_view
-    from posthog.admin.admins.notebook_markdown_migration_admin import (
-        notebook_markdown_migration_run_view,
-        notebook_markdown_migration_stats_view,
-        notebook_markdown_migration_view,
-    )
-    from posthog.admin.admins.tophog_admin import tophog_dashboard_view, tophog_restrictions_view
     from posthog.admin.console.urls import urlpatterns as console_urlpatterns
 
     admin_urlpatterns = [
@@ -81,9 +73,22 @@ if settings.ADMIN_PORTAL_ENABLED:
         path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
         path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
         path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
-        path("admin/redisvalues", redis_values_view, name="redis_values"),
-        path("admin/redis/edit-ttl", redis_edit_ttl_view, name="redis_edit_ttl"),
-        path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
+        path(
+            "admin/redisvalues",
+            MovedToConsole.page_redirect("Redis values", "/admin/console/tools/redis-values/"),
+            name="redis_values",
+        ),
+        path(
+            "admin/redis/edit-ttl",
+            MovedToConsole.page_redirect("Editing a Redis TTL", "/admin/console/tools/redis-values/set-ttl/"),
+            name="redis_edit_ttl",
+        ),
+        # The old page took the key in a POST body, so a bookmark carries no key and none lands in the new URL.
+        path(
+            "admin/apikeysearch",
+            MovedToConsole.page_redirect("API key search", "/admin/console/tools/api-key-search/"),
+            name="api_key_search",
+        ),
         path(
             "admin/resave-cohorts/",
             MovedToConsole.page_redirect("Re-save cohorts", "/admin/console/tools/resave-cohorts/"),
@@ -91,7 +96,7 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/distinct-id-usage/",
-            admin.site.admin_view(distinct_id_usage_view),
+            MovedToConsole.page_redirect("Distinct ID usage", "/admin/console/tools/distinct-id-usage/"),
             name="distinct-id-usage",
         ),
         path(
@@ -101,12 +106,12 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/tophog/",
-            admin.site.admin_view(tophog_dashboard_view),
+            MovedToConsole.page_redirect("TopHog", "/admin/console/tools/tophog/"),
             name="tophog-dashboard",
         ),
         path(
             "admin/tophog/restrictions/",
-            admin.site.admin_view(tophog_restrictions_view),
+            MovedToConsole.page_redirect("TopHog restrictions", "/admin/console/tools/tophog/"),
             name="tophog-restrictions",
         ),
         path(
@@ -126,18 +131,23 @@ if settings.ADMIN_PORTAL_ENABLED:
         ),
         path(
             "admin/notebook-markdown-migration/",
-            admin.site.admin_view(notebook_markdown_migration_view),
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
             name="notebook-markdown-migration",
         ),
+        # The old page fetched these JSON endpoints itself, so a bookmark of one lands on the tool page.
         path(
             "admin/notebook-markdown-migration/stats/",
-            admin.site.admin_view(notebook_markdown_migration_stats_view),
-            name="notebook-markdown-migration-stats",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/notebook-markdown-migration/run/",
-            admin.site.admin_view(notebook_markdown_migration_run_view),
-            name="notebook-markdown-migration-run",
+            MovedToConsole.page_redirect(
+                "Markdown notebook migration", "/admin/console/tools/notebook-markdown-migration/"
+            ),
         ),
         path(
             "admin/logout/",

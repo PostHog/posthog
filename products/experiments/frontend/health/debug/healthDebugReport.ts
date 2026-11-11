@@ -357,6 +357,11 @@ function exposureChecks(input: HealthDebugInput): HealthDebugCheck[] {
             ['exposures', 'flag'],
             'The finding needs p < 0.001. After a split change it tests the users first exposed after the day of the change. It reads the flag history only for a reader who can view the flag.'
         ),
+        exposureCheck(
+            'unserved_variant_exposures',
+            ['exposures', 'flag'],
+            "The finding needs 5 or more users or groups, and more than 1% of those first exposed after the day of the flag's last save, in variants that the flag doesn't serve. It leaves a flag with a 0% rollout to the flag-state check."
+        ),
         exposureCheck('bias_risk_multiple_excluded', ['exposures'], null),
         exposureCheck(
             'multiple_variants_share',

@@ -66,6 +66,20 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
     # `posthog_user`, and creating that constraint locks a table every request writes.
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    # Every source kind's alert carries it, so a source's pages can show and filter on it without its own row.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        # The partial index in Meta serves user deletion, which nulls this column across every team.
+        db_index=False,
+        related_name="+",
+    )
+    # When the alert was first turned on. Null means it is still a draft. Kept for an alert with no
+    # source row, because the source's pages show it.
+    first_enabled_at = models.DateTimeField(null=True, blank=True)
 
     name = models.CharField(max_length=255)
     enabled = models.BooleanField(default=True, db_default=True)
@@ -154,6 +168,11 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         # Pinned: the name predates this app, and removing this renames a live table.
         db_table = "alerts_platformalertconfiguration"
         indexes = [
+            models.Index(
+                fields=["created_by"],
+                name="platform_alert_cfg_creator_idx",
+                condition=models.Q(created_by__isnull=False),
+            ),
             # Discovery: enabled rows ordered by due time. Partial, because a disabled
             # configuration is never discovered and does not belong in the index.
             models.Index(
@@ -347,7 +366,7 @@ class PlatformAlertDeliveryHold(TeamScopedRootMixin, UUIDModel):
 
 
 class AlertDestination(TeamScopedRootMixin, UUIDModel):
-    """Where an alert sends, for an alert whose `destinations_owner` is the platform.
+    """Where an alert sends, beside any HogFunctions it has.
 
     One row is one destination a person sees on the alert's page. It sends through the platform's
     transport for its type.
@@ -373,3 +392,44 @@ class AlertDestination(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         db_table = "alerts_platformalertdestination"
+
+
+class AlertReceiver(TeamScopedRootMixin, UUIDModel):
+    """A named destination that routes send to, for every alert they match rather than one alert."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    name = models.CharField(max_length=255)
+    type = models.CharField(max_length=32, choices=DestinationType.choices)
+    config = EncryptedJSONStringField(default=dict)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertreceiver"
+        constraints = [models.UniqueConstraint(fields=["team", "name"], name="alert_receiver_unique_name")]
+
+
+class AlertRoute(TeamScopedRootMixin, UUIDModel):
+    """Which alerts a receiver hears, by the labels on the alert's configuration.
+
+    Routes are read in `position` order. Every matching route sends, unless one with `continue_matching`
+    off stops the routes after it.
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    receiver = models.ForeignKey(AlertReceiver, on_delete=models.CASCADE, related_name="routes")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # `[{"label": ..., "op": "=", "value": ...}]`, all of which must hold. An empty list matches every alert.
+    matchers = models.JSONField(default=list, db_default=[])
+    event_kinds = ArrayField(models.CharField(max_length=16), default=list)
+    position = models.PositiveIntegerField(default=0, db_default=0)
+    continue_matching = models.BooleanField(default=True, db_default=True)
+    enabled = models.BooleanField(default=True, db_default=True)
+
+    class Meta:
+        db_table = "alerts_platformalertroute"
+        indexes = [models.Index(fields=["team", "position"], name="alert_route_team_position_idx")]

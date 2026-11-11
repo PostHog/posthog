@@ -10,6 +10,7 @@ from products.slack_app.backend.temporal.activities.classifiers import (
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
+from products.slack_app.backend.temporal.activities.connect_tool import offer_slack_app_tool_connections_activity
 from products.slack_app.backend.temporal.activities.fork import process_slack_app_fork_thread_activity
 from products.slack_app.backend.temporal.activities.messaging import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
@@ -42,7 +43,10 @@ from products.slack_app.backend.temporal.activities.slack_app_onboarding import 
     post_slack_app_onboarding_message_activity,
     remind_slack_app_onboarding_activity,
 )
-from products.slack_app.backend.temporal.activities.slack_app_work_focus import find_slack_app_work_focus_activity
+from products.slack_app.backend.temporal.activities.slack_app_work_focus import (
+    claim_due_slack_app_daily_focus_activity,
+    find_slack_app_work_focus_activity,
+)
 from products.slack_app.backend.temporal.activities.task_creation import (
     create_posthog_code_task_for_repo_activity,
     derive_mention_workflow_id,
@@ -100,6 +104,8 @@ __all__ = [
     "run_posthog_slack_inbox_onboarding",
     "edit_slack_app_onboarding_message_activity",
     "find_slack_app_work_focus_activity",
+    "claim_due_slack_app_daily_focus_activity",
+    "offer_slack_app_tool_connections_activity",
     "plan_slack_app_onboarding_activity",
     "post_slack_app_onboarding_message_activity",
     "remind_slack_app_onboarding_activity",

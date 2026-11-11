@@ -9,6 +9,8 @@ from posthog.egress.limiter.policies import Priority
 from posthog.integrations import IntegrationManager
 from posthog.storage import object_storage
 
+from products.signals.backend.facade.trial import prepare_task_trial
+
 from ee.hogai.tool import MaxTool
 
 from .facade import api as tasks_facade
@@ -156,35 +158,52 @@ Use this tool when the user wants to:
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
         @sync_to_async
-        @transaction.atomic
-        def get_task_and_create_run():
-            task = (
-                Task.objects.select_for_update(of=("self",))
-                .filter(id=task_id, team=self._team, deleted=False)
-                .filter(task_control_q(self._user.id))
-                .first()
+        def get_task_and_create_run() -> dict[str, str | int] | None:
+            tasks = Task.objects.filter(id=task_id, team=self._team, deleted=False).filter(
+                task_control_q(self._user.id)
             )
-
-            if not task:
+            admission_task = tasks.first()
+            if admission_task is None:
                 return None
-            if task.runtime == Task.Runtime.PI:
-                return {"error": "unsupported_runtime"}
-
-            task_run = task.create_run()
-            enqueue_or_start_workflow(
-                task_run,
-                start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
-                options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+            trial_admission = prepare_task_trial(
+                team=self._team,
+                origin=admission_task.origin_product,
+                report_id=admission_task.signal_report_source_id,
+                mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
             )
-            task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
-            return {
-                "task_id": str(task.id),
-                "run_id": str(task_run.id),
-                "slug": task.slug,
-                "title": task.title,
-                "team_id": task.team.id,
-                "url": task_url,
-            }
+            if trial_admission is None and admission_task.uses_self_driving_billing("background"):
+                tasks_facade.enforce_self_driving_pr_quota(
+                    self._team,
+                    report_id=str(admission_task.signal_report_source_id)
+                    if admission_task.signal_report_source_id
+                    else None,
+                    stage="task_tool",
+                )
+
+            with transaction.atomic():
+                if trial_admission is not None:
+                    trial_admission.lock_report(admission_task.signal_report_source_id)
+                task = tasks.select_for_update(of=("self",)).first()
+                if task is None:
+                    return None
+                if task.runtime == Task.Runtime.PI:
+                    return {"error": "unsupported_runtime"}
+
+                task_run = task.create_run(_trial_admission=trial_admission)
+                enqueue_or_start_workflow(
+                    task_run,
+                    start_workflow=lambda **kwargs: async_to_sync(execute_task_processing_workflow_async)(**kwargs),
+                    options=WorkflowDispatchOptions(user_id=self._user.id, slack_thread_context=slack_thread_context),
+                )
+                task_url = f"/project/{task.team.project.id}/tasks/{task.id}?runId={task_run.id}"
+                return {
+                    "task_id": str(task.id),
+                    "run_id": str(task_run.id),
+                    "slug": task.slug,
+                    "title": task.title,
+                    "team_id": task.team.id,
+                    "url": task_url,
+                }
 
         result = await get_task_and_create_run()
 

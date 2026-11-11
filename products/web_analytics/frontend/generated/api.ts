@@ -10,15 +10,18 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     AEOBrandApi,
+    AEOBrandCreateRequestApi,
     AEOPromptApi,
     AEOPromptBulkImportRequestApi,
     AEOPromptImportResultApi,
     AEOPromptSetOverviewApi,
+    AEOPromptSetRankingsApi,
     AEOPromptStatsApi,
     AEOPromptSuggestRequestApi,
     AEOPromptSuggestionJobApi,
     AEOPromptTopicApi,
     AEOPromptVersionApi,
+    AEOVisibilityDashboardApi,
     AchievementsListResponseApi,
     AcknowledgeCelebrationRequestApi,
     AcknowledgeCelebrationResponseApi,
@@ -26,6 +29,7 @@ import type {
     AeoPromptsChecksParams,
     AeoPromptsListParams,
     AeoPromptsOverviewParams,
+    AeoPromptsRankingsParams,
     ApplyPathCleaningSuggestionResponseApi,
     ContentAutopilotExportResponseApi,
     ContentAutopilotOpportunityApi,
@@ -142,6 +146,27 @@ export const aeoBrandsList = async (
     })
 }
 
+export const getAeoBrandsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_brands/`
+}
+
+/**
+ * Adds a brand to the project's brand catalog by domain, confirmed. Add the project's own site with kind 'own' before the first daily run: only own brands count as the project in citations and mentions, and the run skips a project without one. Returns 400 when the catalog already has the domain; update that brand instead.
+ * @summary Add an AEO brand
+ */
+export const aeoBrandsCreate = async (
+    projectId: string,
+    aEOBrandCreateRequestApi: AEOBrandCreateRequestApi,
+    options?: RequestInit
+): Promise<AEOBrandApi> => {
+    return apiMutator<AEOBrandApi>(getAeoBrandsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(aEOBrandCreateRequestApi),
+    })
+}
+
 export const getAeoBrandsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/aeo_brands/${id}/`
 }
@@ -196,7 +221,7 @@ export const getAeoPromptsListUrl = (projectId: string, params?: AeoPromptsListP
 }
 
 /**
- * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
+ * Lists the project's AEO prompt set, ordered by topic and then rank, one page at a time. Filter by topic, by on/off state, by whether the prompt names the brand, or to the prompts that need improvement. Archived prompts are left out unless include_archived is true. Each prompt carries its latest check per answer engine.
  * @summary List AEO prompts
  */
 export const aeoPromptsList = async (
@@ -357,6 +382,24 @@ export const aeoPromptsBulkImport = async (
     })
 }
 
+export const getAeoPromptsCreateDashboardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/aeo_prompts/create_dashboard/`
+}
+
+/**
+ * Creates a dashboard named 'AI visibility weekly' with SQL insights over the citation checks of non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, visibility per topic, the pages to watch per topic, and an 8-week trend. The queries read the brand catalog when they run, so they follow catalog edits. Each call creates a new dashboard. Subscribe to it with the subscriptions API to get it weekly in Slack or email.
+ * @summary Create the AI visibility weekly dashboard
+ */
+export const aeoPromptsCreateDashboard = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AEOVisibilityDashboardApi> => {
+    return apiMutator<AEOVisibilityDashboardApi>(getAeoPromptsCreateDashboardUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsOverviewParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -374,7 +417,7 @@ export const getAeoPromptsOverviewUrl = (projectId: string, params?: AeoPromptsO
 }
 
 /**
- * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most.
+ * Gets an overview of the project's whole AEO prompt set for the last 'days' days (default 30) in the project's timezone: how many prompts are tracked, how many checks ran, the citation rate and the brand-mention rate, the same counts for the window before it, the current window split per answer engine (Claude, ChatGPT/OpenAI, Exa) and per topic, and the domains the engines cited most. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
  * @summary Get the AEO prompt set overview
  */
 export const aeoPromptsOverview = async (
@@ -383,6 +426,37 @@ export const aeoPromptsOverview = async (
     options?: RequestInit
 ): Promise<AEOPromptSetOverviewApi> => {
     return apiMutator<AEOPromptSetOverviewApi>(getAeoPromptsOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAeoPromptsRankingsUrl = (projectId: string, params?: AeoPromptsRankingsParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/aeo_prompts/rankings/?${stringifiedParams}`
+        : `/api/projects/${projectId}/aeo_prompts/rankings/`
+}
+
+/**
+ * Gets how often AI answers named the project against its competitors over the last 'days' days (default 30) in the project's timezone, with the same share for the window before, a daily series, and the domains and pages the engines cited most. Competitors are derived from the cited domains. Pass 'branded' to count only the checks whose prompt names the brand, or only the ones whose prompt does not.
+ * @summary Get AEO brand rankings
+ */
+export const aeoPromptsRankings = async (
+    projectId: string,
+    params?: AeoPromptsRankingsParams,
+    options?: RequestInit
+): Promise<AEOPromptSetRankingsApi> => {
+    return apiMutator<AEOPromptSetRankingsApi>(getAeoPromptsRankingsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

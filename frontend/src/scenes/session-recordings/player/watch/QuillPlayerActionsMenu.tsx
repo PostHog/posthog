@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconDownload, IconEllipsis, IconNotebook, IconTrash } from '@posthog/icons'
+import { IconCheck, IconDownload, IconEllipsis, IconNotebook, IconTrash } from '@posthog/icons'
 import {
     AlertDialog,
     AlertDialogContent,
@@ -83,13 +83,12 @@ export function QuillPlayerActionsMenu({ extraItems = [] }: { extraItems?: Lemon
             label: 'Skip inactivity',
             tooltip: 'Skip inactive parts of the recording',
             onClick: () => setSkipInactivitySetting(!skipInactivitySetting),
-            active: skipInactivitySetting,
+            sideIcon: skipInactivitySetting ? <IconCheck className="ml-auto" /> : undefined,
             'data-attr': 'skip-inactivity-menu-item',
         },
         {
             label: isMuted ? 'Unmute audio' : 'Mute audio',
             onClick: () => setMuted(!isMuted),
-            active: false,
             'data-attr': 'mute-audio-menu-item',
         },
         isStandardMode && {

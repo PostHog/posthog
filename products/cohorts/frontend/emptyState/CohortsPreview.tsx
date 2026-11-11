@@ -2,7 +2,7 @@ import './CohortsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the cohorts empty state: a cohort definition and the
@@ -13,7 +13,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * grids and crossfaded, so nothing shifts.
  */
 export function CohortsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('CohortPreview', isStatic && 'CohortPreview--static')}>

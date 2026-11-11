@@ -23,6 +23,7 @@ REPORT_METRICS_FLAG = "signals-report-metrics"
 REPORT_MONITORING_FLAG = "signals-report-monitoring"
 FIRST_REPORT_EMAIL_FLAG = "signals-first-report-email"
 RESEARCH_REVIEWER_SELECTION_FLAG = "signals-research-reviewer-selection"
+RESEARCH_ASSIGNEE_EVIDENCE_FLAG = "signals-research-assignee-evidence"
 INBOX_SORT_CACHE_FLAG = "inbox-sort-cache"
 INBOX_CACHED_FILTERS_FLAG = "signals-inbox-cached-filters"
 INBOX_SLACK_SECTION_BLOCKS_FLAG = "signals-inbox-slack-section-blocks"
@@ -98,6 +99,10 @@ def team_report_monitoring_enabled(team_id: int) -> bool:
 
 def team_research_reviewer_selection_enabled(team_id: int) -> bool:
     return _team_flag_enabled(RESEARCH_REVIEWER_SELECTION_FLAG, team_id)
+
+
+def team_research_assignee_evidence_enabled(team_id: int) -> bool:
+    return _team_flag_enabled(RESEARCH_ASSIGNEE_EVIDENCE_FLAG, team_id, enable_in_debug=False)
 
 
 def organization_inbox_cached_filters_enabled(organization_id: UUID) -> bool:

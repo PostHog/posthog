@@ -533,6 +533,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "autostart_enabled": "PR generation",
         "default_autostart_priority": "project PR threshold",
         "default_slack_notification_channel": "team Slack channel",
+        "default_slack_notification_min_priority": "team Slack minimum priority",
         "autostart_base_branches": "base branch overrides",
         "issue_tracking_integration": "issue tracker",
         "issue_tracking_config": "issue tracker target",
@@ -729,6 +730,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         # org-scoped activity log endpoints, which are visible to organization admins.
         "scope": "InstanceSetting",
         "activities": ["updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Redis TTL edits from PostHog Admin carry the staff reason, and the row lands on the acting
+        # staff user's current organization, which has no relation to the edited key.
+        "scope": "Admin",
+        "activities": ["ttl_updated", "ttl_removed"],
         "exclude_when": {},
         "allow_staff": True,
     },
@@ -1122,8 +1131,6 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "plugin_configs",
         "tagged_items",
         "survey",
-        # Derived migration output whose reverse manager is fail-closed. It is not part of an action edit.
-        "selector_match_changes",
     ],
     "ExternalDataSource": [
         "connection_id",

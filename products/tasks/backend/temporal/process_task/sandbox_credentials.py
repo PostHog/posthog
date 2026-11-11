@@ -12,7 +12,7 @@ from django.db import transaction
 import redis
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
@@ -482,7 +482,7 @@ class GitHubSandboxCredential:
                 github_user_integration_id=github_user_integration_id,
                 repository=ctx.repository,
             )
-        except (Integration.DoesNotExist, UserIntegration.DoesNotExist) as e:
+        except (IntegrationNotFound, UserIntegration.DoesNotExist) as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},
@@ -559,8 +559,10 @@ class GitHubSandboxCredential:
                 cause=cause,
             )
         try:
-            return get_github_token(task.github_integration_id, repositories=ctx.github_access_repositories)
-        except Integration.DoesNotExist as e:
+            return get_github_token(
+                task.team_id, task.github_integration_id, repositories=ctx.github_access_repositories
+            )
+        except IntegrationNotFound as e:
             raise CredentialUnavailableError(
                 "GitHub integration for this run no longer exists",
                 {"run_id": ctx.run_id, "task_id": ctx.task_id},

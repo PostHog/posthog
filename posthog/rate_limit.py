@@ -1135,6 +1135,20 @@ class AIObservabilityBackfillCreateSustainedThrottle(_TeamBucketRateThrottle):
     rate = "100/hour"
 
 
+# Each `test_on_sample` call runs up to three judge calls on the team's own provider key, so a loop
+# spends the customer's model quota and holds a web worker per call. Per credential, so one user
+# testing a prompt cannot lock the rest of the team out, with a team bucket capping the total.
+# Both windows are a minute, so someone who hits a limit waits seconds, not an hour.
+class AIObservabilityEvaluationJudgeTestThrottle(_UserBucketRateThrottle):
+    scope = "llma_eval_judge_test"
+    rate = "10/minute"
+
+
+class AIObservabilityEvaluationJudgeTestTeamThrottle(_TeamBucketRateThrottle):
+    scope = "llma_eval_judge_test_team"
+    rate = "30/minute"
+
+
 class _CustomSourceAIBuilderThrottle(PersonalApiKeyOrUserRateThrottle):
     """Per-team throttle for the (paid, Opus-backed) custom-source AI manifest builder.
 
@@ -2173,3 +2187,19 @@ class WarehouseMigrationCrawlThrottle(_TeamBucketRateThrottle):
 
     scope = "warehouse_migration_crawl"
     rate = "20/hour"
+
+
+class WarehouseMigrationUploadStartThrottle(_TeamBucketRateThrottle):
+    """Starting an uploaded warehouse migration creates a migration row. One project-wide bucket bounds how many
+    rows any caller can create."""
+
+    scope = "warehouse_migration_upload_start"
+    rate = "20/hour"
+
+
+class WarehouseMigrationUploadThrottle(_TeamBucketRateThrottle):
+    """Each upload of warehouse migration connections loads, plans again and rewrites the stored snapshot under the
+    migration row lock. The budget sits far above an agent that sends batches one after another."""
+
+    scope = "warehouse_migration_upload"
+    rate = "60/minute"
