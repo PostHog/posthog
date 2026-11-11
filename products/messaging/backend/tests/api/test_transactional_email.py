@@ -56,7 +56,32 @@ from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 
 UNSUBSCRIBE_LINK_CASES = json.loads((Path(__file__).parents[2] / "unsubscribe_link_cases.json").read_text())
-CLICKABLE_UNSUBSCRIBE_LINKS = [(case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]]
+CLICKABLE_UNSUBSCRIBE_LINKS = [
+    *((case["name"], case) for case in UNSUBSCRIBE_LINK_CASES if case["has_unsubscribe_link"]),
+    (
+        "link_after_an_escaped_script",
+        {"html": '<script><!--</script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
+    (
+        "link_after_a_script_wrapped_in_a_comment",
+        {"html": '<script><!-- track() //--></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
+    (
+        "link_after_a_script_whose_double_escape_ends",
+        {"html": '<script><!--<script>-->track()</script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
+    (
+        "link_after_a_script_with_an_empty_comment",
+        {"html": '<script><!--><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
+    (
+        "link_after_a_plain_script_that_follows_an_escaped_one",
+        {
+            "html": '<script><!--</script><script><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            "text": "",
+        },
+    ),
+]
 TEXT_LINK_INTO_LONG_PUNCTUATION = "Unsubscribe: {{ unsubscribe_url }}" + "." * 200_000 + "x"
 UNMATCHED_CLOSES_INSIDE_A_TEMPLATE = (
     "<div><template>" + "<span>" * 65536 + "</div>" * 65536 + '<a href="{{ unsubscribe_url }}">Unsubscribe</a>'
@@ -66,6 +91,14 @@ MISSING_UNSUBSCRIBE_LINKS = [
     ("text_link_running_into_liquid_markup", {"html": "", "text": "Unsubscribe: {{ unsubscribe_url }}{% endif %}"}),
     ("text_link_running_into_a_long_run_of_punctuation", {"html": "", "text": TEXT_LINK_INTO_LONG_PUNCTUATION}),
     ("link_after_unmatched_closes_inside_a_template", {"html": UNMATCHED_CLOSES_INSIDE_A_TEMPLATE, "text": ""}),
+    (
+        "link_after_a_double_escaped_script",
+        {"html": '<script><!--<script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
+    (
+        "link_after_an_upper_case_double_escaped_script",
+        {"html": '<script><!--<SCRIPT></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
+    ),
 ]
 TWO_FILES = [{"filename": "a.csv", "content": "YSxi"}, {"filename": "notes.txt", "content": "aGk="}]
 CDP_ACCEPTS = {"return_value": MagicMock(status_code=202, json=lambda: {"invocation_id": "invocation-1"})}
