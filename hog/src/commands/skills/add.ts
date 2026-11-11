@@ -11,7 +11,15 @@ import { findGitRoot, isInside, realWritePath } from '@/core/paths'
 import type { Env, Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
-import { downloadWarnings, LIST_HINT, SHARED_SKILL_FOLDER, SKILL_FOLDERS, skillName, skillsError } from './shared'
+import {
+    downloadWarnings,
+    LIST_HINT,
+    offlineError,
+    SHARED_SKILL_FOLDER,
+    SKILL_FOLDERS,
+    skillName,
+    skillsError,
+} from './shared'
 
 const AgentName = z.enum(KNOWN_AGENTS, { error: (issue) => `Unknown agent "${String(issue.input)}".` })
 
@@ -189,6 +197,16 @@ export default defineCommand({
         const unknown = names.filter((name) => !listed.value.skills.some((skill) => skill.name === name))
         if (unknown.length > 0) {
             const quoted = unknown.map((name) => `"${name}"`).join(', ')
+            // A download that failed with no saved copy leaves its skills out of the list, so a name missing
+            // from it may still be a real skill.
+            const missing = listed.value.assets.filter((asset) => asset.origin === 'unavailable')
+            if (missing.length > 0) {
+                throw offlineError({
+                    code: 'offline',
+                    message: `Couldn't download all the PostHog skills, so hog can't check ${quoted}.`,
+                    assets: missing,
+                })
+            }
             throw new HogError(
                 'unknown_skill',
                 `Unknown ${unknown.length === 1 ? 'skill' : 'skills'} ${quoted}.`,

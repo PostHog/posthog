@@ -529,17 +529,41 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         return release ? { ok: true, value: { release, assets } } : { ok: false, error: offline(assets) }
     }
 
-    // A resource skill is listed by name and description only. A call that reads one gets a catalog
-    // with that skill's files in place of its listing.
-    const withFiles = ({ catalog, resources, release }: Catalog, name: string | undefined): SkillCatalog => {
-        const id = name?.startsWith(SKILL_NAMESPACE) ? bareName(name) : undefined
-        const skill = id !== undefined && resources.has(id) ? release?.resourceSkill(id) : undefined
-        if (!skill) {
-            return catalog
+    // A resource skill is listed by name and description only. A call that reads resource skills gets a
+    // catalog with their files in place of their listings. A skill whose archive can't be read fails the
+    // call, because serving its listing would count as a read of the skill.
+    const withFiles = (
+        { catalog, resources, release }: Catalog,
+        names: readonly (string | undefined)[]
+    ): SkillsResult<SkillCatalog> => {
+        const ids = new Set(
+            names
+                .flatMap((name) => (name?.startsWith(SKILL_NAMESPACE) ? [bareName(name)] : []))
+                .filter((id) => resources.has(id))
+        )
+        const skills: SkillDefinition[] = []
+        for (const id of ids) {
+            const skill = release?.resourceSkill(id)
+            if (!skill) {
+                return {
+                    ok: false,
+                    error: {
+                        code: 'unavailable',
+                        message: `Couldn't read the skill "${id}", because its archive in the skills release has no valid SKILL.md.`,
+                    },
+                }
+            }
+            skills.push(skill)
+        }
+        if (skills.length === 0) {
+            return { ok: true, value: catalog }
         }
 
-        const loaded = new SkillCatalog([skill]).mapText(rewrite)
-        return new SkillCatalog(catalog.listNames().map((other) => loaded.get(other) ?? catalog.get(other)!))
+        const loaded = new SkillCatalog(skills).mapText(rewrite)
+        return {
+            ok: true,
+            value: new SkillCatalog(catalog.listNames().map((other) => loaded.get(other) ?? catalog.get(other)!)),
+        }
     }
 
     // The catalogs `catalog` handed out, so each install of a batch writes from the same download.
@@ -577,14 +601,26 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
                 return { ok: false, error: { code: 'usage', message: `List the skills with \`${listCommand}\`.` } }
             }
 
-            const named = qualified(skill, loaded.catalog)
-            const words = describe ? paths.map((path) => qualified(path, loaded.catalog) ?? path) : paths
+            // A path-shaped word after the first one asks to search one file, but only a skill has files.
+            // So `-s tracing node.js next.js` searches every skill for all three words.
+            const scoped =
+                search === undefined || skill === undefined || skill.includes(':') || loaded.catalog.has(skill)
+            const query = scoped ? request : { ...request, search: [search, skill, ...paths].join(' ') }
+            const named = scoped ? qualified(skill, loaded.catalog) : undefined
+            const words = !scoped ? [] : describe ? paths.map((path) => qualified(path, loaded.catalog) ?? path) : paths
+
+            const posthog = describe
+                ? { ok: true as const, value: loaded.catalog }
+                : withFiles(loaded, [named, ...words])
+            if (!posthog.ok) {
+                return posthog
+            }
 
             const reads: SkillRead[] = []
             const learn = new ExecLearnCatalog(
                 [],
                 {
-                    posthog: describe ? loaded.catalog : withFiles(loaded, named),
+                    posthog: posthog.value,
                     projectUnavailableReason: PROJECT_SKILLS_UNAVAILABLE,
                 },
                 ({ source, skill: name, path: file, readKind }) =>
@@ -593,7 +629,7 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
             )
 
             try {
-                const raw = await learn.execute(learnInput(learnWords(named, words, request)))
+                const raw = await learn.execute(learnInput(learnWords(named, words, query)))
                 return { ok: true, value: { output: { kind: 'text', text: pointToList(raw) }, reads, assets } }
             } catch (error) {
                 const failure = learnError(error)

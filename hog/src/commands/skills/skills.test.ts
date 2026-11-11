@@ -33,10 +33,10 @@ interface FakeSkills {
     releaseLoads: number
 }
 
-function fakeSkills(installed: string[] = []): FakeSkills {
+function fakeSkills(installed: string[] = [], assets = ASSETS): FakeSkills {
     const calls: InstallCall[] = []
     const present = new Set(installed)
-    const release: SkillsRelease = { assets: ASSETS }
+    const release: SkillsRelease = { assets }
 
     const fake: FakeSkills = {
         calls,
@@ -49,7 +49,7 @@ function fakeSkills(installed: string[] = []): FakeSkills {
         instrumentSkills: async () => ({ ok: true, value: { skills: [], assets: ASSETS } }),
         catalog: async () => {
             fake.releaseLoads += 1
-            return { ok: true, value: { skills: CATALOG, assets: ASSETS, release } }
+            return { ok: true, value: { skills: CATALOG, assets, release } }
         },
         install: async (id, { cwd, force, skillsDir, release: given }) => {
             calls.push({ id, cwd, force, skillsDir })
@@ -186,17 +186,36 @@ describe('hog skills', () => {
         expect(result.json()).toMatchObject({ skills: [{ name: 'tracing-nodejs', status }] })
     })
 
-    test('an unknown skill fails before any skill is installed, and the hint names hog skills list', async () => {
-        const fake = fakeSkills()
+    const OUTAGE: SkillAssetStatus[] = [
+        ...ASSETS,
+        { name: 'product-skills', url: 'https://example.com/skills.zip', origin: 'unavailable', failure: 'HTTP 503' },
+    ]
+
+    test.each([
+        [
+            'fails as unknown, and the hint names hog skills list',
+            ASSETS,
+            {
+                code: 'unknown_skill',
+                message: 'Unknown skill "nope".',
+                hint: 'Run `hog skills list` to see every skill you can add.',
+            },
+        ],
+        [
+            'fails as offline while a download is missing, because the skill may be in it',
+            OUTAGE,
+            {
+                code: 'skills_offline',
+                message: `Couldn't download all the PostHog skills, so hog can't check "nope".\n  https://example.com/skills.zip: HTTP 503`,
+            },
+        ],
+    ])('a skill missing from the list %s, before any skill is installed', async (_name, assets, error) => {
+        const fake = fakeSkills([], assets)
 
         const result = await skills(['add', 'tracing-nodejs', 'nope'], fake, { CLAUDECODE: '1' })
 
         expect(result.exitCode).toBe(1)
-        expect(result.error()).toMatchObject({
-            code: 'unknown_skill',
-            message: 'Unknown skill "nope".',
-            hint: 'Run `hog skills list` to see every skill you can add.',
-        })
+        expect(result.error()).toMatchObject(error)
         expect(fake.calls).toEqual([])
     })
 

@@ -36,7 +36,8 @@ function learnRequest(
 
     // Unquoted keywords after the first one arrive as arguments, as `replay` in `hog skills read -s session
     // replay`. They belong to the query. A file search keeps its skill and the path after it, and a
-    // skill may come without its `posthog:` prefix, so a path-shaped second word marks one too.
+    // skill may come without its `posthog:` prefix, so a path-shaped second word marks one too. When the
+    // first word names no skill, as `node.js` in `-s tracing node.js next.js`, the library searches every skill.
     if (skill?.includes(':') || /[/.]/.test(paths[0] ?? '')) {
         return { skill, paths: paths.slice(0, 1), search: [search, ...paths.slice(1)].join(' ') }
     }

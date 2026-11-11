@@ -21,7 +21,7 @@ function productSkills(body = 'Build a conversion funnel.'): Uint8Array {
 
 const AUDIT_SKILL = skillFile('audit', 'Audit an install.', '# Audit\n\nCheck every event.')
 
-function contextMill(): Uint8Array {
+function contextMill(auditSkill = AUDIT_SKILL): Uint8Array {
     const manifest = {
         version: '1.0',
         resources: [
@@ -36,7 +36,7 @@ function contextMill(): Uint8Array {
     }
     return zipSync({
         'manifest.json': strToU8(JSON.stringify(manifest)),
-        'audit.zip': zipSync({ 'SKILL.md': AUDIT_SKILL }),
+        'audit.zip': zipSync({ 'SKILL.md': auditSkill }),
         'omnibus-instrument-integration.zip': zipSync({
             'SKILL.md': skillFile(
                 'omnibus-instrument-integration',
@@ -382,6 +382,16 @@ describe('CLI skills library', () => {
     it.each<[string, LearnRequest, string]>([
         ['a search of every skill', { paths: [], search: 'conversion' }, '## posthog:funnels'],
         [
+            'a search of every skill for all the words when the first word names no skill',
+            { skill: 'conversion', paths: ['next.js'], search: 'tracing' },
+            '## posthog:funnels',
+        ],
+        [
+            'every resource skill in a batch',
+            { skill: 'posthog:instrument-integration', paths: ['posthog:audit'] },
+            'Check every event.',
+        ],
+        [
             'a search of one file',
             { skill: 'posthog:funnels', paths: ['SKILL.md'], search: 'conversion' },
             'Matches in posthog:funnels/SKILL.md',
@@ -402,6 +412,24 @@ describe('CLI skills library', () => {
         const result = await library.learn(request)
 
         expect(text(result)).toContain(expected)
+    })
+
+    it('fails a read of a resource skill whose SKILL.md has no frontmatter, instead of serving its listing', async () => {
+        const library = createSkillsLibrary({
+            fetch: fakeFetch({ ...ONLINE, [CONTEXT_MILL_URL]: contextMill(strToU8('# Audit\n\nNo frontmatter.')) })
+                .fetch,
+        })
+
+        const result = await library.learn({ skill: 'audit', paths: [] })
+
+        expect(result).toEqual({
+            ok: false,
+            error: {
+                code: 'unavailable',
+                message:
+                    'Couldn\'t read the skill "audit", because its archive in the skills release has no valid SKILL.md.',
+            },
+        })
     })
 
     it('lists the setup skills from context-mill alone', async () => {
@@ -480,7 +508,9 @@ describe('CLI skills library', () => {
             'Read `hog learn posthog:instrument-integration references/COMMANDMENTS.md` first.'
         )
         expect(unknown).toEqual({ ok: false, error: { code: 'unknown_skill', message: 'Unknown skill "missing".' } })
-        expect(outage.requests.map((request) => request.url)).toEqual([PRODUCT_SKILL_ARCHIVE_URL, CONTEXT_MILL_URL])
+        expect(outage.requests.map((request) => request.url).sort()).toEqual(
+            [PRODUCT_SKILL_ARCHIVE_URL, CONTEXT_MILL_URL].sort()
+        )
     })
 
     it('refuses to install a skill whose archive is past the extraction limit, and keeps the installed copy', async () => {
