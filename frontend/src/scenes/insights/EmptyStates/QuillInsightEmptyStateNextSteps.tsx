@@ -6,6 +6,8 @@ import { Button, EmptyContent, EmptyDescription, EmptyHeader } from '@posthog/qu
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import type { Dayjs } from 'lib/dayjs'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
+import { revealSeriesFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -37,7 +39,7 @@ export function QuillInsightEmptyStateNextSteps({
     const { dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { query, queryChanged } = useValues(insightDataLogic(insightProps))
-    const { reason, hasInsightFilters } = useValues(insightEmptyStateLogic({ insightProps }))
+    const { reason, hasInsightFilters, hasSeriesFilters } = useValues(insightEmptyStateLogic({ insightProps }))
     const { location } = useValues(router)
 
     const canEdit = !!insight.short_id && canEditInsight && !location.pathname.endsWith('/edit')
@@ -105,7 +107,10 @@ export function QuillInsightEmptyStateNextSteps({
                     {canEdit && (
                         <Button
                             variant="outline"
-                            onClick={() =>
+                            onClick={() => {
+                                if (reason.kind === 'filtered' && hasSeriesFilters) {
+                                    revealSeriesFilters(keyForInsightLogicProps('new')(insightProps))
+                                }
                                 openInsightEditor({
                                     query,
                                     insightShortId: insight.short_id,
@@ -113,7 +118,7 @@ export function QuillInsightEmptyStateNextSteps({
                                     queryChanged,
                                     enterEditMode: () => {},
                                 })
-                            }
+                            }}
                             data-attr="insight-empty-state-edit"
                         >
                             Edit
