@@ -10,7 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconSlack } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { QuillCommentEditor } from './QuillCommentEditor'
+import { LazyQuillCommentEditor } from './LazyQuillCommentEditor'
 
 /** Writes a new comment, or a reply while one is in progress. The same logic state backs both. */
 export function QuillCommentComposer({ logicProps }: { logicProps: CommentsLogicProps }): JSX.Element {
@@ -64,7 +64,7 @@ export function QuillCommentComposer({ logicProps }: { logicProps: CommentsLogic
 
     return (
         <div className="flex flex-col gap-2">
-            <QuillCommentEditor
+            <LazyQuillCommentEditor
                 key={key}
                 placeholder={placeholder}
                 initialContent={currentComposerDraft}

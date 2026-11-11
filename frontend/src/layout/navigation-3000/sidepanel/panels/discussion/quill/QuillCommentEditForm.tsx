@@ -6,7 +6,7 @@ import { commentsLogic } from 'lib/components/Comments/commentsLogic'
 
 import { CommentType } from '~/types'
 
-import { QuillCommentEditor } from './QuillCommentEditor'
+import { LazyQuillCommentEditor } from './LazyQuillCommentEditor'
 
 export function QuillCommentEditForm({ comment }: { comment: CommentType }): JSX.Element {
     const { editingComment, isSavingEditedComment, editingCommentRichContentEditor, isEditingCommentEmpty } =
@@ -25,7 +25,7 @@ export function QuillCommentEditForm({ comment }: { comment: CommentType }): JSX
 
     return (
         <div className="flex flex-col gap-2 pt-1">
-            <QuillCommentEditor
+            <LazyQuillCommentEditor
                 placeholder="Edit comment"
                 autoFocus
                 // Seeded from the edit in progress, so collapsing the thread mid-edit loses nothing.

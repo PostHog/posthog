@@ -23,7 +23,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { QuillEmojiPickerPopover } from './QuillEmojiPickerPopover'
 
-interface QuillCommentEditorProps {
+export interface QuillCommentEditorProps {
     initialContent?: JSONContent | null
     placeholder?: string
     onCreate?: (editor: RichContentEditorType) => void

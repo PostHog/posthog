@@ -30,6 +30,7 @@ rules:
               - /frontend/src/lib/components/RichContentEditor
               - /frontend/src/lib/components/Cards/TextCard
               - /frontend/src/lib/components/MarkdownEditor
+              - /frontend/src/layout/navigation-3000/sidepanel/panels/discussion/quill/QuillCommentEditor.tsx
               - /frontend/src/lib/utils/markdown.ts
               - /frontend/src/lib/utils/parseMarkdownToTipTap.ts
               - /frontend/src/scenes/max/utils/markdownToTiptap.ts
