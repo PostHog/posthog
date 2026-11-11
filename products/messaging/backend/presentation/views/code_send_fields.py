@@ -94,7 +94,8 @@ TRACKING_KINDS = ("opens", "clicks", "engagement")
                     "clicks": {
                         "type": "boolean",
                         "description": "Whether the email's links go through a redirect that counts clicks. "
-                        "Defaults to false. Needs `opens`. A link with `data-ph-no-track` keeps its own address.",
+                        "Defaults to true when the email isn't sensitive and false when it is. Needs `opens`. A link with "
+                        "`data-ph-no-track` keeps its own address.",
                     },
                     "engagement": {
                         "type": "boolean",
@@ -126,7 +127,7 @@ class EmailTrackingField(serializers.Field):
             self.fail("clicks_need_opens")
         return tracking
 
-    def to_representation(self, value: EmailTracking) -> dict[str, bool]:
+    def to_representation(self, value: EmailTracking) -> dict[str, bool | None]:
         return {"opens": value.opens, "clicks": value.clicks, "engagement": value.engagement}
 
 

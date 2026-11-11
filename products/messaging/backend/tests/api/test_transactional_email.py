@@ -726,24 +726,31 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted", "json", {}, {}, (True, False, True)),
+            ("omitted", "json", {}, {}, (True, None, True)),
             ("true", "json", {"tracking": True}, {"clicks": True}, (True, True, True)),
-            ("false", "json", {"tracking": False}, {"captureEngagement": False, "opens": False}, (False, False, False)),
-            ("empty", "json", {"tracking": {}}, {}, (True, False, True)),
+            (
+                "false",
+                "json",
+                {"tracking": False},
+                {"captureEngagement": False, "opens": False, "clicks": False},
+                (False, False, False),
+            ),
+            ("empty", "json", {"tracking": {}}, {}, (True, None, True)),
             ("clicks_on", "json", {"tracking": {"clicks": True}}, {"clicks": True}, (True, True, True)),
-            ("opens_off", "json", {"tracking": {"opens": False}}, {"opens": False}, (False, False, True)),
+            ("clicks_off", "json", {"tracking": {"clicks": False}}, {"clicks": False}, (True, False, True)),
+            ("opens_off", "json", {"tracking": {"opens": False}}, {"opens": False}, (False, None, True)),
             (
                 "engagement_off",
                 "json",
                 {"tracking": {"engagement": False}},
                 {"captureEngagement": False},
-                (True, False, False),
+                (True, None, False),
             ),
             (
                 "all_named",
                 "json",
                 {"tracking": {"opens": True, "clicks": False, "engagement": True}},
-                {},
+                {"clicks": False},
                 (True, False, True),
             ),
             (
@@ -751,14 +758,14 @@ class TestTransactionalEmail(APIBaseTest):
                 "json",
                 {"capture_engagement": False},
                 {"captureEngagement": False},
-                (True, False, False),
+                (True, None, False),
             ),
-            ("form_tracking_omitted", "multipart", {"capture_engagement": "true"}, {}, (True, False, True)),
+            ("form_tracking_omitted", "multipart", {"capture_engagement": "true"}, {}, (True, None, True)),
             (
                 "form_false",
                 "multipart",
                 {"tracking": "false"},
-                {"captureEngagement": False, "opens": False},
+                {"captureEngagement": False, "opens": False, "clicks": False},
                 (False, False, False),
             ),
             ("form_true", "multipart", {"tracking": "true"}, {"clicks": True}, (True, True, True)),
@@ -780,6 +787,27 @@ class TestTransactionalEmail(APIBaseTest):
             (event["tracking_opens"], event["tracking_clicks"], event["tracking_engagement"])
             for event in analytics.properties_of("transactional email api send")
         ] == [reported]
+
+    @parameterized.expand(
+        [
+            ("omitted", "json", {}, "unset"),
+            ("true", "json", {"sensitive": True}, True),
+            ("false", "json", {"sensitive": False}, False),
+            ("form_omitted", "multipart", {}, "unset"),
+            ("form_true", "multipart", {"sensitive": "true"}, True),
+            ("form_false", "multipart", {"sensitive": "false"}, False),
+        ]
+    )
+    def test_a_code_send_queues_the_sensitivity_the_caller_set(
+        self, mock_post, _flag, _capture, _name, body_format, fields, queued
+    ):
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format=body_format
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send.get("sensitive", "unset") for send in cdp.queued_sends] == [queued]
 
     @parameterized.expand(
         [
@@ -806,6 +834,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("tracking_that_is_not_a_boolean", {"tracking": "sometimes"}, "tracking"),
             ("tracking_kind_that_is_not_a_boolean", {"tracking": {"clicks": "sometimes"}}, "tracking"),
             ("tracking_beside_capture_engagement", {"tracking": True, "capture_engagement": True}, "tracking"),
+            ("sensitive_that_is_not_a_boolean", {"sensitive": "sometimes"}, "sensitive"),
             ("field_this_server_lacks", {"scheduled_at": "2026-11-01T09:00:00Z"}, "scheduled_at"),
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
@@ -852,6 +881,7 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("subject", "Hi", "validation_error"),
             ("tracking", False, "validation_error"),
+            ("sensitive", True, "validation_error"),
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", [{"filename": "notes.txt", "content": "aGk="}], "invalid_request"),

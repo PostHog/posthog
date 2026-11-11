@@ -142,7 +142,7 @@ class InvalidRequest(TransactionalEmailError):
 @frozen
 class EmailTracking:
     opens: bool = True
-    clicks: bool = False
+    clicks: bool | None = None
     engagement: bool = True
 
 
@@ -155,6 +155,7 @@ class CodeEmail:
     sender: str | None
     reply_to: tuple[str, ...]
     tracking: EmailTracking
+    sensitive: bool | None = None
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()

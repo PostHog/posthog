@@ -562,6 +562,8 @@ def _accepted_send(team_id: int, email: CodeEmail) -> dict[str, Any]:
         "from": _without_empty(_code_send_sender(team_id, email.sender)),
         "tracking": _accepted_tracking(email.tracking),
     }
+    if email.sensitive is not None:
+        accepted["sensitive"] = email.sensitive
     if email.reply_to:
         accepted["replyTo"] = list(email.reply_to)
     if email.cc:
@@ -577,8 +579,8 @@ def _accepted_tracking(tracking: EmailTracking) -> dict[str, bool]:
     accepted = {"captureEngagement": tracking.engagement}
     if not tracking.opens:
         accepted["opens"] = False
-    if tracking.clicks:
-        accepted["clicks"] = True
+    if tracking.clicks is not None:
+        accepted["clicks"] = tracking.clicks
     return accepted
 
 

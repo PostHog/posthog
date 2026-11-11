@@ -328,6 +328,9 @@ const workflowsSendEmailExecute = (): ToolBase<typeof WorkflowsSendEmailSchemaEx
         if (params.tracking !== undefined) {
             body['tracking'] = params.tracking
         }
+        if (params.sensitive !== undefined) {
+            body['sensitive'] = params.sensitive
+        }
         if (params.from !== undefined) {
             body['from'] = params.from
         }
