@@ -22,7 +22,6 @@ from urllib.parse import urlparse
 from django.utils.dateparse import parse_datetime
 
 from posthog.dataclasses import frozen
-from posthog.helpers.email_utils import email_domain
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -43,6 +42,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.emails import normalized_email
 from products.messaging.backend.provider_imports.postmark_templates import convert_template
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
@@ -441,7 +441,7 @@ def _fetch_suppressions(
 def _merge(merged: dict[str, _Suppression], rows: list[dict[str, Any]], is_transactional: bool) -> int:
     invalid = 0
     for row in rows:
-        address = _normalized_email(row.get("EmailAddress"))
+        address = normalized_email(row.get("EmailAddress"))
         reason = str(row.get("SuppressionReason"))
         if address is None or reason not in _REASON_RANK:
             invalid += 1
@@ -501,13 +501,6 @@ def _to_imported(row: _Suppression) -> ImportedSuppression:
     return ImportedSuppression(
         identifier=row.address, source=source, reason=reason, suppressed_at=_timestamp(row.created_at)
     )
-
-
-def _normalized_email(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    email = value.strip().lower()
-    return email if email_domain(email) and not email.startswith("@") and len(email) <= 512 else None
 
 
 def _timestamp(value: str) -> datetime | None:
