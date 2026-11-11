@@ -434,6 +434,24 @@ class TestChatCompletionsEndpoint:
         assert response.status_code == 200, response.json()
         assert response.json()["choices"][0]["message"]["content"] == "Hi"
 
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    def test_reasoning_effort_lookup_makes_no_provider_request(
+        self, mock_acompletion: MagicMock, authenticated_client: TestClient, mock_openai_response: dict
+    ) -> None:
+        mock_acompletion.return_value = MagicMock(model_dump=MagicMock(return_value=mock_openai_response))
+        with patch.object(litellm.module_level_client, "post") as mock_post:
+            authenticated_client.post(
+                "/django/v1/chat/completions",
+                json={
+                    "model": "ollama/anything",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                    "reasoning_effort": "low",
+                },
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        mock_post.assert_not_called()
+
 
 # CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
 # not litellm.aresponses (which prefixes openai/ and hits the real OpenAI Responses API ->
