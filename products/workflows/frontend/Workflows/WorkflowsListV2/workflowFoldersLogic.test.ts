@@ -618,6 +618,26 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
     })
 
+    it('shows a workflow only in its new folder after the shared tree refreshes a move made elsewhere', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const moved = { id: 'nested', path: 'Billing/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': ({ request }) =>
+                    new URL(request.url).searchParams.get('ref') === moved.ref
+                        ? [200, paginated([moved])]
+                        : [200, paginated([])],
+            },
+        })
+        await projectTreeDataLogic.asyncActions.syncTypeAndRef('hog_flow', moved.ref, true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.openFolder('Billing/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([])
+        logic.actions.openFolder('Billing')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([moved.ref, FIXTURE_WORKFLOWS[0].id])
+    })
+
     it.each([
         [
             'keeps a rename the shared tree refreshes while an older folder scan is still loading',
