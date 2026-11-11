@@ -84,7 +84,7 @@ The user may provide additional context to guide your summary focus. Use it to d
 INITIAL_USER_PROMPT_TEMPLATE = """Current data (captured {{current_timestamp}}):
 {{current_section}}
 
-{{annotations_section}}Summarize the key takeaways in 2-4 bullet points. {{formatting_instructions}}
+{{annotations_section}}Summarize the key takeaways in 2-4 bullet points.
 
 Focus on:
 - Notable metric values (unusually high, low, or outlier values)
@@ -103,7 +103,7 @@ USER_PROMPT_TEMPLATE = """Previous data (captured {{previous_timestamp}}):
 Current data (captured {{current_timestamp}}):
 {{current_section}}
 
-{{annotations_section}}Summarize the key changes in 2-4 bullet points. {{formatting_instructions}}
+{{annotations_section}}Summarize the key changes in 2-4 bullet points.
 
 Focus on:
 - Changes of 10% or more in key metrics
@@ -125,8 +125,7 @@ For event lists, the first finding must state the query window and any limits on
 Do not use the subscription schedule or title as the data window.
 Keep each event type's time range separate. Never apply the overall returned time span to every event type.
 An event-table image can show only the newest rows. Its missing older rows do not contradict full-result event counts or time ranges.
-Use structured items to identify event and metric names, measured values, time windows, links, and connecting text.
-Each destination applies its own visual styles. Do not put formatting markers or bullet characters inside the items.
+Tag every name, measured value, change and date with its kind; the renderer styles them.
 Use sentence case and direct language. Remove repetition, generic introductions, sign-offs, and concluding recaps.
 State uncertainty once, beside the affected fact. Do not infer causes, business impact, or tracking failures from missing evidence.
 Before returning the findings, remove filler, stock phrases, inflated claims, and duplicate observations.
@@ -306,7 +305,8 @@ def build_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No current data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": SUMMARY_CONTENT_INSTRUCTIONS,
+            # Managed prompts can still reference this variable. The instructions go in the system message.
+            "formatting_instructions": "",
         },
     )
 
@@ -338,7 +338,8 @@ def build_initial_prompt_messages(
             "current_timestamp": current_timestamp,
             "current_section": _wrap_insight_data("\n\n".join(current_section_parts) or "No data"),
             "annotations_section": annotations_section,
-            "formatting_instructions": SUMMARY_CONTENT_INSTRUCTIONS,
+            # Managed prompts can still reference this variable. The instructions go in the system message.
+            "formatting_instructions": "",
         },
     )
 
