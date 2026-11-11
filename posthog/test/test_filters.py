@@ -21,3 +21,15 @@ class TestTermSearchFilterSql(SimpleTestCase):
 
         assert sql == expected
         assert params == {"search_0": "%Foo%", "search_1": "%Foo%"}
+
+    @parameterized.expand(
+        [
+            ("underscore", "$mcp_tool_name", "%$mcp\\_tool\\_name%"),
+            ("percent", "50%", "%50\\%%"),
+            ("trailing backslash", "a\\", "%a\\\\%"),
+        ]
+    )
+    def test_like_wildcards_in_a_term_match_literally(self, _name: str, term: str, expected_pattern: str) -> None:
+        _, params = term_search_filter_sql(["name"], term)
+
+        assert params == {"search_0": expected_pattern}

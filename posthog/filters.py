@@ -71,13 +71,21 @@ class TermSearchFilterBackend(filters.BaseFilterBackend):
         return queryset.filter(term_filter)
 
 
+def _like_substring_pattern(term: str) -> str:
+    # `%` and `_` are LIKE wildcards, so an unescaped `$mcp_tool_name` also matches `$mcpXtoolXname`.
+    # Backslash is the default LIKE escape character. Escape it first, so that a backslash in the term
+    # does not escape the character after it.
+    escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
+
+
 def term_search_filter_sql(
     search_fields: list[str],
     search_terms: Optional[str] = "",
     search_extra: Optional[str] = "",
     avoid_trigram_index: bool = False,
 ) -> tuple[str, dict]:
-    """Builds the `?search=` predicate: every space-separated term must match one of the fields.
+    """Builds the `?search=` predicate: every space-separated term must appear literally in one of the fields.
 
     `field ILIKE pattern` lets the planner answer from a trigram GIN index on the field. Where that
     index is global and the query is already scoped to one tenant, the planner still often reads the
@@ -100,7 +108,7 @@ def term_search_filter_sql(
                 search_filter_query.append(f"lower({search_field}) like lower(%(search_{index})s)")
             else:
                 search_filter_query.append(f"{search_field} ilike %(search_{index})s")
-            kwargs[f"search_{index}"] = f"%{search_term}%"
+            kwargs[f"search_{index}"] = _like_substring_pattern(search_term)
         term_filter.append(f"({' OR '.join(search_filter_query)})")
 
     if term_filter:
