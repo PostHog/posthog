@@ -277,6 +277,63 @@ class EmailTemplateSerializer(serializers.Serializer):
         return fields
 
 
+PUSH_DATA_MAX_KEYS = 50
+TEMPLATE_TYPES = ("email", "push")
+
+
+class PushTemplateSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=1000,
+        help_text="Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in "
+        "`content` for push-type templates.",
+    )
+    body = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=4000,
+        help_text="Notification body text. Supports Liquid templating. Required in `content` for push-type templates.",
+    )
+    image = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="URL of an image to show in the notification. Supports Liquid templating.",
+    )
+    link = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=2000,
+        help_text="Where a tap should take the person, such as myapp://orders/123 or a web URL. Sent to the app "
+        'as the "link" key in the custom data. Supports Liquid templating.',
+    )
+    data = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, max_length=4000),
+        required=False,
+        help_text="Custom key-value data delivered to the app. Values are strings and support Liquid templating.",
+    )
+    channels = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        max_length=20,
+        help_text="IDs of the project's Firebase and APNs integrations to send through. Each person gets the "
+        "notification on every device they registered with one of these apps.",
+    )
+
+    def validate_data(self, value: dict[str, str]) -> dict[str, str]:
+        if len(value) > PUSH_DATA_MAX_KEYS:
+            raise serializers.ValidationError(f"Use at most {PUSH_DATA_MAX_KEYS} keys.")
+        return value
+
+    def validate_channels(self, value: list[int]) -> list[int]:
+        value = list(dict.fromkeys(value))
+        found = IntegrationManager.kinds("firebase", "apns").get_many(self.context["team_id"], value)
+        if missing := [channel for channel in value if channel not in found]:
+            raise serializers.ValidationError(f"No Firebase or APNs integration with ID {missing[0]} in this project.")
+        return value
+
+
 class MessageTemplateContentSerializer(serializers.Serializer):
     templating = serializers.ChoiceField(
         choices=["liquid"],
@@ -287,6 +344,12 @@ class MessageTemplateContentSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Email message content. Replaced as a whole on update — send the complete object.",
+    )
+    push = PushTemplateSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Push notification content, for push-type templates. Replaced as a whole on update — send the "
+        "complete object.",
     )
 
 
@@ -356,7 +419,7 @@ class MessageTemplateSerializer(serializers.Serializer):
         max_length=24,
         allow_blank=True,
         required=False,
-        help_text="Message channel of the template. Currently 'email'.",
+        help_text="Message channel of the template: 'email' (the default) or 'push'.",
     )
     message_category = MessageTemplateCategoryField(
         required=False,
@@ -374,7 +437,7 @@ class MessageTemplateSerializer(serializers.Serializer):
     transactional_hog_flow_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="The workflow that sends this template over the transactional email API. Null until the "
+        help_text="The workflow that sends this template over the transactional email or push API. Null until the "
         "template is made transactional. Each content save writes a new version of it.",
     )
     draft_content = MessageTemplateContentSerializer(
@@ -397,11 +460,24 @@ class MessageTemplateSerializer(serializers.Serializer):
             raise serializers.ValidationError(f"A tag may be at most {_MAX_TAG_LENGTH} characters once lowercased.")
         return tags
 
+    def validate_type(self, value: str) -> str:
+        if value and value not in TEMPLATE_TYPES:
+            raise serializers.ValidationError(f"Use one of: {', '.join(TEMPLATE_TYPES)}.")
+        return value
+
     def validate(self, data: Any) -> Any:
         validate_file_system_placement(
             data.get("_create_in_folder"), data.get("name", self.instance.name if self.instance else None)
         )
         template_type = data.get("type")
+        push = data.get("content", {}).get("push") if data.get("content") else None
+        # Only published content needs a title and body. A draft may still be missing them.
+        if template_type == "push" and push is not None:
+            for field in ("title", "body"):
+                if not (push.get(field) or "").strip():
+                    raise serializers.ValidationError(
+                        {"content": {"push": {field: f"A {field} is required for push templates."}}}
+                    )
         email = data.get("content", {}).get("email") if data.get("content") else None
         # Only published content needs a subject. A draft may still be missing one.
         if email and (template_type == "email" or "subject" in email) and not email.get("subject"):
@@ -498,6 +574,7 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
+TRANSACTIONAL_PUSH_API_FLAG = "workflows-transactional-push-api"
 FIRST_CODE_SEND_EVENT = "email first code send"
 INTEGRATION_MARKER = re.compile(r"([a-z0-9-]{1,40})/[0-9A-Za-z.+-]{1,40}", re.ASCII)
 USER_AGENT_PRODUCT = re.compile(r"([!#$%&'*+.^_`|~0-9A-Za-z-]+)(?:/|\s|\Z)", re.ASCII)
@@ -738,7 +815,7 @@ class MakeTransactionalSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="ID of the verified email sender integration the email is sent from. Defaults to the project's "
-        "default sender.",
+        "default sender. Ignored for push templates.",
     )
 
 
@@ -851,6 +928,10 @@ def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
 
 def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
+
+
+def require_transactional_push_api(team: Any) -> None:
+    _require_flag(team, TRANSACTIONAL_PUSH_API_FLAG)
 
 
 def require_email_from_code(team: Any) -> None:
@@ -1487,7 +1568,8 @@ class MessageTemplatesViewSet(
         },
         summary="Make a template transactional",
         description=(
-            "Make this template sendable over the transactional email API. This creates the workflow that sends it, "
+            "Make this template sendable over the transactional email API, or the transactional push API for a push "
+            "template. This creates the workflow that sends it, "
             "with its own metrics, run history and versions. This can't be undone: the template stays transactional. "
             "Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes "
             "nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with "
@@ -1498,8 +1580,11 @@ class MessageTemplatesViewSet(
     )
     @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def make_transactional(self, request: Any, *args: Any, **kwargs: Any) -> Response:
-        self._require_transactional_email_flag()
         template = self.get_object()
+        if template.type == "push":
+            require_transactional_push_api(self.team)
+        else:
+            self._require_transactional_email_flag()
         was_transactional = template.transactional_hog_flow_id is not None
         # Access to one workflow lets a member through the viewset's checks, but this can create a new one, also
         # when the linked workflow was deleted.

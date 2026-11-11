@@ -159,6 +159,18 @@ export const messagingTemplatesCreateBodyTagsMax = 10
 export const messagingTemplatesCreateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax = 254
 
+export const messagingTemplatesCreateBodyContentOnePushOneTitleMax = 1000
+
+export const messagingTemplatesCreateBodyContentOnePushOneBodyMax = 4000
+
+export const messagingTemplatesCreateBodyContentOnePushOneImageMax = 2000
+
+export const messagingTemplatesCreateBodyContentOnePushOneLinkMax = 2000
+
+export const messagingTemplatesCreateBodyContentOnePushOneDataMaxOne = 4000
+
+export const messagingTemplatesCreateBodyContentOnePushOneChannelsMax = 20
+
 export const messagingTemplatesCreateBodyTypeMax = 24
 
 export const MessagingTemplatesCreateBody = () => zod.strictObject({
@@ -269,6 +281,58 @@ export const MessagingTemplatesCreateBody = () => zod.strictObject({
                 ])
                 .optional()
                 .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            push: zod
+                .union([
+                    zod.strictObject({
+                        title: zod
+                            .string()
+                            .max(messagingTemplatesCreateBodyContentOnePushOneTitleMax)
+                            .optional()
+                            .describe(
+                                'Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.'
+                            ),
+                        body: zod
+                            .string()
+                            .max(messagingTemplatesCreateBodyContentOnePushOneBodyMax)
+                            .optional()
+                            .describe(
+                                'Notification body text. Supports Liquid templating. Required in `content` for push-type templates.'
+                            ),
+                        image: zod
+                            .string()
+                            .max(messagingTemplatesCreateBodyContentOnePushOneImageMax)
+                            .optional()
+                            .describe('URL of an image to show in the notification. Supports Liquid templating.'),
+                        link: zod
+                            .string()
+                            .max(messagingTemplatesCreateBodyContentOnePushOneLinkMax)
+                            .optional()
+                            .describe(
+                                'Where a tap should take the person, such as myapp:\/\/orders\/123 or a web URL. Sent to the app as the \"link\" key in the custom data. Supports Liquid templating.'
+                            ),
+                        data: zod
+                            .record(
+                                zod.string(),
+                                zod.string().max(messagingTemplatesCreateBodyContentOnePushOneDataMaxOne)
+                            )
+                            .optional()
+                            .describe(
+                                'Custom key-value data delivered to the app. Values are strings and support Liquid templating.'
+                            ),
+                        channels: zod
+                            .array(zod.number())
+                            .max(messagingTemplatesCreateBodyContentOnePushOneChannelsMax)
+                            .optional()
+                            .describe(
+                                "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps."
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Push notification content, for push-type templates. Replaced as a whole on update — send the complete object.'
+                ),
         })
         .optional()
         .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
@@ -276,7 +340,7 @@ export const MessagingTemplatesCreateBody = () => zod.strictObject({
         .string()
         .max(messagingTemplatesCreateBodyTypeMax)
         .optional()
-        .describe("Message channel of the template. Currently 'email'."),
+        .describe("Message channel of the template: 'email' (the default) or 'push'."),
     message_category: zod
         .string()
         .nullish()
@@ -316,6 +380,18 @@ export const messagingTemplatesPartialUpdateBodyTagsMax = 10
 
 export const messagingTemplatesPartialUpdateBodyContentOneTemplatingDefault = `liquid`
 export const messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMax = 254
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneTitleMax = 1000
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneBodyMax = 4000
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneImageMax = 2000
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneLinkMax = 2000
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneDataMaxOne = 4000
+
+export const messagingTemplatesPartialUpdateBodyContentOnePushOneChannelsMax = 20
 
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
@@ -428,6 +504,58 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
                 ])
                 .optional()
                 .describe('Email message content. Replaced as a whole on update — send the complete object.'),
+            push: zod
+                .union([
+                    zod.strictObject({
+                        title: zod
+                            .string()
+                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneTitleMax)
+                            .optional()
+                            .describe(
+                                'Notification title. Supports Liquid templating, such as {{ variables.name }}. Required in `content` for push-type templates.'
+                            ),
+                        body: zod
+                            .string()
+                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneBodyMax)
+                            .optional()
+                            .describe(
+                                'Notification body text. Supports Liquid templating. Required in `content` for push-type templates.'
+                            ),
+                        image: zod
+                            .string()
+                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneImageMax)
+                            .optional()
+                            .describe('URL of an image to show in the notification. Supports Liquid templating.'),
+                        link: zod
+                            .string()
+                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneLinkMax)
+                            .optional()
+                            .describe(
+                                'Where a tap should take the person, such as myapp:\/\/orders\/123 or a web URL. Sent to the app as the \"link\" key in the custom data. Supports Liquid templating.'
+                            ),
+                        data: zod
+                            .record(
+                                zod.string(),
+                                zod.string().max(messagingTemplatesPartialUpdateBodyContentOnePushOneDataMaxOne)
+                            )
+                            .optional()
+                            .describe(
+                                'Custom key-value data delivered to the app. Values are strings and support Liquid templating.'
+                            ),
+                        channels: zod
+                            .array(zod.number())
+                            .max(messagingTemplatesPartialUpdateBodyContentOnePushOneChannelsMax)
+                            .optional()
+                            .describe(
+                                "IDs of the project's Firebase and APNs integrations to send through. Each person gets the notification on every device they registered with one of these apps."
+                            ),
+                    }),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    'Push notification content, for push-type templates. Replaced as a whole on update — send the complete object.'
+                ),
         })
         .optional()
         .describe('Template content keyed by channel. Replaced as a whole on update, not merged.'),
@@ -435,7 +563,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
         .string()
         .max(messagingTemplatesPartialUpdateBodyTypeMax)
         .optional()
-        .describe("Message channel of the template. Currently 'email'."),
+        .describe("Message channel of the template: 'email' (the default) or 'push'."),
     message_category: zod
         .string()
         .nullish()
@@ -521,7 +649,7 @@ export const MessagingTemplatesDesignPartialUpdateBody = () => zod.strictObject(
 })
 
 /**
- * Make this template sendable over the transactional email API. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
+ * Make this template sendable over the transactional email API, or the transactional push API for a push template. This creates the workflow that sends it, with its own metrics, run history and versions. This can't be undone: the template stays transactional. Transactional sends ignore marketing opt-outs. Calling it again on a transactional template changes nothing. Needs the `transactional_email:write` scope, the same scope as sending. A key with `hog_flow:write` also works, but that scope reaches the rest of Workflows too. Without `hog_flow:read`, the response leaves out `content` and `draft_content`.
  * @summary Make a template transactional
  */
 export const MessagingTemplatesMakeTransactionalCreateParams = () => zod.object({
@@ -538,6 +666,6 @@ export const MessagingTemplatesMakeTransactionalCreateBody = () => zod.strictObj
         .number()
         .nullish()
         .describe(
-            "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender."
+            "ID of the verified email sender integration the email is sent from. Defaults to the project's default sender. Ignored for push templates."
         ),
 })

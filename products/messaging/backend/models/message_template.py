@@ -18,7 +18,7 @@ KEY_CONSTRAINT = "unique_message_template_key_per_team"
 # nosemgrep: no-new-uuidt-models -- an existing model, and its stored ids cannot change.
 class MessageTemplate(FileSystemSyncMixin, Taggable, UUIDTModel):
     """
-    A model for storing message templates used for email and eventually other messaging channels.
+    A model for storing message templates used for email and push notifications.
     """
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")

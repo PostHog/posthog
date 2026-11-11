@@ -569,15 +569,21 @@ export const HogFlowsCreateBody = /* @__PURE__ */ zod
         origin_product: zod
             .union([
                 zod
-                    .enum(['loops', 'broadcasts', 'transactional_emails', 'transactional_email_keys'])
+                    .enum([
+                        'loops',
+                        'broadcasts',
+                        'transactional_emails',
+                        'transactional_email_keys',
+                        'transactional_push',
+                    ])
                     .describe(
-                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
             ),
         source_record: zod
             .string()
@@ -2043,15 +2049,21 @@ export const HogFlowsInvocationsCreateBody = /* @__PURE__ */ zod.object({
             origin_product: zod
                 .union([
                     zod
-                        .enum(['loops', 'broadcasts', 'transactional_emails', 'transactional_email_keys'])
+                        .enum([
+                            'loops',
+                            'broadcasts',
+                            'transactional_emails',
+                            'transactional_email_keys',
+                            'transactional_push',
+                        ])
                         .describe(
-                            '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                            '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
                         ),
                     zod.null(),
                 ])
                 .optional()
                 .describe(
-                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                    'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
                 ),
             source_record: zod
                 .string()
@@ -2969,15 +2981,21 @@ export const HogFlowsBulkDeleteCreateBody = /* @__PURE__ */ zod
         origin_product: zod
             .union([
                 zod
-                    .enum(['loops', 'broadcasts', 'transactional_emails', 'transactional_email_keys'])
+                    .enum([
+                        'loops',
+                        'broadcasts',
+                        'transactional_emails',
+                        'transactional_email_keys',
+                        'transactional_push',
+                    ])
                     .describe(
-                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                        '\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
                     ),
                 zod.null(),
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys\n\* `transactional_push` - Transactional push notifications'
             ),
         source_record: zod
             .string()

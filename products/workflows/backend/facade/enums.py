@@ -117,6 +117,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
     TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
+    TRANSACTIONAL_PUSH = "transactional_push", "Transactional push notifications"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
