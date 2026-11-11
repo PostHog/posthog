@@ -100,7 +100,7 @@ async def eval_metric_kinds(ctx: EvalContext) -> None:
         ),
         SandboxedEvalCase(
             name="trends_kind_with_override",
-            prompt="Show weekly active accounts, but as a daily series for the last 30 days.",
+            prompt="Show active accounts per day for the last 30 days, using our account engagement metric.",
             expected={
                 "run_override_used": {
                     "metric_name": ACCOUNT_ENGAGEMENT_METRIC.name,
