@@ -7,8 +7,8 @@ export interface ProductPushPrompt {
 
 /**
  * A pushed product without a prompt gets no row in Today, because the sidebar's promo copy reads as an ad
- * next to the facts in that list. "Isn't set up" is what the campaign's usage check measures: the project
- * has no intent for the product.
+ * next to the facts in that list. So every product in PRODUCT_PUSH_DISPLAY needs a prompt here too.
+ * "Isn't set up" is what the campaign's usage check measures: the project has no intent for the product.
  */
 export const PRODUCT_PUSH_PROMPTS: Partial<Record<string, ProductPushPrompt>> = {
     [ProductKey.PRODUCT_ANALYTICS]: {
@@ -54,5 +54,63 @@ export const PRODUCT_PUSH_PROMPTS: Partial<Record<string, ProductPushPrompt>> = 
     [ProductKey.WORKFLOWS]: {
         title: 'Workflows aren’t set up in this project yet',
         facts: ['Workflows send messages and run actions when events happen', 'Create a workflow'],
+    },
+    [ProductKey.CONVERSATIONS]: {
+        title: 'Support isn’t set up in this project yet',
+        facts: ['People message you from inside your product, with their session history attached', 'Set up support'],
+    },
+    [ProductKey.ENDPOINTS]: {
+        title: 'This project has no endpoints yet',
+        facts: ['An endpoint turns a saved query into an API your app can call', 'Create an endpoint'],
+    },
+    [ProductKey.LLM_CLUSTERS]: {
+        title: 'Clusters aren’t set up in this project yet',
+        facts: ['Clusters group similar LLM conversations into patterns', 'Set up clusters'],
+    },
+    [ProductKey.LLM_EVALUATIONS]: {
+        title: 'This project has no LLM evaluations yet',
+        facts: ['Evaluations grade LLM outputs and flag regressions', 'Create an evaluation'],
+    },
+    [ProductKey.LLM_PROMPTS]: {
+        title: 'This project doesn’t manage prompts in PostHog yet',
+        facts: ['Each prompt is versioned, so you can change it without redeploying your app', 'Create a prompt'],
+    },
+    [ProductKey.MARKETING_ANALYTICS]: {
+        title: 'Marketing analytics isn’t set up in this project yet',
+        facts: ['It shows ad spend next to the signups each channel brought in', 'Set up marketing analytics'],
+    },
+    [ProductKey.MCP_ANALYTICS]: {
+        title: 'MCP analytics isn’t set up in this project yet',
+        facts: [
+            'It shows which MCP tools agents call, how long each call takes and which calls fail',
+            'Set up MCP analytics',
+        ],
+    },
+    [ProductKey.NOTEBOOKS]: {
+        title: 'No one has written a notebook in this project yet',
+        facts: ['Notebooks hold live insights and recordings next to your notes', 'Create a notebook'],
+    },
+    [ProductKey.REPLAY_VISION]: {
+        title: 'Replay vision isn’t set up in this project yet',
+        facts: [
+            'It reads your recordings and turns what happens in them into data you can query',
+            'Set up replay vision',
+        ],
+    },
+    [ProductKey.TOOLBAR]: {
+        title: 'No one has launched the toolbar in this project yet',
+        facts: ['The toolbar shows how each element performs, on your own site', 'Launch the toolbar'],
+    },
+    [ProductKey.POSTHOG_SLACK]: {
+        title: 'PostHog isn’t in this organization’s Slack yet',
+        facts: ['In Slack, your team can ask PostHog questions about your data', 'Add PostHog to Slack'],
+    },
+    [ProductKey.POSTHOG_GITHUB]: {
+        title: 'GitHub isn’t connected to this organization yet',
+        facts: ['With GitHub connected, PostHog can open pull requests with fixes', 'Connect GitHub'],
+    },
+    [ProductKey.POSTHOG_DESKTOP]: {
+        title: 'No one in this organization uses PostHog Desktop yet',
+        facts: ['Desktop runs AI agents that use your product data to ship changes', 'Get PostHog Desktop'],
     },
 }

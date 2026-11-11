@@ -5,12 +5,15 @@ import type { LocationChangedPayload } from 'kea-router/lib/types'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api'
+import { NAV_PANEL_CARD_TYPE } from 'lib/components/NavPanelAdvertisement/navPanelAdShared'
 import { navPanelProductPushLogic } from 'lib/components/NavPanelAdvertisement/navPanelProductPushLogic'
+import { NavPanelSlotCard, pickNavPanelSlotCard } from 'lib/components/NavPanelAdvertisement/navPanelSlotCard'
 import { PRODUCT_PUSH_PROMPTS } from 'lib/components/NavPanelAdvertisement/productPushPrompts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { withTimeout } from 'lib/utils/async'
 import { isObject } from 'lib/utils/guards'
@@ -151,6 +154,9 @@ export function signalReportSnapshot(report: SignalReport): TodayReportSnapshot 
     }
 }
 
+/** A Growth card that shows as a banner at the top of the page. The product push shows as a row instead. */
+export type TodayPromoBanner = Exclude<NavPanelSlotCard, { type: typeof NAV_PANEL_CARD_TYPE.PRODUCT_PUSH }>
+
 interface TodayRankedReport {
     report: TodayReportSnapshot
     rank: number
@@ -160,6 +166,7 @@ interface TodayRankedReport {
 export interface todayLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     activeCampaign: ProductPushCampaignApi | null // navPanelProductPushLogic
+    isCloudOrDev: boolean | undefined // preflightLogic
     recents: FileSystemEntry[] // recentItemsModel
     recentsHasLoaded: boolean // recentItemsModel
     currentProjectId: number | string // teamLogic
@@ -189,6 +196,7 @@ export interface todayLogicValues {
     frequentObjects: FileSystemEntry[]
     frequentObjectsLoading: boolean
     greeting: string
+    growthSlotCard: NavPanelSlotCard | null
     homeScrollTop: number | null
     isNewProject: boolean
     listExpanded: Record<TodayList, boolean>
@@ -198,6 +206,7 @@ export interface todayLogicValues {
     moreReportsInInbox: number
     moreReportsLoading: boolean
     now: number
+    promoBanner: TodayPromoBanner | null
     recentObjects: JumpBackObject[]
     reportId: string | null
     reportOpenContext: TodayReportOpenContext | null
@@ -381,11 +390,18 @@ export interface todayLogicMeta {
             moreReportCount: number
         ) => boolean
         moreReportsInInbox: (currentMoreReports: TodayMoreReports | null) => number
-        forYouProductPush: (
+        growthSlotCard: (
+            featureFlags: FeatureFlagsSet,
+            isCloudOrDev: boolean | undefined,
             activeCampaign: ProductPushCampaignApi | null,
+            user: UserType | null
+        ) => NavPanelSlotCard | null
+        forYouProductPush: (
+            growthSlotCard: any,
             user: UserType | null,
             useSampleData: boolean
         ) => TodayProductPush | null
+        promoBanner: (growthSlotCard: any, useSampleData: boolean) => TodayPromoBanner | null
         forYouRows: (
             reports: SignalReport[],
             loadedMoreReports: SignalReport[],
@@ -448,6 +464,8 @@ export const todayLogic = kea<todayLogicType>([
             ['featureFlags'],
             navPanelProductPushLogic,
             ['activeCampaign'],
+            preflightLogic,
+            ['isCloudOrDev'],
         ],
         actions: [
             router,
@@ -686,24 +704,45 @@ export const todayLogic = kea<todayLogicType>([
                     ? Math.max(currentMoreReports.count - currentMoreReports.results.length, 0)
                     : 0,
         ],
-        forYouProductPush: [
-            (s) => [s.activeCampaign, s.user, s.useSampleData],
+        growthSlotCard: [
+            // featureFlags is a dependency so the broadcast payload is read again when flags reload.
+            (s) => [s.featureFlags, s.isCloudOrDev, s.activeCampaign, s.user],
             (
+                _featureFlags: FeatureFlagsSet,
+                isCloudOrDev: boolean | undefined,
                 activeCampaign: ProductPushCampaignApi | null,
+                user: UserType | null
+            ): NavPanelSlotCard | null =>
+                pickNavPanelSlotCard({
+                    isCloudOrDev,
+                    broadcastPayload: getFeatureFlagPayload(FEATURE_FLAGS.NAV_PANEL_BROADCAST),
+                    activeCampaign,
+                    user,
+                }),
+        ],
+        forYouProductPush: [
+            (s) => [s.growthSlotCard, s.user, s.useSampleData],
+            (
+                growthSlotCard: NavPanelSlotCard | null,
                 user: UserType | null,
                 useSampleData: boolean
-            ): TodayProductPush | null =>
-                // The same setting turns off product suggestions in the sidebar.
-                activeCampaign &&
-                user &&
-                user.allow_sidebar_suggestions !== false &&
-                !useSampleData &&
-                PRODUCT_PUSH_PROMPTS[activeCampaign.product_key]
-                    ? {
-                          campaign: activeCampaign,
-                          slot: productPushSlot(activeCampaign.id, user.uuid, dayjs().format('YYYY-MM-DD')),
-                      }
-                    : null,
+            ): TodayProductPush | null => {
+                if (growthSlotCard?.type !== NAV_PANEL_CARD_TYPE.PRODUCT_PUSH || !user || useSampleData) {
+                    return null
+                }
+                const { campaign } = growthSlotCard
+                return PRODUCT_PUSH_PROMPTS[campaign.product_key]
+                    ? { campaign, slot: productPushSlot(campaign.id, user.uuid, dayjs().format('YYYY-MM-DD')) }
+                    : null
+            },
+        ],
+        promoBanner: [
+            (s) => [s.growthSlotCard, s.useSampleData],
+            (growthSlotCard: NavPanelSlotCard | null, useSampleData: boolean): TodayPromoBanner | null =>
+                // The sample data banner already takes the top of the page.
+                !growthSlotCard || growthSlotCard.type === NAV_PANEL_CARD_TYPE.PRODUCT_PUSH || useSampleData
+                    ? null
+                    : growthSlotCard,
         ],
         forYouRows: [
             (s) => [
