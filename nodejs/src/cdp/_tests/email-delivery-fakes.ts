@@ -67,8 +67,6 @@ export const deliveredTo = (ses: FakeSes, address: string): DeliveredEmail[] =>
 
 export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdFilesItHas' | 'stallFileBodies'
 
-// Sits between the attachment store and the real bucket to fail or hold its requests on demand, which the
-// shared bucket cannot do without disturbing everyone else using it.
 export class BucketProxy {
     answer: BucketAnswer = 'pass'
     abandonedRequests = 0
@@ -94,7 +92,6 @@ export class BucketProxy {
         return buildAttachmentStore({ ...attachmentStoreConfig, CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: this.endpoint })!
     }
 
-    // Answers the requests it holds, and every one after, as `answer` says. A file whose body stalled is cut off.
     release(answer: 'pass' | 'refuse' = 'pass'): void {
         this.answer = answer
         for (const answerHeld of this.held.splice(0)) {
@@ -138,9 +135,6 @@ export class BucketProxy {
             { method: request.method, headers: request.headers },
             (answer) => {
                 const fileItHas = request.method === 'GET' && answer.statusCode === 200
-                // The client gives up on a send's other downloads once one file is missing, which cuts a download
-                // still waiting for its headers. Answering the missing file after another body stalled keeps that
-                // download running.
                 if (request.method === 'GET' && !fileItHas && this.answer === 'stallFileBodies') {
                     void this.aBodyStalled.then(() => {
                         response.writeHead(answer.statusCode!, answer.headers)

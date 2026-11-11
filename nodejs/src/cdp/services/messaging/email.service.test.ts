@@ -1776,9 +1776,6 @@ describe('EmailService', () => {
                 ])
             })
 
-            // The SDK does not abort a call while it waits for its credentials, so this call outlives the deadline
-            // of the email before, still holding that email's files. The bucket refuses every download while the
-            // call runs, so an email that loads its own files beside them fails to load them instead of sending.
             it.each([
                 [
                     'loads its files and sends only once that call settles',

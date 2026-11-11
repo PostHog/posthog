@@ -47,7 +47,6 @@ import { CdpCyclotronWorkerEmail, RESULT_WRITE_MARGIN_MS } from './cdp-cyclotron
 
 jest.setTimeout(60_000)
 
-// The send checks the recipient's domain for mail servers in public DNS, which a test cannot rely on.
 jest.mock('node:dns/promises', () => ({
     Resolver: jest.fn().mockImplementation(() => ({
         resolveMx: () => Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }]),
@@ -56,9 +55,6 @@ jest.mock('node:dns/promises', () => ({
     })),
 }))
 
-// The email worker sends a job only while it sits on the email queue, and other suites and runs share that
-// queue in this database. So each test's jobs live on queues only that test polls, and its worker sees them
-// as email jobs.
 class EmailQueueOfOneTest extends CyclotronJobQueuePostgresV2 {
     constructor(
         private readonly queueName: string,
@@ -98,9 +94,6 @@ const SSL_REQUEST = 80877103
 const GSS_ENCRYPTION_REQUEST = 80877104
 const ENDS_A_REQUEST = new Set(['S', 'Q', 'X', 'p', 'H', 'c', 'f'])
 
-// Holds a query whose SQL and parameters match before Postgres sees it, so one write of a job waits while the
-// job's other queries, its heartbeat included, still run. A lock inside Postgres would hold the heartbeat too,
-// because both take the job's row.
 class CyclotronProxy {
     url = ''
     private readonly waiting: { matches: (request: string) => boolean; caught: (held: HeldQuery) => void }[] = []
@@ -223,8 +216,6 @@ async function metric(name: string, labels: Record<string, string> = {}): Promis
         .reduce((sum, sample) => sum + sample.value, 0)
 }
 
-// The worker records how long each phase of a batch took as that phase settles, failed or not. A failure leaves its
-// phase before anything can report it, so once the count moves, a report that does not wait has already been made.
 async function batchPhasesEnded(phase: 'invocations' | 'background'): Promise<number> {
     const name = 'cdp_cyclotron_worker_phase_duration_seconds'
     const samples = (await (register.getSingleMetric(name) as Histogram | undefined)?.get())?.values ?? []
@@ -415,7 +406,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         return worker
     }
 
-    // Built the way the transactional email API builds the job it queues.
     function transactionalSend(
         files: StoredFile['metadata'][] | null,
         overrides: Partial<CyclotronJobInvocation> = {}
@@ -484,7 +474,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     const delivered = (): string[][] =>
         deliveredTo(ses, recipient).map((email) => email.attachments.map((file) => file.filename))
 
-    // What the status API answers: the row of the message with the highest version.
     const emailStatusOf = (id: string): EmailStatus | undefined => {
         const rows = mockProducerObserver
             .getProducedKafkaMessagesForTopic(KAFKA_EMAIL_STATUS)
@@ -667,9 +656,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
     describe('with a send whose SES call never settles, not even on abort', () => {
         const callsCannotOutlast = CONSUMER_STOP_DEADLINE_MS - RESULT_WRITE_MARGIN_MS
 
-        // The SDK resolves credentials before it signs a request and does not abort that step, so a credentials
-        // source that never answers leaves the call running past its deadline. SES itself cannot do that: the
-        // SDK aborts a request it has sent.
         const stalledSes = (askedForCredentials: () => void = () => undefined): SESv2Client =>
             sesClientFor(ses, {
                 credentials: () => {
@@ -682,8 +668,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             jest.useFakeTimers({
                 doNotFake: ['nextTick', 'setImmediate', 'clearImmediate', 'queueMicrotask', 'hrtime', 'performance'],
             })
-            // Node runs AbortSignal.timeout on a timer that jest does not replace, so the send deadline would pass on
-            // the real clock.
             const timeout = jest.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
                 const controller = new AbortController()
                 setTimeout(
@@ -700,8 +684,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             }
         }
 
-        // Moves the clock on a poll at a time, so the worker's loop wakes, until the check passes or `before` is
-        // reached. Each check reads Postgres, which gives the worker real time for its own queries.
         async function onTheFakeClock<T>(check: () => Promise<T>, before: number): Promise<T> {
             for (;;) {
                 try {
@@ -724,22 +706,16 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
                 roomFor(1),
                 stalledSes(() => (callStarted = true))
             )
-            // Some steps before the SES call wait on timers, so the clock has to move for the send to get there.
             await onTheFakeClock(async () => {
                 expect((await jobRow(stuck)).status).toBe('running')
                 expect(callStarted).toBe(true)
             }, clockStarted + 1_000)
             const earliestWrite = clockStarted + callsCannotOutlast
 
-            // Past the send deadline, and short of the earliest write by less than the wait for its call, so a result
-            // written without that wait shows.
             await jest.advanceTimersByTimeAsync(earliestWrite - 2_000 - Date.now())
-            // Postgres hands out a job by its own clock, which the fake clock is ahead of.
             const [next] = await enqueue(
                 transactionalSend([invoice.metadata], { queueScheduledAt: DateTime.fromMillis(clockStarted) })
             )
-            // The worker takes this send only after the queries it sent before, so a result it wrote too early has
-            // landed by the time the send is deferred for want of room.
             await onTheFakeClock(async () => {
                 const row = await jobRow(next)
                 expect({ status: row.status, deferrals: row.queueMetadata?.attachmentDeferrals }).toEqual({
@@ -757,7 +733,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             const stopDeadline = Date.now() + CONSUMER_STOP_DEADLINE_MS
             void worker.stop().then(() => (stopReturned = true))
             const seen: { at: number; stopReturned: boolean; status: string; retries?: number }[] = []
-            // The clock stops short of the stop deadline, so the stop can return only once its work is done.
             await onTheFakeClock(async () => {
                 const returned = stopReturned
                 const row = await jobRow(stuck)
@@ -790,8 +765,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             ;(await lostRunFails).drop()
 
             await waitForExpect(async () => expect(await loopErrors()).toBe(1), callsCannotOutlast + 5_000, 50)
-            // The retry it writes falls due while the wait for its call runs, so the worker can already be running
-            // the send again. Only its state shows the write.
             expect((await jobRow(send.id)).queueMetadata?.attachmentLoadRetries).toBe(1)
             expect(await metric('cdp_email_attachments_sends_in_flight')).toBe(1)
         })
@@ -819,7 +792,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         return { caught: workflowLookupWaits().then(() => ({ release: () => holder.query('COMMIT') })) }
     }
 
-    // The worker subscribed before this listener, so it has handled the reload once this listener hears it.
     async function reloadWorkflow(id: string): Promise<void> {
         const heard = new Promise<void>((resolve) =>
             hub.pubSub.on<{ hogFlowIds: string[] }>('reload-hog-flows', ({ hogFlowIds }) => {
@@ -985,7 +957,6 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
         }
     )
 
-    // Its own test: the send shares a batch with an uncached workflow, so its admission lookup waits in Postgres.
     it('runs a resumed send with files on the workflow its admission checked, when that workflow changes during the lookup', async () => {
         hogFlow = await insertEmailFlow('3s')
         const changed = emailFlow('3s', 'function_email')
