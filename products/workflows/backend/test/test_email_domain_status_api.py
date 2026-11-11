@@ -337,8 +337,7 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
         read_mail_from = self.world.ses._get_identity_mail_from_domain_attributes
         edits = iter(f"returns{n}" for n in range(1, 100))
 
-        # Each read is followed by an edit, so the last edit lands after verify's last read, before it stores the subdomain.
-        def the_sender_is_edited_after_each_read(*, Identities: list[str]) -> dict:
+        def edit_the_sender_after_each_read_so_an_edit_follows_verifys_last_read(*, Identities: list[str]) -> dict:
             attributes = read_mail_from(Identities=Identities)
             config = Integration.objects.get(id=sender).config
             edited = self.client.patch(
@@ -350,7 +349,9 @@ class TestEmailDomainTenantScoping(EmailDomainApiTestCase):
             return attributes
 
         with patch.object(
-            self.world.ses, "_get_identity_mail_from_domain_attributes", the_sender_is_edited_after_each_read
+            self.world.ses,
+            "_get_identity_mail_from_domain_attributes",
+            edit_the_sender_after_each_read_so_an_edit_follows_verifys_last_read,
         ):
             assert self.verify(sender).status_code == status.HTTP_200_OK
 
