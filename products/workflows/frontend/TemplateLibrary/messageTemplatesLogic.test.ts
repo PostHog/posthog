@@ -84,10 +84,19 @@ describe('messageTemplatesLogic', () => {
         expect(logic.values.templates.find((t) => t.id === 'a')?.tags).toEqual(['growth', 'onboarding'])
     })
 
-    it('deletes a template for good and brings it back on undo, in the library and the project tree', async () => {
+    it.each([
+        ['loaded in the project tree', true],
+        ['not loaded in the project tree', false],
+    ])('deletes a template for good and brings it back into its folder on undo, %s', async (_name, inTree) => {
         await expectLogic(logic).toFinishAllListeners()
-        const treeEntry = { id: 'file-a', path: 'Unfiled/Email templates/Welcome', type: 'message_template', ref: 'a' }
+        const filedAt = (path: string): Record<string, string> => ({
+            id: 'file-a',
+            path,
+            type: 'message_template',
+            ref: 'a',
+        })
         let deleted = false
+        let restoredPath: string | undefined
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_templates/': () => [
@@ -96,19 +105,32 @@ describe('messageTemplatesLogic', () => {
                 ],
                 '/api/environments/:team_id/file_system/': ({ request }) =>
                     new URL(request.url).searchParams.get('ref') === 'a' && !deleted
-                        ? [200, { results: [treeEntry], count: 1 }]
+                        ? [200, { results: [filedAt(restoredPath ?? 'Campaigns/Welcome')], count: 1 }]
                         : [200, { results: [], count: 0 }],
             },
             patch: {
                 '/api/environments/:team_id/messaging_templates/:id/': async ({ request }) => {
+                    if (deleted) {
+                        return [404, { detail: 'Not found.' }]
+                    }
                     deleted = ((await request.json()) as { deleted: boolean }).deleted
                     return [200, template('a', 'Welcome', [])]
+                },
+            },
+            post: {
+                '/api/environments/:team_id/file_system/undo_delete/': async ({ request }) => {
+                    const { items } = (await request.json()) as { items: { ref: string; path?: string }[] }
+                    deleted = false
+                    restoredPath = items[0].path ?? 'Unfiled/Email templates/Welcome'
+                    return [200, { undone: items }]
                 },
             },
         })
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
         projectTreeDataLogic.mount()
-        projectTreeDataLogic.actions.addLoadedResults({ results: [treeEntry] } as any)
+        if (inTree) {
+            projectTreeDataLogic.actions.addLoadedResults({ results: [filedAt('Campaigns/Welcome')] } as any)
+        }
         const toast = jest.spyOn(lemonToast, 'info')
 
         await expectLogic(logic, () => {
@@ -122,8 +144,9 @@ describe('messageTemplatesLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(projectTreeDataLogic).toFinishAllListeners()
         expect(logic.values.templates.map((t) => t.id)).toEqual(['a'])
+        expect(restoredPath).toBe('Campaigns/Welcome')
         expect(projectTreeDataLogic.values.itemsByRef['message_template::a']?.path).toBe(
-            'Unfiled/Email templates/Welcome'
+            inTree ? 'Campaigns/Welcome' : undefined
         )
 
         toast.mockRestore()
