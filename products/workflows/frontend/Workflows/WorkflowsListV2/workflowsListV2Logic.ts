@@ -80,6 +80,9 @@ export interface ServerSearchResult {
     failed: boolean
 }
 
+/** `idle` until the first metrics request, so a list still loading its pages is not read as a metrics failure. */
+export type MetricsStatus = 'idle' | 'loading' | 'loaded' | 'failed'
+
 /** `pending` while a server search for the current text is debouncing or in flight. */
 export type ServerSearchStatus = 'off' | 'pending' | 'done' | 'failed'
 
@@ -237,6 +240,7 @@ export interface workflowsListV2LogicValues {
     metrics: WorkflowStatsRowApi[] | null
     metricsLoaded: boolean
     metricsLoading: boolean
+    metricsStatus: MetricsStatus
     pendingRowActions: Record<string, WorkflowRowAction>
     requestedSearchText: string | null
     rows: WorkflowListRow[]
@@ -468,10 +472,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             null as WorkflowStatsRowApi[] | null,
             {
                 loadMetrics: async (_, breakpoint) => {
+                    cache.metricsAbort?.abort()
+                    const controller = new AbortController()
+                    cache.metricsAbort = controller
                     try {
-                        const metrics = await hogFlowsMetricsGlobalRetrieve(String(values.currentTeamId), {
-                            after: '-7d',
-                        })
+                        const metrics = await withRequestDeadline(controller, (signal) =>
+                            hogFlowsMetricsGlobalRetrieve(String(values.currentTeamId), { after: '-7d' }, { signal })
+                        )
                         breakpoint()
                         return metrics
                     } catch {
@@ -536,6 +543,13 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 searchWorkflows: (_, text) => text,
                 setValue: (state, { value }) => (value.text.trim().length < MIN_SERVER_SEARCH_LENGTH ? null : state),
                 clearFilters: () => null,
+            },
+        ],
+        metricsStatus: [
+            'idle' as MetricsStatus,
+            {
+                loadMetrics: () => 'loading',
+                loadMetricsSuccess: (_, { metrics }) => (metrics === null ? 'failed' : 'loaded'),
             },
         ],
         loadFailed: [
@@ -868,6 +882,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
     }),
     beforeUnmount(({ cache }) => {
         cache.loadAbort?.abort()
+        cache.metricsAbort?.abort()
         cache.searchAbort?.abort()
     }),
 ])

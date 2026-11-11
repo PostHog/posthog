@@ -388,7 +388,7 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.loadErrorDetail).toEqual(detail)
     })
 
-    const stalledSummaries = (): {
+    const stalledRequests = (): {
         signals: AbortSignal[]
         requested: Promise<void>
         stall: ({ request }: { request: Request }) => Promise<never>
@@ -405,7 +405,7 @@ describe('workflowsListV2Logic', () => {
     }
 
     it('fails a stalled summary request at its deadline and aborts it', async () => {
-        const { signals, stall } = stalledSummaries()
+        const { signals, stall } = stalledRequests()
         useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': stall } })
         router.actions.push(urls.workflows())
         jest.useFakeTimers()
@@ -424,9 +424,35 @@ describe('workflowsListV2Logic', () => {
         }
     })
 
-    it('aborts a running summary request when the list closes', async () => {
-        const { signals, requested, stall } = stalledSummaries()
-        useMocks({ get: { '/api/projects/:team_id/hog_flows/summaries/': stall } })
+    it('fails a stalled metrics request at its deadline and aborts it, and a retry loads them', async () => {
+        const { signals, requested, stall } = stalledRequests()
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/metrics/global/': stall } })
+        router.actions.push(urls.workflows(), { q: 'health:failing' })
+        jest.useFakeTimers()
+        try {
+            logic = workflowsListV2Logic()
+            logic.mount()
+            await requested
+            expect(logic.values.metricsStatus).toEqual('loading')
+            await jest.advanceTimersByTimeAsync(SUMMARY_REQUEST_TIMEOUT_MS)
+            expect(logic.values).toMatchObject({ metricsLoading: false, metricsStatus: 'failed' })
+            expect(signals.map((signal) => signal.aborted)).toEqual([true])
+        } finally {
+            jest.useRealTimers()
+        }
+
+        useMocks({ get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [200, FIXTURE_METRICS] } })
+        await expectLogic(logic, () => logic.actions.loadMetrics()).toFinishAllListeners()
+        expect(logic.values.metricsStatus).toEqual('loaded')
+        expect(shownIds(logic)).toEqual(['wf-renewal'])
+    })
+
+    it.each([
+        ['summary', '/api/projects/:team_id/hog_flows/summaries/'],
+        ['metrics', '/api/projects/:team_id/hog_flows/metrics/global/'],
+    ])('aborts a running %s request when the list closes', async (_, path) => {
+        const { signals, requested, stall } = stalledRequests()
+        useMocks({ get: { [path]: stall } })
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
         logic.mount()
