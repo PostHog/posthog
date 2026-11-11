@@ -5,12 +5,10 @@ show the same number. A request serves the cached map and, when it is older than
 `USAGE_MAP_STALE_AFTER`, queues one background rebuild.
 """
 
-import json
-import zlib
 from collections.abc import Mapping
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from django.core.cache import cache
 from django.utils import timezone
 
 import structlog
@@ -22,16 +20,19 @@ from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.event_usage import PROPERTY_USAGE_APP_SOURCE, property_usage_instance_id
 from posthog.models import Team
 from posthog.tasks.property_usage import refresh_property_usage_map
+from posthog.taxonomy.property_snapshot_cache import PropertySnapshotCache
 
 logger = structlog.get_logger(__name__)
 
 USAGE_WINDOW_DAYS = 30
 USAGE_MAP_STALE_AFTER = timedelta(minutes=15)
-# Past this age the map is gone and the next request builds it inline.
-USAGE_MAP_CACHE_TTL_SECONDS = 24 * 60 * 60
-# Longer than a rebuild takes, so a crashed worker blocks rebuilds for at most this long.
-USAGE_MAP_REBUILD_MARKER_TTL_SECONDS = 10 * 60
-_CACHE_FORMAT_VERSION = 1
+USAGE_MAP_CACHE = PropertySnapshotCache(
+    name="usage_map",
+    format_version=1,
+    stale_after=USAGE_MAP_STALE_AFTER,
+    ttl=timedelta(hours=24),
+    rebuild_marker_ttl=timedelta(minutes=10),
+)
 
 
 @frozen
@@ -64,26 +65,15 @@ def is_stale(usage_map: PropertyUsageMap, now: datetime) -> bool:
     return now - usage_map.computed_at > USAGE_MAP_STALE_AFTER
 
 
-def _map_cache_key(team_id: int) -> str:
-    return f"property_definition:usage_map:v{_CACHE_FORMAT_VERSION}:{team_id}"
-
-
-def _rebuild_marker_key(team_id: int) -> str:
-    return f"property_definition:usage_map_rebuild:{team_id}"
-
-
-def _encode(usage_map: PropertyUsageMap) -> bytes:
-    # A project can use thousands of properties, so compress the map before it goes to Redis.
-    payload = {
+def _encode(usage_map: PropertyUsageMap) -> dict[str, Any]:
+    return {
         "counts": dict(usage_map.counts),
         "computed_at": usage_map.computed_at.isoformat(),
         "tracking_since": usage_map.tracking_since.isoformat() if usage_map.tracking_since else None,
     }
-    return zlib.compress(json.dumps(payload, separators=(",", ":")).encode())
 
 
-def _decode(raw: bytes) -> PropertyUsageMap:
-    payload = json.loads(zlib.decompress(raw))
+def _decode(payload: dict[str, Any]) -> PropertyUsageMap:
     return PropertyUsageMap(
         counts=payload["counts"],
         computed_at=datetime.fromisoformat(payload["computed_at"]),
@@ -92,12 +82,12 @@ def _decode(raw: bytes) -> PropertyUsageMap:
 
 
 def _read_cached(team_id: int) -> PropertyUsageMap | None:
-    raw = cache.get(_map_cache_key(team_id))
-    if raw is None:
+    payload = USAGE_MAP_CACHE.read(str(team_id))
+    if payload is None:
         return None
     try:
-        return _decode(raw)
-    except (ValueError, KeyError, TypeError, zlib.error):
+        return _decode(payload)
+    except (ValueError, KeyError, TypeError):
         logger.warning("property_usage_map_unreadable", team_id=team_id)
         return None
 
@@ -143,7 +133,7 @@ def fetch_property_usage_map(team: Team, workload: Workload) -> PropertyUsageMap
 
 def rebuild_property_usage_map(team: Team, workload: Workload) -> PropertyUsageMap:
     usage_map = fetch_property_usage_map(team, workload)
-    cache.set(_map_cache_key(team.pk), _encode(usage_map), timeout=USAGE_MAP_CACHE_TTL_SECONDS)
+    USAGE_MAP_CACHE.write(str(team.pk), _encode(usage_map))
     return usage_map
 
 
@@ -153,7 +143,7 @@ def rebuild_property_usage_map_in_background(team_id: int) -> None:
         team = Team.objects.get(pk=team_id)
         rebuild_property_usage_map(team, Workload.OFFLINE)
     finally:
-        cache.delete(_rebuild_marker_key(team_id))
+        USAGE_MAP_CACHE.release_rebuild(str(team_id))
 
 
 def get_property_usage_map(team: Team) -> PropertyUsageMap:
@@ -162,9 +152,6 @@ def get_property_usage_map(team: Team) -> PropertyUsageMap:
     if usage_map is None:
         # A person waits for the list or the detail page.
         return rebuild_property_usage_map(team, Workload.ONLINE)
-    # `add` sets the marker only when it is absent, so concurrent requests queue one rebuild.
-    if is_stale(usage_map, timezone.now()) and cache.add(
-        _rebuild_marker_key(team.pk), True, timeout=USAGE_MAP_REBUILD_MARKER_TTL_SECONDS
-    ):
+    if is_stale(usage_map, timezone.now()) and USAGE_MAP_CACHE.claim_rebuild(str(team.pk)):
         refresh_property_usage_map.delay(team.pk)
     return usage_map

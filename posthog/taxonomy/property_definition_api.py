@@ -36,6 +36,15 @@ from posthog.taxonomy.definition_listing import (
     definition_read_db_alias,
 )
 from posthog.taxonomy.definition_search import search_plan
+from posthog.taxonomy.property_last_sent import (
+    NOT_TRACKED,
+    PropertyLastSent,
+    PropertyLastSentMap,
+    PropertyLastSentStatus,
+    get_property_last_sent_map,
+    is_last_sent_tracked,
+    snapshot_property_type,
+)
 from posthog.taxonomy.property_usage import PropertyUsageMap, get_property_usage_map
 from posthog.taxonomy.property_usage_ordering import (
     MAX_DEFINITIONS_FOR_USAGE_ORDERING,
@@ -142,6 +151,65 @@ class PropertyQueryUsageSerializerMixin(serializers.Serializer):
         if property_type == PropertyDefinitionTypeName.GROUP and group_type_index is None:
             return None
         return usage_map.count_for(property_type, instance.name, group_type_index)
+
+
+LAST_SENT_CONTEXT_KEY = "last_sent"
+
+
+class PropertyLastSentSnapshotStatus(TextChoices):
+    READY = "ready", "Ready"
+    COMPUTING = "computing", "Computing"
+
+
+@dataclasses.dataclass(frozen=True)
+class LastSentContext:
+    """What a list request that passed `include_last_sent=true` knows about last-sent dates."""
+
+    snapshot: PropertyLastSentMap | None
+    # True while the first snapshot of the type is being built. Then tracked properties have no status yet.
+    computing: bool
+
+    def last_sent_for(self, definition: PropertyDefinition) -> PropertyLastSent | None:
+        if not is_last_sent_tracked(definition):
+            return NOT_TRACKED
+        if self.snapshot is None:
+            return None
+        return self.snapshot.last_sent_for(definition.name)
+
+
+class PropertyLastSentSerializerMixin(serializers.Serializer):
+    last_sent_at = serializers.SerializerMethodField(
+        help_text=(
+            "When an event or group identify last sent this property, precise to the day. Set only when "
+            "`last_sent_status` is `sent`, otherwise null."
+        ),
+    )
+    last_sent_status = serializers.SerializerMethodField(
+        help_text=(
+            "`sent` when the property was sent in the last 30 days, `not_sent_in_30_days` when it was not, and "
+            "`not_tracked` when PostHog does not record it for this property, such as session, virtual and "
+            "data warehouse properties. Null when the list request did not pass `include_last_sent=true`, "
+            "or while the response's `last_sent.status` is `computing`."
+        ),
+    )
+
+    def _last_sent(self, instance: PropertyDefinition) -> PropertyLastSent | None:
+        context: LastSentContext | None = self.context.get(LAST_SENT_CONTEXT_KEY)
+        if context is None:
+            return None
+        return context.last_sent_for(instance)
+
+    @extend_schema_field(serializers.DateTimeField(allow_null=True))
+    def get_last_sent_at(self, instance: PropertyDefinition) -> str | None:
+        last_sent = self._last_sent(instance)
+        if last_sent is None or last_sent.at is None:
+            return None
+        return serializers.DateTimeField().to_representation(last_sent.at)
+
+    @extend_schema_field(serializers.ChoiceField(choices=PropertyLastSentStatus.choices, allow_null=True))
+    def get_last_sent_status(self, instance: PropertyDefinition) -> str | None:
+        last_sent = self._last_sent(instance)
+        return last_sent.status.value if last_sent is not None else None
 
 
 MAX_USAGE_METRICS_PROPERTIES = 100
@@ -340,6 +408,15 @@ class PropertyDefinitionQuerySerializer(serializers.Serializer):
         help_text=(
             "Include `query_usage_30_day` on each result and `query_usage` freshness on the response, "
             "without changing the order."
+        ),
+    )
+
+    include_last_sent = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Include `last_sent_at` and `last_sent_status` on each result and `last_sent` on the response. "
+            "When `last_sent.status` is `computing`, request the same page again a few seconds later."
         ),
     )
 
@@ -732,6 +809,7 @@ ALWAYS_EXCLUDED_EVENT_PROPERTIES = set(
 class PropertyDefinitionSerializer(
     PropertyDefinitionTypeSerializerMixin,
     PropertyQueryUsageSerializerMixin,
+    PropertyLastSentSerializerMixin,
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
 ):
@@ -757,6 +835,8 @@ class PropertyDefinitionSerializer(
             "type",
             "group_type_index",
             "query_usage_30_day",
+            "last_sent_at",
+            "last_sent_status",
         )
 
     def validate(self, data):
@@ -820,6 +900,30 @@ class PropertyDefinitionPagination(PrecountedLimitOffsetPagination):
             },
             "required": ["computed_at", "tracking_since"],
         }
+        paginated["properties"]["last_sent"] = {
+            "type": "object",
+            "nullable": True,
+            "description": "State of `last_sent_at`. Present only when the request passes `include_last_sent=true`.",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": PropertyLastSentSnapshotStatus.values,
+                    "description": (
+                        "`computing` while the first last-sent snapshot of this property type is being built. "
+                        "Request the same page again a few seconds later."
+                    ),
+                },
+                "computed_at": {
+                    "type": "string",
+                    "format": "date-time",
+                    "nullable": True,
+                    "description": (
+                        "When the last-sent dates were computed. They refresh in the background about every hour."
+                    ),
+                },
+            },
+            "required": ["status", "computed_at"],
+        }
         return paginated
 
 
@@ -842,6 +946,7 @@ class PropertyDefinitionViewSet(
     pagination_class = PropertyDefinitionPagination
     queryset = PropertyDefinition.objects.all()
     query_usage_map: PropertyUsageMap | None = None
+    last_sent: LastSentContext | None = None
 
     @staticmethod
     def _build_virtual_properties(group: str) -> list[dict]:
@@ -990,6 +1095,8 @@ class PropertyDefinitionViewSet(
                 raise TooManyPropertiesToOrderByUsage()
             if ordering or query.validated_data.get("include_query_usage"):
                 self.query_usage_map = get_property_usage_map(self.team)
+            if query.validated_data.get("include_last_sent"):
+                self.last_sent = self._last_sent_context(prop_type, query.validated_data.get("group_type_index"))
             if ordering and self.query_usage_map is not None:
                 return self._usage_ordered_page(
                     queryset,
@@ -1054,6 +1161,14 @@ class PropertyDefinitionViewSet(
             )
         return unused_rows + used_rows if plan.unused_first else used_rows + unused_rows
 
+    def _last_sent_context(self, prop_type: str, group_type_index: int | None) -> LastSentContext:
+        definition_type = PropertyDefinition.Type[PropertyDefinitionTypeName(prop_type).name]
+        property_type = snapshot_property_type(definition_type, group_type_index)
+        if property_type is None:
+            return LastSentContext(snapshot=None, computing=False)
+        snapshot = get_property_last_sent_map(self.team, property_type)
+        return LastSentContext(snapshot=snapshot, computing=snapshot is None)
+
     def filter_queryset(self, queryset):
         if isinstance(queryset, list):
             # The usage-ordered page: SQL already filtered and paged it.
@@ -1064,6 +1179,8 @@ class PropertyDefinitionViewSet(
         context = super().get_serializer_context()
         if self.query_usage_map is not None:
             context[QUERY_USAGE_MAP_CONTEXT_KEY] = self.query_usage_map
+        if self.last_sent is not None:
+            context[LAST_SENT_CONTEXT_KEY] = self.last_sent
         return context
 
     def get_serializer_class(self) -> type[serializers.ModelSerializer]:
@@ -1168,6 +1285,12 @@ class PropertyDefinitionViewSet(
 
             # Add virtual properties to the end of the results
             # Technically, this means that the last page can be longer than the others, but as the number of virtual properties is small, this is acceptable
+            if self.last_sent is not None:
+                # No event carries a virtual property, so its last-sent date is never recorded.
+                matching_virtual_props = [
+                    {**prop, "last_sent_at": None, "last_sent_status": PropertyLastSentStatus.NOT_TRACKED.value}
+                    for prop in matching_virtual_props
+                ]
             if is_last_page:
                 response.data["results"].extend(matching_virtual_props)
 
@@ -1175,6 +1298,19 @@ class PropertyDefinitionViewSet(
 
         if self.query_usage_map is not None:
             response.data["query_usage"] = PropertyUsageFreshnessSerializer(self.query_usage_map).data
+        if self.last_sent is not None:
+            response.data["last_sent"] = {
+                "status": (
+                    PropertyLastSentSnapshotStatus.COMPUTING
+                    if self.last_sent.computing
+                    else PropertyLastSentSnapshotStatus.READY
+                ).value,
+                "computed_at": (
+                    serializers.DateTimeField().to_representation(self.last_sent.snapshot.computed_at)
+                    if self.last_sent.snapshot is not None
+                    else None
+                ),
+            }
 
         return response
 
