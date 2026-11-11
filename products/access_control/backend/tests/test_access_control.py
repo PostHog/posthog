@@ -981,8 +981,7 @@ class TestUsersWithAccessAPI(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_200_OK, res.json()
 
-        # Warm one-off caches such as instance settings, so they do not count against either run
-        self._get_users_with_access()
+        self._get_users_with_access()  # warm one-off caches
         queries_with_four_members = self._count_users_with_access_queries(expected_total_count=4)
 
         for index in range(10):

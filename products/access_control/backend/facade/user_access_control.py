@@ -1135,9 +1135,8 @@ class UserAccessControl:
         if any(ac.organization_member_id == org_membership.id for ac in cached_controls):
             return AccessSource.EXPLICIT_MEMBER
 
-        # Check for explicit role access. Compared as strings because a seeded subject carries
-        # its role ids as strings while a database read returns UUIDs.
-        user_role_ids = {str(role_id) for role_id in self._user_role_ids}
+        # Check for explicit role access
+        user_role_ids = {str(role_id) for role_id in self._user_role_ids}  # seeded as str, read from the DB as UUID
         if any(str(ac.role_id) in user_role_ids for ac in cached_controls if ac.role_id):
             return AccessSource.EXPLICIT_ROLE
 

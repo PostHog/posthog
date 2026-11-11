@@ -1,4 +1,5 @@
 from collections import defaultdict
+from collections.abc import Sequence
 from contextvars import ContextVar
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -268,6 +269,39 @@ class SubjectAccessControl(UserAccessControl):
         if _suspend_org_admin.get():
             return False
         return bool(self._subject_member and self._subject_member.level >= OrganizationMembership.Level.ADMIN)
+
+
+def seeded_member_subjects(team: Team, memberships: Sequence[OrganizationMembership]) -> list[SubjectAccessControl]:
+    """One subject per membership, resolving as that member, in the order given.
+
+    The team's rules and the members' roles are fetched once and every subject is seeded from
+    them, so resolving N members costs a fixed number of queries rather than a few per member.
+    Each membership must have its `user` loaded.
+    """
+    organization = team.organization
+    team_rows: list[_AccessControl] = []
+    if organization.is_feature_available(AvailableFeature.ACCESS_CONTROL):
+        team_rows = list(AccessControl.objects.filter(team_id=team.id))
+    role_ids_by_user: dict[int, list[str]] = defaultdict(list)
+    if organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+        for user_id, role_id in (
+            RoleMembership.objects.filter(
+                user_id__in=[membership.user_id for membership in memberships],
+                role__organization_id=organization.id,
+            )
+            .valid_for_authorization()
+            .values_list("user_id", "role_id")
+        ):
+            role_ids_by_user[user_id].append(str(role_id))
+
+    subjects = []
+    for membership in memberships:
+        # Seeded so `rbac_supported` does not fetch the organization once per member
+        membership.organization = organization
+        subject = SubjectAccessControl(user=membership.user, team=team, org_membership=membership, member=membership)
+        subject.preload_access_controls(team_rows, subject_role_ids=role_ids_by_user.get(membership.user_id, []))
+        subjects.append(subject)
+    return subjects
 
 
 def get_project_scoped_visible_membership_ids(
