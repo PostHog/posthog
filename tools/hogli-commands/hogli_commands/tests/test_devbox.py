@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import os
 import csv
+import sys
 import json
 import errno
+import shlex
+import signal
 import hashlib
 import subprocess
 from collections.abc import Callable
@@ -57,6 +60,11 @@ def _git(repo: Path, *args: str) -> str:
 @pytest.fixture(autouse=True)
 def agent_ready_immediately(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(devbox_cli, "wait_for_agent_ready", lambda name: "ready")
+
+
+@pytest.fixture(autouse=True)
+def isolated_worktree_boxes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "worktree-boxes.json")
 
 
 @pytest.fixture
@@ -489,6 +497,56 @@ class TestCoderConfig:
         with pytest.raises(RuntimeError, match="stdout pipe was not opened"):
             coder._run_build(["coder", "start", "devbox-test-user"])
 
+    @pytest.mark.parametrize(
+        "signum, expected, terminal_closes",
+        [
+            (signal.SIGINT, KeyboardInterrupt, False),
+            (signal.SIGTERM, SystemExit, False),
+            (signal.SIGHUP, SystemExit, False),
+            (signal.SIGHUP, SystemExit, True),
+        ],
+    )
+    def test_run_build_interrupts_coder_when_hogli_is_stopped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path: Path,
+        signum: int,
+        expected: type[BaseException],
+        terminal_closes: bool,
+    ) -> None:
+        canceled_marker = tmp_path / "canceled"
+        fake_coder = (
+            "import os, signal, sys, time\n"
+            "def cancel(*_):\n"
+            f"    os.kill(os.getppid(), {int(signum)})\n"
+            f"    open({str(canceled_marker)!r}, 'w').close()\n"
+            "    sys.exit(1)\n"
+            "signal.signal(signal.SIGINT, cancel)\n"
+            "print('ready', flush=True)\n"
+            "time.sleep(30)\n"
+        )
+        monkeypatch.setattr(coder, "_resolve_coder", lambda args: [sys.executable, "-c", fake_coder])
+        real_echo = coder.click.echo
+        terminal_closed = False
+
+        def echo_then_signal(message: object = None, **kwargs: Any) -> None:
+            nonlocal terminal_closed
+            if terminal_closed:
+                raise OSError(errno.EIO, "Input/output error")
+            real_echo(message, **kwargs)
+            if message == "ready\n":
+                terminal_closed = terminal_closes
+                os.kill(os.getpid(), signum)
+
+        monkeypatch.setattr(coder.click, "echo", echo_then_signal)
+
+        with pytest.raises(expected) as raised:
+            coder._run_build(["coder", "create", "devbox-test-user"], verbose=True)
+
+        assert canceled_marker.exists()
+        if expected is SystemExit:
+            assert raised.value.code == 128 + signum
+
 
 class TestCoderVersion:
     """Test Coder CLI version pinning and mismatch warnings."""
@@ -594,7 +652,7 @@ class TestCoderVersion:
     def test_ensure_coder_authenticated_points_at_a_terminal_without_stdin(
         self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
     ) -> None:
-        monkeypatch.setattr(coder, "coder_authenticated", lambda: False)
+        monkeypatch.setattr(coder, "_coder_whoami", lambda: subprocess.CompletedProcess([], 1, "", ""))
         monkeypatch.setattr(coder, "coder_installed", lambda: True)
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
@@ -605,10 +663,137 @@ class TestCoderVersion:
 
         monkeypatch.setattr(coder, "_run", boom)
 
+        monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+
         with pytest.raises(SystemExit):
             coder.ensure_coder_authenticated()
 
-        assert "Run `coder login https://coder.example.com` in a terminal" in capsys.readouterr().out
+        output = capsys.readouterr().out
+        assert "Run `coder login https://coder.example.com` in a terminal" in output
+        assert "CODER_SESSION_TOKEN" in output
+        assert "CODER_URL to https://coder.example.com" in output
+
+    @pytest.mark.parametrize("entrypoint", ["ensure_runtime_ready", "get_username"])
+    def test_runtime_login_failures_name_the_token_variables_without_a_terminal(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], entrypoint: str
+    ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "_run", lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", ""))
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: False)
+        monkeypatch.delenv("CODER_SESSION_TOKEN", raising=False)
+
+        with pytest.raises(SystemExit):
+            getattr(coder, entrypoint)()
+
+        output = capsys.readouterr().out
+        assert "Run `hogli devbox:setup`." in output
+        assert "CODER_SESSION_TOKEN" in output
+        assert "CODER_URL to https://coder.example.com" in output
+
+    @pytest.mark.parametrize("entrypoint", ["ensure_coder_authenticated", "ensure_runtime_ready", "get_username"])
+    @pytest.mark.parametrize("coder_url_set", [True, False])
+    def test_env_token_login_failure_shows_the_coder_error_instead_of_a_login_prompt(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        entrypoint: str,
+        coder_url_set: bool,
+    ) -> None:
+        coder_error = "error: You are signed out or your session has expired. Please sign in again to continue."
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: None)
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder.sys.stdin, "isatty", lambda: True)
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "expired-example-token")
+        if coder_url_set:
+            monkeypatch.setenv("CODER_URL", "https://coder.example.com")
+        else:
+            monkeypatch.delenv("CODER_URL", raising=False)
+
+        def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            assert args[1] != "login", "coder login refuses to run while CODER_SESSION_TOKEN is set"
+            return subprocess.CompletedProcess(
+                args, 1, "", f"{coder_error}\nSuggestion: Try logging in using 'coder login'.\n"
+            )
+
+        monkeypatch.setattr(coder, "_run", fake_run)
+
+        with pytest.raises(SystemExit):
+            getattr(coder, entrypoint)()
+
+        output = capsys.readouterr().out
+        assert coder_error in output
+        assert "rejected" not in output
+        set_url_hint = "Set CODER_URL to https://coder.example.com"
+        assert (set_url_hint in output) is not coder_url_set
+        if not coder_url_set:
+            assert output.index(set_url_hint) < output.index(coder_error)
+        assert "unset CODER_SESSION_TOKEN to use the login stored on disk" in output
+        assert "expired-example-token" not in output
+
+    def test_unreachable_coder_is_not_blamed_on_the_env_token(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        coder.get_username.cache_clear()
+        monkeypatch.setattr(coder, "_run", lambda args, **kwargs: subprocess.CompletedProcess(args, 1, "", ""))
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "ensure_coder_reachable", lambda: coder._fail("Coder is unreachable."))
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+
+        with pytest.raises(SystemExit):
+            coder.get_username()
+
+        output = capsys.readouterr().out
+        assert "Coder is unreachable." in output
+        assert "CODER_SESSION_TOKEN" not in output
+
+    @pytest.mark.parametrize(
+        "stored_url, expect_note",
+        [
+            (None, True),
+            ("https://coder.example.com", False),
+            ("https://other.example.com", True),
+            ("https://unresponsive.example.com", True),
+        ],
+    )
+    def test_setup_notes_when_the_login_lives_only_in_the_environment(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        stored_url: str | None,
+        expect_note: bool,
+    ) -> None:
+        monkeypatch.setattr(coder, "coder_installed", lambda: True)
+        monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
+        monkeypatch.setattr(coder, "coder_command_hint", lambda: "coder")
+        monkeypatch.setenv("CODER_SESSION_TOKEN", "example-token")
+        monkeypatch.setenv("CODER_URL", "https://coder.example.com")
+        stored_session_sent_to: list[str] = []
+
+        def fake_coder(args: list[str], env: dict[str, str] | None = None, **kwargs: Any):
+            environ = os.environ if env is None else env
+            target = environ.get("CODER_URL") or stored_url
+            if target == "https://unresponsive.example.com":
+                assert kwargs.get("timeout"), "a probe without a timeout hangs setup"
+                raise subprocess.TimeoutExpired(args, float(kwargs["timeout"]))
+            if "CODER_SESSION_TOKEN" not in environ and stored_url and target != stored_url:
+                stored_session_sent_to.append(target or "")
+            logged_in = target is not None and ("CODER_SESSION_TOKEN" in environ or stored_url is not None)
+            return subprocess.CompletedProcess(args, 0 if logged_in else 1, json.dumps([{"url": target}]), "")
+
+        monkeypatch.setattr(coder.subprocess, "run", fake_coder)
+
+        coder.ensure_coder_authenticated()
+
+        output = capsys.readouterr().out
+        assert "Coder login is ready." in output
+        assert ("coder login --use-token-as-session https://coder.example.com" in output) is expect_note
+        assert "example-token" not in output.replace("CODER_SESSION_TOKEN", "")
+        assert stored_session_sent_to == []
 
     @pytest.mark.parametrize("user_bin_on_path", [True, False])
     def test_ensure_coder_on_path(
@@ -973,11 +1158,22 @@ class TestWorktreeLabel:
             ("Fix_Cohort__Query", "fix-cohort-query"),
             ("worktree-agent-abc", "agent-abc"),
             ("worktree/brave-river-1a2b", "brave-river-1a2b"),
+            ("test-user/hogli-wt-trial", "hogli-wt-trial"),
+            ("Test-User/hogli-wt-trial", "hogli-wt-trial"),
+            ("other-user/hogli-wt-trial", "other-user-hogli-wt-trial"),
         ],
-        ids=["slash", "case-and-underscores", "claude-worktree-prefix", "herdr-worktree-prefix"],
+        ids=[
+            "slash",
+            "case-and-underscores",
+            "claude-worktree-prefix",
+            "herdr-worktree-prefix",
+            "own-username-prefix",
+            "own-username-prefix-any-case",
+            "other-username-prefix-kept",
+        ],
     )
     def test_short_branch_becomes_readable_label(self, branch: str, expected: str) -> None:
-        assert devbox_worktree.derive_label(branch, 20) == expected
+        assert devbox_worktree.derive_label(branch, 25, owner="test-user") == expected
 
     @pytest.mark.parametrize(
         "branch, budget",
@@ -1078,6 +1274,30 @@ class TestWorktreeAutoProvision:
         )
 
     @pytest.mark.parametrize(
+        "saved_cleanup, on_clean, expected_cleanup",
+        [
+            pytest.param(None, "delete", "delete", id="saves-the-action"),
+            pytest.param("delete", "keep", None, id="keep-clears-the-action"),
+        ],
+    )
+    def test_auto_also_saves_on_clean(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        saved_cleanup: str | None,
+        on_clean: str,
+        expected_cleanup: str | None,
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        if saved_cleanup is not None:
+            devbox_config.save_worktree_box_cleanup(saved_cleanup)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "off", "--on-clean", on_clean])
+
+        assert result.exit_code == 0, result.output
+        assert devbox_config.saved_worktree_box_cleanup() == expected_cleanup
+
+    @pytest.mark.parametrize(
         "existing_settings, expected_settings",
         [
             pytest.param(None, devbox_worktree._CONDUCTOR_SCRIPTS, id="writes-the-local-settings"),
@@ -1161,6 +1381,56 @@ class TestWorktreeAutoProvision:
             assert result.exit_code == (1 if first_spawn_fails and attempt == 0 else 0), result.output
 
         assert len(starts) == expected_starts
+
+    @pytest.mark.parametrize(
+        "saved_cleanup, expected_prunes",
+        [
+            pytest.param("delete", 1, id="saved-action-prunes"),
+            pytest.param(None, 0, id="no-saved-action-leaves-boxes-alone"),
+        ],
+    )
+    def test_auto_prunes_boxes_of_removed_worktrees_only_with_a_saved_action(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        saved_cleanup: str | None,
+        expected_prunes: int,
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path)
+        if saved_cleanup is not None:
+            devbox_config.save_worktree_box_cleanup(saved_cleanup)
+        devbox_config.record_worktree_box(
+            tmp_path / "removed",
+            devbox_config.WorktreeBoxRecord(workspace="devbox-test-user-removed", git_dir=str(tmp_path / "admin")),
+        )
+        spawned: list[list[str]] = []
+        monkeypatch.setattr(
+            devbox_worktree.subprocess, "Popen", lambda command, **kwargs: spawned.append(command) or MagicMock()
+        )
+
+        result = runner.invoke(cli, ["devbox:worktree:auto"])
+
+        assert result.exit_code == 0, result.output
+        assert len([command for command in spawned if "devbox:worktree:prune" in command]) == expected_prunes
+
+    def test_prune_does_nothing_while_another_prune_holds_the_lock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr(devbox_config, "get_worktree_boxes_path", lambda: tmp_path / "boxes.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path)
+        pruned: list[str] = []
+        monkeypatch.setattr(
+            devbox_worktree, "prune_boxes_of_removed_worktrees", lambda *args: pruned.append("pruned") or []
+        )
+
+        with devbox_config.worktree_prune_lock() as first_holds_lock:
+            result = runner.invoke(cli, ["devbox:worktree:prune"])
+
+        assert first_holds_lock
+        assert result.exit_code == 0, result.output
+        assert pruned == []
 
 
 class TestDevboxWorktreeCommand:
@@ -1408,6 +1678,138 @@ class TestDevboxWorktreeCommand:
         expected_record = "devbox-test-user-feat" if switched else "wt-feat"
         assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
         assert terminated == ([devbox_worktree.mutagen.workspace_label_selector("wt-feat")] if switched else [])
+
+    @pytest.mark.parametrize(
+        "args, devboxes, clone_reply, marker_on_box, expected_exit, expected_hogland, app_started, output_has",
+        [
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "current_box_id": "box-base"}],
+                (0, '{"action": "cloned"}', ""),
+                False,
+                0,
+                [["devbox", "clone", "wt-base", "wt-feat"], ["devbox", "up", "wt-feat", "--no-connect"]],
+                False,
+                "Cloning Hogland devbox 'wt-base' into 'wt-feat'",
+                id="clone-from-running-box",
+            ),
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "latest_snapshot_id": "snap-1"}],
+                None,
+                False,
+                1,
+                [],
+                False,
+                "'wt-base' is hibernated",
+                id="clone-from-hibernated-box-refused",
+            ),
+            pytest.param(
+                ["--clone-from", "base", "-y"],
+                [{"name": "wt-base", "current_box_id": "box-base"}],
+                (1, "", 'Error: unknown command "clone" for "hogland devbox"'),
+                False,
+                1,
+                [["devbox", "clone", "wt-base", "wt-feat"]],
+                False,
+                "brew upgrade",
+                id="outdated-hogland-cli-asks-for-upgrade",
+            ),
+            pytest.param(
+                ["--start-app"],
+                [],
+                None,
+                False,
+                0,
+                [["devbox", "up", "wt-feat", "--no-connect"]],
+                True,
+                "App    started",
+                id="start-app-on-new-box",
+            ),
+            pytest.param(
+                ["--no-start-app"],
+                [{"name": "wt-feat", "current_box_id": "box-feat"}],
+                None,
+                True,
+                0,
+                [["devbox", "up", "wt-feat", "--no-connect"]],
+                True,
+                "App    started",
+                id="saved-start-app-survives-flag-on-existing-box",
+            ),
+        ],
+    )
+    def test_hogland_clone_and_start_app(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        tmp_path: Path,
+        args: list[str],
+        devboxes: list[dict[str, str]],
+        clone_reply: tuple[int, str, str] | None,
+        marker_on_box: bool,
+        expected_exit: int,
+        expected_hogland: list[list[str]],
+        app_started: bool,
+        output_has: str,
+    ) -> None:
+        box_home = tmp_path / "box"
+        box_repo = box_home / "posthog"
+        (box_repo / "bin").mkdir(parents=True)
+        hogli_stub = box_repo / "bin" / "hogli"
+        hogli_stub.write_text('#!/bin/sh\necho "$@ (flox: ${FLOX_ENV:-off})" >> "$HOME/hogli-calls"\n')
+        hogli_stub.chmod(0o755)
+        flox_stub = box_home / "tools" / "flox"
+        flox_stub.parent.mkdir()
+        flox_stub.write_text(
+            '#!/bin/sh\n[ "$1" = activate ] && [ "$2" = -- ] || exit 2\nshift 2\nFLOX_ENV=on exec "$@"\n'
+        )
+        flox_stub.chmod(0o755)
+        if marker_on_box:
+            (box_home / ".config" / "hogli").mkdir(parents=True)
+            (box_home / ".config" / "hogli" / "start-app").touch()
+        monkeypatch.setattr(devbox_hogland, "REMOTE_REPO_PATH", str(box_repo))
+        monkeypatch.setattr(devbox_hogland.shutil, "which", lambda name: f"/usr/bin/{name}")
+        monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path / "hogland-ssh")
+        monkeypatch.setattr(devbox_worktree, "ensure_hogland_sync_session", lambda *a, **kw: None)
+        box_events = box_home / "hogli-calls"
+
+        def flush_sync(selector: str) -> None:
+            with box_events.open("a") as events_file:
+                events_file.write("sync flushed\n")
+
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", flush_sync)
+        hogland_calls: list[list[str]] = []
+        up_reply = '{"box": {"id": "box-new", "status": "running", "public_ip": "10.0.0.1", "guest_ssh_port": 22}}'
+        real_run = subprocess.run
+
+        def fake_run(argv: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+            if argv[0] == "hogland" and argv[1:3] == ["devbox", "list"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps(devboxes), "")
+            if argv[0] == "hogland":
+                hogland_calls.append(argv[1:])
+                code, out, err = clone_reply if argv[2] == "clone" and clone_reply else (0, up_reply, "")
+                return subprocess.CompletedProcess(argv, code, out, err)
+            if argv[0] == "ssh":
+                shell, login_flag, script = shlex.split(argv[-1])
+                assert (shell, login_flag) == ("bash", "-lc")
+                return real_run(
+                    ["bash", "--noprofile", "--norc", "-c", script],
+                    capture_output=True,
+                    text=True,
+                    env={"HOME": str(box_home), "PATH": f"{flox_stub.parent}:{os.environ['PATH']}"},
+                )
+            return subprocess.CompletedProcess(argv, 1, "", "")
+
+        monkeypatch.setattr(devbox_hogland.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--provider", "hogland", "--label", "feat", *args])
+
+        assert result.exit_code == expected_exit, result.output
+        assert output_has in result.output
+        assert hogland_calls == expected_hogland
+        events = box_events.read_text() if box_events.exists() else ""
+        assert events == ("sync flushed\nup -d -y (flox: on)\n" if app_started else "")
 
 
 class TestWorkspaceRegion:
@@ -2192,6 +2594,258 @@ class TestResolveWorkspaceName:
         with pytest.raises(SystemExit):
             devbox_cli.resolve_workspace_name(None)
 
+    @pytest.fixture
+    def worktree_with_box(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "_preferred_region", lambda: "us-east-1")
+        workspaces = [
+            {
+                "name": name,
+                "id": f"id-{name}",
+                "template_name": coder.DEFAULT_TEMPLATE,
+                "latest_build": {"status": "running"},
+            }
+            for name in ("devbox-test-user", "devbox-test-user-feat", "devbox-test-user-api")
+        ]
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: workspaces)
+        monkeypatch.setattr(devbox_cli, "fetch_user_workspaces", lambda: workspaces)
+        root = tmp_path / "wt"
+        (root / "frontend").mkdir(parents=True)
+        (root / ".git").write_text("gitdir: elsewhere\n")
+        nested = root / ".claude" / "worktrees" / "agent-1"
+        nested.mkdir(parents=True)
+        (nested / ".git").write_text("gitdir: elsewhere\n")
+        devbox_config.record_worktree_box(
+            root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat", git_dir="admin", workspace_id="id-devbox-test-user-feat"
+            ),
+        )
+        return root
+
+    @pytest.mark.parametrize(
+        "cwd, workspace, record, expected",
+        [
+            pytest.param("wt/frontend", None, None, "devbox-test-user-feat", id="worktree-subdirectory"),
+            pytest.param("wt", "api", None, "devbox-test-user-api", id="explicit-label-wins"),
+            pytest.param("wt", "@alice", None, "devbox-alice", id="shared-target-wins"),
+            pytest.param("wt", "@test-user", None, "devbox-test-user", id="own-username-targets-the-default-box"),
+            pytest.param(".", None, None, "devbox-test-user", id="outside-registered-worktree"),
+            pytest.param(
+                "wt/.claude/worktrees/agent-1", None, None, "devbox-test-user", id="nested-unregistered-worktree"
+            ),
+            pytest.param(
+                "wt",
+                None,
+                {"workspace": "wt-feat", "provider": "hogland"},
+                "devbox-test-user",
+                id="hogland-box-is-not-a-coder-workspace",
+            ),
+            pytest.param("wt", None, {"workspace": "devbox-test-user-gone"}, None, id="registered-box-is-gone"),
+            pytest.param(
+                "wt",
+                None,
+                {"workspace": "devbox-test-user-feat", "workspace_id": "id-of-a-deleted-box"},
+                None,
+                id="another-box-recreated-under-the-name",
+            ),
+            pytest.param(
+                "wt",
+                None,
+                {
+                    "workspace": "devbox-test-user-feat",
+                    "workspace_id": "id-devbox-test-user-feat",
+                    "worktree_id": "id-of-a-worktree-moved-away",
+                },
+                "devbox-test-user",
+                id="new-checkout-at-a-moved-worktrees-path",
+            ),
+        ],
+    )
+    def test_default_target_is_the_box_of_the_current_worktree(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture[str],
+        tmp_path: Path,
+        worktree_with_box: Path,
+        cwd: str,
+        workspace: str | None,
+        record: dict[str, str] | None,
+        expected: str | None,
+    ) -> None:
+        if record is not None:
+            devbox_config.record_worktree_box(
+                worktree_with_box, devbox_config.WorktreeBoxRecord(git_dir="admin", **record)
+            )
+        monkeypatch.chdir(tmp_path / cwd)
+
+        if expected is None:
+            with pytest.raises(SystemExit):
+                devbox_cli.resolve_workspace_name(workspace)
+            return
+        assert devbox_cli.resolve_workspace_name(workspace)[0] == expected
+        captured = capsys.readouterr()
+        picked_by_worktree = workspace is None and expected == "devbox-test-user-feat"
+        notice = "Using this worktree's devbox 'devbox-test-user-feat'. Pass `-n @test-user` for your default box."
+        assert (notice in captured.err) is picked_by_worktree
+        assert "Using this worktree's devbox" not in captured.out
+
+    def test_own_username_never_selects_a_labeled_box(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [{"name": "devbox-test-user-feat"}])
+
+        assert devbox_cli.resolve_workspace_name("@test-user")[0] == "devbox-test-user"
+
+    @pytest.mark.parametrize(
+        "args, deleted, expected",
+        [
+            pytest.param(
+                ["devbox:status", "@test-user"],
+                "devbox-test-user",
+                "Run 'hogli devbox:start @test-user' to create one.",
+                id="status",
+            ),
+            pytest.param(
+                ["devbox:cleanup:disk", "@test-user"],
+                "devbox-test-user",
+                "Run 'hogli devbox:start @test-user' to create one.",
+                id="command-that-needs-the-box",
+            ),
+            pytest.param(
+                ["devbox:status", "feat"],
+                "devbox-test-user-feat",
+                "Run `hogli devbox:worktree` to create it again.",
+                id="the-worktrees-own-box",
+            ),
+        ],
+    )
+    def test_missing_box_hint_names_the_command_that_creates_it(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str], deleted: str, expected: str
+    ) -> None:
+        workspaces = devbox_cli.list_user_workspaces()
+        workspaces[:] = [ws for ws in workspaces if ws["name"] != deleted]
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.chdir(worktree_with_box)
+
+        result = runner.invoke(cli, args)
+
+        assert expected in result.output, result.output
+
+    @pytest.mark.parametrize(
+        "args, expected",
+        [
+            pytest.param([], "Run `hogli devbox:update` to apply it.", id="the-worktrees-eu-box-needs-no-target"),
+            pytest.param(["api"], "Run `hogli devbox:update api` to apply it.", id="another-labeled-box"),
+            pytest.param(["@test-user"], "Run `hogli devbox:update @test-user` to apply it.", id="the-default-box"),
+        ],
+    )
+    def test_printed_commands_target_the_box_they_describe(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str], expected: str
+    ) -> None:
+        workspaces = devbox_cli.list_user_workspaces()
+        workspaces.append(
+            {"name": "devbox-test-user-feat-eu", "id": "id-feat-eu", "template_name": coder.DEFAULT_TEMPLATE}
+        )
+        for workspace in workspaces:
+            workspace.update(latest_build={"status": "stopped"}, outdated=True)
+        devbox_config.record_worktree_box(
+            worktree_with_box,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat-eu", git_dir="admin", workspace_id="id-feat-eu"
+            ),
+        )
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "_render_sync_status", lambda name: "not configured")
+        monkeypatch.chdir(worktree_with_box)
+
+        result = runner.invoke(cli, ["devbox:status", *args])
+
+        assert expected in result.output, result.output
+
+    def test_moved_worktree_keeps_its_box(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, worktree_with_box: Path
+    ) -> None:
+        admin = tmp_path / "admin"
+        admin.mkdir()
+        moved = tmp_path / "moved"
+        moved.mkdir()
+        (moved / ".git").write_text(f"gitdir: {admin}\n")
+        devbox_config.record_worktree_box(
+            worktree_with_box,
+            devbox_config.WorktreeBoxRecord(
+                workspace="devbox-test-user-feat",
+                git_dir=str(admin),
+                workspace_id="id-devbox-test-user-feat",
+                worktree_id=devbox_config.ensure_worktree_id(admin),
+            ),
+        )
+        monkeypatch.chdir(moved)
+
+        assert devbox_cli.resolve_workspace_name(None)[0] == "devbox-test-user-feat"
+
+    def test_listing_failure_in_a_worktree_stops_instead_of_retargeting(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path
+    ) -> None:
+        monkeypatch.setattr(devbox_cli, "fetch_user_workspaces", lambda: None)
+        monkeypatch.chdir(worktree_with_box)
+
+        with pytest.raises(SystemExit):
+            devbox_cli.resolve_workspace_name(None)
+
+    @pytest.mark.parametrize(
+        "args, expected",
+        [
+            pytest.param(
+                ["devbox:sync", "@test-user", "--status"], "hogli-workspace=devbox-test-user", id="sync-status"
+            ),
+            pytest.param(["devbox:cleanup:disk", "@test-user"], "devbox-test-user", id="cleanup-disk"),
+            pytest.param(["devbox:cleanup:disk", "@alice"], None, id="cleanup-disk-refuses-another-user"),
+        ],
+    )
+    def test_own_username_runs_guarded_commands_on_the_default_box(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, args: list[str], expected: str | None
+    ) -> None:
+        targets: list[str] = []
+
+        def list_sessions(label_selector: str) -> list[dict[str, Any]]:
+            targets.append(label_selector)
+            return []
+
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(devbox_cli, "exec_replace", lambda name, command: targets.append(name))
+        monkeypatch.setattr(devbox_sync.mutagen, "sync_list", list_sessions)
+        monkeypatch.chdir(worktree_with_box)
+
+        result = runner.invoke(cli, args)
+
+        if expected is None:
+            assert result.exit_code != 0
+            assert targets == []
+        else:
+            assert result.exit_code == 0, result.output
+            assert targets == [expected]
+
+    @pytest.mark.parametrize(
+        "status, expected",
+        [
+            pytest.param("running", "Clone 'devbox-test-user' -> 'devbox-test-user-copy'.", id="running"),
+            pytest.param("stopped", "`hogli devbox:start @test-user`", id="stopped-source-hint"),
+        ],
+    )
+    def test_clone_from_a_worktree_copies_the_default_box(
+        self, monkeypatch: pytest.MonkeyPatch, worktree_with_box: Path, status: str, expected: str
+    ) -> None:
+        devbox_cli.list_user_workspaces()[0]["latest_build"]["status"] = status
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.chdir(worktree_with_box)
+
+        result = runner.invoke(cli, ["devbox:clone", "--as", "copy"], input="n\n")
+
+        assert expected in result.output, result.output
+
 
 class TestDevboxCommands:
     """Test the Click command contract for devbox commands."""
@@ -2840,6 +3494,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-test-user", []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: False)
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
 
         result = runner.invoke(cli, ["devbox:forward", "--port", "8010"])
 
@@ -3117,6 +3772,8 @@ class TestDevboxConfigCommands:
         assert "PostHog Engineer <engineer@example.com>" in result.output
         assert "https://github.com/user/dotfiles" in result.output
         assert "Git signing" in result.output
+        auto_line = next(line for line in result.output.splitlines() if "Automatic worktree boxes" in line)
+        assert auto_line.split()[-1] == "off"
 
     def test_rm_dotfiles_clears_config(
         self,
@@ -3433,6 +4090,7 @@ class TestDevboxStop:
         expected: list[str],
         exit_code: int,
     ) -> None:
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         calls: list[str] = []
 
         def record(call: str, fails: bool = False) -> Callable[..., None]:
@@ -4211,6 +4869,9 @@ class TestConfigSshArgs:
     def _csv_decode(field: str) -> str:
         return next(csv.reader([field]))[0]
 
+    def test_disables_coder_autostart_over_ssh(self) -> None:
+        assert "--disable-autostart" in coder._config_ssh_args(identity_agent_socket=None)
+
     def test_omits_identity_agent_when_socket_is_none(self) -> None:
         args = coder._config_ssh_args(identity_agent_socket=None)
         decoded = [self._csv_decode(v) for v in self._ssh_option_values(args)]
@@ -4272,6 +4933,32 @@ class TestSshReplace:
         coder.ssh_replace("devbox-foo")
 
         assert captured == [("ssh", ["ssh", coder._ssh_host_alias("devbox-foo")])]
+
+
+class TestDevboxExec:
+    @pytest.mark.parametrize(
+        "flags, remote_command",
+        [
+            ([], "pnpm exec jest 'a b.test.ts'"),
+            (
+                ["--flox"],
+                f"cd {coder.REMOTE_REPO_PATH} && exec flox activate -- pnpm exec jest 'a b.test.ts'",
+            ),
+        ],
+    )
+    def test_runs_command_on_the_box(
+        self, monkeypatch: pytest.MonkeyPatch, flags: list[str], remote_command: str
+    ) -> None:
+        captured: list[list[str]] = []
+        monkeypatch.setattr(devbox_cli, "ensure_runtime_ready", lambda: None)
+        monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: ("devbox-foo", []))
+        monkeypatch.setattr(devbox_cli, "coder_ssh_alias_configured", lambda name: True)
+        monkeypatch.setattr(coder.os, "execvp", lambda file, args: captured.append(args))
+
+        result = runner.invoke(cli, ["devbox:exec", *flags, "--", "pnpm", "exec", "jest", "a b.test.ts"])
+
+        assert result.exit_code == 0, result.output
+        assert captured == [["ssh", "coder.devbox-foo", remote_command]]
 
 
 class TestSetupGitSigning:
@@ -5169,6 +5856,7 @@ class TestDevboxSyncCommand:
     def test_default_run_fails_when_workspace_stopped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # A stopped box passes the SSH-config check but mutagen can't dial it;
         # surface a clear error before creating the session.
+        monkeypatch.setattr(coder, "get_username", lambda: "test-user")
         monkeypatch.setattr(
             devbox_sync,
             "resolve_workspace_name",

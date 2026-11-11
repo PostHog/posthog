@@ -5,7 +5,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { DataModelingNode, DataWarehouseSavedQuery } from '~/types'
 
 import { nodeEndpointUrl } from 'products/data_modeling/frontend/endpointModelName'
-import { MaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/MaterializationRunActions'
+import { QuillMaterializationRunActions } from 'products/data_warehouse/frontend/shared/components/QuillMaterializationRunActions'
 
 import { QuillNodeDetailQueryEditorActions } from './QuillNodeDetailQueryEditorActions'
 
@@ -27,7 +27,10 @@ export function QuillNodeDetailActions({
             ) : (
                 <QuillNodeDetailQueryEditorActions id={id} />
             )}
-            <MaterializationRunActions viewId={savedQuery.id} kind={node.type === 'endpoint' ? 'endpoint' : 'view'} />
+            <QuillMaterializationRunActions
+                viewId={savedQuery.id}
+                kind={node.type === 'endpoint' ? 'endpoint' : 'view'}
+            />
         </>
     )
 }

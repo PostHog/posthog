@@ -4,7 +4,7 @@ from collections import Counter
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from io import StringIO
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -104,18 +104,27 @@ class TestBackfillBatchExportCredentials(BaseTest):
             )
         return counts
 
-    def _existing(self, export: BatchExport, *, conflict: bool = False) -> IntegrationRecord:
+    def _existing_config(self) -> dict[str, Any]:
+        return {
+            "host": "fake.example.com",
+            "port": 5439,
+            "user": "fake-user",
+            "ssl_mode": "require",
+            "ssl_root_cert": None,
+        }
+
+    def _existing(
+        self,
+        export: BatchExport,
+        *,
+        config_overrides: dict[str, Any] | None = None,
+        sensitive_config: dict[str, Any] | None = None,
+    ) -> IntegrationRecord:
         return IntegrationManager.aws_redshift.credentials.create(
             export.team_id,
             external_id=f"{export.team_id}-fake.example.com-5439-fake-user",
-            config={
-                "host": "fake.example.com",
-                "port": 5439,
-                "user": "fake-user",
-                "ssl_mode": "require",
-                "ssl_root_cert": None,
-            },
-            sensitive_config={"password": "fake-conflicting-secret" if conflict else SECRET},
+            config={**self._existing_config(), **(config_overrides or {})},
+            sensitive_config=sensitive_config or {"password": SECRET},
         )
 
     def _stored_config(self, export: BatchExport) -> bytes:
@@ -224,26 +233,109 @@ class TestBackfillBatchExportCredentials(BaseTest):
         self.assertIn("Total outcomes: 0", stdout.getvalue())
         self.sync.assert_not_called()
 
-    def test_conflict_skips_all_writes(self) -> None:
+    @parameterized.expand(
+        [
+            ("different_password", {"sensitive_config": {"password": "fake-conflicting-secret"}}),
+            ("different_ssl_mode", {"config_overrides": {"ssl_mode": "disable"}}),
+        ]
+    )
+    def test_conflict_gets_its_own_integration(self, _name: str, overrides: dict[str, Any]) -> None:
         export = self._create()
-        self._existing(export, conflict=True)
+        other = self._create(name="Fake second export")
+        shared = self._existing(export, **overrides)
         original = deepcopy(export.destination.config)
+        created = CredentialBackfillOutcome(destination_type="Redshift", outcome="integration_created_separate")
 
         self.assertEqual(
-            verify_batch_export_credentials()[
-                CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_conflict")
-            ],
-            1,
+            verify_batch_export_credentials(),
+            {CredentialBackfillOutcome(destination_type="Redshift", outcome="needs_integration"): 2},
         )
+        self.assertEqual(self._run(), {created: 2})
+
+        export.destination.refresh_from_db()
+        other.destination.refresh_from_db()
+        ids = {export.destination.integration_id, other.destination.integration_id}
+        self.assertEqual(len(ids), 2)
+        self.assertNotIn(shared.id, ids)
+        self.assertNotIn(None, ids)
+        for item in (export, other):
+            row = IntegrationManager.aws_redshift.credentials.get(
+                self.team.id, cast(int, item.destination.integration_id)
+            )
+            found = IntegrationManager.aws_redshift.credentials.find(
+                self.team.id, external_id=f"{self.team.id}-fake.example.com-5439-fake-user-{item.destination.id}"
+            )
+            self.assertIsNotNone(found)
+            self.assertEqual(cast("IntegrationRecord", found).id, row.id)
+            self.assertEqual(row.sensitive_config, {"password": SECRET})
+            self.assertEqual(row.config["ssl_mode"], "require")
+        self.assertEqual(export.destination.config, original)
+        after = IntegrationManager.aws_redshift.credentials.get(self.team.id, shared.id)
+        self.assertEqual((after.config, after.sensitive_config), (shared.config, shared.sensitive_config))
+        self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 3)
+
+        self.assertEqual(self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="unchanged"): 2})
+        self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 3)
+        self.assertEqual(verify_batch_export_credentials(), {})
+
+    def test_conflict_reuses_matching_destination_integration(self) -> None:
+        export = self._create()
+        self._existing(export, sensitive_config={"password": "fake-conflicting-secret"})
+        own = IntegrationManager.aws_redshift.credentials.create(
+            export.team_id,
+            external_id=f"{export.team_id}-fake.example.com-5439-fake-user-{export.destination_id}",
+            config=self._existing_config(),
+            sensitive_config={"password": SECRET},
+        )
+
+        self.assertEqual(
+            self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="integration_reused"): 1}
+        )
+
+        export.destination.refresh_from_db()
+        self.assertEqual(export.destination.integration_id, own.id)
+        self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 2)
+
+    def test_conflict_with_mismatched_destination_integration_is_skipped(self) -> None:
+        export = self._create()
+        self._existing(export, sensitive_config={"password": "fake-conflicting-secret"})
+        IntegrationManager.aws_redshift.credentials.create(
+            export.team_id,
+            external_id=f"{export.team_id}-fake.example.com-5439-fake-user-{export.destination_id}",
+            config=self._existing_config(),
+            sensitive_config={"password": "fake-other-secret"},
+        )
+
         self.assertEqual(
             self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_conflict"): 1}
         )
 
         export.destination.refresh_from_db()
         self.assertIsNone(export.destination.integration_id)
-        self.assertEqual(export.destination.config, original)
-        self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 1)
+        self.assertEqual(len(IntegrationManager.aws_redshift.credentials.list(self.team.id)), 2)
         self.sync.assert_not_called()
+
+    def test_non_conflicting_destination_still_reuses_shared_integration(self) -> None:
+        conflicting = self._create()
+        self._existing(conflicting, sensitive_config={"password": "fake-conflicting-secret"})
+        matching = self._create(name="Fake matching export", config={**INLINE, "user": "fake-other-user"})
+        shared = IntegrationManager.aws_redshift.credentials.create(
+            matching.team_id,
+            external_id=f"{matching.team_id}-fake.example.com-5439-fake-other-user",
+            config={**self._existing_config(), "user": "fake-other-user"},
+            sensitive_config={"password": SECRET},
+        )
+
+        counts = self._run()
+
+        self.assertEqual(
+            counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="integration_reused")], 1
+        )
+        matching.destination.refresh_from_db()
+        conflicting.destination.refresh_from_db()
+        self.assertEqual(matching.destination.integration_id, shared.id)
+        self.assertNotEqual(conflicting.destination.integration_id, shared.id)
+        self.assertIsNotNone(conflicting.destination.integration_id)
 
     @parameterized.expand(
         [

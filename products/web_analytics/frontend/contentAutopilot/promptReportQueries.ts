@@ -3,6 +3,8 @@ import { escapeRegex } from 'lib/utils/actions'
 import { DataTableNode, DataVisualizationNode, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
+import type { BrandedSegmentEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
+
 import type { PromptVisibilityMetric } from './promptReport'
 import { ENGINE_LABELS } from './utils'
 
@@ -17,6 +19,10 @@ export interface PromptReportWindow {
 export interface PromptSetWindow {
     /** First day of the window, YYYY-MM-DD in the project's timezone. */
     from: string
+    /** The words a prompt must contain to count as branded. */
+    brandNames: string[]
+    /** Which checks to keep, by whether the prompt as it ran names the brand. */
+    branded: BrandedSegmentEnumApi
 }
 
 export const PROMPT_REPORT_TOP_SOURCES = 50
@@ -44,7 +50,12 @@ const hogql = (query: string, window: PromptReportWindow, values: Record<string,
 const setHogql = (query: string, window: PromptSetWindow): HogQLQuery => ({
     kind: NodeKind.HogQLQuery,
     query,
-    values: { window_start: `${window.from} 00:00:00` },
+    values: {
+        window_start: `${window.from} 00:00:00`,
+        ...(window.branded !== 'all' && window.brandNames.length
+            ? { brand_pattern: brandMentionPattern(window.brandNames) }
+            : {}),
+    },
 })
 
 /** RE2 pattern for `match()`: any brand name as a whole word, case folded by the caller. */
@@ -98,9 +109,22 @@ export const promptVisibilityQuery = (
     )
 }
 
+/** The set's checks on one side of the branded split, matching the API's `branded` filter. Without brand names no
+ * prompt is branded. */
+const setWhere = ({ branded, brandNames }: PromptSetWindow): string => {
+    if (branded === 'all') {
+        return SET_WHERE
+    }
+    if (!brandNames.length) {
+        return branded === 'branded' ? `${SET_WHERE} AND false` : SET_WHERE
+    }
+    const namesBrand = 'match(lower(prompt_text), {brand_pattern})'
+    return `${SET_WHERE} AND ${branded === 'branded' ? namesBrand : `NOT ${namesBrand}`}`
+}
+
 /** Daily citation rate per engine across every prompt in the set. */
 export const promptSetCitationQuery = (window: PromptSetWindow): DataVisualizationNode =>
-    dailyRateChart(setHogql(dailyRateSql(SET_WHERE, 'cited'), window))
+    dailyRateChart(setHogql(dailyRateSql(setWhere(window), 'cited'), window))
 
 const citedUrls = (where: string): string =>
     `SELECT id, engine, arrayJoin(JSONExtract(cited_urls, 'Array(String)')) AS url, target_urls
@@ -134,7 +158,7 @@ export const promptSourcesQuery = (window: PromptReportWindow): DataTableNode =>
 
 /** The same ranking across every prompt in the set. */
 export const promptSetSourcesQuery = (window: PromptSetWindow): DataTableNode =>
-    table(setHogql(sourcesSql(SET_WHERE, PROMPT_SET_TOP_SOURCES), window), PROMPT_SOURCE_COLUMNS)
+    table(setHogql(sourcesSql(setWhere(window), PROMPT_SET_TOP_SOURCES), window), PROMPT_SOURCE_COLUMNS)
 
 /** Cited URLs ranked by how many answers cited them. */
 export const promptCitationsQuery = (window: PromptReportWindow): DataTableNode =>
@@ -153,12 +177,17 @@ LIMIT ${PROMPT_REPORT_TOP_CITATIONS}`,
         PROMPT_CITATION_COLUMNS
     )
 
-/** The searches the engines ran, with how often. Only engines that report their searches contribute. */
+/** The searches the engines ran, with how many answers ran each. Only engines that report their searches
+ * contribute. Searches are lowercased with whitespace collapsed and counted once per answer, like the overview. */
 export const promptSearchesQuery = (window: PromptReportWindow): DataTableNode =>
     table(
         hogql(
-            `SELECT query, count() AS searches, uniq(engine) AS engines
-FROM (SELECT engine, arrayJoin(JSONExtract(search_queries, 'Array(String)')) AS query
+            `SELECT query, uniq(id) AS searches, uniq(engine) AS engines
+FROM (SELECT id, engine,
+        arrayJoin(arrayDistinct(arrayMap(
+            q -> lower(trim(replaceRegexpAll(q, '[[:space:]]+', ' '))),
+            JSONExtract(search_queries, 'Array(String)')
+        ))) AS query
     FROM system.aeo_citation_checks
     WHERE ${WHERE})
 WHERE query != ''

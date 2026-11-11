@@ -27,7 +27,7 @@ aws-sdk-kms = { workspace = true }
 aws-sdk-s3 = { workspace = true }
 aws-smithy-http-client = { workspace = true }
 axum = { workspace = true }
-brotlic = "0.8"
+brotlic-sys = "0.2"
 chrono = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
@@ -46,6 +46,7 @@ tracing-subscriber = { workspace = true }
 [dev-dependencies]
 aes-gcm = "0.10"
 base64 = { workspace = true }
-hegeltest = { version = "0.50.1", features = ["static-engine"] }
+brotlic = "0.8"
+hegeltest = { version = "0.51.0", features = ["static-engine"] }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["test-util"] }

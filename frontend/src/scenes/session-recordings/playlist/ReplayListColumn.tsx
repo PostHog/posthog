@@ -43,7 +43,9 @@ export function ReplayListColumn({
                       label: (
                           <>
                               Highlights
-                              {unwatchedPicksCount > 0 && <Badge>{unwatchedPicksCount}</Badge>}
+                              {unwatchedPicksCount > 0 && (
+                                  <Badge className="group-hover/button:bg-fill-selected">{unwatchedPicksCount}</Badge>
+                              )}
                           </>
                       ),
                       dataAttr: 'list-segment-picks',

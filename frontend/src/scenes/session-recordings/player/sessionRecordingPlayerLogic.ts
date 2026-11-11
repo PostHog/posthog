@@ -417,19 +417,6 @@ export function isAwaitingMoreData(renderability: SeekRenderability): boolean {
     return renderability.kind === 'waitingForData' || renderability.kind === 'waitingForIngestion'
 }
 
-// weights should add up to 1
-const smoothingWeights = [
-    0.07,
-    0.08,
-    0.1,
-    0.12,
-    0.26, // center point
-    0.12,
-    0.1,
-    0.08,
-    0.07,
-]
-
 const trackingStateMap: Record<SessionPlayerState, PlayerTimeTracking['state']> = {
     [SessionPlayerState.PLAY]: 'playing',
     [SessionPlayerState.PAUSE]: 'paused',
@@ -470,26 +457,6 @@ function rejectHeatmapSnapshot(reason: keyof typeof SNAPSHOT_REJECTION_PROBLEM, 
         `${SNAPSHOT_REJECTION_PROBLEM[reason]} Try a different moment, or create a heatmap from the page URL instead.`
     )
 }
-
-/**
- * returns the relative second in the recording
- * e.g. if the player starts at 1000ms and the snapshot is at 2000ms or 1500ms, the relative second is 1
- */
-function toRelativeSecondInRecording(timestamp: number, playerStartTime: number): number {
-    return Math.trunc((timestamp - playerStartTime) / 1000)
-}
-
-const INCREMENTAL_SNAPSHOT_EVENT_TYPE = 3
-const ACTIVE_SOURCES = [
-    IncrementalSource.MouseMove,
-    IncrementalSource.MouseInteraction,
-    IncrementalSource.Scroll,
-    IncrementalSource.ViewportResize,
-    IncrementalSource.Input,
-    IncrementalSource.TouchMove,
-    IncrementalSource.MediaInteraction,
-    IncrementalSource.Drag,
-]
 
 /** Find events in allSnapshots that aren't already in currentEvents, using timestamp-count matching. */
 export function findNewEvents(allSnapshots: eventWithTime[], currentEvents: eventWithTime[]): eventWithTime[] {
@@ -550,13 +517,6 @@ export function findSegmentForTimestamp(segments: RecordingSegment[], timestamp?
         } as RecordingSegment
     }
     return null
-}
-
-function isUserActivity(snapshot: eventWithTime): boolean {
-    return (
-        snapshot.type === INCREMENTAL_SNAPSHOT_EVENT_TYPE &&
-        ACTIVE_SOURCES.indexOf(snapshot.data?.source as IncrementalSource) !== -1
-    )
 }
 
 type MetaSnapshotWithResolution = eventWithTime & {
@@ -753,6 +713,7 @@ export interface sessionRecordingPlayerLogicValues {
     hasReachedExportFullVideoLimit: boolean // exportsLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     effectivePhaiView: PhaiViewMode // maxGlobalLogic
+    ambientBackground: boolean // playerSettingsLogic
     playerControlsOverlay: boolean // playerSettingsLogic
     showMetadataFooter: boolean // playerSettingsLogic
     skipInactivitySetting: boolean // playerSettingsLogic
@@ -781,16 +742,6 @@ export interface sessionRecordingPlayerLogicValues {
     storeVersion: number // snapshotDataLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     user: UserType | null // userLogic
-    activityPerSecond: {
-        durationSeconds: number
-        maxY: number
-        smoothedPoints: Record<
-            number,
-            {
-                y: number
-            }
-        >
-    }
     clickCount: number
     currentPlayerState:
         | SessionPlayerState.READY
@@ -867,6 +818,7 @@ export interface sessionRecordingPlayerLogicValues {
     seekRenderability: (timestamp: number) => SeekRenderability
     segmentForTimestamp: (timestamp?: number | undefined) => RecordingSegment | null
     sessionRecordingId: string
+    showAmbientBackground: boolean
     showPlayerChrome: boolean
     showingClipParams: boolean
     skipToFirstMatchingEvent: boolean
@@ -935,6 +887,9 @@ export interface sessionRecordingPlayerLogicActions {
         sessionRecordingId: string
         timestamp: number | undefined
     } // exportsLogic
+    setAmbientBackground: (ambientBackground: boolean) => {
+        ambientBackground: boolean
+    } // playerSettingsLogic
     setPlayerControlsOverlay: (playerControlsOverlay: boolean) => {
         playerControlsOverlay: boolean
     } // playerSettingsLogic
@@ -1323,19 +1278,6 @@ export interface sessionRecordingPlayerLogicMeta {
         logicProps: (arg: any) => SessionRecordingPlayerLogicProps
         playNextRecording: (arg: any) => ((automatic: boolean) => void) | undefined
         hasSnapshots: (sessionPlayerData: SessionPlayerData) => boolean
-        activityPerSecond: (
-            sessionPlayerData: SessionPlayerData,
-            hasSnapshots: boolean
-        ) => {
-            durationSeconds: number
-            maxY: number
-            smoothedPoints: Record<
-                number,
-                {
-                    y: number
-                }
-            >
-        }
         roughAnimationFPS: (playerSpeed: number) => number
         currentPlayerState: (
             playingState: SessionPlayerState.PLAY | SessionPlayerState.PAUSE,
@@ -1431,6 +1373,7 @@ export interface sessionRecordingPlayerLogicMeta {
             showingClipParams: boolean,
             playerControlsOverlay: boolean
         ) => boolean
+        showAmbientBackground: (ambientBackground: boolean, logicProps: SessionRecordingPlayerLogicProps) => boolean
         showPlayerChrome: (
             isKioskMode: boolean,
             hoverModeIsEnabled: boolean,
@@ -1538,7 +1481,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'recordingTooLargeToPlay',
             ],
             playerSettingsLogic,
-            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay'],
+            ['speed', 'skipInactivitySetting', 'showMetadataFooter', 'playerControlsOverlay', 'ambientBackground'],
             userLogic,
             ['user', 'hasAvailableFeature'],
             preflightLogic,
@@ -1569,7 +1512,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             sessionRecordingDataCoordinatorLogic(props),
             ['loadRecordingData', 'loadRecordingMetaSuccess', 'snapshotProcessingFailed'],
             playerSettingsLogic,
-            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay'],
+            ['setSpeed', 'setSkipInactivitySetting', 'setPlayerControlsOverlay', 'setAmbientBackground'],
             sessionRecordingEventUsageLogic,
             ['reportNextRecordingTriggered', 'reportRecordingExportedToFile', 'reportRecordingDebuggedWithAI'],
             sidePanelStateLogic,
@@ -1969,79 +1912,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             (s) => [s.sessionPlayerData],
             (sessionPlayerData: SessionPlayerData) => {
                 return Object.keys(sessionPlayerData.snapshotsByWindowId).length > 0
-            },
-        ],
-
-        activityPerSecond: [
-            (s) => [s.sessionPlayerData, s.hasSnapshots],
-            (
-                sessionPlayerData: SessionPlayerData,
-                hasSnapshots: boolean
-            ): { smoothedPoints: Record<number, { y: number }>; maxY: number; durationSeconds: number } => {
-                const start = sessionPlayerData.start
-                if (start === null || !hasSnapshots) {
-                    return { smoothedPoints: {}, maxY: 0, durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000 }
-                }
-
-                // First add a 0 for every second in the recording
-                const rawActivity: Record<number, { y: number }> = {}
-                Array.from({ length: Math.ceil(sessionPlayerData.durationMs / 1000 + 1) }, (_, i) => i).forEach(
-                    (second) => {
-                        rawActivity[second] = { y: 0 }
-                    }
-                )
-
-                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([_, snapshots]) => {
-                    snapshots.forEach((snapshot) => {
-                        const timestamp = toRelativeSecondInRecording(snapshot.timestamp, start.valueOf())
-
-                        if (!rawActivity[timestamp]) {
-                            rawActivity[timestamp] = { y: 0 }
-                        }
-
-                        if (isUserActivity(snapshot)) {
-                            rawActivity[timestamp].y += 5000
-                        } else if (
-                            snapshot.type === EventType.IncrementalSnapshot &&
-                            'source' in snapshot.data &&
-                            snapshot.data.source === IncrementalSource.Mutation
-                        ) {
-                            rawActivity[timestamp].y +=
-                                (snapshot.data.adds?.length || 0) +
-                                (snapshot.data.removes?.length || 0) +
-                                (snapshot.data.attributes?.length || 0) +
-                                (snapshot.data.texts?.length || 0)
-                        }
-                    })
-                })
-
-                // Apply smoothing
-                const sortedSeconds = Object.keys(rawActivity)
-                    .map(Number)
-                    .sort((a, b) => a - b)
-
-                const smoothedActivity: typeof rawActivity = {}
-
-                let maxY = 0
-                sortedSeconds.forEach((second) => {
-                    let smoothedY = 0
-                    for (let i = -4; i <= 4; i++) {
-                        const neighborSecond = second + i
-                        if (rawActivity[neighborSecond]) {
-                            smoothedY += rawActivity[neighborSecond].y * smoothingWeights[i + 4]
-                        }
-                    }
-                    smoothedActivity[second] = {
-                        y: smoothedY,
-                    }
-                    maxY = Math.max(maxY, smoothedY)
-                })
-
-                return {
-                    smoothedPoints: smoothedActivity,
-                    maxY,
-                    durationSeconds: (sessionPlayerData?.durationMs ?? 0) / 1000,
-                }
             },
         ],
 
@@ -2614,6 +2484,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     playerControlsOverlay
                 )
             },
+        ],
+        // Screenshot and video exports feed rendering and analysis, which want the recording on plain bars.
+        showAmbientBackground: [
+            (s) => [s.ambientBackground, s.logicProps],
+            (ambientBackground: boolean, logicProps: SessionRecordingPlayerLogicProps): boolean =>
+                ambientBackground &&
+                logicProps.mode !== SessionRecordingPlayerMode.Screenshot &&
+                logicProps.mode !== SessionRecordingPlayerMode.Video,
         ],
         showPlayerChrome: [
             (s) => [s.isKioskMode, s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],

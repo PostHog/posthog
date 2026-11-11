@@ -95,7 +95,11 @@ describe('hog', () => {
             arguments: [{ name: 'query', required: true, stdin: true }],
             scopes: ['query:read'],
         })
+        expect(
+            manifest.commands.filter((command) => command.refusesCI === true).map((command) => command.name)
+        ).toEqual(['setup', 'auth migrate', 'ci setup'])
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
+            'setup',
             'auth login',
             'auth add',
             'auth logout',
@@ -114,6 +118,7 @@ describe('hog', () => {
             'api access',
             'api skill',
             'api agents-md',
+            'learn',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',

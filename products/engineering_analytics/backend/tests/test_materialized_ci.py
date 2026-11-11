@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.metadata import get_table_names
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
@@ -532,6 +533,11 @@ class TestMaterializedCIParity(_WarehouseMixin):
                 placeholders={"incremental_window_start": ast.Constant(value=None)},
                 bypass_warehouse_access_control=True,
             )
+            # A materialization stores these types. A UInt8 flag would be stored as Int16, which a stored read
+            # cannot use as a condition.
+            types = dict(response.types or [])
+            booleans = [column for column, field in fields.items() if isinstance(field, BooleanDatabaseField)]
+            assert {column: types[column] for column in booleans} == dict.fromkeys(booleans, "Nullable(Bool)")
             if name == ci_rows.JOBS_VIEW_NAME:
                 windowed = execute_hogql_query(
                     sql,

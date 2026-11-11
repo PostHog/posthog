@@ -5,6 +5,7 @@ import { isLegacyExperiment } from 'scenes/experiments/utils'
 
 import type {
     ExperimentExposureCriteria,
+    ExperimentExposureHealthCheck,
     ExperimentExposureHealthFinding,
     ExperimentExposureQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -12,7 +13,11 @@ import type { Experiment } from '~/types'
 
 import { EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { getExperimentStatus } from '../experimentStatus'
-import type { ExperimentHealthApi, ExperimentHealthFindingApi } from '../generated/api.schemas'
+import type {
+    ExperimentHealthApi,
+    ExperimentHealthCheckResultApi,
+    ExperimentHealthFindingApi,
+} from '../generated/api.schemas'
 import { getTotalExposures, hasSampleRatioMismatch } from './exposureHealth'
 import { healthCheckShowsDecidingValue } from './healthCheckValues'
 import { type HealthPanelCheck, countHealthChecks } from './healthPanelChecks'
@@ -28,6 +33,7 @@ export type ExperimentHealthFindingCode =
     | 'srm'
     | 'zero_exposures'
     | 'test_account_filter_removes_exposures'
+    | 'unserved_variant_exposures'
     | 'no_metric'
     | 'metric_event_not_ingested'
     | 'metric_cannot_compile'
@@ -44,6 +50,7 @@ export type ExperimentHealthFindingCode =
     | 'early_significance'
     | 'metrics_not_matured'
     | 'flag_shared'
+    | 'stale_experiment'
 
 export interface ExperimentHealthFinding {
     code: ExperimentHealthFindingCode
@@ -68,6 +75,8 @@ export type ExperimentHealthFindingActionKind =
     | 'edit_release_conditions'
     | 'add_primary_metric'
     | 'add_secondary_metric'
+    | 'end_experiment'
+    | 'freeze_exposure'
 
 const EXPERIMENT_WARNING_FINDING_CODES: Record<ExperimentWarningKey, ExperimentHealthFindingCode> = {
     running_but_flag_disabled: 'flag_off_while_running',
@@ -150,6 +159,27 @@ function trackedHealthFinding({
     // pinned: `code:subcode:severity:reason`, as on the server's `experiment launched`. Insights split each string
     // on `:`, so every field is present, empty when the finding has none.
     return [code, subcode ?? '', severity, reason ?? ''].join(':')
+}
+
+function trackedHealthCheck({
+    key,
+    status,
+    reason,
+}: ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck): string {
+    // pinned: `key:status:reason`. Only not_checked keeps its reason, because that status leaves a blind spot: the
+    // problem the check looks for can be present without a finding. Insights split each string on the first two `:`.
+    return [key, status, status === 'not_checked' ? (reason ?? '') : ''].join(':')
+}
+
+function trackedHealthChecks(
+    checks: (ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck)[] | null | undefined
+): string[] | null {
+    return checks ? checks.map(trackedHealthCheck) : null
+}
+
+// pinned: `code:subcode`, the key the health panel gives a finding.
+function healthFindingKeys(health: ExperimentHealthApi): string[] {
+    return health.findings.map(({ code, subcode }) => `${code}:${subcode ?? ''}`)
 }
 
 export function captureExperimentHealthFindingShown(
@@ -279,11 +309,34 @@ export function captureExperimentHealthChecked(
             findings?.flatMap(({ code, subcode }) => (subcode ? [`${code}:${subcode}`] : [])) ?? null,
         health_findings: findings?.map(trackedHealthFinding) ?? null,
         health_finding_count: findings?.length ?? null,
+        health_checks: trackedHealthChecks(health?.checks),
         flag_state_browser: browserWarning?.key ?? null,
         // The server sends the warning key as the subcode. A finding without one still differs from no finding.
         flag_state_server: flagStateFinding ? (flagStateFinding.subcode ?? flagStateFinding.code) : null,
         no_metric_browser: browserNoMetricsWarning,
         no_metric_server: findings ? findings.some((finding) => finding.code === 'no_metric') : null,
+    })
+}
+
+export function captureExperimentHealthRechecked(
+    experiment: Experiment,
+    before: ExperimentHealthApi | null,
+    after: ExperimentHealthApi | null,
+    healthUi: ExperimentHealthUi,
+    changedInputs: string[] | null
+): void {
+    const keysBefore = before ? healthFindingKeys(before) : null
+    const keysAfter = after ? healthFindingKeys(after) : null
+    // pinned: analytics event name, so renaming it breaks insights
+    posthog.capture('experiment health rechecked', {
+        experiment_id: experiment.id,
+        experiment_status: getExperimentStatus(experiment),
+        health_ui: healthUi,
+        request_failed: after === null,
+        changed_inputs: changedInputs,
+        health_findings: after?.findings.map(trackedHealthFinding) ?? null,
+        resolved_findings: keysBefore && keysAfter ? keysBefore.filter((key) => !keysAfter.includes(key)) : null,
+        new_findings: keysBefore && keysAfter ? keysAfter.filter((key) => !keysBefore.includes(key)) : null,
     })
 }
 
@@ -296,10 +349,12 @@ interface ExposureHealthServerProperties {
     zero_exposures_reason: string | null
     bias_risk_server: boolean | null
     exposure_health_findings: string[] | null
+    exposure_health_checks: string[] | null
 }
 
 function exposureHealthServerProperties(
-    findings: ExperimentExposureHealthFinding[] | null | undefined
+    findings: ExperimentExposureHealthFinding[] | null | undefined,
+    checks: ExperimentExposureHealthCheck[] | null | undefined
 ): ExposureHealthServerProperties {
     const hasFinding = (code: ExperimentExposureHealthFinding['code']): boolean | null =>
         findings ? findings.some((finding) => finding.code === code) : null
@@ -319,6 +374,8 @@ function exposureHealthServerProperties(
         bias_risk_server: hasFinding('bias_risk_multiple_excluded'),
         // pinned: analytics property, so renaming it breaks insights. Its values are `code:subcode:severity:reason`.
         exposure_health_findings: findings?.map(trackedHealthFinding) ?? null,
+        // pinned: analytics property, so renaming it breaks insights. Its values are `key:status:reason`.
+        exposure_health_checks: trackedHealthChecks(checks),
     }
 }
 
@@ -330,7 +387,8 @@ function exposureHealthServerProperties(
  * from before the server ran them). `srm_subcode` and `zero_exposures_subcode` are the `subcode` of those findings, and
  * `srm_reason` and `zero_exposures_reason` their `reason`, each null without the finding or when it names none.
  * `exposure_health_findings` lists every server finding on the answer, in the format of `health_findings` on
- * `experiment health checked`.
+ * `experiment health checked`, and `exposure_health_checks` the status of every exposure check, in the format of
+ * `health_checks` there.
  */
 export function exposureHealthEventProperties(
     exposures: ExperimentExposureQueryResponse | null | undefined,
@@ -341,7 +399,7 @@ export function exposureHealthEventProperties(
     has_srm: boolean | null
     has_bias_risk: boolean | null
 } {
-    const serverProperties = exposureHealthServerProperties(exposures?.health_findings)
+    const serverProperties = exposureHealthServerProperties(exposures?.health_findings, exposures?.health_checks)
     if (!exposures) {
         return {
             exposures_total: null,

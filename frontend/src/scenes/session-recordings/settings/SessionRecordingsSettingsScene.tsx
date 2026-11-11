@@ -1,4 +1,4 @@
-import { MakeLogicType, BindLogic, kea, path, selectors } from 'kea'
+import { MakeLogicType, BindLogic, kea, path, selectors, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { sceneConfigurations } from 'scenes/scenes'
@@ -9,8 +9,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ReplayTabs } from '~/types'
 
+import { playerSettingsLogic } from '../player/playerSettingsLogic'
+import { isNewReplayLayout } from '../playlist/replayLayout'
 import { SessionRecordingsPageTabs } from '../SessionRecordings'
 import { sessionReplaySceneLogic } from '../sessionReplaySceneLogic'
 
@@ -53,14 +55,22 @@ export const scene: SceneExport = {
 }
 
 export function SessionRecordingsSettingsScene(): JSX.Element {
+    const { replayLayout } = useValues(playerSettingsLogic)
+    const settingsUnderRecordings = isNewReplayLayout(replayLayout)
+    const replayName = sceneConfigurations[Scene.Replay].name
     return (
         <BindLogic logic={sessionReplaySceneLogic} props={{}}>
             <SceneContent className="-mb-14">
                 <SceneTitleSection
-                    name={sceneConfigurations[Scene.Replay].name}
+                    name={settingsUnderRecordings ? 'Settings' : replayName}
                     resourceType={{
                         type: sceneConfigurations[Scene.Replay].iconType || 'default_icon_type',
                     }}
+                    forceBackTo={
+                        settingsUnderRecordings
+                            ? { key: Scene.Replay, name: replayName, path: urls.replay(ReplayTabs.Home) }
+                            : undefined
+                    }
                 />
                 <SessionRecordingsPageTabs />
                 <Settings

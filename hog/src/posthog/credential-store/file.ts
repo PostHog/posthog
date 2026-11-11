@@ -1,9 +1,10 @@
 import { JsonObject, parseJsonOrUndefined } from '@/core/json'
 import { hogFile } from '@/core/paths'
 import type { Runtime } from '@/core/runtime'
-import { hostKey, HostSchema, type Host } from '@/posthog/host'
+import type { ProjectId } from '@/posthog/ids'
 
 import { StoredSecretSchema } from './helpers'
+import { parseItemName, type ItemName, type LoginTarget } from './item-name'
 import type { CredentialStore, StoredSecret } from './types'
 
 // One JSON file, readable only by its owner, for machines without a keychain hog can use.
@@ -29,43 +30,39 @@ export class FileStore implements CredentialStore {
         return parseJsonOrUndefined(text, JsonObject) ?? {}
     }
 
-    async hosts(): Promise<Host[]> {
-        return Object.keys(await this.readAll()).flatMap((key) => HostSchema.safeParse(key).data ?? [])
+    async owners(): Promise<LoginTarget<ProjectId | null>[]> {
+        return Object.keys(await this.readAll()).flatMap((name) => parseItemName(name) ?? [])
     }
 
-    async read(host: Host): Promise<StoredSecret | undefined> {
+    async read(name: ItemName): Promise<StoredSecret | undefined> {
         // A stored value hog doesn't recognize, such as one a later version wrote, reads as no login.
-        return StoredSecretSchema.safeParse((await this.readAll())[hostKey(host)]).data
+        return StoredSecretSchema.safeParse((await this.readAll())[name]).data
     }
 
-    async write(host: Host, secret: StoredSecret): Promise<void> {
+    async write(name: ItemName, secret: StoredSecret): Promise<void> {
         const all = await this.readAll()
-        all[hostKey(host)] = secret
+        all[name] = secret
         await this.runtime.writePrivateFile(this.path, JSON.stringify(all, null, 2))
     }
 
-    async remove(host: Host): Promise<boolean> {
-        const key = hostKey(host)
-        return this.removeKeys((name) => name === key)
+    async remove(name: ItemName): Promise<boolean> {
+        return (await this.removeWhere((key) => key === name)).length > 0
     }
 
-    // Removes the entries under a name that isn't a host, such as one an older hog wrote, which
-    // `hosts` leaves out.
-    async removeUnreadable(): Promise<boolean> {
-        return this.removeKeys((name) => HostSchema.safeParse(name).data === undefined)
-    }
-
-    private async removeKeys(matches: (name: string) => boolean): Promise<boolean> {
+    async removeWhere(matches: (name: string) => boolean): Promise<string[]> {
         const all = await this.readAll()
-        const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
-        if (Object.keys(kept).length === Object.keys(all).length) {
-            return false
+        const removed = Object.keys(all).filter(matches)
+        if (removed.length === 0) {
+            return []
         }
+
+        const kept = Object.fromEntries(Object.entries(all).filter(([name]) => !matches(name)))
         if (Object.keys(kept).length === 0) {
             await this.runtime.removeFile(this.path)
         } else {
             await this.runtime.writePrivateFile(this.path, JSON.stringify(kept, null, 2))
         }
-        return true
+
+        return removed
     }
 }

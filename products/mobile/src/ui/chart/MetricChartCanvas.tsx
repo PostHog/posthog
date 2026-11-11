@@ -69,6 +69,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
     const {
         kind,
         barLayout = 'grouped',
+        fitAllBars = false,
         interval,
         label,
         formatValue,
@@ -122,7 +123,7 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
         [width, fullHeight, plotKind, axes, variant, totalCount, axisValues, interval, formatValue, uses24hourClock]
     )
     const pageSize = barPageSize(axisGeometry.plot.right - axisGeometry.plot.left, currentCount, barLayout)
-    const paged = plotKind === 'bar' && variant !== 'compact' && width > 0 && totalCount > pageSize
+    const paged = plotKind === 'bar' && !fitAllBars && variant !== 'compact' && width > 0 && totalCount > pageSize
     const window = barWindow(totalCount, paged ? pageSize : Math.max(1, totalCount), endOffset)
     const series = useMemo(
         () =>

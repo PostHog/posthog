@@ -359,6 +359,31 @@ class TestUpsertAlertTool(BaseTest):
         assert "limited to 1 alerts" in content.lower()
         assert artifact["error"] == "plan_limit_reached"
 
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_create_another_create_overtook_is_refused_under_the_lock(self):
+        insight = await self._create_insight()
+        await self._create_alert(insight)
+        tool = self._setup_tool()
+
+        # The early check passed before the other alert existed, so only the check under the lock sees it.
+        with (
+            mock.patch.object(AlertConfiguration, "ALERTS_ALLOWED_ON_FREE_TIER", 1),
+            mock.patch.object(tool, "_check_alert_limit", return_value=None),
+        ):
+            content, artifact = await tool._arun_impl(
+                action=CreateAlertAction(
+                    name="Over limit",
+                    condition_type=AlertConditionType.ABSOLUTE_VALUE,
+                    insight_id=insight.id,
+                    lower_threshold=100.0,
+                )
+            )
+
+        assert "limited to 1 alerts" in content.lower()
+        assert artifact["error"] == "plan_limit_reached"
+        assert await AlertConfiguration.objects.filter(team=self.team).acount() == 1
+
     async def _enable_real_time_alerts(self, limit: int) -> None:
         def _set():
             self.organization.available_product_features = [

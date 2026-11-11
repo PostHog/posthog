@@ -257,6 +257,10 @@ export default defineCommand({
         },
         wait: { type: 'boolean', description: 'Wait for the request an earlier run started to be approved' },
     },
+    refusesCI: {
+        reason: 'asks an admin to trust a CI job from your machine',
+        hint: 'Run `hog ci setup` on your machine, in the repository the job builds.',
+    },
     scopes: ['workload_trust_policy_request:write'],
     notes: [
         'Run it in the repository, logged in with `hog auth login`. hog asks PostHog to trust the repository in your project, and an organization admin approves the request in the browser.',
@@ -274,7 +278,7 @@ export default defineCommand({
         if (options.wait) {
             const api = await ctx.posthog()
             const { host, projectId } = (await ctx.session()).current
-            const approved = await resumeApproval(ctx, policyRequestWait(api, { host, projectId }))
+            const { value: approved } = await resumeApproval(ctx, policyRequestWait(api, { host, projectId }))
             // The snippet needs the provider's settings, so the request stays for another --wait until they load.
             const settings = await providerSettings(api, approved.projectId, approved.provider)
             await clearPending(ctx.runtime, CI_SETUP_COMMAND)

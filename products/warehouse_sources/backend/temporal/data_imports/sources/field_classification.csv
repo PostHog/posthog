@@ -250,6 +250,7 @@ Cimis,app_key,,,targets unit_of_measure,,cimis
 Cin7,,,,,,cin7
 CircleCI,api_token org_slug,,,,,circle-ci
 CircleSo,,,,,,circle-so
+Circleback,api_key,,,,,circleback
 CircleciInsights,api_token project_slugs,,,reporting_window branch_scope,,circleci-insights
 CiscoDuo,api_hostname integration_key secret_key,,,,,cisco-duo
 CiscoMeraki,api_key organization_id region,,,,,cisco-meraki
@@ -414,6 +415,7 @@ Eloqua,,,,,,eloqua
 EmailOctopus,api_key,,,,,email-octopus
 Emarsys,,,,,,emarsys
 Embrace,api_token app_id region,,,,,embrace
+Emplifi,,,,,,emplifi
 EmploymentHero,,,,,,employment-hero
 Encharge,,,,,,encharge
 Entsoe,,,,,,entsoe
@@ -568,6 +570,7 @@ GoogleWorkspaceAdminReports,,,,,,google-workspace-admin-reports
 Gorgias,gorgias_domain email api_key,,,,,gorgias
 Grafana,host auth_method org_id,,,,,grafana
 GrafanaIRM,stack_url oncall_api_url token,,,,,grafana-irm
+Grain,,,,,,grain
 Granola,api_key,,,,,granola
 Greenhouse,client_id client_secret api_key,,,,,greenhouse
 GreytHr,,,,,,greyt-hr

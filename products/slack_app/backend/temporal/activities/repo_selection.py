@@ -1,3 +1,4 @@
+import time
 import asyncio
 from typing import Any
 
@@ -5,12 +6,17 @@ import structlog
 from temporalio import activity
 
 from posthog.egress.limiter.policies import Priority
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.services.slack_messages import SlackThreadMessage
-from products.slack_app.backend.services.workspace_integrations import require_workspace_integration
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    require_workspace_integration,
+)
 from products.slack_app.backend.task_profiles import REPO_SELECTION
 from products.slack_app.backend.temporal.helpers import safe_react
 from products.slack_app.backend.temporal.types import (
@@ -20,6 +26,43 @@ from products.slack_app.backend.temporal.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+REPOSITORY_RESOLVED_EVENT = "slack app repository resolved"
+
+
+def capture_repository_resolved(
+    integration: WorkspaceIntegration,
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    resolution: str,
+    *,
+    has_repository: bool,
+    is_final: bool = True,
+    **props: object,
+) -> None:
+    """Record each step of choosing a mention's repository, so the cost of each path can be measured.
+
+    A mention emits one event per step it passes; ``is_final`` marks the step that decided.
+    ``slack_session_id`` joins this event to the run's ``task_run_created`` and startup timing events.
+    """
+    try:
+        event = inputs.event
+        channel = event.get("channel")
+        thread_ts = event.get("thread_ts") or event.get("ts")
+        posthog_user = User.objects.filter(id=inputs.user_id).first()
+    except Exception:
+        logger.warning("slack_app_repository_resolved_capture_failed", exc_info=True)
+        return
+    capture_slack_event(
+        integration,
+        REPOSITORY_RESOLVED_EVENT,
+        slack_user_id=event.get("user"),
+        posthog_user=posthog_user,
+        resolution=resolution,
+        has_repository=has_repository,
+        is_final=is_final,
+        slack_session_id=slack_session_id(inputs.slack_team_id, channel, thread_ts) if channel and thread_ts else None,
+        **props,
+    )
 
 
 @activity.defn
@@ -62,17 +105,27 @@ def cascade_posthog_code_repository_activity(
         # connect a personal install would gate the mention before anyone has asked whether it is
         # even about code; `no_repo` becomes a repo-less task instead, and the agent tells the user
         # to connect GitHub only once it can see that the ask needs code.
-        return PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
+        outcome = PostHogCodeRepoCascadeOutcome(mode="no_repo", repository=None, reason="no_repos")
+    elif len(all_repos) == 1:
+        outcome = PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
+    else:
+        outcome = _resolve_explicit_repo(
+            event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos
+        )
+        # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
+        logger.info(
+            "posthog_code_cascade_outcome",
+            reason=outcome.reason,
+            integration_id=inputs.integration_id,
+        )
 
-    if len(all_repos) == 1:
-        return PostHogCodeRepoCascadeOutcome(mode="auto", repository=all_repos[0], reason="single_repo")
-
-    outcome = _resolve_explicit_repo(event_text, _messages_at_or_before(thread_messages or [], mention_ts), all_repos)
-    # Logged so the share of mentions each resolution tier saves from the discovery agent is measurable.
-    logger.info(
-        "posthog_code_cascade_outcome",
-        reason=outcome.reason,
-        integration_id=inputs.integration_id,
+    capture_repository_resolved(
+        integration,
+        inputs,
+        outcome.reason,
+        has_repository=outcome.repository is not None,
+        is_final=outcome.mode != "agent_needed",
+        connected_repo_count=len(all_repos),
     )
     return outcome
 
@@ -124,6 +177,39 @@ async def discover_posthog_code_repository_via_agent_activity(
     The agent's legitimate "no plausible candidate" result becomes
     `status='no_match'`, which the workflow turns into a no-repo task.
     """
+    started_at = time.monotonic()
+    outcome = await _discover_repository(inputs, channel, event, thread_messages, user_id)
+    # The discovery sandbox runs before the task exists, so its time is not part of the run's startup timing.
+    duration_ms = int((time.monotonic() - started_at) * 1000)
+
+    def _capture() -> None:
+        integration = require_workspace_integration(inputs.integration_id, inputs.slack_team_id)
+        capture_repository_resolved(
+            integration,
+            inputs,
+            f"discovery_{outcome.status}",
+            has_repository=outcome.repository is not None,
+            # A failed discovery falls back to the repo picker, whose choice is not recorded here.
+            is_final=outcome.status != "failed",
+            selection_duration_ms=duration_ms,
+            usage_limited=outcome.usage_limited,
+            repo_research_task_id=outcome.repo_research_task_id,
+        )
+
+    try:
+        await database_sync_to_async(_capture)()
+    except Exception:
+        logger.warning("slack_app_repository_resolved_capture_failed", exc_info=True)
+    return outcome
+
+
+async def _discover_repository(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
+    channel: str,
+    event: dict[str, Any],
+    thread_messages: list[SlackThreadMessage],
+    user_id: int,
+) -> SlackRepoSelectionOutcome:
     from posthog.models.integration import SlackIntegration
 
     from products.slack_app.backend.api import post_quota_exhausted_denial

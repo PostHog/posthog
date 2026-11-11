@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
+
 import { type ExperimentExposureQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 
 import { userEvent } from 'storybook/test'
@@ -170,6 +172,7 @@ const UNEVEN_SPLIT_EXPOSURES: ExperimentExposureQueryResponse = {
     kind: NodeKind.ExperimentExposureQuery,
     timeseries: [],
     total_exposures: { control: 4790, test: 2420, 'test-2': 2392, $multiple: 403 },
+    exposed_by_library: { web: 8204, 'posthog-node': 1601, [BREAKDOWN_NULL_STRING_LABEL]: 200 },
     date_range: { date_from: '2026-10-19T00:00:00Z' },
     sample_ratio_mismatch: { expected: { control: 4801, test: 2400.5, 'test-2': 2400.5 }, p_value: 0.71 },
     health_checks: [

@@ -13,12 +13,21 @@ from products.alerts.backend.platform_alert_reads import (
     moved_alert_fired_checks,
     moved_alert_statuses,
 )
+from products.alerts.backend.platform_insight_alert import (
+    enable_native_insight_alert,
+    native_insight_alert_matches,
+    native_insight_alert_view,
+    native_insight_alert_views,
+)
 from products.alerts.backend.platform_ownership import (
     close_moved_alert_firings,
-    delete_moved_alert_copy,
+    delete_alert_destinations_and_copy,
     hand_over_new_alert,
+    platform_takes_new_alert_with,
     write_moved_alert_edit,
+    write_native_alert_edit,
 )
+from products.alerts.backend.platform_subscribers import platform_subscriber_ids, sync_alert_subscriber_destinations
 
 
 def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
@@ -31,11 +40,19 @@ def follow_insight_alert(*, team_id: int, alert_id: uuid.UUID) -> None:
 
 __all__ = [
     "close_moved_alert_firings",
-    "delete_moved_alert_copy",
+    "delete_alert_destinations_and_copy",
+    "enable_native_insight_alert",
     "follow_insight_alert",
     "hand_over_new_alert",
     "moved_alert_check_page",
     "moved_alert_fired_checks",
     "moved_alert_statuses",
+    "native_insight_alert_matches",
+    "native_insight_alert_view",
+    "native_insight_alert_views",
+    "platform_takes_new_alert_with",
+    "platform_subscriber_ids",
+    "sync_alert_subscriber_destinations",
     "write_moved_alert_edit",
+    "write_native_alert_edit",
 ]

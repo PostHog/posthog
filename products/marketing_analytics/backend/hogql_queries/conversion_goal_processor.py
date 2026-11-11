@@ -910,7 +910,7 @@ class ConversionGoalProcessor:
         """Per-person conversion arrays read from the precomputed marketing_conversions table, matching
         the array shape _build_conversion_only_arrays produces from a live events scan. Each table row is
         already a single conversion (event filtered at INSERT time), so we just groupArray per person —
-        the same arrayFilter sentinels are kept so the result is row-for-row identical to the fallback.
+        the same positive / non-empty filters are applied so the result is row-for-row identical to the fallback.
 
         The preagg table is a ReplacingMergeTree keyed on (team_id, job_id, person_id, conversion_timestamp);
         because job_id is part of the dedup key, the same physical conversion materialized under several
@@ -1342,39 +1342,37 @@ class ConversionGoalProcessor:
             ),
         )
 
+    def _build_conversion_values_array(
+        self,
+        alias: str,
+        conversion_event: Optional[str],
+        value: Callable[[], ast.Expr],
+        sentinel: ast.Constant,
+        keep: Callable[[ast.Expr], ast.Expr],
+    ) -> ast.Alias:
+        # groupArrayIf instead of filtering groupArray(...) afterwards: the per-person state then holds only
+        # conversions, not one sentinel per scanned pageview, which dominates memory for heavy people.
+        # The if() stays so the value is only evaluated on conversion rows.
+        def per_row() -> ast.Expr:
+            return ast.Call(
+                name="if", args=[self._build_conversion_event_condition(conversion_event), value(), sentinel]
+            )
+
+        return ast.Alias(alias=alias, expr=ast.Call(name="groupArrayIf", args=[per_row(), keep(per_row())]))
+
     def _build_conversion_timestamps_array(self, conversion_event: Optional[str]) -> ast.Alias:
         """Build conversion timestamps array.
 
         Uses 0 as sentinel for non-conversion events. A Unix timestamp of 0
         (1970-01-01) is impossible for real events, so x > 0 safely filters them.
         """
-        return ast.Alias(
-            alias="conversion_timestamps",
-            expr=ast.Call(
-                name="arrayFilter",
-                args=[
-                    ast.Lambda(
-                        args=["x"],
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["x"]),
-                            op=ast.CompareOperationOp.Gt,
-                            right=ast.Constant(value=0),
-                        ),
-                    ),
-                    ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    self._build_conversion_event_condition(conversion_event),
-                                    ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
-                                    ast.Constant(value=0),
-                                ],
-                            )
-                        ],
-                    ),
-                ],
+        return self._build_conversion_values_array(
+            "conversion_timestamps",
+            conversion_event,
+            value=lambda: ast.Call(name="toUnixTimestamp", args=[ast.Field(chain=["events", "timestamp"])]),
+            sentinel=ast.Constant(value=0),
+            keep=lambda timestamp: ast.CompareOperation(
+                left=timestamp, op=ast.CompareOperationOp.Gt, right=ast.Constant(value=0)
             ),
         )
 
@@ -1388,33 +1386,13 @@ class ConversionGoalProcessor:
         change the result (SUM). Negative conversion values (e.g. refunds)
         are not currently supported — they would be dropped by the filter.
         """
-        return ast.Alias(
-            alias="conversion_math_values",
-            expr=ast.Call(
-                name="arrayFilter",
-                args=[
-                    ast.Lambda(
-                        args=["x"],
-                        expr=ast.CompareOperation(
-                            left=ast.Field(chain=["x"]),
-                            op=ast.CompareOperationOp.Gt,
-                            right=ast.Constant(value=0),
-                        ),
-                    ),
-                    ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    self._build_conversion_event_condition(conversion_event),
-                                    self._get_conversion_value_expr(),
-                                    ast.Constant(value=0),
-                                ],
-                            )
-                        ],
-                    ),
-                ],
+        return self._build_conversion_values_array(
+            "conversion_math_values",
+            conversion_event,
+            value=self._get_conversion_value_expr,
+            sentinel=ast.Constant(value=0),
+            keep=lambda amount: ast.CompareOperation(
+                left=amount, op=ast.CompareOperationOp.Gt, right=ast.Constant(value=0)
             ),
         )
 
@@ -1453,41 +1431,20 @@ class ConversionGoalProcessor:
 
     def _build_conversion_utm_array(self, alias: str, conversion_event: Optional[str], utm_field: str) -> ast.Alias:
         """Build array for conversion event UTM data"""
-        return ast.Alias(
-            alias=alias,
-            expr=ast.Call(
-                name="arrayFilter",
+        return self._build_conversion_values_array(
+            alias,
+            conversion_event,
+            value=lambda: ast.Call(
+                name="toString",
                 args=[
-                    ast.Lambda(
-                        args=["x"],
-                        expr=ast.Call(name="notEmpty", args=[ast.Call(name="toString", args=[ast.Field(chain=["x"])])]),
-                    ),
                     ast.Call(
-                        name="groupArray",
-                        args=[
-                            ast.Call(
-                                name="if",
-                                args=[
-                                    self._build_conversion_event_condition(conversion_event),
-                                    ast.Call(
-                                        name="toString",
-                                        args=[
-                                            ast.Call(
-                                                name="ifNull",
-                                                args=[
-                                                    ast.Field(chain=["events", "properties", utm_field]),
-                                                    ast.Constant(value=""),
-                                                ],
-                                            )
-                                        ],
-                                    ),
-                                    ast.Constant(value=""),
-                                ],
-                            )
-                        ],
-                    ),
+                        name="ifNull",
+                        args=[ast.Field(chain=["events", "properties", utm_field]), ast.Constant(value="")],
+                    )
                 ],
             ),
+            sentinel=ast.Constant(value=""),
+            keep=lambda utm: ast.Call(name="notEmpty", args=[utm]),
         )
 
     def _build_utm_pageview_arrays(self, utm_source_field: str, resolved: dict[str, str]) -> list[ast.Expr]:

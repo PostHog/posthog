@@ -1,5 +1,8 @@
-import { strFromU8, unzipSync } from 'fflate'
+import { strFromU8, type UnzipFileInfo, type Unzipped, unzipSync } from 'fflate'
 import { parse as parseYaml } from 'yaml'
+
+export const PRODUCT_SKILL_ARCHIVE_URL =
+    'https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip'
 
 export const LEARN_OUTPUT_CHAR_LIMIT = 44_000
 
@@ -8,9 +11,11 @@ export const MAX_GLOBAL_SKILLS = 10
 const MAX_GLOBAL_SNIPPETS = 2
 const MAX_SCOPED_MATCHES = 50
 const SEARCH_CONTEXT_LINES = 2
-export const MAX_ARCHIVE_FILES = 5_000
-export const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
-export const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+const MAX_ARCHIVE_FILES = 5_000
+const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
+const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+/** The largest skills release a download accepts, before it is unzipped. */
+export const MAX_SKILL_ARCHIVE_BYTES = 32 * 1024 * 1024
 const EXACT_NAME_SCORE_BONUS = 5_000
 // context-mill's omnibus skills ship docs snapshots and example apps as references, and
 // snippet matches in those would crowd the workflow skills out of the result limit. Search
@@ -60,6 +65,16 @@ interface RankedSkill {
     snippets: LearnSearchSnippet[]
 }
 
+export class LearnLookupError extends Error {
+    constructor(
+        readonly code: 'unknown_skill' | 'unknown_file' | 'unknown_topic',
+        message: string
+    ) {
+        super(message)
+        this.name = 'LearnLookupError'
+    }
+}
+
 /**
  * Runtime view of the published product skill bundle. The bundle is parsed
  * once per refresh; all learn operations use this in-memory representation.
@@ -78,18 +93,37 @@ export class SkillCatalog {
     }
 
     static fromZip(bytes: Uint8Array, overlayBytes?: Uint8Array): SkillCatalog {
-        const skillsByName = indexSkillsByName(parseSkillArchive(bytes))
-        if (overlayBytes) {
-            for (const [name, skill] of indexSkillsByName(parseSkillArchive(overlayBytes))) {
-                if (skillsByName.has(name)) {
-                    // The product archive can be sha-pinned and the overlay is not, so the overlay never replaces a product skill.
-                    console.warn(`[SkillCatalog] overlay skill "${name}" ignored: a product skill has that name`)
-                    continue
-                }
-                skillsByName.set(name, skill)
+        const catalog = SkillCatalog.fromFiles(unzipUntrusted(bytes, 'Skill archive'))
+        return overlayBytes ? catalog.withOverlay(SkillCatalog.fromZip(overlayBytes)) : catalog
+    }
+
+    static fromFiles(files: Unzipped): SkillCatalog {
+        return new SkillCatalog(parseSkillFiles(files))
+    }
+
+    withOverlay(overlay: SkillCatalog): SkillCatalog {
+        const skillsByName = new Map(this.skillsByName)
+
+        for (const [name, skill] of overlay.skillsByName) {
+            if (skillsByName.has(name)) {
+                // The product archive can be sha-pinned and the overlay is not, so the overlay never replaces a product skill.
+                console.warn(`[SkillCatalog] overlay skill "${name}" ignored: a product skill has that name`)
+                continue
             }
+            skillsByName.set(name, skill)
         }
-        return new SkillCatalog([...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)))
+
+        return new SkillCatalog([...skillsByName.values()])
+    }
+
+    mapText(rewrite: (text: string) => string): SkillCatalog {
+        return new SkillCatalog(
+            [...this.skillsByName.values()].map((skill) => ({
+                name: skill.name,
+                description: rewrite(skill.description),
+                files: skill.files.map((file) => makeSkillFile(file.path, rewrite(file.content))),
+            }))
+        )
     }
 
     get size(): number {
@@ -132,45 +166,54 @@ export class SkillCatalog {
         return formatLearnSearchResults(results)
     }
 
-    read(name: string, path?: string, identifier = name): string {
-        const skill = this.requireSkill(name)
+    read(name: string, path?: string, identifier = name, command = 'learn'): string {
+        const skill = this.requireSkill(name, command)
+
         if (path) {
-            const file = this.requireFile(skill, path, identifier)
-            return formatLearnFile(identifier, file)
+            const file = this.requireFile(skill, path, identifier, command)
+            return formatLearnFile(identifier, file, command)
         }
 
-        const skillFile = this.requireFile(skill, 'SKILL.md')
-        return formatLearnDocument(identifier, skill.description, skillFile, skill.files)
+        const skillFile = this.requireFile(skill, 'SKILL.md', identifier, command)
+        return formatLearnDocument(identifier, skill.description, skillFile, skill.files, command)
     }
 
-    searchFile(name: string, path: string, query: string, identifier = name): string {
-        const skill = this.requireSkill(name)
-        const file = this.requireFile(skill, path, identifier)
-        return searchLearnFile(identifier, file, query)
+    searchFile(name: string, path: string, query: string, identifier = name, command = 'learn'): string {
+        const skill = this.requireSkill(name, command)
+        const file = this.requireFile(skill, path, identifier, command)
+        return searchLearnFile(identifier, file, query, command)
     }
 
-    readLines(name: string, path: string, start: number, end: number, identifier = name): string {
-        const skill = this.requireSkill(name)
-        const file = this.requireFile(skill, path, identifier)
+    readLines(name: string, path: string, start: number, end: number, identifier = name, command = 'learn'): string {
+        const skill = this.requireSkill(name, command)
+        const file = this.requireFile(skill, path, identifier, command)
         return readLearnLines(identifier, file, start, end)
     }
 
-    private requireSkill(name: string): SkillDefinition {
+    private requireSkill(name: string, command: string): SkillDefinition {
         const skill = this.skillsByName.get(name)
+
         if (!skill) {
-            throw new Error(`Unknown skill: "${name}". Use \`learn -s <query>\` to find a skill.`)
+            throw new LearnLookupError(
+                'unknown_skill',
+                `Unknown skill: "${name}". Use \`${command} -s <query>\` to find a skill.`
+            )
         }
+
         return skill
     }
 
-    private requireFile(skill: SkillDefinition, path: string, identifier = skill.name): SkillFile {
+    private requireFile(skill: SkillDefinition, path: string, identifier: string, command: string): SkillFile {
         validateRelativePath(path)
         const file = skill.files.find((candidate) => candidate.path === path)
+
         if (!file) {
-            throw new Error(
-                `Unknown file: "${path}" in skill "${identifier}". Run \`learn ${identifier}\` for its manifest.`
+            throw new LearnLookupError(
+                'unknown_file',
+                `Unknown file: "${path}" in skill "${identifier}". Run \`${command} ${identifier}\` for its manifest.`
             )
         }
+
         return file
     }
 }
@@ -205,12 +248,18 @@ function validateArchivePath(path: string): string[] {
     return parts
 }
 
+function isSafeRelativePath(path: string): boolean {
+    return (
+        !!path &&
+        !path.startsWith('/') &&
+        !path.includes('\\') &&
+        !path.includes('\0') &&
+        path.split('/').every((part) => part && part !== '.' && part !== '..')
+    )
+}
+
 function validateRelativePath(path: string): void {
-    if (!path || path.startsWith('/') || path.includes('\\') || path.includes('\0')) {
-        throw new Error(`Unsafe skill path: "${path}"`)
-    }
-    const parts = path.split('/')
-    if (parts.some((part) => !part || part === '.' || part === '..')) {
+    if (!isSafeRelativePath(path)) {
         throw new Error(`Unsafe skill path: "${path}"`)
     }
 }
@@ -260,30 +309,31 @@ export function formatLearnDocument(
     identifier: string,
     description: string,
     skillFile: SkillFile,
-    manifestFiles: readonly SkillManifestEntry[]
+    manifestFiles: readonly SkillManifestEntry[],
+    command = 'learn'
 ): string {
-    const manifest = `${formatManifest(manifestFiles)}\nRead a file with \`learn ${identifier} <path>\`. Separate the skill name and path with a space; do not use --file.`
+    const manifest = `${formatManifest(manifestFiles)}\nRead a file with \`${command} ${identifier} <path>\`. Separate the skill name and path with a space; do not use --file.`
     const full = `Skill: ${identifier}\nDescription: ${description}\n\n${manifest}\n\nSKILL.md content (frontmatter omitted):\n\n${stripFrontmatter(skillFile.content)}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
     }
-    return formatOversizedFile(identifier, skillFile, manifest)
+    return formatOversizedFile(identifier, skillFile, command, manifest)
 }
 
-export function formatLearnFile(identifier: string, file: SkillFile): string {
+export function formatLearnFile(identifier: string, file: SkillFile, command = 'learn'): string {
     const header = `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)`
     const full = `${header}\n\n${file.content}`
     if (full.length <= LEARN_OUTPUT_CHAR_LIMIT) {
         return full
     }
-    return formatOversizedFile(identifier, file)
+    return formatOversizedFile(identifier, file, command)
 }
 
-function formatOversizedFile(identifier: string, file: SkillFile, manifest?: string): string {
+function formatOversizedFile(identifier: string, file: SkillFile, command: string, manifest?: string): string {
     const scope = manifest ? `${manifest}\n\n` : ''
     let output = appendLearnOutput(
         '',
-        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. Use \`learn ${identifier} ${file.path} -s <query>\` or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}Heading outline:\n`
+        `File: ${identifier}/${file.path} (${file.lineCount} lines, ${file.charCount} chars)\nThis file is too large to return in full. Use \`${command} ${identifier} ${file.path} -s <query>\` or \`${command} ${identifier} ${file.path} --lines <start>:<end>\`.\n\n${scope}Heading outline:\n`
     )
     let hasHeadings = false
     for (const line of scanLines(file.content)) {
@@ -300,7 +350,7 @@ function formatOversizedFile(identifier: string, file: SkillFile, manifest?: str
     return fitLearnOutput(hasHeadings ? output : appendLearnOutput(output, '(No Markdown headings found.)'))
 }
 
-export function searchLearnFile(identifier: string, file: SkillFile, query: string): string {
+export function searchLearnFile(identifier: string, file: SkillFile, query: string, command = 'learn'): string {
     if (file.kind !== 'markdown') {
         throw new Error('Only Markdown contents are searchable. Read the file directly or use --lines instead.')
     }
@@ -336,7 +386,7 @@ export function searchLearnFile(identifier: string, file: SkillFile, query: stri
     if (matches === 0) {
         return (
             `No matches for "${query}" in ${identifier}/${file.path}.\n` +
-            `Read it with \`learn ${identifier} ${file.path}\` (${file.lineCount} lines, ${file.charCount} chars) or \`learn ${identifier} ${file.path} --lines <start>:<end>\`.`
+            `Read it with \`${command} ${identifier} ${file.path}\` (${file.lineCount} lines, ${file.charCount} chars) or \`${command} ${identifier} ${file.path} --lines <start>:<end>\`.`
         )
     }
 
@@ -378,38 +428,46 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
     return fitLearnOutput(sections.join('\n\n'))
 }
 
-function indexSkillsByName(skills: readonly SkillDefinition[]): Map<string, SkillDefinition> {
-    const byName = new Map<string, SkillDefinition>()
-    for (const skill of skills) {
-        if (byName.has(skill.name)) {
-            throw new Error(`Duplicate skill name: "${skill.name}"`)
-        }
-        byName.set(skill.name, skill)
-    }
-    return byName
+export interface ExtractionBudget {
+    files: number
+    bytes: number
 }
 
-function parseSkillArchive(bytes: Uint8Array): SkillDefinition[] {
-    let fileCount = 0
-    let totalUncompressedBytes = 0
-    const archive = unzipSync(bytes, {
+// Checks each file before it is inflated, so a crafted archive fails before it allocates. Only the
+// files `filter` keeps count against the limits.
+export function unzipUntrusted(
+    bytes: Uint8Array,
+    label: string,
+    filter: (file: UnzipFileInfo) => boolean = () => true,
+    budget: ExtractionBudget = { files: 0, bytes: 0 }
+): Unzipped {
+    return unzipSync(bytes, {
         filter: (file) => {
-            if (file.name.endsWith('/')) {
+            if (file.name.endsWith('/') || !filter(file)) {
                 return false
             }
-            validateArchivePath(file.name)
-            fileCount += 1
-            totalUncompressedBytes += file.originalSize
-            if (
-                fileCount > MAX_ARCHIVE_FILES ||
-                file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
-                totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
-            ) {
-                throw new Error('Skill archive exceeds the extraction limit')
+
+            if (!isSafeRelativePath(file.name)) {
+                throw new Error(`${label} has an unsafe path: "${file.name}"`)
             }
+
+            budget.files += 1
+            budget.bytes += file.originalSize
+
+            if (
+                budget.files > MAX_ARCHIVE_FILES ||
+                file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
+                budget.bytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
+            ) {
+                throw new Error(`${label} exceeds the extraction limit`)
+            }
+
             return true
         },
     })
+}
+
+function parseSkillFiles(archive: Unzipped): SkillDefinition[] {
     const filesByDirectory = new Map<string, SkillFile[]>()
 
     for (const [archivePath, fileBytes] of Object.entries(archive)) {

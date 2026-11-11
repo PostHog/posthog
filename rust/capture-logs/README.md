@@ -24,6 +24,7 @@ The service is configured using environment variables:
 | MANAGEMENT_BIND_PORT | 8080 | Port for the health check and metrics server |
 | MAX_REQUEST_BODY_SIZE_BYTES | 2097152 | Rejects larger request bodies, before and after gzip decompression |
 | FIREHOSE_MAX_REQUEST_BODY_SIZE_BYTES | 8388608 | Body cap for the Amazon Data Firehose route only |
+| MAX_EXPANDED_REQUEST_BYTES | 268435456 | Rejects a logs, traces, metrics or Firehose request with 413 when the rows it builds would pass this estimated size. Each row copies its resource, scope or common attributes, so the body cap does not bound this |
 | DROP_EVENTS_BY_TOKEN | (none) | Comma-separated tokens to drop |
 | MAX_BACKFILL_DAYS | 0 | How far back a request may ask to keep its own timestamps. `0` refuses every `backfill_days` request |
 | VERCEL_DRAIN_ENABLED_TOKENS | (none) | Comma-separated tokens that may use the Vercel drain route, or `*` for all. Other tokens get 404 |

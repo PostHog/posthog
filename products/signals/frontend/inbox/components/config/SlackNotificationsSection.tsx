@@ -70,7 +70,7 @@ function ConnectSlackPrompt(): JSX.Element {
 }
 
 /**
- * Team-wide channel where every actionable report is posted regardless of the suggested reviewer,
+ * Team-wide channel for actionable reports regardless of the suggested reviewer,
  * backed by `default_slack_notification_channel` on `signalTeamConfigLogic`. Toggling off (or
  * clearing the channel) disables the team default. The channel is saved with the workspace it came
  * from, because a channel id from one Slack workspace fails in every other.
@@ -85,6 +85,7 @@ function TeamChannelCard({ integrations }: { integrations: IntegrationType[] }):
     const [pickerExpanded, setPickerExpanded] = useState(false)
 
     const channel = teamConfig?.default_slack_notification_channel ?? null
+    const minPriority = teamConfig?.default_slack_notification_min_priority ?? null
     const showPicker = pickerExpanded || !!channel
 
     const onToggleEnabled = (enabled: boolean): void => {
@@ -101,8 +102,9 @@ function TeamChannelCard({ integrations }: { integrations: IntegrationType[] }):
                     title="Notify the whole team"
                     description={
                         <>
-                            Post every report to one channel, whether or not a reviewer is suggested. PostHog must be in
-                            the channel. Invite it with <code>/invite @PostHog</code>.
+                            Post reports that meet the minimum priority to one channel for this project, whether or not
+                            a reviewer is suggested. PostHog must be in the channel. Invite it with{' '}
+                            <code>/invite @PostHog</code>.
                         </>
                     }
                 />
@@ -124,6 +126,29 @@ function TeamChannelCard({ integrations }: { integrations: IntegrationType[] }):
                             patchTeamConfig({
                                 default_slack_notification_channel: next,
                                 default_slack_notification_integration: next ? integration.id : null,
+                            })
+                        }
+                    />
+                    <label className="text-xs text-secondary mt-3" htmlFor="team-slack-min-priority">
+                        Min. priority
+                    </label>
+                    <LemonSelect
+                        id="team-slack-min-priority"
+                        data-attr="inbox-team-slack-min-priority"
+                        className="max-w-60"
+                        value={minPriority ?? NOTIFY_ALL_VALUE}
+                        options={MIN_PRIORITY_OPTIONS}
+                        disabledReason={
+                            teamConfigLoading
+                                ? 'Saving notification settings'
+                                : !channel
+                                  ? 'Choose a channel first'
+                                  : undefined
+                        }
+                        onChange={(value) =>
+                            patchTeamConfig({
+                                default_slack_notification_min_priority:
+                                    value === NOTIFY_ALL_VALUE ? null : (value as SignalReportPriority),
                             })
                         }
                     />

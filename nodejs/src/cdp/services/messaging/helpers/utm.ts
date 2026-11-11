@@ -1,8 +1,12 @@
+import { getDomain } from 'tldts'
+
 import { HogFunctionInvocationGlobalsWithInputs } from '~/cdp/types'
-import { LiquidRenderer } from '~/cdp/utils/liquid'
+import { throwIfDeadlinePassed } from '~/cdp/utils/deadline'
+import { LiquidRenderBudget, LiquidRenderer } from '~/cdp/utils/liquid'
 
 import { decodeHtmlEntitiesInHref } from '../email-tracking.service'
 import { escapeHtml } from './escape-html'
+import { WORKFLOW_RUN_PARAM, isNeverClickTracked, removeWorkflowRunTag } from './link-tags'
 import { addUtmTagsToEmailLegacy } from './utm-legacy'
 
 export type UtmTags = {
@@ -12,11 +16,50 @@ export type UtmTags = {
     utm_content: string
 }
 
+type LinkTags = Record<string, string>
+
+export type WorkflowRunTag = {
+    runId: string
+    senderEmail: string
+    siteUrl: string
+}
+
 const UTM_KEYS = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content'] as const
+
+export const UTM_VALUE_LIMIT_CHARS = 1_000
+
+export const utmValueOverLimit = (raw: unknown): (typeof UTM_KEYS)[number] | undefined =>
+    raw && typeof raw === 'object'
+        ? UTM_KEYS.find((key) => {
+              const value = (raw as Record<string, unknown>)[key]
+              return typeof value === 'string' && value.length > UTM_VALUE_LIMIT_CHARS
+          })
+        : undefined
 
 // One attribute per match, so `href` and `data-ph-no-utm` count only as attribute names, never as text
 // inside another attribute's value or as part of a longer name like `data-href`.
 const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\t\n\f\r >]+)))?/g
+
+type Attribute = RegExpMatchArray
+
+type Anchor = {
+    html: string
+    attributes: Attribute[]
+}
+
+type LinkTagger = {
+    isOptedOut: (anchor: Anchor) => boolean
+    tagUrl: (url: string) => string | null
+}
+
+const attributesOf = (anchor: string): Attribute[] => [...anchor.matchAll(ATTRIBUTE_REGEX)]
+
+const attributeName = (attribute: Attribute): string => attribute[1].toLowerCase()
+
+const attributeValue = (attribute: Attribute): string | undefined => attribute[2] ?? attribute[3] ?? attribute[4]
+
+const isOptedOutOfUtmTags = ({ attributes }: Anchor): boolean =>
+    attributes.some((attribute) => attributeName(attribute) === 'data-ph-no-utm')
 
 /**
  * Renders each custom value as Liquid with the recipient's data. A value that fails to render is
@@ -25,7 +68,8 @@ const ATTRIBUTE_REGEX = /\s([^\s"'<>/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\t\
 export const renderUtmOverrides = (
     raw: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
-    onError: (key: string, message: string) => void
+    onError: (key: string, message: string) => void,
+    deadline?: AbortSignal
 ): Record<string, string> => {
     const rendered: Record<string, string> = {}
     if (!raw || typeof raw !== 'object') {
@@ -36,9 +80,12 @@ export const renderUtmOverrides = (
         if (typeof value !== 'string' || !value.trim()) {
             continue
         }
+        throwIfDeadlinePassed(deadline)
         try {
             // Liquid escapes HTML in what it renders, and a URL needs the plain text.
-            rendered[key] = decodeHtmlEntitiesInHref(LiquidRenderer.renderWithHogFunctionGlobals(value, globals))
+            rendered[key] = decodeHtmlEntitiesInHref(
+                LiquidRenderer.renderWithHogFunctionGlobals(value, globals, new LiquidRenderBudget(deadline))
+            )
         } catch (error) {
             onError(key, error instanceof Error ? error.message : String(error))
         }
@@ -82,12 +129,11 @@ const trimUrlWhitespace = (href: string): string => {
 }
 
 /**
- * Appends each UTM tag the link does not already carry. Returns null when the link stays as is:
- * not an absolute http(s) URL, a link to PostHog itself (unsubscribe and preference pages), an
- * unrendered template tag, or a link that already has every tag.
+ * Appends each tag the link does not already carry. Returns null when the link stays as is:
+ * not an absolute http(s) URL, a host the caller does not tag, an unrendered template tag, or a
+ * link that already has every tag.
  */
-export const addUtmTagsToUrl = (href: string, tags: UtmTags, siteHost: string | null): string | null => {
-    const url = trimUrlWhitespace(href)
+const addTagsToUrl = (url: string, tags: LinkTags, isTaggedHost: (url: URL) => boolean): string | null => {
     if (url.includes('{{') || url.includes('{%')) {
         return null
     }
@@ -97,7 +143,7 @@ export const addUtmTagsToUrl = (href: string, tags: UtmTags, siteHost: string | 
     } catch {
         return null
     }
-    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.host === siteHost) {
+    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !isTaggedHost(parsed)) {
         return null
     }
     const missing = Object.entries(tags).filter(([key, value]) => value && !parsed.searchParams.has(key))
@@ -131,17 +177,17 @@ const findTagEnd = (html: string, from: number): number => {
     return -1
 }
 
-const tagAnchor = (anchor: string, tags: UtmTags, siteHost: string | null): string => {
-    const attributes = [...anchor.matchAll(ATTRIBUTE_REGEX)]
-    if (attributes.some((attribute) => attribute[1].toLowerCase() === 'data-ph-no-utm')) {
+const tagAnchor = (anchor: string, tagger: LinkTagger): string => {
+    const attributes = attributesOf(anchor)
+    if (tagger.isOptedOut({ html: anchor, attributes })) {
         return anchor
     }
-    const href = attributes.find((attribute) => attribute[1].toLowerCase() === 'href')
-    const value = href ? (href[2] ?? href[3] ?? href[4]) : undefined
+    const href = attributes.find((attribute) => attributeName(attribute) === 'href')
+    const value = href ? attributeValue(href) : undefined
     if (!href || value === undefined) {
         return anchor
     }
-    const tagged = addUtmTagsToUrl(decodeHtmlEntitiesInHref(value), tags, siteHost)
+    const tagged = tagger.tagUrl(trimUrlWhitespace(decodeHtmlEntitiesInHref(value)))
     if (tagged === null) {
         return anchor
     }
@@ -160,11 +206,7 @@ const findAnchorStart = (html: string, from: number): number => {
 
 // One forward pass rather than a regex, so a body full of unclosed `<a` tags costs linear time instead
 // of rescanning the rest of the email for each one and stalling the worker.
-export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, fixedScanner: boolean): string => {
-    if (!fixedScanner) {
-        return addUtmTagsToEmailLegacy(html, tags, siteUrl)
-    }
-    const siteHost = hostOf(siteUrl)
+const addTagsToEmailLinks = (html: string, tagger: LinkTagger): string => {
     let output = ''
     let cursor = 0
     while (cursor < html.length) {
@@ -184,8 +226,37 @@ export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, 
             // The tag never closes, so it is not a link, and the rest of the email is left as is.
             break
         }
-        output += html.slice(cursor, start) + tagAnchor(html.slice(start, end + 1), tags, siteHost)
+        output += html.slice(cursor, start) + tagAnchor(html.slice(start, end + 1), tagger)
         cursor = end + 1
     }
     return output + html.slice(cursor)
+}
+
+const registrableDomainOf = (hostname: string): string | null => getDomain(hostname, { allowPrivateDomains: true })
+
+export const addUtmTagsToEmail = (html: string, tags: UtmTags, siteUrl: string, fixedScanner: boolean): string => {
+    if (!fixedScanner) {
+        return addUtmTagsToEmailLegacy(html, tags, siteUrl)
+    }
+    const siteHost = hostOf(siteUrl)
+    return addTagsToEmailLinks(html, {
+        isOptedOut: isOptedOutOfUtmTags,
+        tagUrl: (url) => addTagsToUrl(url, tags, (parsed) => parsed.host !== siteHost),
+    })
+}
+
+// The run tag always uses the fixed scanner: the legacy one only exists to keep UTM output unchanged for
+// teams outside CDP_EMAIL_UTM_LINK_SCANNER_TEAMS, and the run tag has its own allowlist.
+export const addWorkflowRunTagToEmail = (html: string, { runId, senderEmail, siteUrl }: WorkflowRunTag): string => {
+    const senderDomain = registrableDomainOf(senderEmail.slice(senderEmail.lastIndexOf('@') + 1))
+    if (!senderDomain) {
+        return html
+    }
+    const siteHost = hostOf(siteUrl)
+    const isOnSenderDomain = (parsed: URL): boolean =>
+        parsed.host !== siteHost && registrableDomainOf(parsed.hostname) === senderDomain
+    return addTagsToEmailLinks(html, {
+        isOptedOut: ({ html: anchor }) => isNeverClickTracked(anchor),
+        tagUrl: (url) => addTagsToUrl(removeWorkflowRunTag(url), { [WORKFLOW_RUN_PARAM]: runId }, isOnSenderDomain),
+    })
 }

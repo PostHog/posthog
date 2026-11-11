@@ -211,8 +211,15 @@ def get_membership_group_column(group_type_index: int, *, native_json: bool) -> 
     return f"properties.{column}" if native_json else column
 
 
+def get_membership_activity_filter(*, native_json: bool) -> str:
+    if native_json:
+        return "ifNull(toJSONString(properties.`$update_person_last_seen_at`), '') != 'false'"
+    return "JSONExtractRaw(properties, '$update_person_last_seen_at') != 'false'"
+
+
 def get_membership_batch_sql(*, group_type_index: int, catching_up: bool, native_json: bool = False) -> str:
     group_column = get_membership_group_column(group_type_index, native_json=native_json)
+    activity_filter = get_membership_activity_filter(native_json=native_json)
     if not catching_up:
         return f"""
             SELECT distinct_id, %(group_key)s AS group_key, min(timestamp), max(timestamp)
@@ -222,6 +229,7 @@ def get_membership_batch_sql(*, group_type_index: int, catching_up: bool, native
               AND {group_column} = %(group_key)s
               AND person_mode != 'propertyless'
             WHERE distinct_id > %(last_distinct_id)s
+              AND {activity_filter}
               AND (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
             GROUP BY distinct_id ORDER BY distinct_id LIMIT {BATCH_SIZE}
         """
@@ -230,6 +238,7 @@ def get_membership_batch_sql(*, group_type_index: int, catching_up: bool, native
                min(timestamp), max(timestamp)
         FROM {events_read_table(native_json)}
         WHERE team_id = %(team_id)s AND person_mode != 'propertyless'
+          AND {activity_filter}
           AND inserted_at >= %(start)s AND inserted_at < %(end)s
           AND notEmpty(group_key)
           AND (empty(%(account_keys)s) OR group_key IN %(account_keys)s)
@@ -277,6 +286,7 @@ class MembershipBackfillService:
                     WHERE team_id = %(team_id)s
                       AND (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
                       AND person_mode != 'propertyless'
+                      AND {get_membership_activity_filter(native_json=native_json)}
                       AND notEmpty({group_column})
                       AND (empty(%(account_keys)s) OR {group_column} IN %(account_keys)s)
                     ORDER BY event_date {direction} LIMIT 1
@@ -305,6 +315,7 @@ class MembershipBackfillService:
                       AND timestamp >= %(start)s AND timestamp < %(end)s
                     WHERE (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
                       AND person_mode != 'propertyless'
+                      AND {get_membership_activity_filter(native_json=native_json)}
                       AND notEmpty({group_column})
                       AND (empty(%(account_keys)s) OR {group_column} IN %(account_keys)s)""",
                 {
@@ -519,6 +530,7 @@ class MembershipBackfillService:
                 PREWHERE team_id = %(team_id)s
                   AND timestamp >= %(start)s AND timestamp < %(end)s
                 WHERE group_key > %(after)s AND person_mode != 'propertyless'
+                  AND {get_membership_activity_filter(native_json=native_json)}
                   AND (inserted_at IS NULL OR inserted_at < %(snapshot_end)s)
                 GROUP BY group_key ORDER BY group_key LIMIT {PAGE_SIZE}""",
             {

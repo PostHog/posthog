@@ -15,10 +15,20 @@ ENDPOINTS = {
     "physical_products": "payment/physical-products",
     "campaigns": "mailing/campaigns",
     "campaign_steps": "mailing/campaigns/{campaignId}/steps",
+    "funnels": "funnels",
+    "course_modules_with_lectures": "school/courses/{courseId}/modules-with-lectures",
 }
 
-# Child endpoint -> parent endpoint whose `id` fills the child path's `{campaignId}`.
-FANOUT_PARENTS = {"campaign_steps": "campaigns"}
+# Child endpoint -> (parent endpoint, child path placeholder that the parent's `id` fills).
+FANOUT_PARENTS = {
+    "campaign_steps": ("campaigns", "campaignId"),
+    "course_modules_with_lectures": ("courses", "courseId"),
+}
+# Child collections that document a `limit` parameter.
+PAGINATED_FANOUT_CHILDREN = {"course_modules_with_lectures"}
+
+# Each curriculum item carries the course it describes and no `id` of its own.
+PRIMARY_KEYS = {"course_modules_with_lectures": ["courseId"]}
 
 INCREMENTAL_FIELDS = {"contacts": [incremental_field("registeredAt")]}
 PARTITION_KEYS = {

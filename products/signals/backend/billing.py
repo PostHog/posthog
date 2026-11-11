@@ -61,6 +61,8 @@ def _bridges_with_pr_run(*, include_manual: bool = False, **run_created_at: date
     usage_billed = SignalSpend.objects.unscoped().filter(task_run_id=OuterRef("task__runs__id"), usage_billing=True)
     return SignalReportTask.objects.filter(
         Q() if include_manual else ~Exists(usage_billed),
+        Q(task__runs__state__self_driving_funding__funding__isnull=True)
+        | ~Q(task__runs__state__self_driving_funding__funding__in=["trial", "operator"]),
         **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
@@ -83,6 +85,14 @@ class BillingExemptionError(Exception):
 # runs' `emitted_report_ids` tally (report-channel scouts author their reports directly).
 BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
     "signals-scout-health-checks": SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+}
+
+# Scout skills whose own runs never bill. This is a superset of `BILLING_EXEMPT_SCOUT_SKILLS`:
+# inbox-validation is seeded enabled for every team to re-check PostHog's resolved reports, so no
+# person chooses to run it. Its follow-up reports are about the team's own product, so they and
+# their implementation PRs stay billable, which is why it is not in `BILLING_EXEMPT_SCOUT_SKILLS`.
+BILLING_EXEMPT_SCOUT_RUN_SKILLS: frozenset[str] = frozenset(BILLING_EXEMPT_SCOUT_SKILLS) | {
+    "signals-scout-inbox-validation",
 }
 
 # Same policy for the signal channel: sources owned by PostHog systems (e.g. the temporal

@@ -80,6 +80,8 @@ class VendorDestination:
     service: str
     region: str | None
     config: Mapping[str, Any]
+    # Fivetran reads a connection's time of day in this offset.
+    utc_offset_hours: int = 0
 
 
 @frozen

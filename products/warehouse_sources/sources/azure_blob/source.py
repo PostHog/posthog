@@ -75,7 +75,7 @@ class AzureBlobSource(ObjectStorageSource[AzureBlobSourceConfig]):
             label="Azure Blob Storage",
             caption=source_caption("an Azure Blob Storage container"),
             iconPath="/static/services/azure_blob.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

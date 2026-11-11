@@ -6,7 +6,7 @@ import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, permissions, serializers, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
 
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -135,6 +135,10 @@ class PublicHogFunctionTemplateViewSet(
 
     def filter_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":
+            for param in ("type", "types", "template_id"):
+                if "\x00" in self.request.GET.get(param, ""):
+                    raise ValidationError({param: "Must not contain null characters."})
+
             types = ["destination"]
             if self.request.GET.get("type"):
                 types = [self.request.GET["type"]]

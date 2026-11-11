@@ -41,6 +41,7 @@ from posthog.models.group_type_mapping import (
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
@@ -2047,17 +2048,36 @@ def team_api_test_factory():
                 == "You must be an admin of both the source and target organizations to move a project."
             )
 
-        def test_can_change_organization(self):
+        @parameterized.expand([(False,), (True,)])
+        def test_can_change_organization(self, restrict_destination: bool) -> None:
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
+            if restrict_destination:
+                with self.captureOnCommitCallbacks(execute=True):
+                    OrganizationIPRestrictions.objects.create(
+                        organization=other_org, ip_restrictions=["203.0.113.0/24"]
+                    )
+                denied = self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/",
+                    {"organization_id": other_org.id},
+                    REMOTE_ADDR="198.51.100.7",
+                )
+                assert denied.status_code == status.HTTP_403_FORBIDDEN
+                assert denied.json()["code"] == "ip_not_allowed"
+                self.project.refresh_from_db()
+                self.team.refresh_from_db()
+                assert self.project.organization_id == self.organization.id
+                assert self.team.organization_id == self.organization.id
             source_org_url = f"/api/organizations/{self.organization.id}/"
             # Populates the source organization's cached project list before the move.
             assert [team["id"] for team in self.client.get(source_org_url).json()["teams"]] == [self.team.id]
 
             with self.captureOnCommitCallbacks(execute=True):
                 res = self.client.post(
-                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                    f"/api/projects/{self.team.project.id}/change_organization/",
+                    {"organization_id": other_org.id},
+                    REMOTE_ADDR="203.0.113.7",
                 )
 
             assert res.status_code == status.HTTP_200_OK, res.json()

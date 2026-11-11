@@ -48,6 +48,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `action` - action
  * * `access_control` - access_control
  * * `account` - account
+ * * `account_note` - account_note
  * * `activity_log` - activity_log
  * * `alert` - alert
  * * `annotation` - annotation
@@ -175,6 +176,7 @@ export const ScopeObjectEnumApi = {
     Action: 'action',
     AccessControl: 'access_control',
     Account: 'account',
+    AccountNote: 'account_note',
     ActivityLog: 'activity_log',
     Alert: 'alert',
     Annotation: 'annotation',
@@ -325,6 +327,7 @@ export interface ProjectAccessSourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -495,6 +498,7 @@ export interface AccessControlObjectRuleApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -655,6 +659,7 @@ export interface AccessControlPropertyRulesResponseApi {
 
 /**
  * * `account` - account
+ * * `account_note` - account_note
  * * `action` - action
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
@@ -714,6 +719,7 @@ export type RuleResourceEnumApi = (typeof RuleResourceEnumApi)[keyof typeof Rule
 
 export const RuleResourceEnumApi = {
     Account: 'account',
+    AccountNote: 'account_note',
     Action: 'action',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
@@ -778,6 +784,7 @@ export interface AccessControlRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -893,6 +900,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1064,6 +1072,7 @@ export interface AccessControlMemberRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
@@ -1186,6 +1195,7 @@ export interface ResolvedAccessApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `account_note` - account_note
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1382,6 +1392,7 @@ export interface AccessControlRoleRuleRequestApi {
     /** The scope of the rule: `project` for the project itself (with the project id as `resource_id`), a resource type such as `dashboard` for the whole resource type or for one object of it, or `property_definition` for one person or event property.
      *
      * * `account` - account
+     * * `account_note` - account_note
      * * `action` - action
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters

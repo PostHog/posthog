@@ -347,7 +347,7 @@ class PipelineV3(Generic[ResumableData]):
         # and loads it again. The reset then stages that target (see `handle_reset_or_full_refresh`),
         # so no rewrite of the old table is necessary.
         replaces_table = attempt <= 1 and resets_table_before_extraction(
-            reset_pipeline, is_resume, self._schema, self._resource.webhook_only
+            reset_pipeline, is_resume, self._schema, self._resource.webhook_only, self._keeps_table_on_reset()
         )
         staged_scheme = self._schema.pending_scheme_for_table_replacement if replaces_table else None
         self._writes_staged_repartition_scheme = staged_scheme is not None
@@ -630,6 +630,13 @@ class PipelineV3(Generic[ResumableData]):
             await database_sync_to_async_pool(TableRebuildRun.record)(self._schema, run_uuid)
         except Exception:
             await self._logger.aexception("V3 Pipeline: Failed to record the table rebuild")
+
+    def _keeps_table_on_reset(self) -> bool:
+        return False
+
+    async def _clear_history_staging(self) -> None:
+        """Drop the rows a history lane staged before a reset. Only a laned run has history lanes."""
+        return None
 
     def _maintains_companion_table(self) -> bool:
         """Whether this run's own table is a `_cdc` history table, keyed under its own watermark.
@@ -915,7 +922,11 @@ class PipelineV3(Generic[ResumableData]):
             # overwrite handles it. Wiping the delta table mid-retry while the consumer
             # is loading the previous attempt's batches causes data loss.
             table_will_be_reset = self._attempt <= 1 and resets_table_before_extraction(
-                self._reset_pipeline, should_resume, self._schema, self._resource.webhook_only
+                self._reset_pipeline,
+                should_resume,
+                self._schema,
+                self._resource.webhook_only,
+                self._keeps_table_on_reset(),
             )
             if self._writes_staged_repartition_scheme and not table_will_be_reset:
                 # The batches of this attempt carry a scheme that is only correct for a new table.
@@ -933,8 +944,12 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     table_will_be_reset=table_will_be_reset,
+                    keeps_table=self._keeps_table_on_reset(),
                 )
 
+                # Before the reset consumes its flag, so a failed clear leaves the reset for the next run.
+                if self._reset_pipeline and not should_resume and not self._resource.webhook_only:
+                    await self._clear_history_staging()
                 await handle_reset_or_full_refresh(
                     self._reset_pipeline,
                     should_resume,
@@ -942,6 +957,7 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     webhook_only=self._resource.webhook_only,
+                    keeps_table=self._keeps_table_on_reset(),
                 )
                 # A reset drops the earliest value of the table it deletes. No reloaded row is older than
                 # that value, so a run that kept it would never stage an earliest value of its own.

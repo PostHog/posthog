@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
@@ -40,6 +41,33 @@ const Section = ({
     </section>
 )
 
+const PromptPage = ({
+    title,
+    onBack,
+    children,
+}: {
+    title: string
+    onBack: () => void
+    children: React.ReactNode
+}): JSX.Element => (
+    <div className="flex flex-col gap-4" data-attr="content-autopilot-prompt-page">
+        <div>
+            <LemonButton
+                size="small"
+                type="tertiary"
+                icon={<IconArrowLeft />}
+                onClick={onBack}
+                data-attr="content-autopilot-prompt-back"
+            >
+                All prompts
+            </LemonButton>
+        </div>
+        <h2 className="m-0">{title}</h2>
+        {children}
+    </div>
+)
+
+/** One prompt's report, on its own URL in place of the workspace tabs. */
 export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const {
         promptId,
@@ -61,6 +89,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
     const { closePromptDetail, openPromptDetail, setArchiveConfirming, setPromptEditing, setVisibilityMetric } =
         useActions(contentAutopilotPromptDetailLogic)
     const { opportunityByPromptId } = useValues(contentAutopilotLogic)
+    const { setWorkspaceTab } = useActions(contentAutopilotLogic)
     const draftOpportunity = prompt ? draftableOpportunity(opportunityByPromptId, prompt) : null
 
     if (!promptId) {
@@ -69,11 +98,9 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
 
     if (detailError === 'not_found') {
         return (
-            <LemonModal isOpen onClose={closePromptDetail} title="Prompt not found" width={640}>
-                <p className="m-0">
-                    This prompt isn't in the project's prompt set anymore. Close this and refresh the list.
-                </p>
-            </LemonModal>
+            <PromptPage title="Prompt not found" onBack={() => setWorkspaceTab('prompts')}>
+                <p className="m-0">This prompt isn't in the project's prompt set anymore, or the link is wrong.</p>
+            </PromptPage>
         )
     }
 
@@ -90,7 +117,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
         sentimentQuery
 
     return (
-        <LemonModal isOpen onClose={closePromptDetail} title={prompt?.prompt ?? 'Loading prompt'} width={960}>
+        <PromptPage title={prompt?.prompt ?? 'Loading prompt'} onBack={() => setWorkspaceTab('prompts')}>
             {detailError === 'failed' ? (
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: () => openPromptDetail(promptId) }}>
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
@@ -296,6 +323,6 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                 </div>
             )}
             <ContentAutopilotPromptEditModal />
-        </LemonModal>
+        </PromptPage>
     )
 }

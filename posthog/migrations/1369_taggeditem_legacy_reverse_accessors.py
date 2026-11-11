@@ -6,24 +6,8 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("actions", "0002_alter_action_created_by_alter_action_events_and_more"),
         ("contenttypes", "0002_remove_content_type_name"),
-        ("conversations", "0068_alter_emailchannelsetup_team_and_more"),
-        (
-            "customer_analytics",
-            "0052_alter_account_team_alter_accountchannelsummary_team_and_more",
-        ),
-        ("dashboards", "0021_drop_dashboardtemplate_github_url_column"),
-        ("endpoints", "0034_drop_orphaned_endpoint_saved_query_fk"),
-        ("event_definitions", "0012_alter_eventdefinition_project_and_more"),
-        ("experiments", "0040_experiment_feature_flag_rule_id_unique"),
-        (
-            "feature_flags",
-            "0020_alter_featureflag_created_by_alter_featureflag_team_and_more",
-        ),
         ("posthog", "1368_sessionrecording_untrack_lts_fields"),
-        ("product_analytics", "0010_alter_insight_created_by_and_more"),
-        ("replay_vision", "0095_replayobservation_rlo_team_session_idx"),
     ]
 
     operations = [

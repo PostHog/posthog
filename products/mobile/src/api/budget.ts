@@ -2,7 +2,7 @@
 // exist to stop a client bug, such as a refresh loop, and normal use never empties them. They live in memory, so a cold
 // start refills them.
 
-export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay'
+export type BudgetFamily = 'insights' | 'dashboards' | 'query' | 'replay' | 'live'
 
 interface BucketSpec {
     capacity: number
@@ -30,6 +30,13 @@ export const BUDGETS: Record<BudgetFamily, readonly BucketSpec[]> = {
     replay: [
         { capacity: 60, windowMs: MINUTE_MS },
         { capacity: 300, windowMs: HOUR_MS },
+    ],
+    // The Live screen polls `query/` by design, on buckets of its own, so it never starves Views or replay reads. At 25%
+    // of the budget, the hourly bucket would stop a normal Live session after about half an hour. 900 an hour still caps
+    // a runaway client at 75% of the published query budget.
+    live: [
+        { capacity: 60, windowMs: MINUTE_MS },
+        { capacity: 900, windowMs: HOUR_MS },
     ],
 }
 

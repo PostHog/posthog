@@ -13,8 +13,13 @@ from rest_framework.throttling import BaseThrottle
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.rate_limit import WarehouseMigrationCrawlThrottle
+from posthog.rate_limit import (
+    WarehouseMigrationCrawlThrottle,
+    WarehouseMigrationUploadStartThrottle,
+    WarehouseMigrationUploadThrottle,
+)
 
 from products.warehouse_sources.backend.facade import (
     contracts,
@@ -117,6 +122,51 @@ class WarehouseMigrationCreateSerializer(serializers.Serializer):
     api_secret = serializers.CharField(write_only=True, help_text="Secret that belongs to the API key.")
 
 
+class WarehouseMigrationStartUploadSerializer(serializers.Serializer):
+    provider = serializers.ChoiceField(choices=migrations.PROVIDER_CHOICES, help_text="The ETL vendor to import from.")
+
+
+MAX_UPLOAD_CONNECTIONS = 25
+MAX_UPLOAD_DESTINATIONS = 100
+
+
+class WarehouseMigrationUploadedConnectionSerializer(serializers.Serializer):
+    connection = serializers.DictField(
+        help_text="The Fivetran connection details response, unchanged. The `code` and `data` envelope may stay."
+    )
+    schema_config = serializers.DictField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="The Fivetran schema config response for this connection, unchanged. Null when Fivetran has none.",
+    )
+
+
+class WarehouseMigrationUploadConnectionsSerializer(serializers.Serializer):
+    account = serializers.DictField(
+        allow_null=True,
+        required=False,
+        default=None,
+        help_text="The Fivetran account info response, unchanged. Send it once, with the first upload.",
+    )
+    destinations = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+        max_length=MAX_UPLOAD_DESTINATIONS,
+        help_text="Fivetran destination details responses, unchanged. Send them before the connections that use "
+        "them, so PostHog reads each connection's sync time in its destination's time zone.",
+    )
+    connections = serializers.ListField(
+        child=WarehouseMigrationUploadedConnectionSerializer(),
+        required=False,
+        default=list,
+        max_length=MAX_UPLOAD_CONNECTIONS,
+        help_text=f"At most {MAX_UPLOAD_CONNECTIONS} connections. A connection uploaded again replaces its plan, "
+        "unless it is already created in PostHog or skipped.",
+    )
+
+
 class WarehouseMigrationItemCountsSerializer(serializers.Serializer):
     as_is = serializers.IntegerField(help_text="Connections that move to PostHog as they are.")
     caveats = serializers.IntegerField(help_text="Connections that move with differences the user should review.")
@@ -140,6 +190,15 @@ class WarehouseMigrationSerializer(serializers.Serializer):
     latest_error = serializers.CharField(help_text="Why the last read failed, if it did.")
     created_at = serializers.DateTimeField(help_text="When the migration was started.")
     item_counts = WarehouseMigrationItemCountsSerializer(help_text="How many connections fall into each group.")
+    has_vendor_key = serializers.BooleanField(
+        help_text="False when an agent uploaded the vendor account. Such a migration cannot be refreshed; "
+        "upload the connections again instead."
+    )
+
+
+class WarehouseMigrationCreatorSerializer(serializers.Serializer):
+    first_name = serializers.CharField(help_text="First name of the person who prepared the migration.")
+    email = serializers.EmailField(help_text="Email of the person who prepared the migration.")
 
 
 class WarehouseMigrationItemSerializer(serializers.Serializer):
@@ -168,6 +227,14 @@ class WarehouseMigrationItemSerializer(serializers.Serializer):
         allow_null=True, help_text="The PostHog source created for this connection, if any."
     )
     error = serializers.CharField(help_text="Why the last apply attempt failed, if it did.")
+    created_by = WarehouseMigrationCreatorSerializer(
+        allow_null=True,
+        help_text="Who prepared the migration, and so chose the connection settings in `proposal.prefill`.",
+    )
+
+
+class WarehouseMigrationUploadResponseSerializer(serializers.Serializer):
+    items = WarehouseMigrationItemSerializer(many=True, help_text="The planned items for the uploaded connections.")
 
 
 class WarehouseMigrationSkipItemsSerializer(serializers.Serializer):
@@ -209,6 +276,13 @@ class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
     instructions = serializers.CharField(help_text="What the agent should tell the user and do next.")
 
 
+_ACTION_THROTTLES: dict[str, type[BaseThrottle]] = {
+    "create": WarehouseMigrationCrawlThrottle,
+    "refresh": WarehouseMigrationCrawlThrottle,
+    "upload": WarehouseMigrationUploadStartThrottle,
+    "connections": WarehouseMigrationUploadThrottle,
+}
+
 _ITEM_ID = OpenApiParameter("item_id", str, OpenApiParameter.PATH, description="Item ID.")
 
 
@@ -218,17 +292,16 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
     scope_object = "external_data_source"
     # Like destinations, a migration spans many sources rather than belonging to one.
     requires_resource_level_access = True
-    scope_object_write_actions = ["create", "destroy", "refresh", "skip_item", "skip_items"]
-    scope_object_read_actions = ["list", "retrieve", "items", "connect_link"]
+    scope_object_write_actions = ["create", "destroy", "refresh", "skip_item", "skip_items", "upload", "connections"]
+    scope_object_read_actions = ["list", "retrieve", "items", "item", "connect_link"]
     # A non-UUID id gets a 404 instead of a lookup error.
     lookup_value_regex = _UUID_PATTERN
     pagination_class = PrecountedLimitOffsetPagination
 
     def get_throttles(self) -> list[BaseThrottle]:
         # Appended to the global limits, which do not apply to session callers.
-        if self.action in ("create", "refresh"):
-            return [*super().get_throttles(), WarehouseMigrationCrawlThrottle()]
-        return super().get_throttles()
+        throttle = _ACTION_THROTTLES.get(self.action or "")
+        return [*super().get_throttles(), throttle()] if throttle else super().get_throttles()
 
     def check_permissions(self, request: Request) -> None:
         super().check_permissions(request)
@@ -271,7 +344,67 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             )
         except contracts.WarehouseMigrationVendorUnreachableError:
             raise exceptions.ValidationError({"api_key": "Fivetran could not be reached with this key. Try again."})
+        self._report_started(request, migration, origin="api_key")
         return Response(WarehouseMigrationSerializer(migration).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=WarehouseMigrationStartUploadSerializer, responses={201: WarehouseMigrationSerializer}
+    )
+    @action(methods=["POST"], detail=False)
+    def upload(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        """Start a migration that an agent fills with what it reads from the vendor, without a vendor key."""
+        migration = migrations.start_migration_upload(
+            team_id=self.team_id, user_id=cast(User, request.user).id, provider=request.validated_data["provider"]
+        )
+        self._report_started(request, migration, origin="agent_upload")
+        return Response(WarehouseMigrationSerializer(migration).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=WarehouseMigrationUploadConnectionsSerializer,
+        responses={200: WarehouseMigrationUploadResponseSerializer},
+    )
+    @action(methods=["POST"], detail=True)
+    def connections(self, request: ValidatedRequest, pk: str, *args: Any, **kwargs: Any) -> Response:
+        """Plan vendor connections an agent read, and add them to an uploaded migration."""
+        data = request.validated_data
+        try:
+            result = migrations.upload_migration_connections(
+                self.team_id,
+                UUID(pk),
+                account=data["account"],
+                destinations=data["destinations"],
+                connections=[
+                    contracts.MigrationConnectionUpload(
+                        connection=connection["connection"], schema_config=connection["schema_config"]
+                    )
+                    for connection in data["connections"]
+                ],
+            )
+        except contracts.WarehouseMigrationHasVendorKeyError:
+            raise exceptions.ValidationError("PostHog reads this migration with an API key. Refresh it instead.")
+        except contracts.WarehouseMigrationUploadTooLargeError:
+            raise exceptions.ValidationError(
+                "This Fivetran account is too large to upload through the chat. Start a migration with an API key."
+            )
+        if result is None:
+            raise exceptions.NotFound()
+        if result.errors:
+            raise exceptions.ValidationError(
+                {
+                    "connections": f"Saved {len(result.items)} connections. Fix these and upload them again: "
+                    + " ".join(result.errors)
+                }
+            )
+        return Response(WarehouseMigrationUploadResponseSerializer(result).data)
+
+    def _report_started(self, request: Request, migration: contracts.WarehouseMigration, *, origin: str) -> None:
+        report_user_action(
+            cast(User, request.user),
+            "warehouse migration started",
+            {"migration_id": str(migration.id), "provider": migration.provider, "origin": origin},
+            team=self.team,
+            request=request,
+        )
 
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: str, *args: Any, **kwargs: Any) -> Response:
@@ -286,6 +419,10 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             migration = migrations.refresh_migration(self.team_id, UUID(pk))
         except contracts.WarehouseMigrationBusyError:
             raise exceptions.ValidationError("This migration is already reading the vendor account.")
+        except contracts.WarehouseMigrationUploadedError:
+            raise exceptions.ValidationError(
+                "This migration was uploaded by an agent. Upload again, or start one with an API key."
+            )
         if migration is None:
             raise exceptions.NotFound()
         return Response(WarehouseMigrationSerializer(migration).data)
@@ -307,6 +444,14 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         return self.get_paginated_response(
             WarehouseMigrationItemSerializer(self.paginate_queryset(page), many=True).data
         )
+
+    @extend_schema(responses={200: WarehouseMigrationItemSerializer}, parameters=[_ITEM_ID])
+    @action(methods=["GET"], detail=True, url_path=rf"items/(?P<item_id>{_UUID_PATTERN})")
+    def item(self, request: Request, pk: str, item_id: str, *args: Any, **kwargs: Any) -> Response:
+        item = migrations.find_migration_item(self.team_id, UUID(item_id))
+        if item is None or item.migration_id != UUID(pk):
+            raise exceptions.NotFound()
+        return Response(WarehouseMigrationItemSerializer(item).data)
 
     @extend_schema(request=None, responses={200: WarehouseMigrationItemSerializer}, parameters=[_ITEM_ID])
     @action(methods=["POST"], detail=True, url_path=rf"items/(?P<item_id>{_UUID_PATTERN})/skip")

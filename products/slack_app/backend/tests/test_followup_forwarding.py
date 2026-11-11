@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
@@ -27,6 +28,7 @@ from products.slack_app.backend.services.slack_messages import (
     encode_slack_file_refs,
     parse_slack_file_refs,
 )
+from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
 from products.slack_app.backend.temporal import (
     PostHogCodeSlackMentionWorkflowInputs,
     create_posthog_code_task_for_repo_activity,
@@ -124,6 +126,29 @@ class TestSlackThreadTaskMapping(TestCase):
             team=self.team,
             status=self.TaskRun.Status.IN_PROGRESS,
         )
+
+    def test_context_without_team_id_resolves_the_team_from_the_mapping(self):
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=self.task,
+            task_run=self.task_run,
+        )
+        old_payload = {"integration_id": self.integration.id, "channel": "C123", "thread_ts": "1234.5678"}
+
+        handler = SlackThreadHandler(SlackThreadContext.from_dict(old_payload))
+
+        assert handler.team_id == self.team.id
+        assert handler._get_integration().id == self.integration.id
+
+    def test_context_without_team_id_and_mapping_fails_cleanly(self):
+        old_payload = {"integration_id": self.integration.id, "channel": "C123", "thread_ts": "9.9"}
+
+        with self.assertRaises(IntegrationNotFound):
+            SlackThreadHandler(SlackThreadContext.from_dict(old_payload))._get_integration()
 
     def test_create_mapping(self):
         mapping = SlackThreadTaskMapping.objects.create(
@@ -1089,6 +1114,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
                     team_id=self.team.id, report_id=str(report.id), task_id=str(competing_task.id)
                 )
         self._create_mapping()
+        type(self.task).objects.filter(id=self.task.id).update(last_client="posthog_desktop")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
 
@@ -1119,6 +1145,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         )
         assert str(mapping.task_run_id) == new_run_id
         assert mapping.task_id == self.task.id
+        self.task.refresh_from_db()
+        assert self.task.last_client == "slack"
 
         new_run = self.TaskRun.objects.get(id=new_run_id)
         assert new_run.state.get("pending_user_message") == "do something"
@@ -1380,6 +1408,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # on the thread; their message is queued under their own PostHog identity
         # and their name is prepended so the agent knows who actually spoke.
         self._create_mapping(mentioning_user="U_ALICE")
+        type(self.task).objects.filter(id=self.task.id).update(last_client="posthog_desktop")
         bob = User.objects.create(email="bob@test.com", first_name="Bob")
         mock_slack_instance = MagicMock()
         mock_slack_cls.return_value = mock_slack_instance
@@ -1399,6 +1428,8 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert signal_kwargs["person_message"] == "please retry the build"
         assert signal_kwargs["actor_user_id"] == bob.id
         assert signal_kwargs["message_id"] is not None
+        self.task.refresh_from_db()
+        assert self.task.last_client == "slack"
         # No "Only the person who started" denial; the message went through.
         post_calls = [
             call

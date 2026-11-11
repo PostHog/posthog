@@ -4,12 +4,40 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { isProductionEnv } from '../db/role-guard'
+
 /** Where the pod's service account credentials are projected. */
 export const SERVICE_ACCOUNT_DIR = '/var/run/secrets/kubernetes.io/serviceaccount'
 
 export type SecretSourceKind = 'directory' | 'kubernetes'
 
 const SECRET_SOURCES: readonly SecretSourceKind[] = ['directory', 'kubernetes']
+
+export type KmsProviderKind = 'aws' | 'local'
+
+const KMS_PROVIDERS: readonly KmsProviderKind[] = ['aws', 'local']
+
+/** Wraps the per-record data keys with an AWS KMS key. */
+export interface AwsKmsConfig {
+    provider: 'aws'
+    /** Key alias (`alias/...`), key id or key ARN of the single-region key that wraps new data keys. */
+    keyId: string
+    /** Falls back to the SDK's own region resolution (`AWS_REGION`) when unset. */
+    region?: string
+    /** A VPC endpoint, or a local KMS emulator. */
+    endpoint?: string
+    /** Unset means the client connects to KMS directly and ignores HTTP_PROXY/HTTPS_PROXY. */
+    proxyUrl?: string
+}
+
+/** Wraps the per-record data keys with AES keys from config. For dev, CI and hobby. */
+export interface LocalKmsConfig {
+    provider: 'local'
+    /** 32-byte keys. The first one wraps new data keys. All of them unwrap. */
+    keys: Buffer[]
+}
+
+export type KmsConfig = AwsKmsConfig | LocalKmsConfig
 
 /** How to reach the Kubernetes Secret through the API server. */
 export interface KubernetesSourceConfig {
@@ -20,6 +48,14 @@ export interface KubernetesSourceConfig {
     /** Re-read on every request: the projected token rotates. */
     tokenFile: string
     caFile: string
+}
+
+/** The service's own Postgres database. */
+export interface DatabaseConfig {
+    url: string
+    poolSize: number
+    /** The user of CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL, when the pod can see that URL. */
+    migrateUser?: string
 }
 
 export interface Config {
@@ -49,6 +85,21 @@ export interface Config {
 
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
+
+    /** Set when CREDENTIALS_SERVICE_KMS_PROVIDER is set. The integration routes need it. */
+    kms?: KmsConfig
+
+    /**
+     * Set when CREDENTIALS_SERVICE_DATABASE_URL is set. Without it the service serves platform
+     * secrets only, and the integration features are off.
+     */
+    database?: DatabaseConfig
+
+    /**
+     * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
+     * PEM file per caller. Unset means the service accepts no integrations token.
+     */
+    integrationCallerPublicKeysDir?: string
 }
 
 function intFromEnv(key: string, fallback: number, min = 0): number {
@@ -123,6 +174,116 @@ function kubernetesFromEnv(serviceAccountDir: string): KubernetesSourceConfig {
     }
 }
 
+/** The database settings, or undefined when no database URL is set. */
+export function loadDatabaseConfig(): DatabaseConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const database: DatabaseConfig = { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+    const migrateUrl = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
+    if (migrateUrl) {
+        try {
+            const migrateUser = decodeURIComponent(new URL(migrateUrl).username)
+            if (migrateUser) {
+                database.migrateUser = migrateUser
+            }
+        } catch {
+            throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not a valid URL')
+        }
+    }
+    return database
+}
+
+/**
+ * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
+ * one the service connects as, and gets grants from the migrations.
+ */
+export interface MigrateConfig {
+    url: string
+    /** Empty in single-role local development: the grants are then skipped. */
+    runtimeRole: string
+}
+
+/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
+export function loadMigrateConfig(): MigrateConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
+    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
+        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
+    }
+    return { url, runtimeRole }
+}
+
+function kmsFromEnv(env: string): KmsConfig | undefined {
+    const raw = process.env.CREDENTIALS_SERVICE_KMS_PROVIDER
+    if (!raw) {
+        return undefined
+    }
+    const provider = KMS_PROVIDERS.find((kind) => kind === raw)
+    if (!provider) {
+        throw new Error(
+            `CREDENTIALS_SERVICE_KMS_PROVIDER must be one of ${KMS_PROVIDERS.join(', ')}, got ${JSON.stringify(raw)}`
+        )
+    }
+
+    if (provider === 'local') {
+        // The local keys sit in plain config, so they must never protect cloud customer data.
+        if (isProductionEnv(env)) {
+            throw new Error(`CREDENTIALS_SERVICE_KMS_PROVIDER=local is not allowed in ${env}`)
+        }
+        return { provider, keys: localKmsKeysFromEnv() }
+    }
+
+    const keyId = process.env.CREDENTIALS_SERVICE_KMS_KEY_ID
+    if (!keyId) {
+        throw new Error('CREDENTIALS_SERVICE_KMS_PROVIDER=aws needs CREDENTIALS_SERVICE_KMS_KEY_ID')
+    }
+    const config: AwsKmsConfig = { provider, keyId }
+    const region = process.env.CREDENTIALS_SERVICE_KMS_REGION
+    if (region) {
+        config.region = region
+    }
+    const endpoint = process.env.CREDENTIALS_SERVICE_KMS_ENDPOINT
+    if (endpoint) {
+        config.endpoint = httpUrlFromEnv('CREDENTIALS_SERVICE_KMS_ENDPOINT', endpoint)
+    }
+    const proxyUrl = process.env.CREDENTIALS_SERVICE_KMS_PROXY_URL
+    if (proxyUrl) {
+        config.proxyUrl = httpUrlFromEnv('CREDENTIALS_SERVICE_KMS_PROXY_URL', proxyUrl)
+    }
+    return config
+}
+
+function localKmsKeysFromEnv(): Buffer[] {
+    const raw = process.env.CREDENTIALS_SERVICE_KMS_LOCAL_KEYS
+    if (!raw) {
+        throw new Error('CREDENTIALS_SERVICE_KMS_PROVIDER=local needs CREDENTIALS_SERVICE_KMS_LOCAL_KEYS')
+    }
+    return raw.split(',').map((entry, index) => {
+        const encoded = entry.trim()
+        const key = Buffer.from(encoded, 'base64')
+        // Buffer.from skips characters that are not base64, so compare the round trip to catch a
+        // truncated or mistyped key. The message names the position only, never the value.
+        if (key.length !== 32 || key.toString('base64') !== encoded) {
+            throw new Error(`CREDENTIALS_SERVICE_KMS_LOCAL_KEYS entry ${index} is not a base64 32-byte key`)
+        }
+        return key
+    })
+}
+
+function httpUrlFromEnv(key: string, raw: string): string {
+    // The message leaves out the value: a proxy URL can carry a password.
+    const url = URL.canParse(raw) ? new URL(raw) : null
+    if (url?.protocol !== 'http:' && url?.protocol !== 'https:') {
+        throw new Error(`${key} must be an http(s) URL`)
+    }
+    return raw
+}
+
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -141,8 +302,23 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
     }
 
+    const database = loadDatabaseConfig()
+    if (database) {
+        config.database = database
+    }
+
+    const integrationKeysDir = process.env.CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR
+    if (integrationKeysDir) {
+        config.integrationCallerPublicKeysDir = integrationKeysDir
+    }
+
     if (secretSourceFromEnv() === 'kubernetes') {
         config.kubernetes = kubernetesFromEnv(serviceAccountDir)
+    }
+
+    const kms = kmsFromEnv(config.env)
+    if (kms) {
+        config.kms = kms
     }
 
     if (process.env.NODE_ENV === 'production' && !process.env.CREDENTIALS_SERVICE_ENV) {

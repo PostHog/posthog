@@ -23,6 +23,9 @@ APIScopeObject = Literal[
     "action",
     "access_control",
     "account",
+    # Notes on Customer Analytics accounts, split off `account` so a note can be written without the rest of
+    # the account surface (rename, delete, properties, relationships).
+    "account_note",
     "activity_log",
     "alert",
     "annotation",
@@ -98,7 +101,7 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
-    "mcp_registry",
+    "mcp_registry",  # Endpoints are gone; kept advertised until OAuth clients stop requesting it.
     "messaging_preference",
     "metrics",
     "notebook",
@@ -263,7 +266,7 @@ SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
     # Pending removal. No endpoint enforces these, so they do nothing when granted.
     # Remove them from `APIScopeObject` once no personal API key or OAuth grant references them.
     "batch_import": "Pending removal: no endpoint enforces it (its viewset is INTERNAL).",
-    "mcp_registry": "Behind a feature flag.",
+    "mcp_registry": "Retired: no endpoint enforces it; kept for OAuth clients that still request it.",
     "external_data_schema": "Pending removal: covered by external_data_source; no viewset uses it.",
     "vision_action": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
     "link": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
@@ -552,6 +555,8 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
 # Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
 # legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
 LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
+    # Notes moved from `account:*` to `account_note:*`, so keys and tokens issued before the split keep working.
+    "account_note": "account",
     "inbox": "task",
     # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
     "messaging_preference": "hog_flow",

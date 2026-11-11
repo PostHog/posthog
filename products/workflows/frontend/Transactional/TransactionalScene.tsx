@@ -8,7 +8,6 @@ import { Button } from '@posthog/quill'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -18,13 +17,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { EmailSuspensionBanner } from '../EmailSuspensionBanner'
-import { MessagingSetup } from '../MessagingSetup'
 import { MessagingTabActions } from '../MessagingTabActions'
-import { MESSAGING_TAB_CONTENT, isMessagingSetupTab } from '../messagingTabs'
-import { TransactionalEmailLog } from './log/TransactionalEmailLog'
-import { TransactionalEmailMetrics } from './metrics/TransactionalEmailMetrics'
-import { TransactionalEmailsTable } from './TransactionalEmailsTable'
-import { TransactionalRoute, TransactionalTab, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalRoute, transactionalRouteFor } from './transactionalRoute'
+import { TransactionalTabs } from './TransactionalTabs'
 import { TransactionalEmailWizard } from './wizard/TransactionalEmailWizard'
 
 export const scene: SceneExport = {
@@ -88,47 +83,7 @@ export function TransactionalScene(): JSX.Element {
                 }
             />
             <EmailSuspensionBanner />
-            <LemonTabs<TransactionalTab | 'library' | 'messaging-setup'>
-                activeKey={isTransactionalTab || currentTab === 'library' ? currentTab : 'messaging-setup'}
-                tabs={[
-                    {
-                        label: 'Transactional emails',
-                        key: 'transactional',
-                        link: urls.transactional(),
-                        content: <TransactionalEmailsTable />,
-                    },
-                    {
-                        label: 'Log',
-                        key: 'log',
-                        link: urls.transactionalLog(),
-                        content: <TransactionalEmailLog />,
-                    },
-                    {
-                        label: 'Metrics',
-                        key: 'metrics',
-                        link: urls.transactionalMetrics(),
-                        content: <TransactionalEmailMetrics />,
-                    },
-                    {
-                        label: 'Templates',
-                        key: 'library',
-                        link: urls.transactional('library'),
-                        content: MESSAGING_TAB_CONTENT.library,
-                    },
-                    {
-                        label: 'Messaging',
-                        key: 'messaging-setup',
-                        link: urls.transactional('channels'),
-                        content: (
-                            <MessagingSetup
-                                tab={isMessagingSetupTab(currentTab) ? currentTab : 'channels'}
-                                linkFor={(tab) => urls.transactional(tab)}
-                            />
-                        ),
-                    },
-                ]}
-                sceneInset
-            />
+            <TransactionalTabs currentTab={currentTab} />
         </SceneContent>
     )
 }

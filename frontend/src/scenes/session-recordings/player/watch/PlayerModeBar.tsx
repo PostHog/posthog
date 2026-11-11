@@ -116,6 +116,7 @@ export function PlayerModeBar(): JSX.Element {
                             >
                                 <SelectTrigger
                                     render={<Button variant="outline" size="sm" />}
+                                    className="gap-1 px-1.5"
                                     data-attr="player-meta-window-select"
                                 >
                                     <SelectValue />

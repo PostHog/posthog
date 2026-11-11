@@ -36,7 +36,7 @@ Two suites measure repository selection on a synthetic `fernhill` catalog that e
 No case depends on a real team's connected repositories, and expected answers stay out of the agent's input.
 
 - `slack_app/eval_repo_selection_routing` runs a Slack mention through the production cascade, the needs-repo classifier, and the discovery agent. It scores the terminal stage and outcome, and the routed repository.
-- `tasks/eval_repo_selection` runs only the production `select_repository` on the Self-Driving path, so classifier behavior cannot hide a difference between selector models. It scores accepted-set accuracy, correct abstention on cases with no plausible candidate, and completion.
+- `tasks/eval_repo_selection` runs only the production `select_repository` on the Self-driving path, so classifier behavior cannot hide a difference between selector models. It scores accepted-set accuracy, correct abstention on cases with no plausible candidate, and completion.
 
 Selector errors, timeouts, and picks outside the candidates score zero.
 A trial that fails before the agent's first tool call, such as a gateway refusal at startup, is an infrastructure error, so the harness summary leaves it out of score averages.

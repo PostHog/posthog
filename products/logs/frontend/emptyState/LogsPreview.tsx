@@ -2,7 +2,7 @@ import './LogsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 interface LogRow {
     time: string
@@ -29,7 +29,7 @@ const LOG_ROWS: LogRow[] = [
  * nothing shifts.
  */
 export function LogsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('LogsPreview', isStatic && 'LogsPreview--static')}>

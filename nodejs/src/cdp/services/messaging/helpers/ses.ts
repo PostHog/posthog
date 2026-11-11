@@ -9,6 +9,7 @@ import { logger } from '~/common/utils/logger'
 import { fetch } from '~/common/utils/request'
 
 import type { EmailStatus, EmailStatusReason } from '../email-status.service'
+import { removeWorkflowRunTag } from './link-tags'
 import { unquoteMailbox } from './suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
@@ -34,6 +35,8 @@ const SnsEnvelopeSchema = z.object({
 })
 
 export type SnsEnvelope = z.infer<typeof SnsEnvelopeSchema>
+
+export const parseSnsEnvelope = (raw: string): SnsEnvelope => SnsEnvelopeSchema.parse(parseJSON(raw))
 
 /**
  * ---------- SES event types ----------
@@ -260,6 +263,9 @@ export const SES_SENSITIVE_TAG = 'ph_sensitive'
 // and dashes in a tag, so the value is 'true' as for SES_SENSITIVE_TAG.
 export const SES_EMAIL_STATUS_TAG = 'ph_email_status'
 
+const isTransactionalMail = (mail: { tags?: Record<string, string[]> }): boolean =>
+    mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true'
+
 export type SesEmailStatusUpdate = {
     teamId: string
     invocationId: string
@@ -352,15 +358,7 @@ const sensitiveLinkOrigin = (link: string): string => {
 // Path of our own click-tracking redirect, which used to wrap every anchor before SES saw it.
 const TRACKING_REDIRECT_PATH = '/public/m/redirect'
 
-/**
- * The destination the recipient actually asked for.
- *
- * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
- * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
- * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
- * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
- */
-export const resolveClickDestination = (link: string): string => {
+const unwrapTrackingRedirect = (link: string): string => {
     try {
         const url = new URL(link)
         if (!url.pathname.endsWith(TRACKING_REDIRECT_PATH)) {
@@ -370,6 +368,61 @@ export const resolveClickDestination = (link: string): string => {
     } catch {
         return link
     }
+}
+
+/**
+ * The destination the recipient actually asked for.
+ *
+ * SES reports the link as it appeared in the HTML, before SES rewrote it. Messages sent while we
+ * still wrapped anchors in our own redirect therefore report that wrapper, whose `ph_id` differs on
+ * every send, so the raw value is both unaggregatable and a carrier for a signed tracking code that
+ * should not be stored on an event. Unwrap it back to `target`. Anything else is passed through.
+ */
+export const resolveClickDestination = (link: string): string => removeWorkflowRunTag(unwrapTrackingRedirect(link))
+
+const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): boolean => {
+    const values = mail?.tags?.[SES_SENSITIVE_TAG]
+    return Array.isArray(values) && values[0] === 'true'
+}
+
+// Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
+const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
+
+type LooseSesRecord = {
+    mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
+    click?: { link?: unknown }
+}
+
+// A queued notification waits on a Kafka topic, so a sensitive email loses its subject and click link
+// secrets here, by the rules `handleWebhook` records with. Anything else is returned unchanged.
+export const redactSensitiveNotification = (envelope: SnsEnvelope): SnsEnvelope => {
+    let record: LooseSesRecord
+    try {
+        record = parseJSON(envelope.Message)
+    } catch {
+        return envelope
+    }
+    if (!record || typeof record !== 'object' || !isSensitiveMail(record.mail)) {
+        return envelope
+    }
+    const { mail, click } = record
+    const { subject: _subject, ...commonHeaders } = mail?.commonHeaders ?? {}
+    const redacted: LooseSesRecord = {
+        ...record,
+        mail: {
+            ...mail,
+            ...(mail?.commonHeaders ? { commonHeaders } : {}),
+            ...(Array.isArray(mail?.headers)
+                ? {
+                      headers: mail.headers.filter((header) => String(header?.name ?? '').toLowerCase() !== 'subject'),
+                  }
+                : {}),
+        },
+        ...(click && typeof click.link === 'string'
+            ? { click: { ...click, link: sensitiveClickLink(click.link) } }
+            : {}),
+    }
+    return { ...envelope, Message: JSON.stringify(redacted) }
 }
 
 // Bounds how much of a URL rides in the app_metrics2 sort key. Long enough to stay recognizable in
@@ -515,6 +568,8 @@ export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
 // Any AWS account can send it when the topic allowlist is empty, so it is sanitized like other SES fields.
 const plainTextPrefix = (message: string): string | undefined =>
     /^\s*[{[]/.test(message) ? undefined : sanitizeSesField(message, 200)
+
+const UNSIGNED_RAW_DELIVERY = { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
@@ -688,9 +743,78 @@ export class SesWebhookHandler {
         return lines.join('\n') + '\n'
     }
 
+    async verifyDelivery(body: unknown): Promise<{ status: number; body: unknown } | { envelope: SnsEnvelope }> {
+        const parsed = this.parseIncomingBody(body)
+        const answer = await this.verifyAndConfirm(parsed, true)
+        if (answer) {
+            return answer
+        }
+        return parsed.mode === 'sns'
+            ? { envelope: redactSensitiveNotification(parsed.envelope) }
+            : UNSIGNED_RAW_DELIVERY
+    }
+
+    private async verifyAndConfirm(
+        parsed: ReturnType<SesWebhookHandler['parseIncomingBody']>,
+        verifySignature: boolean | undefined
+    ): Promise<{ status: number; body: unknown } | null> {
+        // Payloads carry recipients and reset links, so the logs keep identifiers only.
+        logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
+
+        // Raw deliveries carry no signature, so a required verification rejects them to block forged events.
+        if (verifySignature) {
+            if (!('envelope' in parsed)) {
+                return UNSIGNED_RAW_DELIVERY
+            }
+            logger.info('[SesWebhookHandler] verifying signature', {
+                type: parsed.envelope.Type,
+                messageId: parsed.envelope.MessageId,
+            })
+            const ok = await this.verifySnsSignature(parsed.envelope)
+            logger.info('[SesWebhookHandler] signature verified', { ok })
+            if (!ok) {
+                return { status: 403, body: { error: 'Invalid SNS signature' } }
+            }
+        }
+
+        // A valid signature proves the envelope came from AWS, but not from the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
+        }
+
+        if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
+            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
+            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
+            const subscribeUrl = parsed.envelope.SubscribeURL
+            if (subscribeUrl) {
+                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
+                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
+                        url: subscribeUrl,
+                    })
+                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
+                }
+                await this.fetchText(subscribeUrl)
+            } else {
+                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
+                return { status: 400, body: { error: 'Missing SubscribeURL' } }
+            }
+            return { status: 200, body: { ok: true } }
+        }
+
+        if (parsed.mode === 'sns' && parsed.envelope.Type === 'UnsubscribeConfirmation') {
+            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
+            return { status: 200, body: { ok: true } }
+        }
+
+        return null
+    }
+
     async handleWebhook(opts: {
         body: any
-        headers: Record<string, string | string[] | undefined>
+        headers?: Record<string, string | string[] | undefined>
         verifySignature?: boolean
     }): Promise<{
         status: number
@@ -724,6 +848,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            bounceTimestamp?: string
         }[]
         // Hard (Permanent) bounces — recorded in the suppression list so future sends to the address
         // are blocked. Suppression enforcement replaces the legacy opt-out-on-bounce write.
@@ -755,61 +880,10 @@ export class SesWebhookHandler {
         // Status changes of transactional emails, for the email_status table.
         emailStatusUpdates?: SesEmailStatusUpdate[]
     }> {
-        // Payloads carry recipients and clicked links, including reset links from sensitive emails,
-        // so the logs keep identifiers only.
         const parsed = this.parseIncomingBody(opts.body)
-        logger.info('[SesWebhookHandler] handleWebhook', { mode: parsed.mode })
-
-        // When verification is required the message must be a signed SNS envelope. Raw deliveries
-        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
-        if (opts.verifySignature) {
-            if (!('envelope' in parsed)) {
-                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
-            }
-            logger.info('[SesWebhookHandler] verifying signature', {
-                type: parsed.envelope.Type,
-                messageId: parsed.envelope.MessageId,
-            })
-            const ok = await this.verifySnsSignature(parsed.envelope)
-            logger.info('[SesWebhookHandler] signature verified', { ok })
-            if (!ok) {
-                return { status: 403, body: { error: 'Invalid SNS signature' } }
-            }
-        }
-
-        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
-        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
-        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
-        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
-            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
-                topicArn: parsed.envelope.TopicArn,
-            })
-            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
-        }
-
-        // Handle confirmation flow
-        if (parsed.mode === 'sns' && parsed.envelope.Type === 'SubscriptionConfirmation') {
-            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
-            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
-            const subscribeUrl = parsed.envelope.SubscribeURL
-            if (subscribeUrl) {
-                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
-                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
-                        url: subscribeUrl,
-                    })
-                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
-                }
-                await this.fetchText(subscribeUrl)
-            } else {
-                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
-                return { status: 400, body: { error: 'Missing SubscribeURL' } }
-            }
-            return { status: 200, body: { ok: true } }
-        }
-
-        if (parsed.mode === 'sns' && parsed.envelope.Type === 'UnsubscribeConfirmation') {
-            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
-            return { status: 200, body: { ok: true } }
+        const answer = await this.verifyAndConfirm(parsed, opts.verifySignature)
+        if (answer) {
+            return answer
         }
 
         const records = parsed.mode === 'raw' ? parsed.records : this.parseNotificationRecords(parsed.envelope)
@@ -840,6 +914,7 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
+            bounceTimestamp?: string
         }[] = []
         const hardBounceRecipients: {
             teamId?: string
@@ -902,10 +977,12 @@ export class SesWebhookHandler {
             // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
             // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
             if (metricName && !isTest) {
-                const isSensitive = rec.mail.tags?.[SES_SENSITIVE_TAG]?.[0] === 'true'
+                const isSensitive = isSensitiveMail(rec.mail)
                 const properties: Record<string, any> = {
                     $email_to: rec.mail.destination?.[0],
+                    $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
+                    ...(isTransactionalMail(rec.mail) ? { $email_transactional: true } : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
@@ -916,8 +993,9 @@ export class SesWebhookHandler {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    const destination = resolveClickDestination(rec.click.link)
-                    properties.$link_url = isSensitive ? sensitiveLinkOrigin(destination) : destination
+                    properties.$link_url = isSensitive
+                        ? sensitiveClickLink(rec.click.link)
+                        : resolveClickDestination(rec.click.link)
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex
@@ -974,7 +1052,7 @@ export class SesWebhookHandler {
                             actionId,
                             rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0] ?? '',
                             isSensitive
-                                ? sensitiveLinkOrigin(resolveClickDestination(rec.click.link))
+                                ? sensitiveClickLink(rec.click.link)
                                 : normalizeClickUrl(resolveClickDestination(rec.click.link))
                         ),
                         timestamp,
@@ -1061,6 +1139,7 @@ export class SesWebhookHandler {
                         teamId,
                         emailAddresses: bounced.map((r) => r.emailAddress),
                         diagnostic,
+                        bounceTimestamp: rec.bounce.timestamp,
                     })
                 }
             }
@@ -1102,7 +1181,7 @@ export class SesWebhookHandler {
             }
 
             // A status write is state-changing too, so it needs the signed code like the writes above.
-            if (suppressionAllowed && invocationId && rec.mail.tags?.[SES_EMAIL_STATUS_TAG]?.[0] === 'true') {
+            if (suppressionAllowed && invocationId && isTransactionalMail(rec.mail)) {
                 const update = resolveEmailStatusUpdate(rec)
                 if (update) {
                     emailStatusUpdates.push({ teamId, invocationId, ...update })
