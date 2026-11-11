@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -14,9 +14,13 @@ import { WorkflowFolderDropMonitor } from './WorkflowFolderDropMonitor'
 import { WorkflowFolderSidebar } from './WorkflowFolderSidebar'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowFolderToolbar } from './WorkflowFolderToolbar'
+import { WorkflowSavedViewTabs } from './WorkflowSavedViewTabs'
+import { buildWorkflowsListV2Columns } from './workflowsListV2Columns'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
+import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
 export function WorkflowsListV2(): JSX.Element {
+    const { viewFilters, viewsResolving } = useValues(workflowsSavedViewsLogic)
     const {
         listLoaded,
         workflowsLoading,
@@ -26,6 +30,7 @@ export function WorkflowsListV2(): JSX.Element {
         serverSearchStatus,
         hasHealthFilter,
         metricsLoaded,
+        shownColumns,
     } = useValues(workflowsListV2Logic)
     const { setValue, loadWorkflows, loadMetrics } = useActions(workflowsListV2Logic)
     const {
@@ -93,15 +98,19 @@ export function WorkflowsListV2(): JSX.Element {
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="workflows-list-v2">
             <MessagingSetupReminderBanner />
-            <FacetSearchBar
-                facets={folderFacets}
-                items={folderSearchItems}
-                value={displayedValue}
-                onChange={setValue}
-                matchesText={folderMatchesText}
-                placeholder="Search workflows and email templates, or filter with in:, status:, kind: and more"
-                dataAttr="workflows-search"
-            />
+            <div>
+                <WorkflowSavedViewTabs />
+                <FacetSearchBar
+                    facets={folderFacets}
+                    items={folderSearchItems}
+                    value={displayedValue}
+                    viewFilters={viewFilters}
+                    onChange={setValue}
+                    matchesText={folderMatchesText}
+                    placeholder="Search workflows and email templates, or filter with in:, status:, kind: and more"
+                    dataAttr="workflows-search"
+                />
+            </div>
             {serverSearchStatus === 'failed' && (
                 <div className="text-xs text-secondary" data-attr="workflows-list-v2-search-failed">
                     Couldn't search step names and email content. Showing matches on name and description only.
@@ -131,6 +140,15 @@ export function WorkflowsListV2(): JSX.Element {
                     )}
                     {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed ? (
                         renderLoadError()
+                    ) : viewsResolving ? (
+                        <LemonTable
+                            size="small"
+                            dataSource={[]}
+                            loading
+                            columns={buildWorkflowsListV2Columns(shownColumns, metricsLoading)}
+                            nouns={['workflow', 'workflows']}
+                            data-attr="workflows-list-v2-views-loading"
+                        />
                     ) : showsAutomationSetup ? (
                         <AutomationEmptyState />
                     ) : (

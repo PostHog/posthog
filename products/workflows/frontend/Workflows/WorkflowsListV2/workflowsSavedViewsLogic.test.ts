@@ -1551,6 +1551,10 @@ describe('workflowsSavedViewsLogic', () => {
 
     it('preserves the baseline query and default columns when loading the saved-view API fails', async () => {
         useMocks({ get: { '/api/projects/:team_id/workflow_views/': () => [500, { detail: 'Unavailable' }] } })
+        localStorage.setItem(
+            'products.workflows.frontend.workflowsListV2Logic.visibleColumns',
+            JSON.stringify(['created_by'])
+        )
         router.actions.push(urls.workflows(), { view: VIEW_ID, q: 'status:draft', text: 'renewal' })
         logic = workflowsSavedViewsLogic()
         logic.mount()
