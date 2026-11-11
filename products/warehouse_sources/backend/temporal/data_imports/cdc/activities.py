@@ -67,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
     mark_cdc_broken,
+    tables_wait_for_repair,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -528,7 +529,7 @@ class CDCExtractActivity:
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
             self.log.info("no_active_cdc_schemas_deleting_schedule")
-            self._delete_own_schedule()
+            self._sync_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
@@ -583,6 +584,17 @@ class CDCExtractActivity:
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
+
+    def _sync_own_schedule(self) -> None:
+        # Sync, not delete: it reads the tables again, so a table enabled since this run loaded them
+        # keeps the schedule that its own update just recreated.
+        assert self.source is not None
+        try:
+            from products.data_warehouse.backend.facade.api import sync_cdc_extraction_schedule
+
+            sync_cdc_extraction_schedule(self.source)
+        except Exception:
+            self.log.exception("failed_to_sync_own_schedule")
 
     # ------------------------------------------------------------------
     # PK column loading
@@ -1618,6 +1630,31 @@ def validate_cdc_prerequisites_activity(inputs: ValidateCDCPrerequisitesInput) -
 # ---------------------------------------------------------------------------
 
 
+def restore_missing_extraction_schedule(source: ExternalDataSource) -> bool:
+    """Recreate the extraction schedule of a source that has active CDC tables but no schedule.
+
+    Without the schedule nothing reads the slot, while the tables' own load jobs keep succeeding,
+    so nothing else notices. Returns whether the schedule was recreated.
+    """
+    from products.data_warehouse.backend.facade.api import cdc_extraction_schedule_exists, sync_cdc_extraction_schedule
+
+    has_active_tables = (
+        ExternalDataSchema.objects.filter(
+            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
+        )
+        .exclude(deleted=True)
+        .exists()
+    )
+    # A marker that waits for repair keeps the schedule paused on purpose. Capture would only fail
+    # against the lost slot, so Repair CDC recreates the schedule instead.
+    if not has_active_tables or tables_wait_for_repair(source):
+        return False
+    if cdc_extraction_schedule_exists(str(source.id)):
+        return False
+    sync_cdc_extraction_schedule(source)
+    return True
+
+
 @activity.defn
 def cleanup_orphan_slots_activity() -> None:
     """Safety-net sweeper: clean up orphaned CDC slots and monitor WAL lag.
@@ -1732,6 +1769,16 @@ def cleanup_orphan_slots_activity() -> None:
                     metrics.get_sweeper_source_errors_metric().add(1)
                     sources_errored += 1
 
+            schedule_restored = False
+            try:
+                schedule_restored = restore_missing_extraction_schedule(source)
+                if schedule_restored:
+                    source_log.warning("cdc_extraction_schedule_restored")
+            except Exception:
+                source_log.exception("failed_to_restore_cdc_extraction_schedule")
+                metrics.get_sweeper_source_errors_metric().add(1)
+                sources_errored += 1
+
             # 3. Active sources — check WAL lag
             source_started = dt.datetime.now(tz=dt.UTC)
             try:
@@ -1797,8 +1844,12 @@ def cleanup_orphan_slots_activity() -> None:
                     # and never drop — the lag may recover once they reduce load on the source.
                     # A marker with another reason stays. The lag marker allows Resume CDC and clears
                     # itself once the lag drops, which would lift a stop that only Repair CDC may lift.
+                    # A lag built up while the extraction schedule was missing is not the customer's
+                    # to fix. The next sweep judges the lag again once capture has run.
                     try:
-                        if not broken_for_another_reason(source, SELF_MANAGED_LAG_REASON):
+                        if schedule_restored:
+                            source_log.info("slot_lag_critical_while_schedule_missing")
+                        elif not broken_for_another_reason(source, SELF_MANAGED_LAG_REASON):
                             mark_cdc_broken(
                                 source,
                                 SELF_MANAGED_LAG_REASON,

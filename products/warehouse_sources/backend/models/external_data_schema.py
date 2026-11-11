@@ -1908,6 +1908,7 @@ def update_should_sync(
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
         external_data_workflow_exists,
         pause_external_data_schedule,
+        sync_cdc_extraction_schedule,
         sync_external_data_job_workflow,
         unpause_external_data_schedule,
     )
@@ -1934,6 +1935,11 @@ def update_should_sync(
     else:
         if should_sync is True:
             sync_external_data_job_workflow(schema, create=True)
+
+    # The table's own schedule only loads changes. The source's extraction schedule reads them from
+    # the slot, and a run that found no syncing CDC table deleted it.
+    if should_sync is True and schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        sync_cdc_extraction_schedule(schema.source)
 
     return schema
 

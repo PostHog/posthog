@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     staged_handoff_resume_point,
     staged_handoff_resume_value,
     staged_run_last_value,
+    update_should_sync,
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -130,6 +131,25 @@ class TestExternalDataSchemaSave(BaseTest):
         schema.save(update_fields=["status", "updated_at"])
         schema.refresh_from_db()
         assert schema.s3_folder_name == "orders"
+
+    @parameterized.expand(
+        [
+            ("cdc", ExternalDataSchema.SyncType.CDC, True),
+            ("full_refresh", ExternalDataSchema.SyncType.FULL_REFRESH, False),
+        ]
+    )
+    def test_re_enabling_restores_the_cdc_extraction_schedule(self, _name, sync_type, restores) -> None:
+        schema = self._create("orders", sync_type=sync_type, should_sync=False)
+        service = "products.data_warehouse.backend.logic.data_load.service"
+
+        with (
+            patch(f"{service}.external_data_workflow_exists", return_value=True),
+            patch(f"{service}.unpause_external_data_schedule"),
+            patch(f"{service}.sync_cdc_extraction_schedule") as mock_sync,
+        ):
+            update_should_sync(schema_id=str(schema.id), team_id=self.team.pk, should_sync=True)
+
+        assert mock_sync.called is restores
 
 
 class TestExternalDataSchemaActivityLogging(BaseTest):
