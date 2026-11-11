@@ -29,3 +29,20 @@ export function wrapFailure(code: string, context: string, cause: unknown, hint?
     const serverDetail = cause instanceof HogError ? cause.serverDetail : undefined
     return new HogError(code, `${context}: ${message}`, hint, EXIT_FAILURE, undefined, serverDetail)
 }
+
+export const SERVER_DETAIL_HIDDEN = "PostHog's reason is hidden in CI. Run the command outside CI to see it."
+
+export function withServerDetail(message: string, serverDetail: string): string {
+    return `${message.replace(/\.$/, '')}: ${serverDetail}`
+}
+
+// The text of a failure that a command keeps in its result instead of throwing, such as one endpoint
+// of a push. Outside CI it ends with PostHog's reason. In CI it says where to see the reason instead.
+export function failureText(error: unknown, ci: boolean): string {
+    const message = error instanceof Error ? error.message : String(error)
+    const serverDetail = error instanceof HogError ? error.serverDetail : undefined
+    if (serverDetail === undefined) {
+        return message
+    }
+    return ci ? `${message} ${SERVER_DETAIL_HIDDEN}` : withServerDetail(message, serverDetail)
+}

@@ -352,6 +352,30 @@ describe('hog endpoints', () => {
         expect(result.error()).toMatchObject({ code: 'step_up_required', scopes: ['endpoint:write'] })
     })
 
+    test.each([
+        ['outside CI shows', {}, 'PostHog answered with HTTP 400: An endpoint with this name already exists.'],
+        [
+            'in CI hides',
+            { CI: 'true' },
+            "PostHog answered with HTTP 400. PostHog's reason is hidden in CI. Run the command outside CI to see it.",
+        ],
+    ])("push of an endpoint PostHog refuses %s PostHog's reason in its outcome", async (_name, env, error) => {
+        const result = await runHog(['endpoints', 'push', 'new.yaml', '--yes'], {
+            env: { ...AGENT, ...env },
+            files: { '/work/new.yaml': 'name: new\nquery: SELECT 1\n' },
+            respond: server([], (url, body) =>
+                url === `${BASE}endpoints/` && body
+                    ? {
+                          status: 400,
+                          body: { type: 'validation_error', detail: 'An endpoint with this name already exists.' },
+                      }
+                    : undefined
+            ),
+        })
+
+        expect(result.json()).toMatchObject({ outcomes: [{ name: 'new', status: 'failed', error }] })
+    })
+
     test('push creates the variables a file needs, then the endpoint, and skips files PostHog would reject', async () => {
         const result = await runHog(['endpoints', 'push', 'endpoints', '--yes'], {
             env: AGENT,
