@@ -102,6 +102,21 @@ def _retention(start_event: EventsNode | ExperimentExposureNode = PAGEVIEW, **kw
     )
 
 
+def _metric_events_subqueries(printed: str) -> list[str]:
+    subqueries = []
+    for tail in printed.split(f"FROM {METRIC_EVENTS_TABLE} AS t")[1:]:
+        depth = 0
+        for index, char in enumerate(tail):
+            if char == "(":
+                depth += 1
+            elif char == ")":
+                if depth == 0:
+                    subqueries.append(tail[:index])
+                    break
+                depth -= 1
+    return subqueries
+
+
 CASES = [
     param("mean_events", metric=ExperimentMeanMetric(source=PURCHASE)),
     param("mean_action", metric=_mean_on_action),
@@ -389,7 +404,9 @@ class TestExperimentQueryBuilderSnapshots(BaseTest, QueryMatchingTest):
             query, HogQLContext(team_id=self.team.pk, enable_select_queries=True), "clickhouse"
         )
 
-        assert printed.count(f"FROM {METRIC_EVENTS_TABLE} AS t") == metric_events_reads
-        assert printed.count("SETTINGS load_balancing='random'") == metric_events_reads
+        metric_events_reads_sql = _metric_events_subqueries(printed)
+        assert len(metric_events_reads_sql) == metric_events_reads
+        for read_sql in metric_events_reads_sql:
+            assert read_sql.rstrip().endswith("SETTINGS load_balancing='random'")
         outer_settings = printed.rsplit("SETTINGS", 1)[1]
         assert "load_balancing='in_order'" in outer_settings
