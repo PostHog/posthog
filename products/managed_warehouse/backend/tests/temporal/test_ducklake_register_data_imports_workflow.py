@@ -2417,7 +2417,8 @@ async def test_registration_engine_retries_instead_of_falling_back_for_an_org_wi
             await registration_module._registration_engine_for_team(1, "org", override)
         assert error.value.non_retryable is False
     else:
-        assert await registration_module._registration_engine_for_team(1, "org", override) == expected
+        choice = await registration_module._registration_engine_for_team(1, "org", override)
+        assert (choice.engine, choice.source) == expected
 
 
 @pytest.mark.asyncio

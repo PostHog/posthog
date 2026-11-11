@@ -23,6 +23,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
@@ -405,14 +406,15 @@ async def prepare_ducklake_data_imports_registration_activity(
         # Database lookups use the shared database thread, and network calls run in their own threads, so a slow
         # flags service or control plane cannot block other activities' database calls.
         organization_id = str(await database_sync_to_async(_get_org_id_for_team)(inputs.team_id))
-        engine, engine_source = await _registration_engine_for_team(
+        engine_choice = await _registration_engine_for_team(
             inputs.team_id, organization_id, inputs.register_through_trino
         )
+        engine = engine_choice.engine
         trino_canary = inputs.use_trino_canary and engine == ENGINE_TRINO
         await logger.ainfo(
             "Chose the DuckLake data imports registration engine",
             engine=engine,
-            engine_source=engine_source,
+            engine_source=engine_choice.source,
             trino_canary=trino_canary,
         )
         if engine == ENGINE_TRINO:
@@ -526,16 +528,23 @@ def _record_registration_metrics(
     get_ducklake_register_data_imports_bytes_metric(team_id=team_id, schema_id=schema_id).record(float(copied_bytes))
 
 
+@frozen
+class _RegistrationEngineChoice:
+    engine: str
+    source: typing.Literal["override", "flag", "duckgres_refusal", "default"]
+
+
 async def _registration_engine_for_team(
     team_id: int, organization_id: str, register_through_trino: bool | None
-) -> tuple[str, str]:
-    """The engine and the reason for it: "override", "flag", "duckgres_refusal" or "default"."""
+) -> _RegistrationEngineChoice:
     if register_through_trino is not None:
-        return (ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES), "override"
+        return _RegistrationEngineChoice(
+            engine=ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES, source="override"
+        )
     if await asyncio.to_thread(data_imports_through_trino, organization_id):
-        return ENGINE_TRINO, "flag"
+        return _RegistrationEngineChoice(engine=ENGINE_TRINO, source="flag")
     if is_dev_mode():
-        return ENGINE_DUCKGRES, "default"
+        return _RegistrationEngineChoice(engine=ENGINE_DUCKGRES, source="default")
     # data_imports_through_trino returns False when the flag evaluation fails, so an org without a duckgres server
     # must retry instead of falling back to an engine it cannot use.
     server = await database_sync_to_async(get_duckgres_server_by_team_org)(team_id)
@@ -546,8 +555,8 @@ async def _registration_engine_for_team(
         )
     # The copy activity copies files before it connects to duckgres, so the engine is decided here, not at connect time.
     if await asyncio.to_thread(probe_duckgres_organization, server) is DuckgresOrganizationStatus.REFUSED:
-        return ENGINE_TRINO, "duckgres_refusal"
-    return ENGINE_DUCKGRES, "default"
+        return _RegistrationEngineChoice(engine=ENGINE_TRINO, source="duckgres_refusal")
+    return _RegistrationEngineChoice(engine=ENGINE_DUCKGRES, source="default")
 
 
 def _trino_landing_uri(
