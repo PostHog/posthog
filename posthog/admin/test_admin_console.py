@@ -328,6 +328,16 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "starts with /",
             ),
             (
+                "link_off_site_with_a_tab_the_browser_drops",
+                lambda: Link(label="Docs", href="/\t/example.com/phish"),
+                "starts with /",
+            ),
+            (
+                "fact_linking_off_site_with_a_newline_the_browser_drops",
+                lambda: Fact(label="Docs", value="Read", href="/\n/example.com/phish"),
+                "starts with /",
+            ),
+            (
                 "fact_linking_off_site_with_a_backslash",
                 lambda: Fact(label="Docs", value="Read", href="/\\example.com/phish"),
                 "starts with /",

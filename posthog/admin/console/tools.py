@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
 
-from posthog.admin.console.panels import Gate, Owner, Tone, check_danger
+from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
@@ -60,7 +60,7 @@ class Notice:
     href: str | None = None
 
     def __post_init__(self) -> None:
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith(("//", "/\\"))):
+        if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Notice links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
@@ -105,7 +105,7 @@ class Link:
     pending_label: str = ""
 
     def __post_init__(self) -> None:
-        if not self.href.startswith("/") or self.href.startswith(("//", "/\\")):
+        if not is_internal_path(self.href):
             raise ValueError(f"Link {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
