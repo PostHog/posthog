@@ -32,12 +32,12 @@ def test_findings_have_one_bullet(prefix: str) -> None:
 
     rendered = document.render()
 
-    assert rendered == "## Traffic\n\n- **12 requests**\n\n### Requests\n\n- **12 requests**"
+    assert rendered == "## Traffic\n\n- `12 requests`\n\n### Requests\n\n- `12 requests`"
     tokens = MarkdownIt("commonmark").parse(rendered)
     assert len([token for token in tokens if token.type == "list_item_open"]) == 2
-    assert ReportSummary(findings=[finding]).render(slack_formatting=True) == "• *12 requests*"
+    assert ReportSummary(findings=[finding]).render(slack_formatting=True) == "• `12 requests`"
 
-    assert ReportSummary(findings=[finding]).render() == "- **12 requests**"
+    assert ReportSummary(findings=[finding]).render() == "- `12 requests`"
 
 
 @pytest.mark.parametrize(("direction", "triangle"), [("increase", "▲"), ("decrease", "▼")])
@@ -53,8 +53,8 @@ def test_measured_changes_keep_their_direction_in_each_format(direction: str, tr
     )
     summary = ReportSummary(findings=[finding])
 
-    assert summary.render() == f"- **Requests** changed by **{triangle} 12%**"
-    assert summary.render(slack_formatting=True) == f"• *Requests* changed by *{triangle} 12%*"
+    assert summary.render() == f"- `Requests` changed by `{triangle} 12%`"
+    assert summary.render(slack_formatting=True) == f"• `Requests` changed by `{triangle} 12%`"
 
 
 def _visual(text: str) -> ReportText:
@@ -88,3 +88,20 @@ def test_table_visuals_render_as_markdown_tables(visuals: list[str], table_rows:
         elif token.type == "tr_open":
             rows_per_table[-1] += 1
     assert rows_per_table == table_rows
+
+
+def test_styled_items_keep_their_spaces_outside_the_markers() -> None:
+    finding = ReportText.model_validate(
+        {
+            "items": [
+                {"kind": "name", "text": "Load `time` "},
+                {"kind": "text", "text": "rose to"},
+                {"kind": "value", "text": " 18s"},
+                {"kind": "text", "text": " on"},
+                {"kind": "time", "text": " Nov 4 "},
+                {"kind": "text", "text": "."},
+            ]
+        }
+    )
+
+    assert ReportSummary(findings=[finding]).render(slack_formatting=True) == "• `Load time` rose to `18s` on _Nov 4_ ."

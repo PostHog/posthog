@@ -517,9 +517,9 @@ class TestGenerateChangeSummary:
         assert mock_client.chat.completions.create.call_args.kwargs["messages"] == call_kwargs.kwargs["messages"]
         assert call_kwargs.kwargs["response_format"]["type"] == "json_schema"
         if not slack_formatting:
-            assert result == "- **Pageviews** increased by **50%** on _Tuesday_"
+            assert result == "- `Pageviews` increased by `50%` on _Tuesday_"
         if slack_formatting:
-            assert result == "• *Pageviews* increased by *50%* on _Tuesday_"
+            assert result == "• `Pageviews` increased by `50%` on _Tuesday_"
             assert call_kwargs.kwargs["response_format"]["type"] == "json_schema"
             schema = call_kwargs.kwargs["response_format"]["json_schema"]["schema"]
             pending = [schema]

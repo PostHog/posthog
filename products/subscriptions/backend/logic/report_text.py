@@ -62,15 +62,7 @@ class ReportText(BaseModel):
 
     items: list[ReportTextItem | ReportLinkItem | ReportChangeItem]
 
-    def render(self, bold_marker: str = "**") -> str:
-        markers = {
-            "text": ("", ""),
-            "name": (bold_marker, bold_marker),
-            "value": (bold_marker, bold_marker),
-            "change": (bold_marker, bold_marker),
-            "time": ("_", "_"),
-            "link": ("", ""),
-        }
+    def render(self) -> str:
         parts: list[str] = []
         previous_text = ""
         for item in self.items:
@@ -83,7 +75,6 @@ class ReportText(BaseModel):
                 and previous_text[-1] not in "([{"
             ):
                 parts.append(" ")
-            opening, closing = markers[item.kind]
             if item.kind == "link" and item.url:
                 label = item.text.replace("`", "")
                 if label.startswith(("http://", "https://")):
@@ -95,17 +86,35 @@ class ReportText(BaseModel):
                 parts.append(f"[{label}]({item.url})")
             elif item.kind == "change":
                 triangle = "▲" if item.direction == "increase" else "▼"
-                parts.append(f"{opening}{triangle} {item.text}{closing}")
+                parts.append(_inline_code(f"{triangle} {item.text.strip()}"))
+            elif item.kind in ("name", "value"):
+                parts.append(_inline_code(item.text))
+            elif item.kind == "time":
+                parts.append(_wrap(item.text, "_"))
             else:
-                parts.append(f"{opening}{item.text}{closing}")
+                parts.append(item.text)
             previous_text = item.text
         return "".join(parts)
 
-    def render_bullet(self, marker: str = "-", bold_marker: str = "**") -> str:
-        content = re.sub(r"^(?:[ \t]*(?:[-+*•]|\d+[.)])[ \t]+)+", "", self.render(bold_marker).strip())
+    def render_bullet(self, marker: str = "-") -> str:
+        content = re.sub(r"^(?:[ \t]*(?:[-+*•]|\d+[.)])[ \t]+)+", "", self.render().strip())
         if not content:
             return ""
         return f"{marker} {content}"
+
+
+def _wrap(text: str, marker: str) -> str:
+    # Markers go inside the item's surrounding spaces, because "` 18s`" or "_ Nov 4_" do not render as code or italic.
+    core = text.strip()
+    if not core:
+        return text
+    start = text.index(core)
+    return f"{text[:start]}{marker}{core}{marker}{text[start + len(core) :]}"
+
+
+def _inline_code(text: str) -> str:
+    # A backtick inside the item would end the code span early.
+    return _wrap(text.replace("`", ""), "`")
 
 
 class ReportSummary(BaseModel):
@@ -115,7 +124,7 @@ class ReportSummary(BaseModel):
 
     def render(self, *, slack_formatting: bool = False) -> str:
         if slack_formatting:
-            return "\n\n".join(finding.render_bullet("•", "*") for finding in self.findings)
+            return "\n\n".join(finding.render_bullet("•") for finding in self.findings)
         return "\n\n".join(finding.render_bullet() for finding in self.findings)
 
 
