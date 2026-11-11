@@ -113,7 +113,8 @@ export function AddToCollectionDialog(): JSX.Element {
 
     return (
         <Dialog open={!!folder} onOpenChange={(open: boolean) => !open && closeAddToCollection()}>
-            <DialogContent className="sm:max-w-120" data-attr="analytics-add-items-dialog">
+            {/* One shrinkable column, or the search row's minimum width pushes every section past the dialog's edge. */}
+            <DialogContent className="grid-cols-1 sm:max-w-120" data-attr="analytics-add-items-dialog">
                 <DialogHeader className="gap-3">
                     <DialogTitle>Add to {folderName}</DialogTitle>
                     <DialogDescription className="sr-only">
