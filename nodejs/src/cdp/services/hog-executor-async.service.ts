@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
 
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchOptions } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
+import type { ValueMatcher } from '~/types'
 
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
@@ -59,6 +61,7 @@ export interface HogExecutorAsyncConfig {
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    transientLookupRetryTeams?: string
     siteUrl: string
     internalApiBaseUrl: string
 }
@@ -98,11 +101,15 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
  * actually owns them.
  */
 export class HogExecutorAsyncService {
+    public readonly retriesTransientLookups: ValueMatcher<number>
+
     constructor(
         public readonly hogExecutor: HogExecutorService,
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
-    ) {}
+    ) {
+        this.retriesTransientLookups = buildIntegerMatcher(config.transientLookupRetryTeams, true)
+    }
 
     @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
@@ -269,7 +276,12 @@ export class HogExecutorAsyncService {
         consumeInlineAsyncBudget: () => void
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         try {
-            const result = await this.executeHog(invocation, options, previousResult, consumeInlineAsyncBudget)
+            const result = await this.executeHog(
+                invocation,
+                { ...options, rethrowTransientInputErrors: this.retriesTransientLookups(invocation.teamId) },
+                previousResult,
+                consumeInlineAsyncBudget
+            )
             result.invocation.state.attempts = 0
             return result
         } catch (error) {
@@ -490,7 +502,7 @@ export class HogExecutorAsyncService {
         try {
             tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
         } catch (error) {
-            if (!isTransientError(error)) {
+            if (!isTransientError(error) || !this.retriesTransientLookups(invocation.teamId)) {
                 throw error
             }
             result.invocation.queueParameters = params

@@ -205,7 +205,10 @@ export class HogFunctionHandler implements ActionHandler {
             functionResult = await this.executeHogFunction(invocation, action, hogExecutorOptions)
         } catch (error) {
             if (error instanceof StepInputsUnavailableError) {
-                if (hogExecutorOptions?.isTest) {
+                if (
+                    hogExecutorOptions?.isTest ||
+                    !this.hogFlowFunctionsService.retriesTransientLookups(invocation.teamId)
+                ) {
                     throw error.reason
                 }
                 return this.retryOrFailInputs(result, action, error.reason)

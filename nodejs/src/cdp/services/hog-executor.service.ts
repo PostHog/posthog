@@ -84,6 +84,7 @@ export type HogExecutorExecuteOptions = {
      */
     asyncFunctionsNames?: string[]
     onAsyncFunction?: HogExecutorAsyncFunctionHandler
+    rethrowTransientInputErrors?: boolean
 }
 
 /**
@@ -392,7 +393,7 @@ export class HogExecutorService {
                 addLog('debug', messages.join(' '))
             }
         } catch (err) {
-            if (!inputsBuilt && err?.isRetriable === true) {
+            if (!inputsBuilt && options.rethrowTransientInputErrors && err?.isRetriable === true) {
                 throw err
             }
             result.error = redactSensitiveValues(err.message, sensitiveValues)

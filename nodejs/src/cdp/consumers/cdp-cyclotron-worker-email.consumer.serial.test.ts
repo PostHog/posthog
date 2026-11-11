@@ -400,6 +400,7 @@ describe('CdpCyclotronWorkerEmail on Cyclotron Postgres', () => {
             CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: bucket.endpoint,
             CDP_EMAIL_ATTACHMENTS_S3_PREFIX: attachmentStoreConfig.CDP_EMAIL_ATTACHMENTS_S3_PREFIX,
             EMAIL_STATUS_ENABLED: true,
+            CDP_TRANSIENT_LOOKUP_RETRY_TEAMS: '*',
         }
         const worker = new CdpCyclotronWorkerEmail(
             config,

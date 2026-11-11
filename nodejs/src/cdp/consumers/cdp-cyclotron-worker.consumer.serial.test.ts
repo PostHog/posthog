@@ -112,9 +112,10 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         ])
     })
 
-    async function startWorker(): Promise<void> {
+    async function startWorker(retryTeams = '*'): Promise<void> {
         const config = {
             ...hub,
+            CDP_TRANSIENT_LOOKUP_RETRY_TEAMS: retryTeams,
             CDP_CYCLOTRON_BATCH_DELAY_MS: 10,
             CDP_FETCH_RETRIES: FETCH_RETRIES,
             CDP_FETCH_BACKOFF_BASE_MS: BACKOFF_MS,
@@ -208,6 +209,15 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         await db.query('UPDATE cyclotron_jobs SET scheduled = now() WHERE id = $1', [id])
 
         await waitForExpect(async () => expect((await jobRow(id)).status).toBe('completed'), 15_000, 50)
+    })
+
+    it('fails a job at once when its team is not on the retry allowlist', async () => {
+        const id = await queueJobWithIntegrationRef()
+        lookupFails = true
+        await startWorker(String(team.id + 1))
+
+        await waitForExpect(async () => expect((await jobRow(id)).status).toBe('failed'), 15_000, 50)
+        expect(droppedLookups).toBeGreaterThan(0)
     })
 
     it('retries a fetch whose access token lookup fails on a dropped connection, then sends it with the token', async () => {

@@ -436,6 +436,7 @@ export interface EmailServiceConfig {
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
     workflowRunLinkTagTeams?: string
+    transientLookupRetryTeams?: string
     attachmentSendDeadlineMs?: number
 }
 
@@ -520,6 +521,7 @@ export class EmailService {
 
     private recipientTokensService: RecipientTokensService
     private workflowRunLinkTagTeams: ValueMatcher<number>
+    private retriesTransientLookups: ValueMatcher<number>
 
     constructor(
         private sesConfig: EmailServiceConfig,
@@ -547,6 +549,7 @@ export class EmailService {
             : null
         this.recipientTokensService = new RecipientTokensService(encryptionSaltKeys, siteUrl)
         this.workflowRunLinkTagTeams = buildIntegerMatcher(this.sesConfig.workflowRunLinkTagTeams, true)
+        this.retriesTransientLookups = buildIntegerMatcher(this.sesConfig.transientLookupRetryTeams, true)
     }
 
     private utmTaggingFor(
@@ -606,7 +609,7 @@ export class EmailService {
         try {
             integration = await this.integrationManager.get(integrationId)
         } catch (error) {
-            if (isTest || !isTransientError(error)) {
+            if (isTest || !isTransientError(error) || !this.retriesTransientLookups(invocation.teamId)) {
                 throw error
             }
             transientLookupRetryCounter.inc({ lookup: 'email_sender', outcome: 'retried' })

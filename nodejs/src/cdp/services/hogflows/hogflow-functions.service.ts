@@ -26,6 +26,10 @@ export class HogFlowFunctionsService {
         return this.hogFunctionExecutor.transientRetryPolicy()
     }
 
+    retriesTransientLookups(teamId: number): boolean {
+        return this.hogFunctionExecutor.retriesTransientLookups(teamId)
+    }
+
     async buildHogFunction(
         hogFlow: HogFlow,
         configuration: Action['config'],

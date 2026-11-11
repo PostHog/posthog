@@ -203,6 +203,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
         | 'CDP_FETCH_BACKOFF_MAX_MS'
+        | 'CDP_TRANSIENT_LOOKUP_RETRY_TEAMS'
         | 'CDP_EMAIL_TRACKING_URL'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
@@ -503,6 +504,7 @@ export function createCdpCoreServices(
             teamEmailTierDailyCaps: parseTierCaps(config.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER),
             utmLinkScannerTeams: config.CDP_EMAIL_UTM_LINK_SCANNER_TEAMS,
             workflowRunLinkTagTeams: config.CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS,
+            transientLookupRetryTeams: config.CDP_TRANSIENT_LOOKUP_RETRY_TEAMS,
         },
         deps.integrationManager,
         teamWorkflowsConfigService,
@@ -543,6 +545,7 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            transientLookupRetryTeams: config.CDP_TRANSIENT_LOOKUP_RETRY_TEAMS,
             siteUrl: config.SITE_URL,
             internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
         },

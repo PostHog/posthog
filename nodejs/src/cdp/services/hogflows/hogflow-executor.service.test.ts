@@ -248,7 +248,8 @@ describe('Hogflow Executor', () => {
 
     const createExecutor = (
         emailService: EmailService,
-        integrationManager: IntegrationManagerService = hub.integrationManager
+        integrationManager: IntegrationManagerService = hub.integrationManager,
+        retryTeams = '*'
     ): { executor: HogFlowExecutorService; hogFlowFunctionsService: HogFlowFunctionsService } => {
         const hogInputsService = new HogInputsService(
             integrationManager,
@@ -263,6 +264,7 @@ describe('Hogflow Executor', () => {
                 fetchRetries: hub.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                transientLookupRetryTeams: retryTeams,
                 siteUrl: hub.SITE_URL,
                 internalApiBaseUrl: hub.INTERNAL_API_BASE_URL,
             },
@@ -3313,14 +3315,18 @@ describe('Hogflow Executor', () => {
                 hub.DATABASE_URL,
                 (message) => lookupFails && message.toString('latin1').includes('fetchIntegrations')
             )
-            runner = createExecutor(
+            runner = createRunner('*')
+        })
+
+        const createRunner = (retryTeams: string): HogFlowExecutorService =>
+            createExecutor(
                 createEmailService(),
                 new IntegrationManagerService(
                     hub.pubSub,
                     new PostgresIntegrationSource(integrationsDb.postgres, hub.encryptedFields)
-                )
+                ),
+                retryTeams
             ).executor
-        })
 
         afterEach(async () => {
             await integrationsDb.close()
@@ -3347,6 +3353,16 @@ describe('Hogflow Executor', () => {
                     }),
                 ],
             ])
+        })
+
+        it('takes the on_error path at once when the team is not on the retry allowlist', async () => {
+            const result = await createRunner(String(team.id + 1)).execute(createExampleHogFlowInvocation(hogFlow))
+
+            expect({ finished: result.finished, action: result.invocation.state.currentAction?.id }).toEqual({
+                finished: true,
+                action: 'exit',
+            })
+            expect(mockFetch).not.toHaveBeenCalled()
         })
 
         it('takes the on_error path once the step has used its last retry', async () => {

@@ -1183,7 +1183,7 @@ describe('CDP API', () => {
                     ),
             }
             const failingApi = new CdpApi(
-                hub,
+                { ...hub, CDP_TRANSIENT_LOOKUP_RETRY_TEAMS: '*' },
                 {
                     ...cdpDeps,
                     integrationManager: new IntegrationManagerService(hub.pubSub, credentialsThatExpireAtOnce),
