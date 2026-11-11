@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
