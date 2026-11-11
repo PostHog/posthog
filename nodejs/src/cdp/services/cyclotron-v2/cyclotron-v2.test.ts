@@ -3640,32 +3640,49 @@ describe('Cyclotron V2', () => {
             expect(await droppedClientCount('worker')).toBe(before + 1)
         })
 
-        it('reports queries waiting for a client of a full pool until the client is released', async () => {
-            const waitingFor = async (pool: string): Promise<number | undefined> => {
+        it('sums the clients of every live pool with one name, and drops a pool once it ends', async () => {
+            const clientsOf = async (state: string): Promise<number | undefined> => {
                 const metric = register.getSingleMetric('cdp_cyclotron_v2_pg_pool_clients')
                 const samples = metric ? (await metric.get()).values : []
-                return samples.find((s) => s.labels.pool === pool && s.labels.state === 'waiting')?.value
+                return samples.find((s) => s.labels.pool === 'subscription_matcher' && s.labels.state === state)?.value
             }
-            const pool = createCyclotronPool('subscription_matcher', { connectionString: DB_URL, max: 1 })
-            const client = await pool.connect()
+            const pools = [1, 2].map(() =>
+                createCyclotronPool('subscription_matcher', { connectionString: DB_URL, max: 1 })
+            )
+            const clients = await Promise.all(pools.map((pool) => pool.connect()))
             let released = false
             const release = (): void => {
                 if (!released) {
                     released = true
-                    client.release()
+                    clients.forEach((client) => client.release())
+                }
+            }
+            const ended = new Set<number>()
+            const end = async (i: number): Promise<void> => {
+                if (!ended.has(i)) {
+                    ended.add(i)
+                    await pools[i].end()
                 }
             }
             stops.push(async () => {
                 release()
-                await pool.end()
+                await Promise.all(pools.map((_, i) => end(i)))
             })
-            const queued = pool.query('SELECT 1')
+            const queued = pools.map((pool) => pool.query('SELECT 1'))
 
-            expect(await waitingFor('subscription_matcher')).toBe(1)
+            expect(await clientsOf('waiting')).toBe(2)
+            expect(await clientsOf('total')).toBe(2)
 
             release()
-            await queued
-            expect(await waitingFor('subscription_matcher')).toBe(0)
+            await Promise.all(queued)
+            expect(await clientsOf('waiting')).toBe(0)
+            expect(await clientsOf('idle')).toBe(2)
+
+            const held = await pools[0].connect()
+            const ending = end(0)
+            expect(await clientsOf('total')).toBe(1)
+            held.release()
+            await ending
         })
 
         it('a check-in on a dropped client commits nothing, and the janitor hands the job back once', async () => {
