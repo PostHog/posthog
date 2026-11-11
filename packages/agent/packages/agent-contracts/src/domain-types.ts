@@ -760,6 +760,14 @@ export interface SignalReportChart {
   size?: SignalReportChartSize | null;
 }
 
+export interface SignalReportClaimUser {
+  id: number;
+  uuid: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -796,7 +804,15 @@ export interface SignalReport {
   assignee?: {
     kind: "user" | "task" | "agent" | "system";
     task_id: string | null;
+    /** The claim being taken over. Sending it back makes the server refuse when a newer claim replaced it. */
+    claim_id?: string | null;
+    /** The person who claimed, directly or through their agent. */
+    user?: SignalReportClaimUser | null;
+    /** The person an agent's claim answers to, when the server knows one. */
+    responsible_user?: SignalReportClaimUser | null;
   } | null;
+  /** Whether an implementation run for this report is still working. A new run cannot start until it settles. */
+  implementation_in_flight?: boolean;
   /**
    * Whether that PR merged (GitHub webhook). A merged PR is history, not work
    * in flight: a report can outlive its fix when evidence keeps arriving, and
