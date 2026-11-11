@@ -15,6 +15,7 @@ import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
 import { FOLDER_REQUEST_TIMEOUT_MS, folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
@@ -742,6 +743,42 @@ describe('workflowFoldersLogic', () => {
         }
     })
 
+    it('reloads the folders once after a batch of folder moves settles', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const successToast = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+        let reloads = 0
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/unfiled/': () => {
+                    reloads++
+                    return [200, { count: 0 }]
+                },
+            },
+            post: {
+                '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 0 }],
+                '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                    const body = (await request.json()) as { new_path: string }
+                    return [200, { id: params.id, path: body.new_path, type: 'folder' }]
+                },
+            },
+        })
+        try {
+            projectTreeDataLogic.actions.moveItems(
+                ['billing', 'empty', 'dashboards'].map((id) => {
+                    const item = serverEntries.find((entry) => entry.id === id) as FileSystemEntry
+                    return { item, newPath: `Archive/${item.path}` }
+                }),
+                false,
+                WORKFLOW_FILES_DRAG_SCOPE
+            )
+            await waitFor(() => expect(successToast).toHaveBeenCalled())
+            await expectLogic(logic).toFinishAllListeners()
+            expect(reloads).toBe(1)
+        } finally {
+            successToast.mockRestore()
+        }
+    })
+
     it('refuses a drop into a folder the project tree is deleting, and keeps other moves open', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const moves: string[] = []
@@ -867,6 +904,44 @@ describe('workflowFoldersLogic', () => {
         )
         expect(stale.filter((entry) => ids.has(entry.id))).toEqual([])
         expect(removals).toBe(1)
+    })
+
+    it('forgets the files under stale folders across thousands of indexed files', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const files = Array.from(
+            { length: 20_000 },
+            (_, index): FileSystemEntry => ({
+                id: `flow-${index}`,
+                path: `Team ${index % 2_000}/Flow ${index}`,
+                type: 'hog_flow',
+                ref: `flow-ref-${index}`,
+            })
+        )
+        serverEntries = [
+            ...serverEntries,
+            ...files,
+            { id: 'deep', path: 'Team 4/Sub/Flow', type: 'hog_flow', ref: 'deep-ref' },
+            { id: 'trap', path: 'Team 2 archive/Flow', type: 'hog_flow', ref: 'trap-ref' },
+        ]
+        await expectLogic(logic, () => logic.actions.loadBrowser()).toFinishAllListeners()
+        const stale = Array.from(
+            { length: 1_000 },
+            (_, index): FileSystemEntry => ({ id: `team-${index * 2}`, path: `Team ${index * 2}`, type: 'folder' })
+        )
+
+        const started = performance.now()
+        projectTreeDataLogic.actions.dropStaleItems(stale)
+        const elapsed = performance.now() - started
+        projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
+        await expectLogic(logic).toFinishAllListeners()
+
+        const ids = new Set(
+            Object.values(projectTreeDataLogic.values.folders)
+                .flat()
+                .map((entry) => entry.id)
+        )
+        expect(elapsed).toBeLessThan(2000)
+        expect(['flow-1', 'flow-2', 'deep', 'trap'].filter((id) => ids.has(id))).toEqual(['flow-1', 'trap'])
     })
 
     it('rejects a folder name that only another product uses', async () => {
