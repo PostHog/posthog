@@ -283,17 +283,43 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
             properties={},
         )
 
+        # Create events with an input cost far above any real per-token price
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            2,
+            properties={"$ai_total_cost_usd": 40.0, "$ai_input_cost_usd": 30.0, "$ai_input_tokens": 10},
+        )
+
+        # Create an event whose input cost comes almost only from cache reads
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            1,
+            properties={
+                "$ai_total_cost_usd": 0.051,
+                "$ai_input_cost_usd": 0.05,
+                "$ai_input_tokens": 3,
+                "$ai_cache_read_input_tokens": 100000,
+            },
+        )
+
         team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
         all_metrics = get_all_ai_metrics(period.start, period.end, team_ids)
 
         assert self.team.id in all_metrics
         metrics = all_metrics[self.team.id]
 
-        assert metrics.ai_generation_count == 14  # 3 + 2 + 4 + 5
-        assert metrics.total_cost_count == 9  # 3 + 2 + 4 (events with non-null cost)
+        assert metrics.ai_generation_count == 17  # 3 + 2 + 4 + 5 + 2 + 1
+        assert metrics.total_cost_count == 12  # 3 + 2 + 4 + 2 + 1 (events with non-null cost)
         assert metrics.total_cost_negative_count == 4
         assert metrics.total_cost_zero_count == 2
-        assert metrics.total_cost == pytest.approx(0.11, rel=1e-6)  # 3*0.05 + 2*0 + 4*(-0.01)
+        assert metrics.total_cost == pytest.approx(80.161, rel=1e-6)  # 3*0.05 + 4*(-0.01) + 2*40 + 0.051
+        assert metrics.implausible_cost_count == 2
+        assert metrics.plausible_total_cost == pytest.approx(0.161, rel=1e-6)  # 3*0.05 + 4*(-0.01) + 0.051
+        assert metrics.plausible_input_cost == pytest.approx(0.05, rel=1e-6)
 
     def test_get_all_ai_metrics_error_count(self) -> None:
         """Test that ai_is_error_count is correctly calculated."""
@@ -827,6 +853,9 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert org_1_report["llm_prompt_fetched_count"] == 4
         assert org_1_report["total_ai_cost_usd"] == pytest.approx(0.150, rel=1e-6)  # 3 * 0.050
         assert org_1_report["input_cost_usd"] == pytest.approx(0.060, rel=1e-6)  # 3 * 0.020
+        assert org_1_report["total_ai_cost_usd_implausible_count"] == 0
+        assert org_1_report["total_ai_cost_usd_plausible"] == pytest.approx(0.150, rel=1e-6)
+        assert org_1_report["input_cost_usd_plausible"] == pytest.approx(0.060, rel=1e-6)
         assert org_1_report["output_cost_usd"] == pytest.approx(0.090, rel=1e-6)  # 3 * 0.030
         assert org_1_report["request_cost_usd"] == pytest.approx(0.003, rel=1e-6)  # 3 * 0.001
         assert org_1_report["web_search_cost_usd"] == pytest.approx(0.006, rel=1e-6)  # 3 * 0.002

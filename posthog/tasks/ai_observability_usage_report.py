@@ -79,6 +79,11 @@ QUERY_RETRY_BACKOFF = 2
 # claim reuses this, so the two cannot disagree about how long a run may still be emitting.
 USAGE_REPORT_MESSAGE_EXPIRY_SECONDS = 4 * 60 * 60
 
+# The most expensive models charge well under 0.001 USD per input token, so an event above this
+# limit carries a cost value that no real model produces. Such an event does not go into the
+# plausible cost totals.
+MAX_PLAUSIBLE_INPUT_COST_PER_TOKEN_USD = 0.01
+
 # Celery task ID for query attribution
 CELERY_TASK_ID = "posthog.tasks.llm_analytics_usage_report.send_llm_analytics_usage_reports"
 
@@ -127,6 +132,9 @@ class TeamMetrics:
     total_cost_count: int = 0
     total_cost_negative_count: int = 0
     total_cost_zero_count: int = 0
+    implausible_cost_count: int = 0
+    plausible_total_cost: float = 0.0
+    plausible_input_cost: float = 0.0
     input_cost: float = 0.0
     output_cost: float = 0.0
     request_cost: float = 0.0
@@ -377,6 +385,11 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             metrics.ai_hog_evaluation_count += row[29] or 0
             metrics.ai_sentiment_evaluation_count += row[30] or 0
 
+            # Implausible cost guard (indices 31-33)
+            metrics.implausible_cost_count += row[31] or 0
+            metrics.plausible_total_cost += row[32] or 0.0
+            metrics.plausible_input_cost += row[33] or 0.0
+
     return team_metrics
 
 
@@ -400,6 +413,17 @@ def get_all_ai_metrics(
 
     def prop(name: str) -> str:
         return _ai_property_expr(name, use_new)
+
+    # Anthropic leaves cache tokens out of `$ai_input_tokens` but bills them in the input cost, so
+    # the token count includes them. An input cost with no input tokens at all is implausible too.
+    input_token_count = " + ".join(
+        f"ifNull(toInt64OrNull({prop(name)}), 0)"
+        for name in ("$ai_input_tokens", "$ai_cache_read_input_tokens", "$ai_cache_creation_input_tokens")
+    )
+    is_implausible_cost = (
+        f"ifNull(toFloat64OrNull({prop('$ai_input_cost_usd')}) "
+        f"> %(max_input_cost_per_token)s * greatest({input_token_count}, 1), 0)"
+    )
 
     query_template = f"""
         SELECT
@@ -439,7 +463,11 @@ def get_all_ai_metrics(
             -- Evaluation counts
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'llm_judge') as ai_llm_judge_evaluation_count,
             countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'hog') as ai_hog_evaluation_count,
-            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count
+            countIf(event = '$ai_evaluation' AND {prop("$ai_evaluation_runtime")} = 'sentiment') as ai_sentiment_evaluation_count,
+            -- Implausible cost guard
+            countIf({is_implausible_cost}) as implausible_cost_count,
+            sumIf(toFloat64OrNull({prop("$ai_total_cost_usd")}), NOT {is_implausible_cost}) as plausible_total_cost,
+            sumIf(toFloat64OrNull({prop("$ai_input_cost_usd")}), NOT {is_implausible_cost}) as plausible_input_cost
         FROM {events_read_table(use_new)}
         WHERE team_id IN %(team_ids)s
           AND startsWith(event, %(ai_event_prefix)s)
@@ -452,7 +480,10 @@ def get_all_ai_metrics(
         begin,
         end,
         query_template,
-        {"ai_event_prefix": AI_EVENT_NAME_PREFIX},
+        {
+            "ai_event_prefix": AI_EVENT_NAME_PREFIX,
+            "max_input_cost_per_token": MAX_PLAUSIBLE_INPUT_COST_PER_TOKEN_USD,
+        },
         num_splits=3,
         combine_results_func=_combine_all_metrics_results,
         team_ids=team_ids,
@@ -1060,6 +1091,9 @@ def _get_all_ai_observability_reports(
                 "total_ai_cost_usd_count": 0,
                 "total_ai_cost_usd_negative_count": 0,
                 "total_ai_cost_usd_zero_count": 0,
+                "total_ai_cost_usd_implausible_count": 0,
+                "total_ai_cost_usd_plausible": 0.0,
+                "input_cost_usd_plausible": 0.0,
                 "input_cost_usd": 0.0,
                 "output_cost_usd": 0.0,
                 "request_cost_usd": 0.0,
@@ -1107,6 +1141,9 @@ def _get_all_ai_observability_reports(
             report["total_ai_cost_usd_count"] += metrics.total_cost_count
             report["total_ai_cost_usd_negative_count"] += metrics.total_cost_negative_count
             report["total_ai_cost_usd_zero_count"] += metrics.total_cost_zero_count
+            report["total_ai_cost_usd_implausible_count"] += metrics.implausible_cost_count
+            report["total_ai_cost_usd_plausible"] += metrics.plausible_total_cost
+            report["input_cost_usd_plausible"] += metrics.plausible_input_cost
             report["input_cost_usd"] += metrics.input_cost
             report["output_cost_usd"] += metrics.output_cost
             report["request_cost_usd"] += metrics.request_cost
