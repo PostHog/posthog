@@ -3,9 +3,9 @@
   extends: [
     'config:best-practices',
   ],
-  // Wednesdays from 14:00 to 17:59 UTC, when DevEx reviews the week's PRs. The hosted Renovate app
-  // chooses its own run times, so the window spans several hours
-  schedule: ['* 14-17 * * 3'],
+  // Wednesdays from 10:00 to 13:59 UTC, so that the week's PRs are complete before DevEx starts to review them.
+  // The hosted Renovate app chooses its own run times, so the window spans several hours
+  schedule: ['* 10-13 * * 3'],
   // A PR does not change between its review and its merge. To rebase a conflicted PR outside
   // the window, tick the rebase box in the PR body
   updateNotScheduled: false,
@@ -213,8 +213,15 @@
       matchFileNames: ['services/llm-gateway/**', 'services/stripe-mock/**'],
       groupName: 'python services non-major',
     },
+    // A 0.x minor can break its API, so these get one PR per manager, apart from the safer updates of each area
+    {
+      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
+      matchUpdateTypes: ['minor'],
+      matchCurrentVersion: '/^v?0\\./',
+      groupName: '{{manager}} 0.x minor',
+    },
     // Families that release many packages at once get their own PR, so that one release
-    // does not fill the PR of its area. These rules come after the area rules so that their groupName wins
+    // does not fill the PR of its area. These rules come after the area and 0.x rules so that their groupName wins
     {
       extends: ['monorepo:tiptap'],
       matchUpdateTypes: ['minor', 'patch'],
@@ -230,7 +237,8 @@
       matchUpdateTypes: ['minor', 'patch'],
       groupName: 'expo monorepo',
     },
-    // Dagster libraries require exact versions of each other, so they update together
+    // Dagster libraries require exact versions of each other, so they update together.
+    // Some of them are 0.x, and this rule comes after the 0.x rule so that they stay in the group
     {
       matchManagers: ['pep621'],
       matchUpdateTypes: ['minor', 'patch'],
