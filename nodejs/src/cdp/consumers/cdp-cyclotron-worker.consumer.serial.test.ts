@@ -7,6 +7,7 @@ import { Pool } from 'pg'
 import { HOG_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleInvocation, insertHogFunction, insertIntegration } from '~/cdp/_tests/fixtures'
 import { postgresThatDropsConnections } from '~/cdp/_tests/postgres-that-drops-connections'
+import { consumerLoopErrorsCounter } from '~/cdp/services/cyclotron-v2/worker'
 import { HogInputsService } from '~/cdp/services/hog-inputs.service'
 import { CyclotronJobQueuePostgresV2 } from '~/cdp/services/job-queue/job-queue-postgres-v2'
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
@@ -183,14 +184,6 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         return invocation.id
     }
 
-    async function queuePlainFetch(): Promise<string> {
-        const hogFunction = await insertHogFunction(hub.postgres, team.id, HOG_EXAMPLES.simple_fetch)
-        const invocation = createExampleInvocation(hogFunction)
-        invocation.state.globals.inputs = { url: 'https://example.com/plain', method: 'POST', body: '{}', headers: {} }
-        await producer.queueInvocations([invocation])
-        return invocation.id
-    }
-
     async function jobRow(id: string): Promise<JobRow> {
         const { rows } = await db.query('SELECT status, scheduled FROM cyclotron_jobs WHERE id = $1', [id])
         const [row] = rows
@@ -228,22 +221,37 @@ describe('CdpCyclotronWorker on Cyclotron Postgres', () => {
         expect(droppedLookups).toBeGreaterThan(0)
     })
 
-    it('fails a fetch whose access token lookup fails at once when its team is not on the retry allowlist, and still sends the rest of its batch', async () => {
-        const tokenFetch = await queueFetchWithAccessToken()
-        const plainFetch = await queuePlainFetch()
+    it('leaves a fetch whose access token lookup fails to the janitor when its team is not on the retry allowlist, which sends it once the lookup recovers', async () => {
+        const id = await queueFetchWithAccessToken()
         lookupFails = true
         await startWorker(String(team.id + 1))
 
         await waitForExpect(
-            async () =>
-                expect({
-                    tokenFetch: (await jobRow(tokenFetch)).status,
-                    plainFetch: (await jobRow(plainFetch)).status,
-                }).toEqual({ tokenFetch: 'failed', plainFetch: 'completed' }),
+            async () => {
+                const { values } = await consumerLoopErrorsCounter.get()
+                expect(values.find(({ labels }) => labels.queue === queueName)?.value).toBeGreaterThan(0)
+            },
             15_000,
             50
         )
-        expect(mockFetch.mock.calls.map(([url]) => url)).toEqual(['https://example.com/plain'])
+        expect((await jobRow(id)).status).toBe('running')
+        expect(mockFetch).not.toHaveBeenCalled()
+
+        lookupFails = false
+        await db.query(
+            "UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL WHERE id = $1",
+            [id]
+        )
+
+        await waitForExpect(async () => expect((await jobRow(id)).status).toBe('completed'), 15_000, 50)
+        expect(mockFetch.mock.calls).toEqual([
+            [
+                'https://example.com/hook',
+                expect.objectContaining({
+                    headers: expect.objectContaining({ Authorization: 'Bearer fake-access-token-value' }),
+                }),
+            ],
+        ])
     })
 
     it('retries a fetch whose access token lookup fails on a dropped connection, then sends it with the token', async () => {

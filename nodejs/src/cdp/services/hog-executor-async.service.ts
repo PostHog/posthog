@@ -503,7 +503,7 @@ export class HogExecutorAsyncService {
         try {
             tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
         } catch (error) {
-            if (!isTransientError(error)) {
+            if (!isTransientError(error) || !this.retriesTransientLookups(invocation.teamId)) {
                 throw error
             }
             result.invocation.queueParameters = params
