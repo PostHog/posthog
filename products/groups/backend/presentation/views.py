@@ -126,6 +126,13 @@ class GroupTypeMetadataUpdateSerializer(serializers.Serializer):
     )
 
 
+class GroupTypeMetadataUpdateRequestSerializer(serializers.Serializer):
+    updates = GroupTypeMetadataUpdateSerializer(
+        many=True,
+        help_text="Group type metadata updates to apply.",
+    )
+
+
 class GroupTypeCreateDetailDashboardSerializer(serializers.Serializer):
     group_type_index = serializers.IntegerField(help_text="Index of the group type that gets the detail dashboard.")
 
@@ -176,7 +183,25 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=False, methods=["PATCH"], name="Update group types metadata")
     def update_metadata(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        for row in cast(list[dict], request.data):
+        return self._update_metadata(request, cast(list[dict], request.data))
+
+    @extend_schema(
+        request=GroupTypeMetadataUpdateRequestSerializer,
+        responses={200: GroupTypeSerializer(many=True)},
+    )
+    @action(
+        detail=False,
+        methods=["PATCH"],
+        name="Update group types metadata for agents",
+        required_scopes=["group:write"],
+    )
+    def update_metadata_for_agents(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        request_data = GroupTypeMetadataUpdateRequestSerializer(data=request.data)
+        request_data.is_valid(raise_exception=True)
+        return self._update_metadata(request, request_data.validated_data["updates"])
+
+    def _update_metadata(self, request: request.Request, rows: list[dict]) -> response.Response:
+        for row in rows:
             instance = get_group_type_mapping_instance(
                 self.team.project_id,
                 row["group_type_index"],
