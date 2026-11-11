@@ -159,6 +159,8 @@ pub fn fold_classic_histograms(
     if folded.len() as u64 > stale {
         counter!("capture_metrics_remote_write_histograms_assembled")
             .increment(folded.len() as u64 - stale);
+    }
+    if folded_rows > 0 {
         counter!("capture_metrics_remote_write_histogram_samples_folded").increment(folded_rows);
     }
     if component_rows > folded_rows {
