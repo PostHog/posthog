@@ -43,12 +43,13 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.facade import investigations as alerts
+from products.alerts.backend.facade.api import first_subscriber_id
 from products.alerts.backend.facade.contracts import InvestigationRelease
 from products.alerts.backend.investigation_episode import EpisodeInvestigations, episode_investigations
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts_platform.backend.facade import api as platform
-from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, HeldDeliveryAddress
+from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest, HeldDeliveryAddress, SourceKind
 from products.alerts_platform.backend.facade.temporal import start_deliveries
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import build_markdown_notebook_content
@@ -163,8 +164,10 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     which the workflow starts. An insight stack check delivers from here and returns none."""
     team, alert = await asyncio.gather(
         Team.objects.aget(id=inputs.team_id),
-        AlertConfiguration.objects.select_related("insight").aget(id=inputs.alert_id),
+        sync_to_async(_investigated_alert, thread_sensitive=False)(inputs.team_id, inputs.alert_id),
     )
+    if alert is None:
+        raise AlertConfiguration.DoesNotExist(f"No insight alert {inputs.alert_id}")
     subject, evaluated = await _load_subject(inputs)
     if isinstance(subject, InsightAlertInvestigation) and subject.status == InvestigationStatus.DONE:
         # A retry after the verdict was recorded repeats only its release, not the agent.
@@ -399,6 +402,24 @@ async def _finish_platform_investigation(
         summary=investigation.summary,
         notebook_id=investigation.notebook_id,
     )
+
+
+def _investigated_alert(team_id: int, alert_id: UUID) -> AlertConfiguration | None:
+    """The alert's insight row, or, for an alert with no insight row, one built from the platform's
+    view of it. None when both are gone."""
+    alert = (
+        AlertConfiguration.objects.select_related("insight", "team", "threshold", "created_by")
+        .filter(team_id=team_id, id=alert_id)
+        .first()
+    )
+    if alert is not None:
+        return alert
+    view = platform.get_configuration(
+        team_id=team_id, source_kinds=[SourceKind.INSIGHT.value], configuration_id=alert_id
+    )
+    if view is None or view.legacy_configuration_id is not None:
+        return None
+    return AlertConfiguration.from_platform_view(view, team_id=team_id)
 
 
 async def _load_subject(
@@ -950,6 +971,7 @@ async def _pick_investigation_user(alert) -> User | None:
                 return User.objects.get(id=alert.created_by_id)
             except User.DoesNotExist:
                 pass
-        return alert.subscribed_users.first()
+        subscriber_id = first_subscriber_id(team_id=alert.team_id, alert_id=alert.id)
+        return User.objects.filter(id=subscriber_id).first() if subscriber_id is not None else None
 
     return await sync_to_async(_resolve, thread_sensitive=False)()
