@@ -84,6 +84,10 @@ STOP_GATEWAY_NOT_CONFIGURED = "gateway_not_configured"
 # Due pairs are left, but each organization with due pairs already has its share of the tick.
 STOP_MAX_ORG_SHARE = "max_org_share"
 STOP_ERROR_RATE = "error_rate"
+# The error of a pair activity that raised past its retries, so the tick has no pair result.
+ACTIVITY_ERROR_PREFIX = "activity_error: "
+# The error of a failed pair result without an error, such as a result from before the field existed.
+UNKNOWN_ERROR = "unknown"
 
 # The circuit breaker waits for this many model calls, so a few early failures do not stop the tick.
 _MIN_ERROR_RATE_SAMPLE = 10
@@ -169,6 +173,8 @@ class ActivitySummaryPairResult:
     called_model: bool
     # Has a default, so the result of a pair activity in flight during a deploy still decodes.
     new_summary: bool = False
+    # The error of a failed update: a prefix and an exception type or a fixed reason, never user content.
+    error: str | None = None
 
 
 @frozen
@@ -188,6 +194,11 @@ class ActivitySummaryTickResult:
     # Due pairs at the start of the tick, per trigger.
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
     mcp_feed: McpFeed = dataclasses.field(default_factory=McpFeed)
+    # Failed updates per error, so a trip of the circuit breaker can be explained from the tick event.
+    failures_by_error: dict[str, int] = dataclasses.field(default_factory=dict)
+    # The model calls and failures that the circuit breaker read.
+    model_calls: int = 0
+    failed_model_calls: int = 0
 
 
 def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickPlan:
@@ -412,6 +423,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         cost_usd=update.cost_usd,
         called_model=called_model,
         new_summary=update.new_summary,
+        error=update.error if update.status == UpdateStatus.FAILED else None,
     )
 
 
@@ -428,6 +440,9 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
         new_builds=result.new_builds,
         refresh_builds=result.refresh_builds,
         due_by_trigger=result.due_by_trigger,
+        failures_by_error=result.failures_by_error,
+        model_calls=result.model_calls,
+        failed_model_calls=result.failed_model_calls,
         **{f"mcp_feed_{name}": value for name, value in dataclasses.asdict(result.mcp_feed).items()},
         **dataclasses.asdict(result.enrollment),
     )
@@ -440,6 +455,9 @@ def capture_tick(result: ActivitySummaryTickResult) -> None:
             "picked": result.picked,
             **{f"status_{status}": count for status, count in (result.statuses or {}).items()},
             "errored": result.errored,
+            "failures_by_error": result.failures_by_error,
+            "model_calls": result.model_calls,
+            "failed_model_calls": result.failed_model_calls,
             "cost_usd": result.cost_usd,
             "stop_reason": result.stop_reason,
             "new_builds": result.new_builds,
@@ -494,6 +512,7 @@ class ActivitySummaryTickWorkflow:
 
         statuses: Counter[str] = Counter()
         builds: Counter[bool] = Counter()
+        failures_by_error: Counter[str] = Counter()
         errored = 0
         cost = 0.0
         # Model calls of this tick and the calls among them that failed or raised, for the circuit breaker.
@@ -551,6 +570,7 @@ class ActivitySummaryTickWorkflow:
                 if isinstance(outcome, BaseException):
                     # The attempt can have called the model, so it counts at the highest cost.
                     errored += 1
+                    failures_by_error[f"{ACTIVITY_ERROR_PREFIX}{type(outcome.__cause__ or outcome).__name__}"] += 1
                     calls += 1
                     failures += 1
                     updates_left -= 1
@@ -559,6 +579,8 @@ class ActivitySummaryTickWorkflow:
                 statuses[outcome.status] += 1
                 if outcome.status == UpdateStatus.OK:
                     builds[outcome.new_summary] += 1
+                if outcome.status == UpdateStatus.FAILED:
+                    failures_by_error[outcome.error or UNKNOWN_ERROR] += 1
                 if outcome.called_model:
                     calls += 1
                     failures += outcome.status == UpdateStatus.FAILED
@@ -579,6 +601,9 @@ class ActivitySummaryTickWorkflow:
             refresh_builds=builds[False],
             due_by_trigger=plan.due_by_trigger,
             mcp_feed=plan.mcp_feed,
+            failures_by_error=dict(failures_by_error),
+            model_calls=calls,
+            failed_model_calls=failures,
         )
         await workflow.execute_activity(
             capture_activity_summary_tick_activity,
