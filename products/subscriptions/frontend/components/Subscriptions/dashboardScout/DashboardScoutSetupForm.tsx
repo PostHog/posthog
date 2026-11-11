@@ -20,20 +20,25 @@ import { DashboardScoutLogicProps, dashboardScoutLogic } from './dashboardScoutL
 
 const POST_MODE_OPTIONS: { value: DashboardScoutPostMode; label: string; description: string }[] = [
     {
+        value: 'on_change',
+        label: 'Only when something interesting happens',
+        description: 'No message on a run where every insight is in its normal range.',
+    },
+    {
         value: 'every_run',
         label: 'Every run',
         description: 'A short update each time, including when nothing changed.',
     },
     {
-        value: 'on_change',
-        label: 'Only when something changes',
-        description: 'No message on a run where every insight is in its normal range.',
+        value: 'custom',
+        label: 'In your own words',
+        description: 'Describe when you want to hear from it.',
     },
 ]
 
 export function DashboardScoutSetupForm(props: DashboardScoutLogicProps): JSX.Element {
     const logic = dashboardScoutLogic(props)
-    const { isScoutSetupSubmitting, instructionsPreview } = useValues(logic)
+    const { scoutSetup, isScoutSetupSubmitting, instructionsPreview } = useValues(logic)
     const { closeSetup } = useActions(logic)
     const { slackIntegrations, integrationsLoading: slackIntegrationsLoading } = useValues(integrationsLogic)
     const { timezone } = useValues(teamLogic)
@@ -80,6 +85,16 @@ export function DashboardScoutSetupForm(props: DashboardScoutLogicProps): JSX.El
                         <LemonRadio value={value} onChange={onChange} options={POST_MODE_OPTIONS} />
                     )}
                 </LemonField>
+                {scoutSetup.postMode === 'custom' ? (
+                    <LemonField name="postPrompt" label="When should it post?" labelClassName="sr-only">
+                        <LemonTextArea
+                            placeholder="For example: a summary every Monday, and on other days only if signups drop by more than 10%."
+                            minRows={2}
+                            maxLength={500}
+                            data-attr="dashboard-scout-post-prompt"
+                        />
+                    </LemonField>
+                ) : null}
                 <LemonField name="focus" label="What should it pay attention to?" showOptional>
                     <LemonTextArea
                         placeholder="For example: signup conversion matters most. Ignore weekend dips."

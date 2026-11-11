@@ -52,6 +52,14 @@ describe('dashboard scout', () => {
         expect(templatePlaceholders).toEqual(['{{ post_mode }}', '{{ dashboard_id }}'])
         expect(payload.body).toContain('dashboard id `42`')
         expect(payload.body).toContain('> Signups matter most.')
+
+        const custom = buildDashboardScoutPayload(42, 'Growth', {
+            ...SETUP,
+            postMode: 'custom',
+            postPrompt: 'Every Monday, and when signups drop.',
+        })
+        expect(custom.body).toContain('> Every Monday, and when signups drop.')
+        expect(custom.body).not.toMatch(/\{\{ \w+ \}\}/)
         expect(payload.config).toMatchObject({
             tags: ['dashboards', 'dashboard-42'],
             auto_pause_exempt: true,

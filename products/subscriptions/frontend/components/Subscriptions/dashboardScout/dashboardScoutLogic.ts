@@ -180,11 +180,13 @@ export const dashboardScoutLogic = kea<dashboardScoutLogicType>([
     forms(({ props, values, actions }) => ({
         scoutSetup: {
             defaults: DEFAULT_DASHBOARD_SCOUT_SETUP as DashboardScoutSetup,
-            errors: ({ destination }) =>
+            errors: ({ destination, postMode, postPrompt }) =>
                 // kea-forms types the error of an object field as a map of its keys. The destination
                 // is one control, so its error is one message for the whole field.
                 ({
                     destination: hasSlackTarget(destination) ? undefined : 'Choose where in Slack the scout posts',
+                    postPrompt:
+                        postMode === 'custom' && !postPrompt.trim() ? 'Describe when the scout should post' : undefined,
                 }) as unknown as DeepPartialMap<DashboardScoutSetup, ValidationErrorType>,
             submit: async (setup) => {
                 const { destination } = setup
