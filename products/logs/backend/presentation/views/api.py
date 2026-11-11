@@ -53,11 +53,11 @@ from products.logs.backend.count_ranges_query_runner import (
 )
 from products.logs.backend.group_by_query_runner import (
     DEFAULT_GROUP_LIMIT,
-    GROUP_SOURCES,
     MAX_GROUP_DIMENSIONS,
     MAX_GROUP_LIMIT,
     ORDER_FIELDS,
     LogsGroupByQueryRunner,
+    LogsGroupBySource,
 )
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.impact_query_runner import ImpactQueryRunner
@@ -506,7 +506,7 @@ class _LogsImpactTopValueSerializer(serializers.Serializer):
 
 class _LogsImpactGroupKeySerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=list(GROUP_SOURCES),
+        choices=LogsGroupBySource.choices,
         help_text='Attribute map the key lives in, in the group-by endpoint\'s vocabulary: "log" or "resource".',
     )
     key = serializers.CharField(help_text="The attribute key that carries the ID on most matching logs.")
@@ -1035,7 +1035,9 @@ class _LogPatternSerializer(serializers.Serializer):
             "Body mining masks <timestamp>, <uuid>, <ip>, <hex>, <num>, plus <*> for word positions "
             "Drain found to vary. Stored patterns use the ingestion vocabulary instead: <N>, "
             "<TIMESTAMP>, <KLOGTIME>, <UUID>, <IP>, <HOST>, <HEX>, <ID>, <EMAIL>, <JSON_ARRAY>, and "
-            "<JSON:keys> for a JSON body reduced to its key set."
+            "<JSON:keys> for a JSON body reduced to its key set. The largest <JSON:keys> groups are split "
+            "by the message their bodies carry (such as fields.message), so a key set remains only for "
+            "rows with no message field."
         ),
     )
     count = serializers.IntegerField(
@@ -1128,12 +1130,12 @@ class _LogPatternSerializer(serializers.Serializer):
     match_patterns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining.",
+        help_text="Exact canonical members of a stored-pattern group. Filter pattern IN these values AND pattern_version equals this group's version. Empty for body mining and for a JSON key-set group split by message, which pivots with match_regex.",
     )
     pattern_version = serializers.IntegerField(
         allow_null=True,
         required=False,
-        help_text="Version required by match_patterns. Null for body mining.",
+        help_text="Version required by match_patterns. Null when match_patterns is empty.",
     )
 
 
@@ -1311,17 +1313,18 @@ class _LogsPatternsDiffResponseSerializer(PatternsDiffResponseFields):
 class _LogsGroupByDimensionSerializer(serializers.Serializer):
     key = serializers.CharField(
         help_text=(
-            'The key this dimension groups by — an attribute key (e.g. "session_id", "service.name") '
-            'or, when source is "column", one of the top-level log fields: '
-            '"severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template).'
+            'The key this dimension groups by — an attribute key (e.g. "session_id", "service.name"); '
+            'when source is "column", one of the top-level log fields: '
+            '"severity_level", "service_name", "trace_id", "span_id", "pattern" (the masked message template); '
+            'when source is "body", a dot-separated JSON path into the log body (e.g. "fields.message").'
         ),
     )
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
-        choices=list(GROUP_SOURCES),
+        choices=LogsGroupBySource.choices,
         default="log",
         help_text=(
             'Where this dimension\'s key lives: "log" for log-level attributes, "resource" for '
-            'resource-level attributes, "column" for top-level log fields.'
+            'resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the body.'
         ),
     )
 
@@ -1361,11 +1364,12 @@ class _LogsGroupByBodySerializer(serializers.Serializer):
         ),
     )
     groupBySource = serializers.ChoiceField(
-        choices=list(GROUP_SOURCES),
+        choices=LogsGroupBySource.choices,
         default="log",
         help_text=(
             'Where the grouping key lives: "log" for log-level attributes, "resource" for '
-            'resource-level attributes, "column" for top-level log fields. Ignored when groupBys is provided.'
+            'resource-level attributes, "column" for top-level log fields, "body" for a JSON path into the '
+            "body. Ignored when groupBys is provided."
         ),
     )
     groupBys = serializers.ListField(
