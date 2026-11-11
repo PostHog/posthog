@@ -159,7 +159,7 @@ class TestEmaIssuerSetup(APIBaseTest):
                 config.id_jag_allowed_clients,
                 config.id_jag_registered_by_application_id,
             ),
-            (ConfigScope.ID_JAG, DomainScope.ALL, ISSUER, [CLIENT_ID], self.application.id),
+            (ConfigScope.ID_JAG, DomainScope.ALL, ISSUER, [], self.application.id),
         )
 
         reused = self._put_issuer(token_body["access_token"], OTHER_ISSUER)

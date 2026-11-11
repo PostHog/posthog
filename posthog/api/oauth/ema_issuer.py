@@ -251,9 +251,10 @@ def register_ema_issuer(access_token: OAuthAccessToken, raw_issuer: object) -> E
         config.domain_scope = DomainScope.ALL
         config.id_jag_issuer_url = issuer
         config.id_jag_jwks_url = None
-        # The ID-JAGs this issuer signs are for the client that registered it, so no other client
-        # can exchange them.
-        config.id_jag_allowed_clients = [application.client_id]
+        # Not limited to the registering client: a vendor can set up with one of its clients and
+        # exchange ID-JAGs with another. The issuer only signs for the vendor's own clients, and the
+        # exchange already requires the presenting client to be the assertion's `client_id`.
+        config.id_jag_allowed_clients = []
         config.save()
 
     return EmaRegistration(
