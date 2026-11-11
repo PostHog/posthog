@@ -58,6 +58,10 @@ class AccountActivityMatrixQueryRunner(ActivityQueryRunner[AccountActivityMatrix
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
+        try:
+            payload["account_external_id"] = self._account.external_id
+        except UserAccessControlError:
+            payload["account_external_id"] = None
         payload["metric_fingerprints"] = sorted(
             (str(metric.id), metric.name, metric.math, metric.math_property or "", str(metric.filters))
             for metric in self._team_metrics

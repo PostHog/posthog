@@ -77,6 +77,7 @@ class BookActivityQueryRunner(ActivityQueryRunner[AR], Generic[AR]):
 
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
+        payload["user_id"] = self.user.id if isinstance(self.user, User) else None
         payload["book_accounts"] = [(str(account.id), account.external_id) for account in self._book_accounts]
         return payload
 
