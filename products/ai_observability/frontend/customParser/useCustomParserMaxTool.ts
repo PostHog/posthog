@@ -31,6 +31,7 @@ const AI_TRACE_PARSER_TOOL_CONTEXT_ITEM: AttachedContextItem = {
 export interface CustomParserMaxToolOptions {
     eventId: string
     traceId?: string | null
+    timestamp?: string
     input: unknown
     output: unknown
     inputRecognized: boolean
@@ -47,6 +48,7 @@ export interface CustomParserMaxToolOptions {
 export function useCustomParserMaxTool({
     eventId,
     traceId,
+    timestamp,
     input,
     output,
     inputRecognized,
@@ -89,6 +91,7 @@ export function useCustomParserMaxTool({
         }
         return {
             trace_id: traceId ?? null,
+            trace_timestamp: timestamp ?? '(none)',
             event_uuid: eventId,
             event_type: isGeneration ? 'generation' : 'span',
             unrecognized,
@@ -96,7 +99,7 @@ export function useCustomParserMaxTool({
             sample_output: sampleForContext(output),
             existing_recipes: existingBlocks.length > 0 ? existingBlocks.join('\n') : '(none)',
         }
-    }, [active, traceId, eventId, isGeneration, unrecognized, input, output, customItems])
+    }, [active, traceId, timestamp, eventId, isGeneration, unrecognized, input, output, customItems])
 
     useAttachedContext(
         active
