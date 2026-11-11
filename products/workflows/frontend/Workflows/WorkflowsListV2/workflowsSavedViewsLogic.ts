@@ -104,7 +104,6 @@ export interface workflowsSavedViewsLogicValues {
     viewFiles: WorkflowFolderFileRow[]
     viewFilters: FacetFilter[]
     views: WorkflowSavedView[]
-    viewsResolving: boolean
     writeDisabledReason: string | undefined
 }
 
@@ -242,11 +241,6 @@ export interface workflowsSavedViewsLogicMeta {
         ) => FacetFilter[]
         enabled: (featureFlags: FeatureFlagsSet, receivedFeatureFlags: boolean) => boolean
         available: (enabled: boolean, savedViews: WorkflowViewApi[] | null) => boolean
-        viewsResolving: (
-            enabled: boolean,
-            savedViews: WorkflowViewApi[] | null,
-            savedViewsLoadFailed: boolean
-        ) => boolean
         writeDisabledReason: (currentTeamId: number | null, user: UserType | null) => string | undefined
         views: (savedViews: WorkflowViewApi[] | null) => WorkflowSavedView[]
         activeView: (views: WorkflowSavedView[], activeViewId: string) => WorkflowSavedView
@@ -294,11 +288,6 @@ interface EditsWhileViewsLoad {
 }
 
 type SavedViewMutation = (stillCurrent: () => boolean, signal: AbortSignal) => Promise<void>
-
-interface UnconfirmedSaveAs {
-    name: string
-    knownViewIds: Set<string>
-}
 
 // A stalled request would hide every workflow row behind the loading state, or hold every later save in the queue,
 // with no way to retry, so each request fails after this long.
@@ -495,11 +484,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         available: [
             (s) => [s.enabled, s.savedViews],
             (enabled: boolean, savedViews: WorkflowViewApi[] | null): boolean => enabled && savedViews !== null,
-        ],
-        viewsResolving: [
-            (s) => [s.enabled, s.savedViews, s.savedViewsLoadFailed],
-            (enabled: boolean, savedViews: WorkflowViewApi[] | null, loadFailed: boolean): boolean =>
-                enabled && savedViews === null && !loadFailed,
         ],
         writeDisabledReason: [
             (s) => [s.currentTeamId, s.user],
@@ -774,19 +758,15 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             cache.mutationQueue = queued
             return queued
         }
-        const findCreatedView = async (
-            unconfirmed: UnconfirmedSaveAs,
-            signal: AbortSignal
-        ): Promise<WorkflowViewApi | undefined> => {
-            let offset = 0
-            for (let pageIndex = 0; pageIndex < 40; pageIndex++) {
+        const findCreatedView = async (name: string, signal: AbortSignal): Promise<WorkflowViewApi | undefined> => {
+            for (let offset = 0, pages = 0; pages < 40; pages++) {
                 const page = await api.workflowViewsList(
                     String(values.currentTeamId),
                     { limit: 100, offset },
                     { signal }
                 )
                 const created = page.results.find(
-                    (view) => view.name === unconfirmed.name && !view.deleted && !unconfirmed.knownViewIds.has(view.id)
+                    (view) => view.name === name && !view.deleted && !values.views.some((known) => known.id === view.id)
                 )
                 if (created || !page.next || !page.results.length) {
                     return created
@@ -927,7 +907,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         // and a failed load syncs without any navigation, so both of those keep them.
                         cache.viewOnlyLink = undefined
                         cache.editsWhileViewsLoad = undefined
-                    } else if (!explicit && values.enabled && raw.has('view') && cache.viewOnlyLink?.id !== id) {
+                    }
+                    // A link without its own filters takes them from the view, also when it carries columns.
+                    if (!raw.has('q') && values.enabled && raw.has('view') && cache.viewOnlyLink?.id !== id) {
                         cache.viewOnlyLink = { id, baseline: values.value }
                     }
                     if (cache.editsWhileViewsLoad && cache.editsWhileViewsLoad.view !== id) {
@@ -962,6 +944,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                                 : values.value.filters,
                             text: typedText ?? values.value.text,
                         })
+                    }
+                    if (raw.has('columns')) {
+                        actions.setVisibleColumns(normalizeViewColumns((raw.get('columns') ?? '').split(',')))
                     }
                     keepColumnsChangedWhileViewsLoaded(columnsChangedWhileViewsLoaded)
                     return
@@ -1028,20 +1013,17 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const sourceViewId = values.activeViewId
                 const state = workflowViewState(values.value, values.shownColumns)
                 const added = trackAdditions()
-                const knownViewIds = new Set(values.views.map((view) => view.id))
                 try {
                     await runMutation(
                         'save-as',
                         name.trim(),
                         async (stillCurrent, signal) => {
-                            const unconfirmed: UnconfirmedSaveAs | undefined = cache.unconfirmedSaveAs
+                            const unconfirmed: string | undefined = cache.unconfirmedSaveAs
                             cache.unconfirmedSaveAs = undefined
                             // A create past its deadline can still land on the server, so saving the same name
                             // again first looks for that view instead of creating a second one.
                             const landed =
-                                unconfirmed?.name === name.trim()
-                                    ? await findCreatedView(unconfirmed, signal)
-                                    : undefined
+                                unconfirmed === name.trim() ? await findCreatedView(unconfirmed, signal) : undefined
                             if (!stillCurrent()) {
                                 return
                             }
@@ -1065,7 +1047,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         undefined,
                         (failure) => {
                             if (failure instanceof PromiseTimeoutError) {
-                                cache.unconfirmedSaveAs = { name: name.trim(), knownViewIds }
+                                cache.unconfirmedSaveAs = name.trim()
                             }
                             onFailure?.(failure)
                         }

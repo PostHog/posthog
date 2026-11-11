@@ -872,6 +872,7 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [], text: 'renewal' },
             { filters: savedView.state.filters, text: 'renewal' },
             [],
+            ['health'],
         ],
         [
             'a filter on a view-only link',
@@ -879,6 +880,15 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [eventTrigger], text: '' },
             { filters: [status('active'), eventTrigger], text: '' },
             [eventTrigger],
+            ['health'],
+        ],
+        [
+            'a filter on a link that carries only columns',
+            { view: VIEW_ID, columns: 'owner' },
+            { filters: [eventTrigger], text: '' },
+            { filters: [status('active'), eventTrigger], text: '' },
+            [eventTrigger],
+            ['owner'],
         ],
         [
             'a folder opened on a view-only link',
@@ -886,6 +896,7 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [{ facet: 'in', value: 'Archive', negated: false }], text: '' },
             { filters: [{ facet: 'in', value: 'Archive', negated: false }, status('active')], text: '' },
             [],
+            ['health'],
         ],
         [
             'a filter on a link that carries additions',
@@ -893,10 +904,11 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [status('active'), eventTrigger, adaOwns], text: '' },
             { filters: [status('active'), eventTrigger, adaOwns], text: '' },
             [eventTrigger, adaOwns],
+            ['health'],
         ],
     ])(
         'keeps the view filters and the additions when %s is entered before the views load',
-        async (_, link, edit, expected, added) => {
+        async (_, link, edit, expected, added, columns) => {
             let release: () => void = () => {}
             const pending = new Promise<void>((resolve) => {
                 release = resolve
@@ -920,6 +932,7 @@ describe('workflowsSavedViewsLogic', () => {
             expect(logic.values.activeViewId).toEqual(VIEW_ID)
             expect(workflowsListV2Logic.values.value).toEqual(expected)
             expect(logic.values.addedFilters).toEqual(added)
+            expect(workflowsListV2Logic.values.shownColumns).toEqual(columns)
         }
     )
 
@@ -1616,7 +1629,6 @@ describe('workflowsSavedViewsLogic', () => {
             logic.mount()
             await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
             expect(logic.values.savedViewsLoadFailed).toBe(true)
-            expect(logic.values.viewsResolving).toBe(false)
         } finally {
             jest.useRealTimers()
         }
