@@ -7,7 +7,7 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet, Value
+from django.db.models import Count, DurationField, ExpressionWrapper, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, Lower, NullIf
 from django.utils.timezone import now
 
@@ -41,7 +41,6 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.redis import get_client
 from posthog.session_recordings.data_retention import retention_period_in_days
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylistViewed
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.session_recording_api import (
     current_user_viewed,
     list_recordings_from_query,
@@ -162,30 +161,25 @@ def create_synthetic_playlist_instance(
 def live_playlist_items(
     items: QuerySet[SessionRecordingPlaylistItem], team: Team
 ) -> QuerySet[SessionRecordingPlaylistItem]:
-    cutoff = now() - timedelta(days=retention_period_in_days(team.session_recording_retention_period))
-    # Rows pinned before we stored start_time at pin time (or not yet ingested when pinned) have none,
-    # so fall back to when the item was added: the recording cannot have started later than that
-    return items.exclude(deleted=True).exclude(
-        Q(recording__start_time__lt=cutoff) | Q(recording__start_time__isnull=True, created_at__lt=cutoff)
+    team_retention_days = retention_period_in_days(team.session_recording_retention_period)
+    # Pins from before we stored start_time (or whose lookup failed) fall back to when the item was added:
+    # the recording cannot have started later than that. Unknown retention falls back to the team's current one.
+    expires_at = Coalesce(F("recording__start_time"), F("created_at")) + ExpressionWrapper(
+        Coalesce(F("recording__retention_period_days"), Value(team_retention_days)) * Value(timedelta(days=1)),
+        output_field=DurationField(),
     )
+    return items.exclude(deleted=True).alias(expires_at=expires_at).exclude(expires_at__lt=now())
 
 
-def set_missing_start_times(recordings: list[SessionRecording], team: Team) -> None:
-    """Store start_time on pinned recordings so collection counts can drop them once they expire."""
-    missing = [recording for recording in recordings if recording.start_time is None]
-    if not missing:
+def queue_pinned_recording_metadata(recordings: list[SessionRecording], team: Team) -> None:
+    session_ids = [recording.session_id for recording in recordings if recording.start_time is None]
+    if not session_ids:
         return
-    try:
-        start_times = SessionReplayEvents().get_start_times([recording.session_id for recording in missing], team)
-    except Exception as e:
-        # Pinning must still work when ClickHouse is unavailable; live_playlist_items falls back to created_at
-        logger.warning("pinned_recording_start_time_lookup_failed", team_id=team.id, error=str(e))
-        return
-    for recording in missing:
-        start_time = start_times.get(recording.session_id)
-        if start_time is not None:
-            recording.start_time = start_time
-            recording.save(update_fields=["start_time"])
+    # Deferred: posthog.tasks pulls in every Celery task module
+    from posthog.tasks.tasks import store_pinned_recording_metadata  # noqa: PLC0415
+
+    # The ClickHouse lookup runs in Celery so a slow query does not hold the pin request
+    transaction.on_commit(lambda: store_pinned_recording_metadata.delay(team.id, session_ids), robust=True)
 
 
 def count_collection_recordings(
@@ -1064,7 +1058,7 @@ class SessionRecordingPlaylistViewSet(
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
             )
-            set_missing_start_times([recording], self.team)
+            queue_pinned_recording_metadata([recording], self.team)
 
             return response.Response({"success": True})
 
@@ -1131,7 +1125,7 @@ class SessionRecordingPlaylistViewSet(
                     error=str(e),
                 )
 
-        set_missing_start_times(pinned_recordings, self.team)
+        queue_pinned_recording_metadata(pinned_recordings, self.team)
 
         logger.info(
             "bulk_recordings_added_to_playlist",

@@ -1191,14 +1191,19 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
 
         base_url = f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
         session_ids = ["in-clickhouse", "not-in-clickhouse"]
-        if mode == "single_pin":
-            for session_id in session_ids:
-                assert self.client.post(f"{base_url}/{session_id}").status_code == status.HTTP_200_OK
-        else:
-            response = self.client.post(f"{base_url}/bulk_add", {"session_recording_ids": session_ids}, format="json")
-            assert response.status_code == status.HTTP_200_OK
+        with self.captureOnCommitCallbacks(execute=True):
+            if mode == "single_pin":
+                for session_id in session_ids:
+                    assert self.client.post(f"{base_url}/{session_id}").status_code == status.HTTP_200_OK
+            else:
+                response = self.client.post(
+                    f"{base_url}/bulk_add", {"session_recording_ids": session_ids}, format="json"
+                )
+                assert response.status_code == status.HTTP_200_OK
 
-        assert SessionRecording.objects.get(team=self.team, session_id="in-clickhouse").start_time == start_time
+        pinned = SessionRecording.objects.get(team=self.team, session_id="in-clickhouse")
+        assert pinned.start_time == start_time
+        assert pinned.retention_period_days is not None
         assert SessionRecording.objects.get(team=self.team, session_id="not-in-clickhouse").start_time is None
 
     @parameterized.expand(
@@ -1801,6 +1806,18 @@ class TestPrecomputeRecordingsCounts(APIBaseTest):
 
         assert playlist._prefetched_collection_count == {"count": 1, "watched_count": 1}  # type: ignore[attr-defined]
         assert count_collection_recordings(playlist, self.user, self.team) == {"count": 1, "watched_count": 1}
+
+    def test_recording_retention_overrides_team_retention(self) -> None:
+        playlist = self._make_playlist("longer retention")
+        rec = SessionRecording.objects.create(
+            team=self.team,
+            session_id="kept-longer",
+            start_time=datetime.now(UTC) - timedelta(days=40),
+            retention_period_days=90,
+        )
+        SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=rec)
+
+        assert count_collection_recordings(playlist, self.user, self.team) == {"count": 1, "watched_count": 0}
 
     def test_empty_collection_loads_saved_filters_from_redis(self) -> None:
         playlist = self._make_playlist("empty")

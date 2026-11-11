@@ -261,8 +261,9 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert min_ts == self.base_time
         assert max_ts == self.base_time + relativedelta(seconds=3)
 
-    def test_get_start_times(self) -> None:
-        assert SessionReplayEvents().get_start_times(["1", "3", "nonexistent"], self.team) == {
+    def test_get_session_timestamps(self) -> None:
+        found = SessionReplayEvents().get_session_timestamps(["1", "3", "nonexistent"], self.team)
+        assert {session_id: timestamps.min_timestamp for session_id, timestamps in found.items()} == {
             "1": self.base_time,
             "3": self.base_time + relativedelta(seconds=1),
         }

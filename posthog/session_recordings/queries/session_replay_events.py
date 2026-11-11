@@ -66,6 +66,7 @@ class SessionTimestamps:
     min_timestamp: datetime
     max_timestamp: datetime
     expiry_time: datetime
+    retention_period_days: Optional[int] = None
 
 
 @dataclass(frozen=True)
@@ -287,11 +288,11 @@ class SessionReplayEvents:
 
         return results
 
-    def get_start_times(self, session_ids: list[str], team: Team) -> dict[str, datetime]:
-        """Start time per session ID. Sessions that are not found or past retention are left out."""
+    def get_session_timestamps(self, session_ids: list[str], team: Team) -> dict[str, SessionTimestamps]:
+        """Time bounds per session ID. Sessions that are not found or past retention are left out."""
         if not session_ids:
             return {}
-        return {found.session_id: found.min_timestamp for found in self._find_with_timestamps(session_ids, team)}
+        return {found.session_id: found for found in self._find_with_timestamps(session_ids, team)}
 
     @staticmethod
     def _check_exists(session_id: str, team: Team) -> bool:
@@ -431,7 +432,13 @@ class SessionReplayEvents:
             return []
         # Query columns: session_id, min_timestamp, max_timestamp, retention_period_days, expiry_time.
         return [
-            SessionTimestamps(session_id=row[0], min_timestamp=row[1], max_timestamp=row[2], expiry_time=row[4])
+            SessionTimestamps(
+                session_id=row[0],
+                min_timestamp=row[1],
+                max_timestamp=row[2],
+                expiry_time=row[4],
+                retention_period_days=row[3],
+            )
             for row in result.results
         ]
 
