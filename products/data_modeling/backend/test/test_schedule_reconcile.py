@@ -758,6 +758,30 @@ class TestMaybeReconcileDag(BaseTest):
 
         queue_retry.assert_not_called()
 
+    def test_failed_delete_stays_reported_when_a_later_pass_lists_without_it(self):
+        dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        stale_id = tier_schedule_id(str(dag.id), H1)
+        first_read = build_frequency_graph(dag)
+        set_declared_target(endpoint, H6)
+
+        def delete(_temporal, schedule_id):
+            if schedule_id == stale_id:
+                raise RuntimeError("temporal down")
+
+        with (
+            mock.patch(
+                f"{RECONCILE}.async_connect",
+                new=mock.AsyncMock(side_effect=[self._temporal_listing([stale_id]), self._temporal_listing([])]),
+            ),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=delete)),
+            mock.patch(f"{RECONCILE}.capture_exception"),
+        ):
+            failed = reconcile_dag_schedules(dag, graph=first_read)
+
+        self.assertEqual(failed, [stale_id])
+
     @parameterized.expand(
         [
             ("save", lambda dag: _reconcile_dag_best_effort(dag)),
