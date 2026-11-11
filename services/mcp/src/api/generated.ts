@@ -74798,7 +74798,7 @@ export namespace Schemas {
          */
       name: string;
       /**
-         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
          * @maxLength 100000
          */
       source: string;
@@ -75414,6 +75414,31 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: QuickFilter[];
+    }
+
+    export interface ReleaseOwnerDTO {
+      id: number;
+      first_name: string;
+    }
+
+    export interface ReleaseDTO {
+      /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
+      readonly has_hidden_flags: boolean;
+      id: string;
+      name: string;
+      description: string;
+      owner: ReleaseOwnerDTO | null;
+      feature_flag_ids: number[];
+      created_at: string;
+    }
+
+    export interface PaginatedReleaseDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReleaseDTO[];
     }
 
     /**
@@ -87956,7 +87981,7 @@ export namespace Schemas {
          */
       name?: string;
       /**
-         * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+         * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
          * @maxLength 100000
          */
       source?: string;
@@ -92518,6 +92543,27 @@ export namespace Schemas {
       widgets?: UpdateDashboardWidgetRequest[];
     }
 
+    export interface PatchedUpdateRelease {
+      /**
+         * Name of the release.
+         * @maxLength 255
+         */
+      name?: string;
+      /** What changes for the people who get the release. */
+      description?: string;
+      /**
+         * ID of the user who owns the release. Must be a member of the project's organization.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /**
+         * IDs of the feature flags that control who gets the release.
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      feature_flag_ids?: number[];
+    }
+
     /**
      * @nullable
      */
@@ -96667,9 +96713,9 @@ export namespace Schemas {
     }
 
     export interface ProjectLimits {
-      /** Sandbox training runs the project may start in any 24 hours, across all its pipelines. 0 means training is turned off. */
+      /** The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off. */
       max_training_runs_per_day: number;
-      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
       training_runs_used: number;
       /**
          * When the next training run can start, while the project is at its daily limit. Null while a run can start now, and when training is turned off.
@@ -117643,6 +117689,8 @@ export namespace Schemas {
       id: string;
       kind: TraceNodeKindEnum;
       name: string;
+      /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
+      label: string;
       model: string | null;
       stats: TraceNodeStats;
       hasError: boolean;
@@ -117739,6 +117787,8 @@ export namespace Schemas {
       /** The cluster's id within its run. -1 is the run's outliers. */
       clusterId: number;
       title: string | null;
+      /** The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title. */
+      label: string;
       description: string | null;
       /** The trace fit no cluster in this run. */
       isOutlier: boolean;
@@ -117957,6 +118007,16 @@ export namespace Schemas {
       thumbsDown: number;
     }
 
+    export interface TraceStepFeedback {
+      /** The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback. */
+      nodeId: string;
+      /** Oldest first. */
+      scores: TraceFeedbackScore[];
+      responseCount: number;
+      /** Scores plus responses. */
+      total: number;
+    }
+
     export interface TraceFeedback {
       /** Oldest first. */
       scores: TraceFeedbackScore[];
@@ -117967,6 +118027,8 @@ export namespace Schemas {
       /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
       surveyResponsesStatus: SurveyResponsesStatusEnum;
       summary: TraceFeedbackSummary;
+      /** One entry per node with feedback, sorted by node id. */
+      steps: TraceStepFeedback[];
     }
 
     export interface TraceHumanReviewScore {
@@ -118205,9 +118267,9 @@ export namespace Schemas {
     export interface TrainingRunCapReached {
       /** Why the run did not start. */
       detail: string;
-      /** Sandbox training runs the project started in the last 24 hours, across all its pipelines. */
+      /** Sandbox training runs the project started that count against its daily limit, across all its pipelines. */
       used: number;
-      /** Sandbox training runs the project may start in any 24 hours. */
+      /** The project's daily limit of sandbox training runs. */
       limit: number;
       /**
          * When the next training run can start. Null when training runs are turned off for the project.
@@ -121947,6 +122009,27 @@ export namespace Schemas {
       grantable_scopes: string[];
       /** What each grantable risky scope lets a token do, keyed by scope. Show it so people add the scope with care. */
       risky_scopes: WorkloadProvidersResponseRiskyScopes;
+    }
+
+    export interface WriteRelease {
+      /**
+         * Name of the release.
+         * @maxLength 255
+         */
+      name: string;
+      /** What changes for the people who get the release. */
+      description?: string;
+      /**
+         * ID of the user who owns the release. Must be a member of the project's organization.
+         * @nullable
+         */
+      owner_id?: number | null;
+      /**
+         * IDs of the feature flags that control who gets the release.
+         * @items.minimum 1
+         * @items.maximum 2147483647
+         */
+      feature_flag_ids?: number[];
     }
 
     export interface ZendeskImportError {
@@ -137485,6 +137568,18 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type ReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**
      * The GitHub App installation to list.
@@ -137876,6 +137971,10 @@ export namespace Schemas {
      * Filter by the ID of a specific feature flag.
      */
     record_id?: string;
+    /**
+     * Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.
+     */
+    record_ids?: string;
     };
 
     export type SchemaPropertyGroupsListParams = {
