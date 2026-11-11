@@ -137491,6 +137491,24 @@ export namespace Schemas {
     type_filter?: PluginConfigsLogsListTypeFilterItem[];
     };
 
+    /**
+     * * `DEBUG` - Debug
+     * * `LOG` - Log
+     * * `INFO` - Info
+     * * `WARN` - Warn
+     * * `ERROR` - Error
+     */
+    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
+
+
+    export const PluginConfigsLogsListTypeFilterItem = {
+      Debug: 'DEBUG',
+      Log: 'LOG',
+      Info: 'INFO',
+      Warn: 'WARN',
+      Error: 'ERROR',
+    } as const;
+
     export type PosthogSupportTicketsListParams = {
     /**
      * Number of tickets to return.
@@ -137533,24 +137551,6 @@ export namespace Schemas {
      */
     after?: string;
     };
-
-    /**
-     * * `DEBUG` - Debug
-     * * `LOG` - Log
-     * * `INFO` - Info
-     * * `WARN` - Warn
-     * * `ERROR` - Error
-     */
-    export type PluginConfigsLogsListTypeFilterItem = typeof PluginConfigsLogsListTypeFilterItem[keyof typeof PluginConfigsLogsListTypeFilterItem];
-
-
-    export const PluginConfigsLogsListTypeFilterItem = {
-      Debug: 'DEBUG',
-      Log: 'LOG',
-      Info: 'INFO',
-      Warn: 'WARN',
-      Error: 'ERROR',
-    } as const;
 
     export type PrecomputeDebugStateParams = {
     /**
