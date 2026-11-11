@@ -7,9 +7,10 @@ from django.db.models import BigIntegerField, F, IntegerField
 from django.db.models.functions import Coalesce
 
 from posthog.integrations import IntegrationManager
-from posthog.models import EventProperty, PropertyDefinition, Team
+from posthog.models import Team
 
 from products.access_control.backend.facade.api import person_property_names_with_access_rules
+from products.event_definitions.backend.models import EventProperty, PropertyDefinition
 from products.messaging.backend.facade.api import EmailTemplateSummary, list_email_templates
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig

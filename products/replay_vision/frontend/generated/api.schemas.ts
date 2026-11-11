@@ -2422,6 +2422,7 @@ export const SignalScoutConfigStatusEnumApi = {
  * * `no_output` - No output
  * * `ignored` - Ignored
  * * `repeated_failures` - Repeated failures
+ * * `trial_scout_limit` - Free trial scout limit
  * * `retired` - Retired
  * * `background_removed` - Background removed
  */
@@ -2432,6 +2433,7 @@ export const SignalScoutConfigPauseReasonEnumApi = {
     NoOutput: 'no_output',
     Ignored: 'ignored',
     RepeatedFailures: 'repeated_failures',
+    TrialScoutLimit: 'trial_scout_limit',
     Retired: 'retired',
     BackgroundRemoved: 'background_removed',
 } as const
@@ -2516,6 +2518,7 @@ export interface SignalScoutConfigApi {
      * * `no_output` - No output
      * * `ignored` - Ignored
      * * `repeated_failures` - Repeated failures
+     * * `trial_scout_limit` - Free trial scout limit
      * * `retired` - Retired
      * * `background_removed` - Background removed */
     readonly pause_reason: SignalScoutConfigPauseReasonEnumApi | null

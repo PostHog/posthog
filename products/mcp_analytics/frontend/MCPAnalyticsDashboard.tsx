@@ -1,16 +1,10 @@
 import { useValues } from 'kea'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { MCPAnalyticsLeaderboardHome } from './leaderboardHome/MCPAnalyticsLeaderboardHome'
 import { MCPAnalyticsDashboardOverview } from './MCPAnalyticsDashboardOverview'
+import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboard(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    return featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_LEADERBOARD_HOME] ? (
-        <MCPAnalyticsLeaderboardHome />
-    ) : (
-        <MCPAnalyticsDashboardOverview />
-    )
+    const { dashboardLayout } = useValues(mcpDashboardOverviewLogic)
+    return dashboardLayout === 'leaderboard' ? <MCPAnalyticsLeaderboardHome /> : <MCPAnalyticsDashboardOverview />
 }

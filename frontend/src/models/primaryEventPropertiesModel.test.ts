@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -47,6 +48,31 @@ describe('the primary event properties model', () => {
             })
     })
 
+    it('keeps the results of both loads when an earlier load finishes after a later one', async () => {
+        let releaseFirstLoad: () => void = () => {}
+        const firstLoadGate = new Promise<void>((resolve) => {
+            releaseFirstLoad = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/event_definitions/primary_properties/': async ({ request }) => {
+                    if (request.url.includes('first_event')) {
+                        await firstLoadGate
+                        return [200, { primary_properties: { first_event: 'first_prop' } }]
+                    }
+                    return [200, { primary_properties: { second_event: 'second_prop' } }]
+                },
+            },
+        })
+
+        const firstLoad = logic.asyncActions.loadPrimaryProperties({ names: ['first_event'] })
+        await logic.asyncActions.loadPrimaryProperties({ names: ['second_event'] })
+        releaseFirstLoad()
+        await firstLoad
+
+        expect(logic.values.primaryProperties).toEqual({ first_event: 'first_prop', second_event: 'second_prop' })
+    })
+
     it('folds the API response into the loaded map when a pin succeeds', async () => {
         await expectLogic(logic, () => {
             logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
@@ -57,10 +83,10 @@ describe('the primary event properties model', () => {
 
     it('reports loading while a pin update is in flight', async () => {
         logic.actions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' })
-        expect(logic.values.primaryPropertiesLoading).toBe(true)
+        expect(logic.values.primaryPropertyChangesLoading).toBe(true)
 
         await expectLogic(logic).toDispatchActions(['updatePrimaryPropertySuccess'])
-        expect(logic.values.primaryPropertiesLoading).toBe(false)
+        expect(logic.values.primaryPropertyChangesLoading).toBe(false)
     })
 
     it('removes the entry when unpinned', async () => {
@@ -119,5 +145,40 @@ describe('the primary event properties model', () => {
         }).toDispatchActions(['loadPrimaryPropertiesFailure'])
 
         expect(logic.values.loadedEventNames).toEqual([])
+    })
+
+    it.each([
+        {
+            name: 'a load',
+            method: 'get',
+            url: '/api/projects/:team_id/event_definitions/primary_properties/',
+            start: (): Promise<unknown> => logic.asyncActions.loadPrimaryProperties({ names: ['my_event'] }),
+        },
+        {
+            name: 'a pin',
+            method: 'patch',
+            url: '/api/projects/:team_id/event_definitions/:id/',
+            start: (): Promise<unknown> =>
+                logic.asyncActions.updatePrimaryProperty({ eventName: 'my_event', propertyKey: 'chosen_prop' }),
+        },
+    ])('does not report an error when the model unmounts during $name', async ({ method, url, start }) => {
+        let releaseResponse: () => void = () => {}
+        const responseGate = new Promise<void>((resolve) => {
+            releaseResponse = resolve
+        })
+        useMocks({
+            [method]: {
+                [url]: async () => {
+                    await responseGate
+                    return [200, { id: 'def-1', primary_property: 'chosen_prop', primary_properties: {} }]
+                },
+            },
+        })
+        const loaderSettled = start()
+        logic.unmount()
+        releaseResponse()
+        await loaderSettled
+
+        expect(posthog.captureException).not.toHaveBeenCalled()
     })
 })

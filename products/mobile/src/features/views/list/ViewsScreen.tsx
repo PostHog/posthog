@@ -48,7 +48,14 @@ import { ViewsReauthState } from '../ViewsReauthState'
 import { ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
-import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, browseEntryPin } from './BrowseEntryRow'
+import {
+    BROWSE_ENTRIES,
+    type BrowseEntry,
+    BrowseEntryRow,
+    browseEntryInDemo,
+    browseEntryLabel,
+    browseEntryPin,
+} from './BrowseEntryRow'
 import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
@@ -335,11 +342,10 @@ function ViewsBody(): ReactElement {
     }, [])
     const openBrowse = useCallback((entry: BrowseEntry) => {
         const { router: nav } = latest.current
-        if (entry === 'web') {
-            const href = viewHref({ kind: 'web_analytics', ref: null }, { from: 'browse' })
-            if (href) {
-                nav.push(href)
-            }
+        // Web analytics and Live send their own open events with `from`, so only the lists count a Browse open here.
+        if (entry === 'web' || entry === 'live') {
+            const pin = entry === 'web' ? 'web_analytics' : 'live'
+            openNavTarget(nav, pin, isNavPinned(pin), 'browse')
             return
         }
         trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
@@ -779,7 +785,7 @@ function ViewsBody(): ReactElement {
                         <BrowseEntryRow
                             entry={item.entry}
                             position={item.position}
-                            enabled={browseEntryPin(item.entry) === null || context.mode === 'live'}
+                            enabled={browseEntryInDemo(item.entry) || context.mode === 'live'}
                             onPress={openBrowse}
                             onMenu={openBrowseMenu}
                         />

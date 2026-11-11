@@ -137,6 +137,16 @@ class TestSiteFunctions(TestCase):
         assert "let inputs = {\n};" in result
 
     @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
+    def test_get_transpiled_function_skips_none_input(self, mock_transpile_fn):
+        self.hog_function.hog = "export function onLoad() { console.log(inputs.message, inputs.unset); }"
+        self.hog_function.inputs = {"message": {"value": "Hello"}, "unset": None}
+
+        result = self.compile_and_run()
+
+        assert 'let inputs = {\n"message": "Hello"};' in result
+        assert '"unset"' not in result
+
+    @patch("products.cdp.backend.site_functions.transpile", side_effect=mock_transpile)
     def test_get_transpiled_function_with_non_template_string(self, mock_transpile_fn):
         self.hog_function.hog = "export function onLoad() { console.log(inputs.staticMessage); }"
         self.hog_function.inputs = {"staticMessage": {"value": "This is a static message."}}

@@ -57,6 +57,7 @@ jest.mock('./runStreamLogic', () => {
             setStubThinking: (thinking: boolean) => ({ thinking }),
             setStubReady: (ready: boolean) => ({ ready }),
             setStubClearSupported: (supported: boolean) => ({ supported }),
+            setStubReplySuggestions: (replySuggestions: unknown) => ({ replySuggestions }),
             ingestPermissionRequest: (record: PermissionRequestRecord) => ({ record }),
             markPermissionRequestResolved: (requestId: string) => ({ requestId }),
             deliverPermission: (record: PermissionRequestRecord) => ({ record }),
@@ -133,6 +134,13 @@ jest.mock('./runStreamLogic', () => {
                 null,
                 {
                     setCurrentMode: (_: string | null, { mode }: { mode: string }) => mode,
+                },
+            ],
+            replySuggestions: [
+                null,
+                {
+                    setStubReplySuggestions: (_: unknown, { replySuggestions }: { replySuggestions: unknown }) =>
+                        replySuggestions,
                 },
             ],
         }),
@@ -237,6 +245,45 @@ describe('runInteractionLogic', () => {
         stream?.unmount()
         project?.unmount()
         toolEvents?.unmount()
+    })
+
+    describe('reply suggestions', () => {
+        const REPLY = 'Yes, write the snippet'
+        const offer = (turnIndex: number): void =>
+            (
+                stream.actions as unknown as { setStubReplySuggestions: (value: unknown) => void }
+            ).setStubReplySuggestions({ turnIndex, replies: [REPLY] })
+
+        it.each([
+            ['offers the first reply when the agent waits', () => {}, REPLY],
+            ['hides it while the agent is working', () => setThinking(true), null],
+            ['hides it for the turn the user dismissed', () => logic.actions.dismissReplySuggestion(2), null],
+            ['hides it once the user accepted it', () => logic.actions.acceptReplySuggestion(REPLY, 'Tab'), null],
+            ['hides it while a message is sending', () => logic.actions.setSending(true), null],
+        ])('%s', (_name, act, expected) => {
+            offer(2)
+            act()
+            expect(logic.values.replySuggestion).toBe(expected)
+        })
+
+        it('shows the next turn after a dismissed one', () => {
+            offer(2)
+            logic.actions.dismissReplySuggestion(2)
+            offer(3)
+            expect(logic.values.replySuggestion).toBe(REPLY)
+        })
+
+        it.each([
+            [REPLY, false],
+            [`${REPLY} in TypeScript`, true],
+        ])('reports whether the accepted reply was sent as %s', async (sent, edited) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            offer(2)
+            logic.actions.acceptReplySuggestion(REPLY, 'Tab')
+            await expectLogic(logic, () => stream.actions.pushHumanMessage(sent)).toFinishAllListeners()
+            expect(capture).toHaveBeenCalledWith('posthog ai reply suggestion sent', { task_id: TASK_ID, edited })
+            expect(logic.values.acceptedReplySuggestion).toBeNull()
+        })
     })
 
     describe('file attachments', () => {
@@ -1294,7 +1341,12 @@ describe('runInteractionLogic', () => {
             expect(tasksRunCreate).toHaveBeenCalledWith(
                 '997',
                 TASK_ID,
-                { resume_from_run_id: RUN_ID, pending_user_message: 'continue from here', ...selection },
+                {
+                    resume_from_run_id: RUN_ID,
+                    pending_user_message: 'continue from here',
+                    mode: 'interactive',
+                    ...selection,
+                },
                 expect.objectContaining({ signal: expect.any(AbortSignal) })
             )
         })
@@ -1330,6 +1382,7 @@ describe('runInteractionLogic', () => {
                 initial_permission_mode: 'auto',
                 resume_from_run_id: RUN_ID,
                 pending_user_message: 'continue from here',
+                mode: 'interactive',
             },
             expect.objectContaining({ signal: expect.any(AbortSignal) })
         )

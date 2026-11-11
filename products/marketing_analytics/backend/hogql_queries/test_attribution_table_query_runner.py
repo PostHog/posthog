@@ -23,13 +23,13 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.test.utils import pretty_print_in_tests
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.models import PropertyDefinition
 from posthog.models.team.team_marketing_analytics_config import MAX_ATTRIBUTION_WINDOW_DAYS
 from posthog.models.utils import uuid7
 from posthog.test.persons import create_person
 
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.marketing_analytics.backend.hogql_queries.attribution_table_query_runner import (
     MarketingAnalyticsAttributionQueryRunner,
 )

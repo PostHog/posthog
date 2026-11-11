@@ -965,6 +965,60 @@
   LIMIT 50000
   '''
 # ---
+# name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_quantile_events
+  '''
+  WITH exposures AS
+    (SELECT person_id AS entity_id,
+            if(greater(uniqExact(properties.$feature_flag_response), 1), '$multiple', any(properties.$feature_flag_response)) AS variant,
+            min(timestamp) AS first_exposure_time,
+            max(timestamp) AS last_exposure_time,
+            argMin(uuid, timestamp) AS exposure_event_uuid,
+            argMin($session_id, timestamp) AS exposure_session_id
+     FROM events
+     WHERE and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), lessOrEquals(timestamp, assumeNotNull(toDateTime('2024-01-20 12:00:00'))), and(in(event, ['$feature_flag_called', '$experiment_exposure']), equals(properties.$feature_flag, 'checkout-redesign')), notILike(toString(person.properties.email), '%@posthog.com%'), in(properties.$feature_flag_response, ['control', 'test']))
+     GROUP BY entity_id),
+       metric_events AS
+    (SELECT person_id AS entity_id,
+            timestamp AS timestamp,
+            toFloat(properties.app_ready_ms) AS value
+     FROM events
+     WHERE and(greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00'))), less(events.timestamp, plus(assumeNotNull(toDateTime('2024-01-20 12:00:00')), toIntervalSecond(604800))), equals(event, 'app_ready'))),
+       variant_events AS
+    (SELECT exposures.variant AS variant,
+            exposures.entity_id AS entity_id,
+            metric_events.value AS value
+     FROM metric_events
+     JOIN exposures ON equals(exposures.entity_id, metric_events.entity_id)
+     WHERE and(and(greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time), less(metric_events.timestamp, plus(exposures.first_exposure_time, toIntervalSecond(604800)))), notEquals(metric_events.value, NULL))),
+       variant_quantiles AS
+    (SELECT variant_events.variant AS variant,
+            quantilesExact(0.9, 0.8412010805, 0.9587989195, 0.8584228853, 0.9415771147, 0.8706005402, 0.9293994598, 0.8792114426, 0.9207885574, 0.8853002701, 0.9146997299, 0.8896057213, 0.9103942787, 0.8926501351, 0.9073498649, 0.8948028607, 0.9051971393, 0.8963250675, 0.9036749325, 0.8974014303, 0.9025985697, 0.8981625338, 0.9018374662, 0.8987007152, 0.9012992848, 0.8990812669, 0.9009187331, 0.8993503576, 0.9006496424, 0.8995406334, 0.9004593666, 0.8996751788, 0.9003248212, 0.8997703167, 0.9002296833, 0.8998375894, 0.9001624106, 0.8998851584, 0.9001148416, 0.8999187947, 0.9000812053)(variant_events.value) AS quantile_grid
+     FROM variant_events
+     GROUP BY variant_events.variant),
+       entity_stats AS
+    (SELECT variant_events.variant AS variant,
+            variant_events.entity_id AS entity_id,
+            countIf(lessOrEquals(variant_events.value, variant_quantiles.quantile_grid[1])) AS events_below_quantile,
+            count() AS event_count,
+            any(variant_quantiles.quantile_grid) AS quantile_grid
+     FROM variant_events
+     JOIN variant_quantiles ON equals(variant_events.variant, variant_quantiles.variant)
+     GROUP BY variant_events.variant,
+              variant_events.entity_id)
+  SELECT exposures.variant AS variant,
+         count(exposures.entity_id) AS num_users,
+         sum(coalesce(entity_stats.events_below_quantile, 0)) AS total_sum,
+         sum(power(coalesce(entity_stats.events_below_quantile, 0), 2)) AS total_sum_of_squares,
+         sum(coalesce(entity_stats.event_count, 0)) AS denominator_sum,
+         sum(power(coalesce(entity_stats.event_count, 0), 2)) AS denominator_sum_squares,
+         sum(multiply(coalesce(entity_stats.events_below_quantile, 0), coalesce(entity_stats.event_count, 0))) AS numerator_denominator_sum_product,
+         anyIf(entity_stats.quantile_grid, notEmpty(entity_stats.quantile_grid)) AS quantile_grid
+  FROM exposures
+  LEFT JOIN entity_stats ON and(equals(exposures.entity_id, entity_stats.entity_id), equals(exposures.variant, entity_stats.variant))
+  GROUP BY exposures.variant
+  LIMIT 50000
+  '''
+# ---
 # name: TestExperimentQueryBuilderSnapshots.test_built_query_matches_snapshot_ratio_breakdown
   '''
   WITH exposures AS

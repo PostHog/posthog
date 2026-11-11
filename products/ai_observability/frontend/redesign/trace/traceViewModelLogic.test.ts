@@ -2,7 +2,9 @@ import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -14,10 +16,13 @@ import {
     decodeIdSegment,
     makeEvaluationResults,
     makeFeedback,
+    makeFeedbackScore,
+    makeMessage,
     makeNodeDetail,
+    makeRawNode,
     makeTraceCluster,
     makeTraceResource,
-} from './adapter/testFixtures'
+} from './testFixtures'
 import { traceSummaryLogic } from './traceSummaryLogic'
 import { traceViewHostLogic } from './traceViewHostLogic'
 import { traceViewModelLogic } from './traceViewModelLogic'
@@ -27,6 +32,7 @@ jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), 
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const CLUSTERS_URL = '/api/projects/:team_id/ai_observability/traces/:id/clusters/'
 const CREATED_AT = '2026-09-01T10:15:00Z'
@@ -37,11 +43,28 @@ const HOST_ID = 'test-host'
 
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
-    properties: {
-        $ai_input: [{ role: 'user', content: 'Why did my invoice go up?' }],
-        $ai_output_choices: [{ role: 'assistant', content: 'Two seats were added.' }],
+    content: {
+        input: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-in-0',
+                    role: 'user',
+                    parts: [{ kind: 'text', text: 'Why did my invoice go up?' }],
+                }),
+            ],
+        },
+        output: {
+            kind: 'messages',
+            messages: [
+                makeMessage({
+                    id: 'gen-2-out-0',
+                    role: 'assistant',
+                    parts: [{ kind: 'text', text: 'Two seats were added.' }],
+                }),
+            ],
+        },
     },
-    ioKeys: { input: '$ai_input', output: '$ai_output_choices' },
 })
 
 interface HostState {
@@ -50,12 +73,21 @@ interface HostState {
     seedQuery?: string
 }
 
+const FEEDBACK = makeFeedback({
+    steps: [
+        { nodeId: 'gen-1', scores: [makeFeedbackScore()], responseCount: 0, total: 1 },
+        { nodeId: 'trace-1', scores: [], responseCount: 1, total: 1 },
+    ],
+})
+
 describe('traceViewModelLogic', () => {
     let logic: ReturnType<typeof traceViewModelLogic.build>
     let host: ReturnType<typeof traceViewHostLogic.build>
     let traceResource: TraceApi
     let traceGate: Promise<void>
     let nodeRequests: string[]
+    let rawRequests: string[]
+    let failingRawNodeId: string | null
     let failingNodeId: string | null
     let clusterRequests: string[]
     let clustersStatus: number
@@ -85,6 +117,8 @@ describe('traceViewModelLogic', () => {
         traceResource = makeTraceResource({ nodeIdsByAlias: { 'sdk-gen-1': 'gen-1' } })
         traceGate = Promise.resolve()
         nodeRequests = []
+        rawRequests = []
+        failingRawNodeId = null
         failingNodeId = null
         clusterRequests = []
         clustersStatus = 200
@@ -113,7 +147,7 @@ describe('traceViewModelLogic', () => {
                         : [clustersStatus, { detail: 'Server error.' }]
                 },
                 [FEEDBACK_URL]: () =>
-                    feedbackStatus === 200 ? [200, makeFeedback()] : [feedbackStatus, { detail: 'Server error.' }],
+                    feedbackStatus === 200 ? [200, FEEDBACK] : [feedbackStatus, { detail: 'Server error.' }],
                 [SEARCH_URL]: () =>
                     searchStatus === 200
                         ? [
@@ -127,6 +161,22 @@ describe('traceViewModelLogic', () => {
                               },
                           ]
                         : [searchStatus, { detail: 'Search timed out.' }],
+                [RAW_URL]: ({ params }) => {
+                    const nodeId = decodeIdSegment(String(params.node_id))
+                    rawRequests.push(nodeId)
+                    if (nodeId === failingRawNodeId) {
+                        failingRawNodeId = null
+                        return [500, { detail: 'Server error.' }]
+                    }
+                    return [
+                        200,
+                        makeRawNode({
+                            id: nodeId,
+                            properties: { $ai_input: 'hi', plan: 'pro' },
+                            ioKeys: { input: '$ai_input' },
+                        }),
+                    ]
+                },
                 [NODE_URL]: ({ params }) => {
                     const nodeId = decodeIdSegment(String(params.node_id))
                     nodeRequests.push(nodeId)
@@ -176,6 +226,7 @@ describe('traceViewModelLogic', () => {
         ['a node in the tree', { requestedStepId: 'span-1' }, 'span-1'],
         ['an SDK id through its alias', { requestedStepId: 'sdk-gen-1' }, 'gen-1'],
         ['a stale id as the root', { requestedStepId: 'missing' }, 'trace-1'],
+        ['a stale id named like an object member as the root', { requestedStepId: 'constructor' }, 'trace-1'],
         ['the trace itself as the root, not the default node', { requestedStepId: 'trace-1' }, 'trace-1'],
         ['no id as the default node', {}, 'gen-1'],
         ['a trace-level link as the root', { openingMode: 'summary' }, 'trace-1'],
@@ -184,7 +235,7 @@ describe('traceViewModelLogic', () => {
         mountAt(state)
 
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ selectedNodeId: expected })
-        expect(logic.values.detailData?.content.kind).not.toBe('error')
+        expect(logic.values.selectedNodeLoad.status).not.toBe('error')
     })
 
     it('reads no root node for a step requested for the next trace', async () => {
@@ -221,13 +272,13 @@ describe('traceViewModelLogic', () => {
         mountAt()
 
         expect(clusterRequests).toEqual([])
-        expect(logic.values.clustersChip).toBeNull()
+        expect(logic.values.clusters).toBeNull()
 
         releaseTrace()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(clusterRequests).toEqual([CREATED_AT])
-        expect(logic.values.clustersChip?.first.label).toBe('Billing questions')
+        expect(logic.values.clusters?.[0].label).toBe('Billing questions')
     })
 
     it('shows no clusters chip and no toast when the clusters read fails', async () => {
@@ -235,7 +286,7 @@ describe('traceViewModelLogic', () => {
         clustersStatus = 500
         mountAt()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', clustersChip: null })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', clusters: null })
         expect(clusterRequests).toEqual([CREATED_AT])
         expect(toast).not.toHaveBeenCalled()
     })
@@ -283,14 +334,14 @@ describe('traceViewModelLogic', () => {
         mountAt()
         await expectLogic(logic).toFinishAllListeners()
         nodeRequests = []
-        const { detailData, thread } = logic.values
+        const { selectedNodeLoad, thread } = logic.values
 
         logic.actions.prefetchNode('span-1')
         logic.actions.prefetchNode('gen-1')
         await expectLogic(logic).toFinishAllListeners()
 
         expect(nodeRequests).toEqual(['gen-1'])
-        expect(logic.values.detailData).toBe(detailData)
+        expect(logic.values.selectedNodeLoad).toBe(selectedNodeLoad)
         expect(logic.values.thread).toBe(thread)
     })
 
@@ -304,10 +355,8 @@ describe('traceViewModelLogic', () => {
                     status: 'ready',
                     turns: [
                         expect.objectContaining({
-                            messages: [
-                                expect.objectContaining({ role: 'user' }),
-                                expect.objectContaining({ role: 'assistant' }),
-                            ],
+                            input: { kind: 'messages', messages: [expect.objectContaining({ role: 'user' })] },
+                            output: { kind: 'messages', messages: [expect.objectContaining({ role: 'assistant' })] },
                         }),
                     ],
                 }),
@@ -320,13 +369,13 @@ describe('traceViewModelLogic', () => {
             failingNodeId = 'span-1'
             mountAt({ requestedStepId: 'span-1' })
             await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.detailData?.content.kind).toBe('error')
+            expect(logic.values.selectedNodeLoad.status).toBe('error')
 
             logic.actions[select]('span-1')
             await expectLogic(logic).toFinishAllListeners()
 
             expect(nodeRequests.filter((nodeId) => nodeId === 'span-1')).toHaveLength(2)
-            expect(logic.values.detailData?.content.kind).toBe('io')
+            expect(logic.values.selectedNodeLoad.status).toBe('ready')
         }
     )
 
@@ -345,7 +394,9 @@ describe('traceViewModelLogic', () => {
         useMocks({ get: { [EVALUATIONS_URL]: () => [500, { detail: 'Server error.' }] } })
         mountAt()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ evalsChip: null, evalOutcomesByNode: {} })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ evaluationResults: null, evalOutcomes: new Map() })
     })
 
     it.each([
@@ -371,6 +422,17 @@ describe('traceViewModelLogic', () => {
         })
     })
 
+    it('indexes the step labels the trace sends by node id', async () => {
+        traceResource = makeTraceResource()
+        traceResource.tree[0].children[1].label = 'openai.chat #2'
+        mountAt()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.stepLabels.get('gen-1')).toBe('openai.chat #2')
+        expect(logic.values.stepLabels.get('trace-1')).toBe('answer-billing-question')
+    })
+
     it.each([
         ['gen-2', 'the thread node', true],
         ['trace-1', 'the root', true],
@@ -391,9 +453,13 @@ describe('traceViewModelLogic', () => {
         await expectLogic(logic, () => logic.actions.showFeedback('gen-1', 'step')).toMatchValues({
             mode: 'feedback',
             feedbackFocusNodeId: 'gen-1',
-            feedbackChip: { total: 2, thumbsUp: 0, thumbsDown: 0 },
-            feedbackCountByNodeId: { 'gen-1': 1, 'trace-1': 1 },
+            feedbackCount: 2,
         })
+        expect([...logic.values.stepFeedback].map(([nodeId, step]) => [nodeId, step.total])).toEqual([
+            ['gen-1', 1],
+            ['trace-1', 1],
+        ])
+        expect(logic.values.selectedStepFeedback).toMatchObject({ nodeId: 'trace-1', total: 1 })
         expect(capture).toHaveBeenCalledWith('llma trace view feedback viewed', {
             entry: 'step',
             scores: 1,
@@ -413,14 +479,12 @@ describe('traceViewModelLogic', () => {
         feedbackStatus = 500
         mountAt()
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({
-                status: 'ready',
-                feedbackChip: null,
-                feedbackCountByNodeId: {},
-                feedbackMode: { status: 'error' },
-            })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({
+            status: 'ready',
+            feedbackCount: null,
+            stepFeedback: new Map(),
+            traceFeedbackFailed: true,
+        })
     })
 
     it('takes the search from the host, then follows its changes', async () => {
@@ -551,6 +615,65 @@ describe('traceViewModelLogic', () => {
         await expectLogic(summary).toDispatchActions([summary.actionCreators.openSummary('tab'), 'loadSummarySuccess'])
         expect(summary.values.isOpen).toBe(true)
         expect(summaryRequests).toBe(0)
+    })
+
+    it('reads the raw event of the selected step when the Raw tab opens and again when the step changes', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(rawRequests).toEqual([])
+
+        logic.actions.setDetailTab('raw')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.selectNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(rawRequests).toEqual(['trace-1', 'span-1'])
+        expect(logic.values.selectedRaw).toMatchObject({ status: 'ready' })
+    })
+
+    it('keeps the step detail when only its raw read changes', async () => {
+        mountAt()
+        await expectLogic(logic).toFinishAllListeners()
+        const { selectedNodeLoad } = logic.values
+
+        logic.actions.setDetailTab('raw')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.selectedRaw).toMatchObject({ status: 'ready' })
+        expect(logic.values.selectedNodeLoad).toBe(selectedNodeLoad)
+    })
+
+    it('reads a failed raw event again when the same step is selected again', async () => {
+        silenceKeaLoadersErrors()
+        failingRawNodeId = 'span-1'
+        mountAt({ requestedStepId: 'span-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.loadRawNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'error' })
+
+        logic.actions.selectNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(rawRequests).toEqual(['span-1', 'span-1'])
+        expect(logic.values.rawNodes.get('span-1')).toMatchObject({ status: 'ready' })
+    })
+
+    it('offers no dataset item until the raw read of the selected step arrives', async () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]: true })
+        mountAt({ requestedStepId: 'span-1' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.datasetItemSource).toBeNull()
+
+        logic.actions.loadRawNode('span-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.datasetItemSource).toMatchObject({
+            sourceId: 'span-1',
+            input: 'hi',
+            metadata: { plan: 'pro' },
+        })
     })
 
     it('keeps mode and step tab when the trace changes', async () => {

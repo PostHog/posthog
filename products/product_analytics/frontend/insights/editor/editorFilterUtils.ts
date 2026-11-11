@@ -1,3 +1,5 @@
+import posthog from 'posthog-js'
+
 import { formatEventName } from 'lib/insights/entityFilterNames'
 import { pluralize } from 'lib/utils/strings'
 
@@ -13,6 +15,14 @@ function formatPropertyName(name: string): string {
         }
     }
     return name
+}
+
+export function captureEditorGroupToggle(section: string, opened: boolean, queryKind?: string): void {
+    posthog.capture('editor panel section toggled', {
+        section,
+        action: opened ? 'opened' : 'closed',
+        query_kind: queryKind,
+    })
 }
 
 /** An InsightEditorFilter with an optional `show` field. When `show` is false, null, or undefined, the filter is excluded. */

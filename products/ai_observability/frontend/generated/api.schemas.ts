@@ -1429,77 +1429,6 @@ export interface OfflineHistoryPageApi {
     results: OfflineHistoryPointApi[]
 }
 
-export type TraceApiNodeIdsByAlias = { [key: string]: string }
-
-export interface TracePersonApi {
-    distinctId: string
-    label: string
-}
-
-export interface TraceNodeStatsApi {
-    costUsd: number | null
-    inputTokens: number | null
-    outputTokens: number | null
-    cacheReadTokens: number | null
-    cacheWriteTokens: number | null
-    latencyMs: number | null
-}
-
-export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
-
-export const TraceNodeKindEnumApi = {
-    Trace: 'trace',
-    Span: 'span',
-    Generation: 'generation',
-    Embedding: 'embedding',
-} as const
-
-export interface TraceNodeApi {
-    id: string
-    kind: TraceNodeKindEnumApi
-    name: string
-    model: string | null
-    stats: TraceNodeStatsApi
-    hasError: boolean
-    children: TraceNodeApi[]
-}
-
-export interface TraceTimelineRowApi {
-    id: string
-    kind: TraceNodeKindEnumApi
-    name: string
-    depth: number
-    startMs: number
-    durationMs: number | null
-    hasError: boolean
-}
-
-export interface TraceGitApi {
-    /** The git branch checked out when the trace ran. */
-    branch: string
-    /** The repository as owner/name, or null when the branch's event has none. */
-    repo: string | null
-}
-
-export interface TraceApi {
-    id: string
-    name: string | null
-    createdAt: string
-    sessionId: string | null
-    person: TracePersonApi | null
-    totals: TraceNodeStatsApi
-    hasError: boolean
-    errorCount: number
-    tree: TraceNodeApi[]
-    timeline: TraceTimelineRowApi[]
-    totalMs: number
-    threadNodeIds: string[]
-    defaultNodeId: string
-    nodeIdsByAlias: TraceApiNodeIdsByAlias
-    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
-    git: TraceGitApi | null
-}
-
 export interface TraceClusterApi {
     /** The clustering run that put the trace in this cluster. The cluster page is addressed by this id and the cluster id. */
     runId: string
@@ -1511,6 +1440,8 @@ export interface TraceClusterApi {
     /** The cluster's id within its run. -1 is the run's outliers. */
     clusterId: number
     title: string | null
+    /** The cluster's title, or Outliers for the run's outliers, or Cluster <id> when the run gave it no title. */
+    label: string
     description: string | null
     /** The trace fit no cluster in this run. */
     isOutlier: boolean
@@ -1608,12 +1539,77 @@ export interface TraceExportApi {
     exception: string | null
 }
 
-export interface TraceNodeMetadataApi {
-    provider: string | null
-    temperature: number | null
+export interface TracePersonApi {
+    distinctId: string
+    label: string
+}
+
+export interface TraceNodeStatsApi {
+    costUsd: number | null
+    inputTokens: number | null
+    outputTokens: number | null
+    cacheReadTokens: number | null
+    cacheWriteTokens: number | null
+    latencyMs: number | null
+}
+
+export type TraceNodeKindEnumApi = (typeof TraceNodeKindEnumApi)[keyof typeof TraceNodeKindEnumApi]
+
+export const TraceNodeKindEnumApi = {
+    Trace: 'trace',
+    Span: 'span',
+    Generation: 'generation',
+    Embedding: 'embedding',
+} as const
+
+export interface TraceNodeApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    /** The node's name, numbered #1, #2 and so on when nodes in the trace share it, in tree order. */
+    label: string
+    model: string | null
+    stats: TraceNodeStatsApi
+    hasError: boolean
+    children: TraceNodeApi[]
+}
+
+export interface TraceTimelineRowApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    name: string
+    depth: number
+    startMs: number
+    durationMs: number | null
+    hasError: boolean
+}
+
+export interface TraceGitApi {
+    /** The git branch checked out when the trace ran. */
+    branch: string
+    /** The repository as owner/name, or null when the branch's event has none. */
+    repo: string | null
+}
+
+export type TraceApiNodeIdsByAlias = { [key: string]: string }
+
+export interface TraceApi {
+    id: string
+    name: string | null
+    createdAt: string
     sessionId: string | null
-    promptName: string | null
-    promptVersion: number | null
+    person: TracePersonApi | null
+    totals: TraceNodeStatsApi
+    hasError: boolean
+    errorCount: number
+    tree: TraceNodeApi[]
+    timeline: TraceTimelineRowApi[]
+    totalMs: number
+    threadNodeIds: string[]
+    defaultNodeId: string
+    nodeIdsByAlias: TraceApiNodeIdsByAlias
+    /** The branch the trace's work ran on: the latest stamped branch other than main or master, else the first stamp. Null when no event carries a branch. */
+    git: TraceGitApi | null
 }
 
 export interface TraceNodeIOKeysApi {
@@ -1637,11 +1633,11 @@ export interface TraceNodeEventApi {
     ioKeys: TraceNodeIOKeysApi
 }
 
-export interface TraceNodeDetailApi {
+export interface TraceNodeRawApi {
+    /** The node id: the event's uuid, or the trace id for the root node. */
     id: string
     kind: TraceNodeKindEnumApi
-    error: string | null
-    metadata: TraceNodeMetadataApi
+    /** The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event. */
     event: TraceNodeEventApi | null
 }
 
@@ -1650,8 +1646,8 @@ export interface TraceExportFileApi {
     trace: TraceApi
     /** True when the trace has more events than an export reads. The file then holds the earliest events only, and leaves out the later steps. */
     truncated: boolean
-    /** Every node with its event properties as ingested, inputs and outputs included: the root first, then the tree in pre-order. */
-    nodes: TraceNodeDetailApi[]
+    /** Every node with its event as ingested: the root first, then the tree in pre-order. */
+    nodes: TraceNodeRawApi[]
 }
 
 export interface TraceExportErrorApi {
@@ -1761,6 +1757,16 @@ export interface TraceFeedbackSummaryApi {
     thumbsDown: number
 }
 
+export interface TraceStepFeedbackApi {
+    /** The tree node the entries target: the step's event uuid, or the trace id for trace-level feedback. */
+    nodeId: string
+    /** Oldest first. */
+    scores: TraceFeedbackScoreApi[]
+    responseCount: number
+    /** Scores plus responses. */
+    total: number
+}
+
 export interface TraceFeedbackApi {
     /** Oldest first. */
     scores: TraceFeedbackScoreApi[]
@@ -1771,6 +1777,115 @@ export interface TraceFeedbackApi {
     /** ok when survey responses are included, failed when the survey read failed, not_permitted when the token lacks the survey:read and query:read scopes. */
     surveyResponsesStatus: SurveyResponsesStatusEnumApi
     summary: TraceFeedbackSummaryApi
+    /** One entry per node with feedback, sorted by node id. */
+    steps: TraceStepFeedbackApi[]
+}
+
+export interface TraceNodeMetadataApi {
+    provider: string | null
+    temperature: number | null
+    sessionId: string | null
+    promptName: string | null
+    promptVersion: number | null
+}
+
+export interface TraceNodeDetailEventApi {
+    name: string
+    uuid: string
+    timestamp: string
+}
+
+export type TraceMessageRoleEnumApi = (typeof TraceMessageRoleEnumApi)[keyof typeof TraceMessageRoleEnumApi]
+
+export const TraceMessageRoleEnumApi = {
+    System: 'system',
+    User: 'user',
+    Assistant: 'assistant',
+    Tool: 'tool',
+} as const
+
+export interface TraceTextPartApi {
+    kind: 'text'
+    /** The text of the message, as captured. */
+    text: string
+}
+
+export interface TraceThinkingPartApi {
+    kind: 'thinking'
+    /** The model's reasoning text. */
+    text: string
+}
+
+export interface TraceToolCallPartApi {
+    kind: 'toolCall'
+    /** The name of the called tool, or an empty string when the event has none. */
+    name: string
+    /** The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured. */
+    args: unknown
+    /** The content of the tool message that answers this call, parsed from JSON text when no number loses precision in a browser. Null when no tool message answers the call. */
+    result: unknown
+}
+
+export type TraceAttachmentMediaTypeApi = (typeof TraceAttachmentMediaTypeApi)[keyof typeof TraceAttachmentMediaTypeApi]
+
+export const TraceAttachmentMediaTypeApi = {
+    Image: 'image',
+    Audio: 'audio',
+    Video: 'video',
+    File: 'file',
+} as const
+
+export interface TraceAttachmentPartApi {
+    kind: 'attachment'
+    /** The kind of media, which decides how it is shown. */
+    mediaType: TraceAttachmentMediaTypeApi
+    /** The file name, or the content item's type for an item that is not known media. Null otherwise. */
+    name: string | null
+    /** The MIME type, such as `image/png`, or null when it is not known. */
+    mimeType: string | null
+    /** A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted. */
+    url: string | null
+}
+
+export interface TraceMessageApi {
+    /** An id that is unique within the node, made of the node id, the side and a position. */
+    id: string
+    role: TraceMessageRoleEnumApi
+    /** The message's text, reasoning, tool calls and attachments, in order. */
+    parts: (TraceTextPartApi | TraceThinkingPartApi | TraceToolCallPartApi | TraceAttachmentPartApi)[]
+    /** Whether the message is a tool message, or holds only reasoning and tool calls. */
+    isInternal: boolean
+    /** The id of the node whose input or output holds this message, or null when it is not known. */
+    sourceNodeId: string | null
+}
+
+export interface TraceMessagesSideApi {
+    kind: 'messages'
+    /** The conversation, normalized from the provider's format by the built-in parsers and the project's custom parsers. */
+    messages: TraceMessageApi[]
+}
+
+export interface TraceJsonSideApi {
+    kind: 'json'
+    /** The side's value as captured, for a side that is not a conversation or that could not be normalized. */
+    value: unknown
+}
+
+export interface TraceNodeContentApi {
+    /** The node's input, as messages or as JSON. */
+    input: TraceMessagesSideApi | TraceJsonSideApi
+    /** The node's output, as messages or as JSON. */
+    output: TraceMessagesSideApi | TraceJsonSideApi
+}
+
+export interface TraceNodeDetailApi {
+    id: string
+    kind: TraceNodeKindEnumApi
+    error: string | null
+    metadata: TraceNodeMetadataApi
+    event: TraceNodeDetailEventApi | null
+    /** The node's input and output, ready to render. */
+    content: TraceNodeContentApi
 }
 
 export interface TracePullRequestApi {
@@ -2250,6 +2365,33 @@ export interface DatasetExportErrorApi {
     detail: string
 }
 
+export interface DatasetExtendRetentionApi {
+    /**
+     * Revision to extend along with its dataset. Omit to extend only the dataset.
+     * @minimum 1
+     */
+    revision?: number
+}
+
+export interface DatasetRetentionEntryApi {
+    /** Dataset to open or extend. */
+    readonly dataset_id: string
+    /** Name of the dataset. */
+    readonly dataset_name: string
+    /** Whether the dataset is archived. */
+    readonly dataset_archived: boolean
+    /**
+     * Historical revision number, or null for a dataset.
+     * @nullable
+     */
+    readonly revision: number | null
+    /**
+     * Earliest cleanup time if this dataset or revision remains unused.
+     * @nullable
+     */
+    readonly expires_at: string | null
+}
+
 export interface DatasetRevisionReadApi {
     readonly id: string
     /** Dataset this revision belongs to. */
@@ -2275,6 +2417,17 @@ export interface PaginatedDatasetRevisionReadListApi {
     /** @nullable */
     previous?: string | null
     results: DatasetRevisionReadApi[]
+}
+
+export interface DatasetRetentionReadApi {
+    /** Accessible active and archived datasets within seven days of expiry. */
+    readonly datasets_count: number
+    /** Accessible older revisions within seven days of expiry, excluding the latest revision. */
+    readonly revisions_count: number
+    /** Total expiring entries of the requested kind. */
+    readonly count: number
+    /** Expiring entries, ordered by earliest cleanup time. */
+    readonly results: readonly DatasetRetentionEntryApi[]
 }
 
 export interface EvaluationDirectoryApi {
@@ -4304,7 +4457,7 @@ export interface ParserRecipeApi {
      */
     name: string
     /**
-     * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+     * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
      * @maxLength 100000
      */
     source: string
@@ -4332,7 +4485,7 @@ export interface PatchedParserRecipeApi {
      */
     name?: string
     /**
-     * Raw YAML recipe source. Must parse as YAML; recipe semantics are compiled and validated client-side.
+     * Raw YAML recipe source. Must compile as a parser recipe; a 400 response names the first problem found.
      * @maxLength 100000
      */
     source?: string
@@ -4401,6 +4554,59 @@ export interface PatchedLLMProviderKeyApi {
     readonly created_by?: UserBasicApi
     /** @nullable */
     readonly last_used_at?: string | null
+}
+
+export interface ProviderKeyDependentEvaluationApi {
+    /** Evaluation ID. */
+    id: string
+    /** Evaluation name. */
+    name: string
+    /** Model configuration that pins this key. Absent for evaluations on the active key. */
+    model_configuration_id?: string
+    /** Whether the evaluation is running. */
+    enabled: boolean
+    /**
+     * Why the system turned the evaluation off, such as provider_key_quota_exceeded.
+     * @nullable
+     */
+    status_reason: string | null
+}
+
+export interface ProviderKeyAlternativeApi {
+    /** Provider key ID. */
+    id: string
+    /** Provider key name. */
+    name: string
+    /** Provider of the key. */
+    provider: string
+}
+
+export interface ProviderKeyDependentConfigsApi {
+    /** Evaluations whose model configuration pins this key. */
+    evaluations: ProviderKeyDependentEvaluationApi[]
+    /** Working keys for the same provider that could replace this one. */
+    alternative_keys: ProviderKeyAlternativeApi[]
+    /** Errored evaluations with no pinned key, which run on this key while it is the project's active key. */
+    active_key_evaluations: ProviderKeyDependentEvaluationApi[]
+}
+
+export interface LLMProxyModelInfoApi {
+    /** Provider-specific model identifier. */
+    id: string
+    /** Model display name. */
+    name: string
+    /** Provider display name. */
+    provider: string
+    /** Description of the model. */
+    description: string
+    /** Whether the provider recommends this model. */
+    is_recommended: boolean
+    /** Whether this model supports decision questions. */
+    supports_decisions?: boolean
+    /** Whether this model supports chat completions with written reasoning. */
+    supports_chat?: boolean
+    /** Whether an evaluation judge can set a reasoning level for this model. */
+    supports_reasoning?: boolean
 }
 
 export interface ReviewQueueItemApi {
@@ -5923,13 +6129,6 @@ export const AiObservabilityOfflineScorersHistoryListTagMatch = {
     All: 'all',
 } as const
 
-export type AiObservabilityTracesRetrieveParams = {
-    /**
-     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
-     */
-    timestamp_hint?: string
-}
-
 export type AiObservabilityTracesClustersRetrieveParams = {
     /**
      * When the trace started, as the trace resource's createdAt. Bounds which clustering runs are read.
@@ -5970,6 +6169,13 @@ export type AiObservabilityTracesNodesRetrieveParams = {
     timestamp_hint?: string
 }
 
+export type AiObservabilityTracesNodesRawRetrieveParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
 export type AiObservabilityTracesPullRequestRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
@@ -5991,6 +6197,13 @@ export type AiObservabilityTracesSearchRetrieveParams = {
 }
 
 export type AiObservabilityTracesSummaryCreateParams = {
+    /**
+     * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
+     */
+    timestamp_hint?: string
+}
+
+export type AiObservabilityTracesRetrieveParams = {
     /**
      * When the trace happened, as carried by links into it. Lets a trace older than the AI events retention load from the shared events table.
      */
@@ -6144,6 +6357,36 @@ export type DatasetsRevisionsListParams = {
      */
     offset?: number
 }
+
+export type DatasetsRetentionRetrieveParams = {
+    /**
+     * Whether to return expiring datasets or older revisions. Counts always include both.
+     *
+     * * `datasets` - Datasets
+     * * `revisions` - Older revisions
+     * @minLength 1
+     */
+    kind?: DatasetsRetentionRetrieveKind
+    /**
+     * Maximum entries to return, up to 50.
+     * @minimum 1
+     * @maximum 50
+     */
+    limit?: number
+    /**
+     * Number of expiring entries to skip.
+     * @minimum 0
+     */
+    offset?: number
+}
+
+export type DatasetsRetentionRetrieveKind =
+    (typeof DatasetsRetentionRetrieveKind)[keyof typeof DatasetsRetentionRetrieveKind]
+
+export const DatasetsRetentionRetrieveKind = {
+    Datasets: 'datasets',
+    Revisions: 'revisions',
+} as const
 
 export type EvaluationsListParams = {
     /**

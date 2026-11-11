@@ -412,6 +412,17 @@ describe('personsLogic', () => {
         })
     })
 
+    it('gives the Today rail the person as a recent once the person has loaded, under one URL for each person', () => {
+        expect(logic.values.todayPeopleRecent).toBeNull()
+
+        logic.actions.setPerson({ id: 'uuid-1', distinct_ids: ['ada@example.com'], properties: {} } as PersonType)
+        expect(logic.values.todayPeopleRecent).toEqual({
+            type: 'person',
+            name: 'ada@example.com',
+            href: '/persons/uuid-1',
+        })
+    })
+
     describe('setPerson / setPersons reducers', () => {
         const personA: PersonType = {
             id: '1',

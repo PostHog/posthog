@@ -15,12 +15,22 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { parseBatch, readTeamIdHeader } from './message-parsing'
-import { counterParseError, counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
+import { EventNameGate, buildEventNameGate, runsOnEvents, triggersOnEvents } from './event-name-gate'
+import { parseBatch, readEventNameHeader, readTeamIdHeader } from './message-parsing'
+import {
+    counterEventNameSource,
+    counterParseError,
+    counterTeamIdHeaderMismatch,
+    counterTeamIdSource,
+    counterUnmatchedEventName,
+    counterUnmatchedEventNameInvoked,
+} from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 const isEventObject = (value: unknown): value is RawClickHouseEvent =>
     typeof value === 'object' && value !== null && !Array.isArray(value)
+
+type TeamWithEventNameGate = { team: Team; gate: EventNameGate }
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -36,6 +46,8 @@ export class CdpEventsConsumer<
     private deadLetterService: CdpDeadLetterService
     /** The message each set of globals was built from, so a failure can find its bytes. */
     private messageByGlobals = new WeakMap<HogFunctionInvocationGlobals, Message>()
+    // Shadow scaffolding while the skip is off: a rejected event that still gets invoked is one the skip would drop.
+    private rejectedByName = new WeakSet<HogFunctionInvocationGlobals>()
 
     constructor(
         config: TConfig,
@@ -88,9 +100,9 @@ export class CdpEventsConsumer<
         beforeQueue?: () => Promise<void>
     ): Promise<{ backgroundTask: Promise<any>; invocations: CyclotronJobInvocation[] }> {
         if (!invocationGlobals.length) {
-            // A batch whose every message failed to parse still has records to write.
+            // A batch whose every message failed to parse or was skipped still has records and metrics to write.
             await beforeQueue?.()
-            return { backgroundTask: Promise.resolve(), invocations: [] }
+            return { backgroundTask: this.flushMonitoring(), invocations: [] }
         }
 
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
@@ -99,17 +111,23 @@ export class CdpEventsConsumer<
         const [hogBuild, hogflowBuild] = await Promise.all([
             this.hogFunctionPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 hogTypes: this.hogTypes,
-                filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
+                filterFn: runsOnEvents,
             }),
             // Source-compatibility lives in the consumer. The events consumer matches event-triggered
             // flows only; other trigger types (data-warehouse-table, batch, schedule, webhook, manual)
             // are dispatched from their respective consumers and never reach the executor from here.
             this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
-                eligibilityFn: (flow) => flow.trigger.type === 'event',
+                eligibilityFn: triggersOnEvents,
             }),
         ])
         const hogInvocations = hogBuild.invocations
         const hogflowInvocations = hogflowBuild.invocations
+        if (!this.config.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES) {
+            this.countInvokedAfterNameRejection(invocationGlobals, [
+                ...hogInvocations.map((invocation) => invocation.state.globals.event.uuid),
+                ...hogflowInvocations.flatMap((invocation) => invocation.state?.event.uuid ?? []),
+            ])
+        }
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
 
@@ -146,20 +164,24 @@ export class CdpEventsConsumer<
                 instrumentFn({ key: 'cdp.background_task.queue_hogflow_invocations', sendException: false }, () =>
                     this.hogflowQueue.queueInvocations(hogflowInvocations)
                 ),
-                instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
-                    try {
-                        await this.hogFunctionMonitoringService.flush()
-                    } catch (err) {
-                        captureException(err)
-                        logger.error('🔴', 'Error producing queued messages for monitoring', { err })
-                    }
-                }),
+                this.flushMonitoring(),
                 instrumentFn({ key: 'cdp.background_task.lifecycle_running_flush', sendException: false }, () =>
                     this.invocationResultsService.invocationResultsRowsService.flush()
                 ),
             ]),
             invocations: [...hogInvocations, ...hogflowInvocations],
         }
+    }
+
+    private flushMonitoring(): Promise<void> {
+        return instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
+            try {
+                await this.hogFunctionMonitoringService.flush()
+            } catch (err) {
+                captureException(err)
+                logger.error('🔴', 'Error producing queued messages for monitoring', { err })
+            }
+        })
     }
 
     // Resolve each $push_notification_opened event's workflow and queue its push_opened app-metric.
@@ -193,13 +215,26 @@ export class CdpEventsConsumer<
         }
     }
 
+    private countInvokedAfterNameRejection(globalsList: HogFunctionInvocationGlobals[], invokedUuids: string[]): void {
+        const rejected = new Set(globalsList.filter((g) => this.rejectedByName.has(g)).map((g) => g.event.uuid))
+        if (!rejected.size) {
+            return
+        }
+        const invoked = new Set(invokedUuids.filter((uuid) => rejected.has(uuid)))
+        counterUnmatchedEventNameInvoked.inc(invoked.size)
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const park =
             (step: 'parse' | 'lookup') =>
             (message: Message, error: string): boolean =>
                 this.deadLetterService.recordMessageFailure(message, { step, error })
-        return await parseBatch(messages, {
+        const skip = this.config.CDP_EVENTS_SKIP_UNMATCHED_EVENT_NAMES
+        const gates = new Map<number, EventNameGate>()
+        // Queued once the whole batch parsed, so a batch read again after a failed lookup records them once.
+        const skippedMetrics: EventNameGate[] = []
+        const invocationGlobals = await parseBatch<TeamWithEventNameGate>(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
                 const parseEvent = (): RawClickHouseEvent => {
@@ -220,11 +255,21 @@ export class CdpEventsConsumer<
                 const headerTeamId = readTeamIdHeader(message)
                 if (headerTeamId !== null) {
                     counterTeamIdSource.labels({ source: 'header' }).inc()
+                    const headerEventName = readEventNameHeader(message)
+                    counterEventNameSource.labels({ source: headerEventName === null ? 'none' : 'header' }).inc()
                     // The body stays unparsed until `toGlobals` runs, and it only runs for a team that
                     // has a destination or a flow. Most events belong to a team with neither.
                     return {
                         teamId: headerTeamId,
-                        toGlobals: (team) => {
+                        toGlobals: ({ team, gate }) => {
+                            const rejected = headerEventName !== null && !gate.admits(headerEventName)
+                            if (rejected) {
+                                counterUnmatchedEventName.labels({ skipped: String(skip) }).inc()
+                                if (skip) {
+                                    skippedMetrics.push(gate)
+                                    return null
+                                }
+                            }
                             const clickHouseEvent = parseEvent()
                             if (clickHouseEvent.team_id !== headerTeamId) {
                                 // The loaded team comes from the header and the event data comes from
@@ -233,7 +278,11 @@ export class CdpEventsConsumer<
                                 counterTeamIdHeaderMismatch.inc()
                                 throw new Error('team_id_header_mismatch')
                             }
-                            return buildGlobals(team, clickHouseEvent)
+                            const globals = buildGlobals(team, clickHouseEvent)
+                            if (rejected) {
+                                this.rejectedByName.add(globals)
+                            }
+                            return globals
                         },
                     }
                 }
@@ -242,10 +291,10 @@ export class CdpEventsConsumer<
                 const clickHouseEvent = parseEvent()
                 return {
                     teamId: clickHouseEvent.team_id,
-                    toGlobals: (team) => buildGlobals(team, clickHouseEvent),
+                    toGlobals: ({ team }) => buildGlobals(team, clickHouseEvent),
                 }
             },
-            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            loadTeam: (teamId) => this.loadTeamWithEventNameGate(teamId, gates),
             onInvalidTeamId: () => counterParseError.labels({ error: 'invalid_team_id' }).inc(),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
@@ -257,6 +306,33 @@ export class CdpEventsConsumer<
             // the dead-letter circuit breaker, which also fails the batch.
             parkLookupError: park('lookup'),
         })
+        for (const gate of skippedMetrics) {
+            const { hogFunctions, hogFlows } = gate.filteredMetrics()
+            this.hogFunctionMonitoringService.queueAppMetrics(hogFunctions, 'hog_function')
+            this.hogFunctionMonitoringService.queueAppMetrics(hogFlows, 'hog_flow')
+        }
+        return invocationGlobals
+    }
+
+    // Looks up per message, so a failed lookup parks only its own message.
+    private async loadTeamWithEventNameGate(
+        teamId: number,
+        gates: Map<number, EventNameGate>
+    ): Promise<TeamWithEventNameGate | null> {
+        const work = await this.loadTeamWork(teamId, this.hogTypes)
+        if (!work) {
+            return null
+        }
+        const gate =
+            gates.get(teamId) ??
+            buildEventNameGate({
+                hogFunctions: work.hogFunctions,
+                hogFlows: work.hogFlows,
+                // Push open tracking reads these for any team with a flow, whatever the flows' filters.
+                alsoAdmitted: work.hogFlows.length ? [PUSH_NOTIFICATION_OPENED_EVENT] : [],
+            })
+        gates.set(teamId, gate)
+        return { team: work.team, gate }
     }
 
     protected async startQueueProducers(): Promise<void> {

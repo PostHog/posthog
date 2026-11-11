@@ -9,8 +9,10 @@ import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 import {
-    VALID_NON_NATIVE_MARKETING_SOURCES,
+    VALID_FILE_MARKETING_SOURCES,
+    VALID_WAREHOUSE_MARKETING_SOURCES,
     getEnabledNativeMarketingSources,
+    marketingSourceDisplayLabel,
     nativeSourceDisplayLabel,
 } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
@@ -53,7 +55,8 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
         ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]
             ? [{ title: 'Organic search', sources: ['GoogleSearchConsole'] }]
             : []),
-        { title: 'External sources', sources: VALID_NON_NATIVE_MARKETING_SOURCES },
+        { title: 'External sources', sources: VALID_WAREHOUSE_MARKETING_SOURCES },
+        { title: 'Files', sources: VALID_FILE_MARKETING_SOURCES },
     ]
     const items: LemonMenuItems = [
         ...(showNewSourcesInMenu
@@ -81,7 +84,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
                     label:
                         integrationId === 'GoogleSearchConsole'
                             ? 'Google Search Console'
-                            : nativeSourceDisplayLabel(integrationId),
+                            : marketingSourceDisplayLabel(integrationId),
                     icon: <SourceIcon type={integrationId} size="xsmall" disableTooltip />,
                     tag:
                         showNewSourcesInMenu && newSources.some((source) => source === integrationId)

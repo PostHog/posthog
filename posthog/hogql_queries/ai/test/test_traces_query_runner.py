@@ -26,8 +26,9 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 

@@ -26,13 +26,14 @@ from products.signals.backend.report_generation.select_repo import (
     select_repository_for_report,
 )
 from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
+from products.signals.backend.task_profiles import REPO_SELECTION
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
-from products.tasks.backend.facade import api as tasks_facade
+from products.signals.backend.trial.reports import trial_report_activity
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
     EmptyAgentTurnError,
@@ -46,16 +47,6 @@ from products.tasks.backend.facade.repo_selection import (
     filter_repository_candidates_for_sources,
 )
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
-
-# Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
-GITHUB_ONLY_DOMAINS = [
-    "github.com",
-    "www.github.com",
-    "api.github.com",
-    "raw.githubusercontent.com",
-    "objects.githubusercontent.com",
-    "codeload.github.com",
-]
 
 logger = structlog.get_logger(__name__)
 
@@ -187,6 +178,7 @@ def _capture_repo_research_event(
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals.
 
@@ -300,10 +292,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 )
                 return no_repo_result
             sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
-                input.team_id,
-                SIGNALS_REPO_DISCOVERY_ENV_NAME,
-                tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
-                allowed_domains=GITHUB_ONLY_DOMAINS,
+                input.team_id, SIGNALS_REPO_DISCOVERY_ENV_NAME, REPO_SELECTION
             )
             result = await select_repository_for_report(
                 team_id=input.team_id,

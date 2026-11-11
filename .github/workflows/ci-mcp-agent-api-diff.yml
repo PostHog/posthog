@@ -3,6 +3,8 @@ name: MCP agent API diff
 # Posts a short summary of what a PR changes for agents (tools added or removed, params, scopes,
 # annotations, input schema size) into the shared CI report comment. Reviewers of a product PR
 # that only regenerates MCP files see megabytes of diff and no hint of what agents will notice.
+# It also lists posthog.com docs lines that still name a removed tool, because a rename here
+# never runs posthog.com's checks.
 # Informational only: nothing here can fail a PR, and nothing here is a required check.
 
 on:
@@ -62,12 +64,31 @@ jobs:
               with:
                   node-version-file: .nvmrc
 
+            # A failed clone only drops the docs list from the report.
+            - name: Clone posthog.com docs
+              id: docs
+              continue-on-error: true
+              timeout-minutes: 2
+              run: |
+                  for attempt in 1 2 3; do
+                      rm -rf posthog-com
+                      git clone --quiet --depth 1 --filter=blob:none --no-checkout --no-tags \
+                          https://github.com/PostHog/posthog.com.git posthog-com \
+                          && git -C posthog-com sparse-checkout set --no-cone /contents/docs/ \
+                          && git -C posthog-com checkout --quiet \
+                          && exit 0
+                      sleep $((attempt * 5))
+                  done
+                  exit 1
+
             # Guarded for branches that predate the scripts, and for a checkout without a base parent.
             # Exit 3 from the script means the comparison could not run. The post job is then
             # skipped, so an earlier report stays and is never replaced by a false "no changes".
             - name: Compute agent API diff
               id: diff
               continue-on-error: true
+              env:
+                  DOCS_REPO: ${{ steps.docs.outcome == 'success' && 'posthog-com' || '' }}
               run: |
                   if [ ! -f services/mcp/scripts/agent-api-diff.ts ]; then
                       echo "::notice::Skipping agent API diff - script not present on this checkout"
@@ -78,7 +99,7 @@ jobs:
                       exit 1
                   fi
                   mkdir -p agent-api-diff
-                  node services/mcp/scripts/agent-api-diff.ts --base-ref 'HEAD^1' > agent-api-diff/agent-api-diff.md
+                  node services/mcp/scripts/agent-api-diff.ts --base-ref 'HEAD^1' ${DOCS_REPO:+--docs-repo "$DOCS_REPO"} > agent-api-diff/agent-api-diff.md
 
             - name: Upload agent API diff
               if: steps.diff.outcome == 'success'

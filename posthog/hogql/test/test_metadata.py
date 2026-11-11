@@ -35,13 +35,14 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.taxonomy_validation import MAX_SUGGESTED_NAMES
 
 from posthog.api.services.query import process_query_model
-from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.models import Team
 from posthog.models.scoping import team_scope
 from posthog.taxonomy.dynamic_properties import DYNAMIC_PROPERTY_PATTERNS
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.expression import DataWarehouseExpression
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.facade.models import InsightVariable
@@ -362,6 +363,7 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         [
             ("SELECT tiemstamp FROM events", "tiemstamp", "timestamp"),
             ("SELECT distnct_id FROM events", "distnct_id", "distinct_id"),
+            ("SELECT today FROM events", "today", "today()"),
         ]
     )
     def test_metadata_offers_a_quick_fix_for_a_misspelled_field(self, query: str, misspelling: str, expected_fix: str):
