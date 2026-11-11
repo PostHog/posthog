@@ -231,6 +231,29 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.valid).toBe(true)
     })
 
+    it('accepts a transactional email step saved without a message category', async () => {
+        const emailAction = makeEmailAction({ integrationId: 42 })
+        const workflow = makeWorkflow({ integrationId: 42 })
+        workflow.actions[1] = {
+            ...emailAction,
+            config: { ...emailAction.config, message_category_id: null, message_category_type: 'transactional' },
+        }
+        useMocks({
+            get: {
+                '/api/environments/:team_id/hog_flows/:id/': workflow,
+                '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
+            },
+        })
+        initKeaTests()
+        logic = workflowLogic({ id: WORKFLOW_ID })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+
+        const result = logic.values.actionValidationErrorsById[EMAIL_NODE_ID]
+        expect(result?.schema).toBeNull()
+        expect(result?.valid).toBe(true)
+    })
+
     it('flags a broken Liquid template in the custom sender fields once a save is attempted', async () => {
         useMocks({
             get: {

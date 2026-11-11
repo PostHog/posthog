@@ -6,6 +6,7 @@ import { urls } from 'scenes/urls'
 import type { DeviceGrantDetailsApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
 
 import { oauthDeviceAuthorizeLogic } from './oauthDeviceAuthorizeLogic'
 
@@ -155,6 +156,32 @@ describe('oauthDeviceAuthorizeLogic', () => {
             },
         ])
         await expectLogic(logic).toMatchValues({ decision: 'authorized' })
+    })
+
+    it('without a session, sends the code through login instead of looking it up', async () => {
+        useGrantMocks(GRANT)
+        const priorAppContext = window.POSTHOG_APP_CONTEXT
+        const priorLocation = window.location
+        const assign = jest.fn()
+        try {
+            window.POSTHOG_APP_CONTEXT = { ...priorAppContext, current_user: null } as AppContext
+            initKeaTests()
+            Object.defineProperty(window, 'location', { value: { ...priorLocation, assign }, configurable: true })
+            const logic = oauthDeviceAuthorizeLogic()
+            logic.mount()
+
+            router.actions.push(urls.oauthDeviceAuthorize(), { code: 'bcdf-ghjk' })
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.submitCode()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lookups).toEqual([])
+            expect(assign).toHaveBeenCalledWith('/device?code=BCDF-GHJK')
+            await expectLogic(logic).toMatchValues({ goingToLogin: true })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = priorAppContext
+            Object.defineProperty(window, 'location', { value: priorLocation, configurable: true })
+        }
     })
 
     it('goes back to code entry when the code expired during review', async () => {

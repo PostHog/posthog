@@ -12,6 +12,7 @@ from django.utils import timezone
 import structlog
 
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
+from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.root_state import state_line
 from products.alerts_platform.backend.delivery.telemetry import record_delivery
 from products.alerts_platform.backend.delivery.thread_store import Opening, ThreadBusy, ThreadKey, ThreadStore
@@ -19,6 +20,7 @@ from products.alerts_platform.backend.delivery.transport import (
     DeliveryError,
     DeliveryTransport,
     DestinationMisconfigured,
+    DestinationRefused,
     MessageHandle,
     RootEditor,
     RootImageEditor,
@@ -149,6 +151,15 @@ def _send(
         )
         outcome: DeliveryOutcomeLabel = "misconfigured" if isinstance(error, DestinationMisconfigured) else "failed"
         safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
+        if isinstance(error, DestinationRefused):
+            notify_refused(
+                team_id=team_id,
+                message=message,
+                # Where the send went, not the destination id: a converted alert has one id per event
+                # kind, so one broken URL would be noticed once for each kind it was refused on.
+                destination=transport.channel_target(target),
+                refusal=error,
+            )
         raise
     record_delivery(
         team_id=team_id,
