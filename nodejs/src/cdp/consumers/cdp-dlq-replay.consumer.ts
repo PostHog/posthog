@@ -97,8 +97,8 @@ export interface CdpDlqReplayCounts {
  * already reached the other four, and rebuilding all five would deliver to them twice.
  *
  * It commits offsets only once every invocation in the batch is queued. Anything else leaves them
- * where they are and fails the batch, so a record that cannot be replayed blocks rather than being
- * skipped. Scaling it back to zero is how an operator unblocks it and fixes forward. Batch size is
+ * where they are and fails the batch, so a destination that still fails to build blocks rather than
+ * being skipped. Scaling it back to zero is how an operator unblocks it and fixes forward. Batch size is
  * the deployment's `CONSUMER_BATCH_SIZE`: nothing here depends on it, but it decides how much of a
  * batch waits behind one record that will not replay.
  */
@@ -176,36 +176,28 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     public async replayBatch(messages: Message[]): Promise<void> {
         this.buildFailures.clear()
         const unrebuildable: { message: Message; reason: string }[] = []
-        const selected: { message: Message; record: DeadLetterRecord; event: RawClickHouseEvent }[] = []
-        for (const message of messages) {
-            const record = readDeadLetterRecord(message)
-            const event = record ? readEventOrNull(message) : null
-            if (record && event) {
-                selected.push({ message, record, event })
-                continue
-            }
-            const reason = record
-                ? `Could not rebuild an event from ${positionOf(message)} — ` +
-                  'refusing to commit past a parked event that was never replayed'
-                : `Dead-letter record at ${positionOf(message)} has no dlq_step header, so there is nothing to rebuild from it`
+        const setAside = (message: Message, reason: string): void => {
             if (!this.poisonQuarantine.enabled) {
-                throw new Error(reason)
+                throw new Error(`${reason}. Refusing to commit past a parked event that was never replayed`)
             }
             unrebuildable.push({ message, reason })
         }
 
-        await Promise.all(
-            unrebuildable.map(({ message, reason }) =>
-                this.poisonQuarantine.quarantine(message, reason, {
-                    consumerGroup: REPLAY_GROUP_ID,
-                    mayHaveSideEffects: false,
-                })
-            )
-        )
-        if (unrebuildable.length) {
-            counterReplayRecords.labels({ outcome: 'quarantined' }).inc(unrebuildable.length)
+        const selected: { message: Message; record: DeadLetterRecord; event: RawClickHouseEvent }[] = []
+        for (const message of messages) {
+            const record = readDeadLetterRecord(message)
+            if (!record) {
+                setAside(message, `Dead-letter record at ${positionOf(message)} has no dlq_step header`)
+                continue
+            }
+            const read = readEvent(message)
+            if ('problem' in read) {
+                setAside(message, `Could not read an event from ${positionOf(message)}: ${read.problem}`)
+                continue
+            }
+            selected.push({ message, record, event: read.event })
         }
-        if (!selected.length) {
+        if (!selected.length && !unrebuildable.length) {
             return
         }
 
@@ -232,6 +224,10 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             const globals = resolved[index]
             if (globals === TEAM_MISSING) {
                 teamMissing += 1
+                continue
+            }
+            if ('problem' in globals) {
+                setAside(message, `Could not rebuild an event from ${positionOf(message)}: ${globals.problem}`)
                 continue
             }
             const targets = replayTargetIds(record)
@@ -312,6 +308,18 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
             )
         }
 
+        await Promise.all(
+            unrebuildable.map(({ message, reason }) =>
+                this.poisonQuarantine.quarantine(message, reason, {
+                    consumerGroup: REPLAY_GROUP_ID,
+                    mayHaveSideEffects: false,
+                })
+            )
+        )
+        if (unrebuildable.length) {
+            counterReplayRecords.labels({ outcome: 'quarantined' }).inc(unrebuildable.length)
+        }
+
         for (const invocation of [...hogInvocations, ...hogflowInvocations]) {
             // Marks the invocation as recovered so a `replayed` app metric can be added later
             // without changing the queue payload format.
@@ -357,19 +365,26 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
      * which can be months stale by the time a replay runs, while groups were already being resolved
      * fresh. A destination receiving a delivery today should see today's person.
      *
-     * Errors are not caught. The caller turns a null into a thrown batch, and anything thrown here
-     * reaches the same place, because the worker blocks on a record it cannot replay rather than
-     * committing past it. A team that no longer exists is the exception: no fix brings its events
-     * back, so the caller counts the record and moves on.
+     * Lookup errors are not caught: they fail the batch, because a dependency that is down now may be
+     * up on the next try. A team that no longer exists is the exception: no fix brings its events
+     * back, so the caller counts the record and moves on. An event whose own bytes do not convert
+     * comes back as a problem, which the caller sets aside like a record it cannot read.
      */
-    private async toGlobals(event: RawClickHouseEvent): Promise<HogFunctionInvocationGlobals | typeof TEAM_MISSING> {
+    private async toGlobals(
+        event: RawClickHouseEvent
+    ): Promise<HogFunctionInvocationGlobals | typeof TEAM_MISSING | { problem: string }> {
         // getTeam throws when the lookup fails, so null means the team is gone and so is any chance
         // of delivering its events.
         const team = await this.deps.teamManager.getTeam(event.team_id)
         if (!team) {
             return TEAM_MISSING
         }
-        const globals = convertToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+        let globals: HogFunctionInvocationGlobals
+        try {
+            globals = convertToHogFunctionInvocationGlobals(event, team, this.config.SITE_URL)
+        } catch (error) {
+            return { problem: String(error) }
+        }
         const person = await this.personsManager.getCyclotronPerson(event.team_id, event.distinct_id, 'distinct_id', {
             forceFresh: true,
         })
@@ -407,11 +422,12 @@ export class CdpDlqReplayConsumer extends CdpConsumerBase<PluginsServerConfig> {
     }
 }
 
-function readEventOrNull(message: Message): RawClickHouseEvent | null {
+function readEvent(message: Message): { event: RawClickHouseEvent } | { problem: string } {
     try {
-        return readParkedEvent(message)
-    } catch {
-        return null
+        const event = readParkedEvent(message)
+        return event ? { event } : { problem: 'it has no payload or no team_id' }
+    } catch (error) {
+        return { problem: String(error) }
     }
 }
 

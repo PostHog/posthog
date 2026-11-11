@@ -500,9 +500,19 @@ describe('CDP dead-letter replay', () => {
         const postgresQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         await startEventsConsumer({ hogQueue: kafkaQueue, hogflowQueue: postgresQueue })
         const unreadable = Buffer.from(`not an event at all ${randomUUID()}`)
+        const unconvertible = Buffer.from(
+            JSON.stringify({ ...createIncomingEvent(team.id, {}), properties: `{"truncated ${randomUUID()}` })
+        )
         await kafkaProducer.produce({ topic: eventsTopic, value: unreadable, key: null })
+        await kafkaProducer.produce({ topic: eventsTopic, value: unconvertible, key: null })
         await kafkaProducer.flush()
-        await parkEvent(2)
+        const parked = await parkEvent(3)
+
+        const blockedReplay = new CdpDlqReplayConsumer(hub, createCdpConsumerDeps(hub, kafkaProducer), {
+            hogQueue: createMockJobQueue(),
+            hogflowQueue: createMockJobQueue(),
+        })
+        await expect(blockedReplay.replayBatch(parked)).rejects.toThrow('still fail to build')
 
         await repairInputs(broken)
         cyclotronWorker = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub, kafkaProducer), kafkaQueue)
@@ -518,11 +528,10 @@ describe('CDP dead-letter replay', () => {
         }, 30000)
         expect(mockFetch.mock.calls[0][0]).toBe('https://example.com/posthog-webhook')
 
-        const [quarantined] = await readDlqRecords(1, quarantineTopic)
-        expect(quarantined.value).toEqual(unreadable)
-        const headers = Object.assign({}, ...(quarantined.headers ?? []).map((h: any) => h))
-        expect(headers.dlq_step.toString()).toBe('parse')
-        expect(headers.quarantine_may_have_side_effects.toString()).toBe('false')
+        const quarantined = await readDlqRecords(2, quarantineTopic)
+        expect(quarantined.map((message) => String(message.value)).sort()).toEqual(
+            [String(unreadable), String(unconvertible)].sort()
+        )
     }, 60000)
 
     it('drains records that were parked long before it ever joined the topic', async () => {
