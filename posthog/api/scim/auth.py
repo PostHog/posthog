@@ -77,9 +77,11 @@ class SCIMBearerTokenAuthentication(ActivityCredentialMixin, BaseAuthentication)
         # Tokens issued before `scim_token_digest` existed can only be resolved by slug (the stored
         # hash is salted, the plaintext shown once), so backfill the digest from this verified request
         # rather than making every customer rotate their token.
-        if not config.scim_token_digest:
-            IdentityProviderConfig.objects.filter(pk=config.pk, scim_token_digest__isnull=True).update(
-                scim_token_digest=hash_key_value(token)
+        digest = hash_key_value(token)
+        if config.scim_token_digest != digest:
+            # A concurrent token rotation or disable must not restore the old token's digest.
+            IdentityProviderConfig.objects.filter(pk=config.pk, scim_bearer_token=hashed_token).update(
+                scim_token_digest=digest
             )
 
         user = SCIMAuthToken(config)
