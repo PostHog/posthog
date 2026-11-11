@@ -394,6 +394,17 @@ The backlog after the tick is in `remaining_due_pairs`, `remaining_due_without_l
 - A pair that becomes due while the tick runs is not in the plan, so it counts in the next tick.
 - The three fields are null for a tick planned before the deploy that added them.
 
+## Publishing signal filter catalogs
+
+`publish_signal_filter_catalogs` publishes the checked-in field catalogs in `../filter_catalog_seeds.py` to the instance-global filter catalog tables.
+Run it once in each region after a change to a seed.
+An unchanged catalog creates no version, and a changed one becomes the next active version.
+It sets the rollout state only when it creates a source, and it never sets filter eligibility.
+
+```bash
+uv run manage.py publish_signal_filter_catalogs
+```
+
 ## Tips
 
 - Compare runs by saving output: `list_signal_reports --json > run_baseline.json`

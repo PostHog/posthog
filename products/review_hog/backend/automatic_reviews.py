@@ -157,12 +157,18 @@ class AuthoredPRReview:
     github_repo_id: int | None = None
     draft: bool = False
     skip_agent_review: bool = False
+    action: str | None = None
 
     @property
     def ref(self) -> RepositoryRef:
         return RepositoryRef(
             installation_id=self.installation_id, github_repo_id=self.github_repo_id, full_name=self.repository
         )
+
+    @property
+    def marks_ready(self) -> bool:
+        """The event says the PR is ready for review: it was marked ready, or it opened as a non-draft."""
+        return self.action == "ready_for_review" or (self.action == "opened" and not self.draft)
 
     def start(self) -> None:
         # These clients pull in the sandbox runtime; enqueueing a webhook must not load it.
@@ -202,6 +208,8 @@ class AuthoredPRReview:
             review_mode=REVIEW_MODE_FLASH,
             trigger_source=TRIGGER_AUTOMATIC,
             requested_head_sha=self.head_sha,
+            trigger_action=self.action,
+            marks_ready=self.marks_ready,
             installation_id=self.installation_id,
             github_repo_id=self.github_repo_id,
         )
