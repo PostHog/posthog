@@ -904,7 +904,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             const present = new Map(Object.values(folders).flatMap((files) => files.map((entry) => [entry.id, entry])))
             for (const [id, entry] of index) {
                 const folder = parentPath(entry.path)
-                if (!present.has(id) && folder in folders && values.folderStates[folder] !== 'has-more') {
+                // Only a complete folder load is the truth: a folder cut short, loading its next page or failed may still hold the file.
+                if (!present.has(id) && folder in folders && values.folderStates[folder] === 'loaded') {
                     index.delete(id)
                 }
             }

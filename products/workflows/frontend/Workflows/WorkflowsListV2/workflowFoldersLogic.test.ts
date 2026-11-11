@@ -372,6 +372,36 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
     })
 
+    it('keeps the cached files of a cut folder when the tree changes while its next page loads and fails', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing')
+        let failPage!: () => void
+        const pageHeld = new Promise<void>((resolve) => (failPage = resolve))
+        let pageRequested = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async () => {
+                    pageRequested = true
+                    await pageHeld
+                    return [500, { detail: 'Unavailable' }]
+                },
+            },
+        })
+        projectTreeDataLogic.actions.loadFolderSuccess(
+            'Billing',
+            [{ id: 'cards', path: 'Billing/Cards', type: 'folder' }],
+            true,
+            1,
+            true
+        )
+        await waitFor(() => expect(pageRequested).toBe(true))
+        addProjectFiles([{ id: 'unrelated', path: 'Empty/Notes', type: 'notebook', ref: 'synthetic-notes' }])
+        failPage()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+    })
+
     it('forgets a file a fully reloaded folder no longer lists', async () => {
         await expectLogic(logic).toFinishAllListeners()
         projectTreeDataLogic.actions.loadFolderSuccess(
