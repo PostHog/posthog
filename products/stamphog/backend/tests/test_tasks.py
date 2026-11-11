@@ -1356,23 +1356,38 @@ index aaa..bbb 100644
 """
 
 
-def _approved_run(team_id: int) -> None:
+def _approved_run(team_id: int, *, lifted: bool | None = False) -> None:
+    attestation = {} if lifted is None else {"gate_attestation": {"attested": True, "lifted": lifted}}
     with team_scope(team_id):
         ReviewRun.objects.filter(pull_request__pr_number=42).update(
             verdict=ReviewVerdict.APPROVED,
             posted_review_id=9,
-            output={"pr": {"base": {"sha": "base-1"}}},
+            output={"pr": {"base": {"sha": "base-1"}}, **attestation},
+            # The sandbox's own report, which says no check lifted anything and must decide nothing.
+            gate_result={"classification": {"lifted_files": {}}},
         )
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "same_diff,clean_base_merge,expect_retained",
-    [(True, False, True), (False, False, False), (False, True, True)],
-    ids=["identical_diff_retains", "changed_diff_dismisses", "clean_base_merge_retains"],
+    "same_diff,clean_base_merge,lifted,expect_retained",
+    [
+        (True, False, False, True),
+        (False, False, False, False),
+        (False, True, False, True),
+        (True, False, True, False),
+        (True, False, None, False),
+    ],
+    ids=[
+        "identical_diff_retains",
+        "changed_diff_dismisses",
+        "clean_base_merge_retains",
+        "lifted_approval_dismisses",
+        "approval_the_worker_did_not_record_dismisses",
+    ],
 )
 def test_push_retains_the_approval_only_when_the_diff_is_identical(
-    team, repo_config, same_diff, clean_base_merge, expect_retained
+    team, repo_config, same_diff, clean_base_merge, lifted, expect_retained
 ):
     # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
     # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
@@ -1383,8 +1398,8 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
-    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}-{clean_base_merge}", team.id)
-    _approved_run(team.id)
+    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}-{clean_base_merge}-{lifted}", team.id)
+    _approved_run(team.id, lifted=lifted)
 
     with (
         patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
@@ -1392,7 +1407,7 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(
     ):
         mock_execute = _run_task(
             _pr_payload(action="synchronize", head_sha="sha-2"),
-            f"delivery-retention-push-{same_diff}-{clean_base_merge}",
+            f"delivery-retention-push-{same_diff}-{clean_base_merge}-{lifted}",
             team.id,
             compare_diffs=[_APPROVED, current_diff],
         )
