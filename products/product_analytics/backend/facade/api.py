@@ -151,13 +151,19 @@ def record_insight_view_context(
     )
 
 
-def insight_view_contexts(*, team_id: int, insight_ids: Collection[int]) -> list[InsightViewContext]:
-    """Return access facts; consumers own source, viewer, context and recency policy."""
+def insight_view_contexts(
+    *, team_id: int, insight_ids: Collection[int], viewed_since: datetime | None = None
+) -> list[InsightViewContext]:
+    """Return access facts; consumers own source, viewer, context and recency policy.
+
+    ``viewed_since`` leaves out older views, so a caller that only needs recent history does not
+    load every view an insight ever had.
+    """
     from products.product_analytics.backend import view_context
 
-    rows = view_context.insight_view_contexts(team_id=team_id, insight_ids=insight_ids).values_list(
-        "insight_id", "user_id", "source", "dashboard_id", "last_viewed_at"
-    )
+    rows = view_context.insight_view_contexts(
+        team_id=team_id, insight_ids=insight_ids, viewed_since=viewed_since
+    ).values_list("insight_id", "user_id", "source", "dashboard_id", "last_viewed_at")
     return [
         InsightViewContext(
             insight_id=insight_id,

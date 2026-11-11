@@ -510,6 +510,9 @@ class TestInsightViewedRecording(BaseTest):
         )
         rows = insight_view_contexts(team_id=self.team.pk, insight_ids=[insight.pk, other_insight.pk])
         assert [row.insight_id for row in rows] == [insight.pk]
+        assert not insight_view_contexts(
+            team_id=self.team.pk, insight_ids=[insight.pk], viewed_since=now() - timedelta(days=30)
+        )
 
 
 class TestConcurrentLegacyInsightViews(NonAtomicBaseTest):

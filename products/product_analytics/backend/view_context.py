@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from datetime import datetime
 
 from django.db import connections, router
 from django.db.models import Q, QuerySet
@@ -45,7 +46,12 @@ def record_insight_view_context(
         )
 
 
-def insight_view_contexts(*, team_id: int, insight_ids: Collection[int]) -> QuerySet[InsightViewed]:
-    return InsightViewed.objects.filter(
+def insight_view_contexts(
+    *, team_id: int, insight_ids: Collection[int], viewed_since: datetime | None = None
+) -> QuerySet[InsightViewed]:
+    rows = InsightViewed.objects.filter(
         Q(team_id=team_id) | Q(team_id__isnull=True), insight_id__in=insight_ids, insight__team_id=team_id
     )
+    if viewed_since is not None:
+        rows = rows.filter(last_viewed_at__gte=viewed_since)
+    return rows
