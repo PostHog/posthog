@@ -259,15 +259,13 @@ function flagAudienceRow(flag: FeatureFlagApi, optIn = false): ReleaseFlagAudien
 }
 
 function conditionAudience(flag: FeatureFlagApi, optIn: boolean): ReleaseFlagAudience {
-    if (!isV1(flag)) {
-        return { flag, percent: null, who: 'Rules decide', summary: 'The flag rules decide who gets it', variants: [] }
-    }
     const filters = flagFilters(flag)
-    const groups = filters.groups ?? []
-    const variants = (filters.multivariate?.variants ?? []).map((variant) => ({
-        key: variant.key,
-        percent: variant.rollout_percentage,
-    }))
+    const variants = isV1(flag)
+        ? (filters.multivariate?.variants ?? []).map((variant) => ({
+              key: variant.key,
+              percent: variant.rollout_percentage,
+          }))
+        : []
     if (!flag.active) {
         return {
             flag,
@@ -277,6 +275,10 @@ function conditionAudience(flag: FeatureFlagApi, optIn: boolean): ReleaseFlagAud
             variants,
         }
     }
+    if (!isV1(flag)) {
+        return { flag, percent: null, who: 'Rules decide', summary: 'The flag rules decide who gets it', variants: [] }
+    }
+    const groups = filters.groups ?? []
     if (optIn && groups.every((group) => (group.rollout_percentage ?? 100) === 0)) {
         return {
             flag,
@@ -315,7 +317,8 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     const label = scheduledChangeLabel(change)
     const href = urls.featureFlag(Number(change.record_id))
     const denied = hasDeniedApprovalRequest(change as never)
-    const live = !isSchedulePaused(change as never) && !denied
+    const expired = !!change.end_date && dayjs(change.end_date).isBefore(dayjs())
+    const live = !isSchedulePaused(change as never) && !denied && !expired
     const base = { kind: 'schedule' as const, href }
 
     if (change.is_recurring) {
