@@ -8,7 +8,10 @@ import structlog
 from parameterized import parameterized
 
 from products.ai_observability.backend.facade import contracts
-from products.ai_observability.backend.logic.message_normalizer import run_limits as run_limits_module
+from products.ai_observability.backend.logic.message_normalizer import (
+    normalizer as normalizer_module,
+    run_limits as run_limits_module,
+)
 from products.ai_observability.backend.logic.message_normalizer.errors import RecipeTimeoutError
 from products.ai_observability.backend.logic.message_normalizer.normalizer import (
     RecipeNormalizer,
@@ -16,7 +19,7 @@ from products.ai_observability.backend.logic.message_normalizer.normalizer impor
     compile_stored_recipe,
     merge_recipes,
 )
-from products.ai_observability.backend.logic.message_normalizer.values import MISSING
+from products.ai_observability.backend.logic.message_normalizer.pipeline import RecipePipeline
 from products.ai_observability.backend.logic.traces.step_content import NODE_READ_TIME_LIMIT_SECONDS, step_content
 
 TEAM_ID = 7
@@ -197,23 +200,41 @@ def test_a_span_side_only_a_builtin_recognizes_stays_json():
     assert content.input == contracts.TraceJsonSide(kind="json", value=[{"foo": 1}])
 
 
-def test_a_team_recipe_check_that_runs_out_the_deadline_leaves_the_other_sides_conversation():
+def timed_runs(run_cost: Callable[[Any], float]) -> tuple[SimpleNamespace, type[RecipePipeline]]:
     clock = SimpleNamespace(now=0.0)
+
+    class TimedPipeline(RecipePipeline):
+        def run(self, value, default_role, *, salvages=True):
+            clock.now += run_cost(value)
+            return super().run(value, default_role, salvages=salvages)
+
+    return clock, TimedPipeline
+
+
+def test_a_team_recipe_check_that_runs_out_the_deadline_leaves_the_other_sides_conversation():
     slow_input = {"documents": ["..."]}
-    agent_recipe = compile_stored_recipe(StoredRecipe(id="team-recipe", source=AGENT_RECIPE))
-    assert agent_recipe is not None
+    clock, pipeline = timed_runs(lambda value: 2 * NODE_READ_TIME_LIMIT_SECONDS if value == slow_input else 0)
 
-    class SlowOnTheJsonInput(RecipeNormalizer):
-        def normalize_messages(self, value, default_role, tools=MISSING):
-            if value == slow_input:
-                clock.now += 2 * NODE_READ_TIME_LIMIT_SECONDS
-            return super().normalize_messages(value, default_role, tools)
-
-    with patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: clock.now)):
-        content = content_of("span", slow_input, REPLY, lambda: SlowOnTheJsonInput(merge_recipes([agent_recipe])))
+    with (
+        patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: clock.now)),
+        patch.object(normalizer_module, "RecipePipeline", pipeline),
+    ):
+        content = content_of("span", slow_input, REPLY, with_team_recipe(AGENT_RECIPE))
 
     assert content.input == contracts.TraceJsonSide(kind="json", value=slow_input)
     assert texts(content.output) == ["Hello"]
+
+
+def test_a_matched_team_recipe_runs_once_so_a_slow_recipe_still_fits_the_deadline():
+    clock, pipeline = timed_runs(lambda value: 0.6 * NODE_READ_TIME_LIMIT_SECONDS if "who" in value else 0)
+
+    with (
+        patch.object(run_limits_module, "time", SimpleNamespace(monotonic=lambda: clock.now)),
+        patch.object(normalizer_module, "RecipePipeline", pipeline),
+    ):
+        content = content_of("span", {"who": "agent", "said": "Hi"}, {"k": 1}, with_team_recipe(AGENT_RECIPE))
+
+    assert texts(content.input) == ["Hi"]
 
 
 def test_a_team_recipe_check_on_an_unmatched_side_builds_no_fallback_text():
