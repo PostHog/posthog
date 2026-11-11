@@ -82,6 +82,17 @@ const meta: Meta<typeof MetricsAlertingSection> = {
                     previous: null,
                     results: [FIRING_ALERT, DISABLED_ALERT],
                 },
+                [`/api/projects/:team_id/platform_alerts/${FIRING_ALERT.id}/destinations/`]: [
+                    {
+                        id: '0192a5b0-0000-7000-8000-000000000201',
+                        type: 'webhook',
+                        enabled: true,
+                        event_kinds: ['firing', 'resolved', 'errored', 'broken'],
+                        webhook_url: 'https://hooks.example.com',
+                    },
+                ],
+                '/api/environments/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/integrations/': { results: [] },
             },
         }),
     ],

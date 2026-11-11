@@ -8,7 +8,7 @@ import { PlatformAlertConfigurationApi } from 'products/alerts_platform/frontend
 import { confirmDeleteMetricsAlert } from './confirmDeleteMetricsAlert'
 import { metricsAlertFormLogic } from './metricsAlertFormLogic'
 import { metricsAlertingLogic } from './metricsAlertingLogic'
-import { MetricsAlertNotifyFields } from './MetricsAlertNotifyFields'
+import { MetricsAlertNotifications } from './MetricsAlertNotifications'
 import { MetricsAlertQueryFields } from './MetricsAlertQueryFields'
 import { MetricsAlertTriggerFields } from './MetricsAlertTriggerFields'
 import { MetricsAlertFormErrors } from './metricsAlertUtils'
@@ -59,7 +59,10 @@ function MetricsAlertEditModalContent({
                         <LemonDivider />
                         <MetricsAlertTriggerFields thresholdError={errors.threshold} />
                         <LemonDivider />
-                        <MetricsAlertNotifyFields />
+                        <div className="space-y-2">
+                            <h4 className="m-0">Notifications</h4>
+                            <MetricsAlertNotifications alertId={alert.id} />
+                        </div>
                     </div>
                 </LemonModal.Content>
                 <LemonModal.Footer>

@@ -13,11 +13,10 @@ describe('toWritePayload', () => {
     it.each([
         {
             case: 'threshold, ungrouped',
-            form: { ...base, labels: [{ name: ' team ', value: ' apm ' }] },
+            form: base,
             expected: {
                 condition: { kind: 'threshold', operator: 'gte', threshold: 5 },
                 grouping: { mode: 'single' },
-                labels: { team: 'apm' },
             },
         },
         {
@@ -26,7 +25,6 @@ describe('toWritePayload', () => {
             expected: {
                 condition: { kind: 'present' },
                 grouping: { mode: 'by_result_labels', keys: ['service_name'] },
-                labels: {},
             },
         },
     ])('$case', ({ form, expected }) => {
@@ -36,7 +34,6 @@ describe('toWritePayload', () => {
             name: 'Error rate',
             source_config: { query: 'rate(errors_total[5m])', condition: expected.condition },
             grouping: expected.grouping,
-            labels: expected.labels,
         })
         expect(payload.source_config.condition).toEqual(expected.condition)
     })

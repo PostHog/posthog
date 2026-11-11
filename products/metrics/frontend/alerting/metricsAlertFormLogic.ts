@@ -14,6 +14,7 @@ import {
     PlatformAlertConfigurationApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
+import { metricsAlertDestinationsLogic } from './metricsAlertDestinationsLogic'
 import { metricsAlertingLogic } from './metricsAlertingLogic'
 import { MetricsAlertFormType, buildFormDefaults, toWritePayload, validateForm } from './metricsAlertUtils'
 
@@ -87,11 +88,11 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
     forms(({ props, actions, values }) => ({
         alertForm: {
             defaults: buildFormDefaults(props.alert),
-            // A labels error describes the whole list, so it does not fit the per-item shape kea-forms infers.
-            errors: (form) => validateForm(form) as DeepPartialMap<MetricsAlertFormType, ValidationErrorType>,
+            errors: validateForm,
             submit: async (form) => {
                 const projectId = String(values.currentTeamId)
                 const payload = toWritePayload(form)
+                let createdAlertId: string | null = null
                 try {
                     if (props.alert) {
                         await platformAlertsPartialUpdate(projectId, props.alert.id, {
@@ -101,10 +102,11 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
                         posthog.capture('metrics alert updated', { condition_kind: form.conditionKind })
                         lemonToast.success('Alert updated')
                     } else {
-                        await platformAlertsCreate(projectId, {
+                        const created = await platformAlertsCreate(projectId, {
                             source_kind: MetricsPlatformAlertConfigurationCreateApiSourceKind.Metrics,
                             ...payload,
                         })
+                        createdAlertId = created.id
                         posthog.capture('metrics alert created', {
                             condition_kind: form.conditionKind,
                             grouped: form.groupByLabels.length > 0,
@@ -114,6 +116,10 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
                 } catch (error) {
                     lemonToast.error(saveErrorMessage(error))
                     throw error
+                }
+                if (createdAlertId) {
+                    // The create modal holds the destinations picked before the alert existed.
+                    await metricsAlertDestinationsLogic({}).asyncActions.createPendingDestinations(createdAlertId)
                 }
                 actions.loadAlerts()
                 props.onSubmitSuccess?.()

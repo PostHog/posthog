@@ -11,11 +11,6 @@ import {
 
 export type MetricsAlertOperator = NonNullable<MetricsPlatformAlertConditionApiOperator>
 
-export interface MetricsAlertLabel {
-    name: string
-    value: string
-}
-
 export interface MetricsAlertFormType {
     name: string
     query: string
@@ -23,7 +18,6 @@ export interface MetricsAlertFormType {
     operator: MetricsAlertOperator
     threshold: number | null
     groupByLabels: string[]
-    labels: MetricsAlertLabel[]
     evaluationPeriods: number
     datapointsToAlarm: number
     cooldownMinutes: number
@@ -65,7 +59,6 @@ export function buildFormDefaults(alert: PlatformAlertConfigurationApi | null): 
         operator: condition?.operator ?? 'gt',
         threshold: condition?.threshold ?? null,
         groupByLabels: alert?.grouping.mode === GroupingModeEnumApi.ByResultLabels ? (alert.grouping.keys ?? []) : [],
-        labels: Object.entries(alert?.labels ?? {}).map(([name, value]) => ({ name, value })),
         evaluationPeriods: alert?.evaluation_periods ?? 1,
         datapointsToAlarm: alert?.datapoints_to_alarm ?? 1,
         cooldownMinutes: alert?.cooldown_minutes ?? 0,
@@ -76,7 +69,6 @@ export interface MetricsAlertFormErrors {
     name?: string
     query?: string
     threshold?: string
-    labels?: string
     datapointsToAlarm?: string
 }
 
@@ -88,9 +80,6 @@ export function validateForm(form: MetricsAlertFormType): MetricsAlertFormErrors
             form.conditionKind === MetricsPlatformAlertConditionKindEnumApi.Threshold && form.threshold === null
                 ? 'Enter a threshold.'
                 : undefined,
-        labels: form.labels.some(({ name, value }) => !name.trim() || !value.trim())
-            ? 'Give every label a name and a value, or remove it.'
-            : undefined,
         datapointsToAlarm:
             form.datapointsToAlarm > form.evaluationPeriods
                 ? 'Cannot be more than the number of checks considered.'
@@ -118,7 +107,7 @@ function toGrouping(form: MetricsAlertFormType): GroupingApi {
 
 export type MetricsAlertWritePayload = Pick<
     MetricsPlatformAlertConfigurationEditApi,
-    'name' | 'source_config' | 'grouping' | 'labels' | 'evaluation_periods' | 'datapoints_to_alarm' | 'cooldown_minutes'
+    'name' | 'source_config' | 'grouping' | 'evaluation_periods' | 'datapoints_to_alarm' | 'cooldown_minutes'
 >
 
 export function toWritePayload(form: MetricsAlertFormType): MetricsAlertWritePayload {
@@ -126,7 +115,6 @@ export function toWritePayload(form: MetricsAlertFormType): MetricsAlertWritePay
         name: form.name.trim(),
         source_config: { query: form.query.trim(), condition: toCondition(form) },
         grouping: toGrouping(form),
-        labels: Object.fromEntries(form.labels.map(({ name, value }) => [name.trim(), value.trim()])),
         evaluation_periods: form.evaluationPeriods,
         datapoints_to_alarm: form.datapointsToAlarm,
         cooldown_minutes: form.cooldownMinutes,

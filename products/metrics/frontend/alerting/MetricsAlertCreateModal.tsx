@@ -7,8 +7,9 @@ import { WizardReview } from 'lib/components/WizardReview'
 
 import { AlertWizard, AlertWizardStep } from 'products/alerts/frontend/components/AlertWizard'
 
+import { metricsAlertDestinationsLogic } from './metricsAlertDestinationsLogic'
 import { metricsAlertFormLogic } from './metricsAlertFormLogic'
-import { MetricsAlertNotifyFields } from './MetricsAlertNotifyFields'
+import { MetricsAlertNotifications } from './MetricsAlertNotifications'
 import { MetricsAlertQueryFields } from './MetricsAlertQueryFields'
 import { MetricsAlertTriggerFields } from './MetricsAlertTriggerFields'
 import { describeMetricsCondition, toWritePayload, validateForm } from './metricsAlertUtils'
@@ -25,12 +26,12 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
     const formLogicProps = { alert: null, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(metricsAlertFormLogic(formLogicProps))
     const { touchAlertFormField } = useActions(metricsAlertFormLogic(formLogicProps))
+    const { pendingDestinations } = useValues(metricsAlertDestinationsLogic({}))
     const {
         name: nameError,
         query: queryError,
         threshold: thresholdError,
         datapointsToAlarm: datapointsError,
-        labels: labelsError,
     } = validateForm(alertForm)
     const configureCannotAdvanceReason = nameError ?? queryError
     const triggerCannotAdvanceReason = thresholdError ?? datapointsError
@@ -67,12 +68,10 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
         {
             key: 'notify',
             title: 'Notify',
-            description: 'Label the alert so alert routes can send its notifications.',
-            canAdvance: !labelsError,
-            cannotAdvanceReason: labelsError,
+            description: 'Choose where to send alert events.',
             content: (
                 <div className="max-w-2xl">
-                    <MetricsAlertNotifyFields />
+                    <MetricsAlertNotifications />
                 </div>
             ),
         },
@@ -83,9 +82,9 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
             content: (
                 <WizardReview
                     notice={
-                        alertForm.labels.length === 0 ? (
-                            <LemonBanner type="info">
-                                This alert has no labels, so only routes with no conditions send its notifications.
+                        pendingDestinations.length === 0 ? (
+                            <LemonBanner type="warning">
+                                This alert will run without notifications. Go back to Notify to add a destination.
                             </LemonBanner>
                         ) : undefined
                     }
@@ -103,10 +102,10 @@ function MetricsAlertCreateModalContent({ onClose }: { onClose: () => void }): J
                         },
                         { label: 'Notification cooldown', value: `${alertForm.cooldownMinutes} minutes` },
                         {
-                            label: 'Labels',
-                            value: alertForm.labels.length
-                                ? alertForm.labels.map(({ name, value }) => `${name}=${value}`).join(', ')
-                                : 'None',
+                            label: 'Notifies',
+                            value: pendingDestinations.length
+                                ? `${pendingDestinations.length} notification destination${pendingDestinations.length === 1 ? '' : 's'}`
+                                : 'No notification destinations',
                         },
                     ]}
                 />
