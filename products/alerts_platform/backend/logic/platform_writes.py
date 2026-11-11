@@ -26,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     Grouping,
     GroupingMode,
     InvalidPlatformAlertEdit,
+    NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationView,
     PlatformAlertCreateRefused,
