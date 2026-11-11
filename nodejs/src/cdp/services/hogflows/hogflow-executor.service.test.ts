@@ -2081,11 +2081,35 @@ describe('Hogflow Executor', () => {
                         loggerErrorSpy.mockRestore()
                     })
 
-                    // A delay that cannot work out when to continue is the one error on_error must not be
+                    // A wait that cannot work out when to continue is the one error on_error must not be
                     // allowed to carry past: continuing runs the next step immediately, which for a "N days
                     // before X" reminder sends it with nothing to be before. The handler marks the wait
                     // unresolved and the executor has to honour that over on_error: 'continue'.
-                    it('does NOT continue past a delay whose date cannot be worked out, despite on_error continue', async () => {
+                    it.each([
+                        {
+                            label: 'a delay whose date cannot be worked out',
+                            // Compiled by the HogQL compiler from `person.properties.expires_at`,
+                            // which evaluates to null for a person without that property.
+                            wait: {
+                                type: 'delay',
+                                config: {
+                                    delay_until: {
+                                        expression: 'person.properties.expires_at',
+                                        bytecode: ['_H', 1, 32, 'expires_at', 32, 'properties', 32, 'person', 1, 3],
+                                    },
+                                },
+                            },
+                            error: 'The date to wait for did not evaluate to a date',
+                        },
+                        {
+                            label: 'a time window with no days to open on',
+                            wait: {
+                                type: 'wait_until_time_window',
+                                config: { timezone: 'UTC', day: [], time: ['09:00', '17:00'] },
+                            },
+                            error: 'No day in the next 7 days matches the time window',
+                        },
+                    ])('does NOT continue past $label, despite on_error continue', async ({ wait, error }) => {
                         const flow = new FixtureHogFlowBuilder()
                             .withWorkflow({
                                 actions: {
@@ -2096,56 +2120,35 @@ describe('Hogflow Executor', () => {
                                             filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                                         },
                                     },
-                                    // Compiled by the HogQL compiler from `person.properties.expires_at`,
-                                    // which evaluates to null for a person without that property.
-                                    delay_1: {
-                                        type: 'delay',
-                                        config: {
-                                            delay_until: {
-                                                expression: 'person.properties.expires_at',
-                                                bytecode: [
-                                                    '_H',
-                                                    1,
-                                                    32,
-                                                    'expires_at',
-                                                    32,
-                                                    'properties',
-                                                    32,
-                                                    'person',
-                                                    1,
-                                                    3,
-                                                ],
-                                            },
-                                        } as any,
-                                    },
+                                    wait_1: wait as any,
                                     exit: { type: 'exit', config: {} },
                                 },
                                 edges: [
-                                    { from: 'trigger', to: 'delay_1', type: 'continue' },
-                                    { from: 'delay_1', to: 'exit', type: 'continue' },
+                                    { from: 'trigger', to: 'wait_1', type: 'continue' },
+                                    { from: 'wait_1', to: 'exit', type: 'continue' },
                                 ],
                             })
                             .build()
-                        expect(flow.actions.find((a) => a.id === 'delay_1')!.on_error).toBe('continue')
+                        expect(flow.actions.find((a) => a.id === 'wait_1')!.on_error).toBe('continue')
 
                         const invocation = createExampleHogFlowInvocation(flow)
                         invocation.state.currentAction = {
-                            id: 'delay_1',
+                            id: 'wait_1',
                             startedAtTimestamp: DateTime.now().toMillis(),
                         }
 
                         const result = await executor.execute(invocation)
 
-                        expect(result.error).toContain('The date to wait for did not evaluate to a date')
+                        expect(result.error).toContain(error)
                         expect(result.finished).toBe(true)
-                        expect(result.invocation.state.currentAction?.id).toBe('delay_1')
+                        expect(result.invocation.state.currentAction?.id).toBe('wait_1')
                         expect(result.logs.map((l) => l.message)).not.toEqual(
                             expect.arrayContaining([expect.stringContaining('Workflow moved to action')])
                         )
                         expect(result.logs.map((l) => l.message)).toEqual(
                             expect.arrayContaining([
                                 expect.stringContaining(
-                                    'Workflow is aborting because [Action:delay_1] could not work out the date to wait for'
+                                    'Workflow is aborting because [Action:wait_1] could not work out the date to wait for'
                                 ),
                             ])
                         )
@@ -3094,6 +3097,7 @@ describe('Hogflow Executor', () => {
     describe('billing metrics', () => {
         const createHogFlow = (flow: SimpleHogFlowRepresentation): HogFlow => {
             return new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
                 .withExitCondition('exit_on_conversion')
                 .withWorkflow({
                     actions: {
@@ -3266,6 +3270,101 @@ describe('Hogflow Executor', () => {
             )
             expect(emailBilling).toHaveLength(2)
         })
+
+        const suspendEmailSending = async (): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspended_at, email_sending_suspension_reason)
+                 VALUES ($1, false, 'off', now(), 'testing suspension')`,
+                [team.id],
+                'test-suspend-email-sending'
+            )
+        }
+
+        it.each<{
+            label: string
+            senderId?: unknown
+            toEmail?: string
+            verified?: boolean
+            suspended?: boolean
+            outcome: string
+        }>([
+            { label: 'the sender id is not a number', senderId: 'not-a-number', outcome: 'failed' },
+            { label: 'the sender no longer exists', senderId: 999_999_999, outcome: 'email_failed' },
+            { label: 'the sender domain is not verified', verified: false, outcome: 'email_failed' },
+            { label: 'email sending is suspended for the team', suspended: true, outcome: 'email_suspended' },
+            { label: 'the recipient has no email address', toEmail: '', outcome: 'email_missing_recipient' },
+        ])(
+            'does not bill an email step when $label',
+            async ({ senderId, toEmail = 'recipient@example.com', verified = true, suspended = false, outcome }) => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: integrationId,
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified,
+                        provider: 'maildev',
+                    },
+                })
+                if (suspended) {
+                    await suspendEmailSending()
+                }
+                await insertHogFunctionTemplate(hub.postgres, {
+                    id: 'template-email',
+                    name: 'Test Email Template',
+                    code: `sendEmail(inputs.email)`,
+                    inputs_schema: [
+                        {
+                            type: 'native_email',
+                            key: 'email',
+                            integration: 'email',
+                            required: true,
+                            templating: 'liquid',
+                        },
+                    ],
+                })
+                const hogFlow = createHogFlow({
+                    actions: {
+                        email: {
+                            type: 'function_email',
+                            config: {
+                                template_id: 'template-email',
+                                inputs: {
+                                    email: {
+                                        value: {
+                                            to: { email: toEmail, name: 'Recipient' },
+                                            from: { integrationId: senderId ?? integrationId },
+                                            subject: 'Subject',
+                                            text: 'Text',
+                                            html: 'HTML',
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'email', type: 'continue' },
+                        { from: 'email', to: 'exit', type: 'continue' },
+                    ],
+                })
+
+                let result = await executor.execute(createExampleHogFlowInvocation(hogFlow))
+                const metrics = [...result.metrics]
+                while (!result.finished) {
+                    result = await executor.execute(result.invocation)
+                    metrics.push(...result.metrics)
+                }
+
+                const emailStepMetrics = metrics.filter((m) => m.instance_id === 'email').map((m) => m.metric_name)
+                expect(emailStepMetrics).toContain(outcome)
+                expect(emailStepMetrics).not.toContain('billable_invocation')
+            }
+        )
     })
 
     describe('email queue routing', () => {

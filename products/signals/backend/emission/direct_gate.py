@@ -26,6 +26,7 @@ from typing import Any
 
 import structlog
 
+from posthog.exceptions import QuotaLimitExceeded
 from posthog.llm.gateway_client import build_async_anthropic_client, resolve_ai_gateway_config
 from posthog.models import Organization, Team
 
@@ -132,7 +133,7 @@ async def steering_filters_signal(
                 ),
                 timeout=GATE_TIMEOUT_SECONDS,
             )
-    except TrialRefused:
+    except (QuotaLimitExceeded, TrialRefused):
         return True
     except Exception:
         logger.exception(

@@ -148,7 +148,10 @@ tools:
             detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available.
             Use this when the source schema has changed, an incremental field has been dropped, or the user wants to
             switch to a different incremental_field/sync_type on an existing schema. The operation_id is
-            external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.
+            external_data_schemas_incremental_fields_create but semantically this is a read-only refresh. For database
+            sources the fields come best first: the first has `recommended: true`, and each field's `notes` say whether
+            it catches updated rows, is indexed, or can be empty. Prefer the recommended field unless the user picks
+            another, and pass the notes on when the user has to choose.
     external-data-schemas-list:
         operation: external_data_schemas_list
         enabled: true

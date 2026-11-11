@@ -255,9 +255,21 @@ class TestTrialAPI(APIBaseTest):
         assert not source.enabled
         assert not SignalTrialGrant.objects.for_team(self.team.pk).exists()
 
-    @parameterized.expand([(False, True), (True, False)])
-    def test_flag_off_and_disabled_sources_do_not_enroll(self, flag: bool, enabled: bool) -> None:
+    @parameterized.expand(
+        [
+            ("flag_off", False, True, False),
+            ("source_disabled", True, False, False),
+            ("billing_starts_later", True, True, True),
+        ]
+    )
+    def test_source_activation_outside_the_trial_does_not_enroll(
+        self, _name: str, flag: bool, enabled: bool, billing_starts_later: bool
+    ) -> None:
         self.flag_mock.return_value = flag
+        if billing_starts_later:
+            cutover = timezone.now().date() + timedelta(days=2)
+            self.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover.isoformat()}}
+            self.organization.save(update_fields=["usage"])
         with patch("products.signals.backend.trial.billing.TrialBilling.status") as billing:
             response = self.client.post(
                 f"/api/projects/{self.team.pk}/signals/source_configs/",

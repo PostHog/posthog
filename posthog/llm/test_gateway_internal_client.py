@@ -7,9 +7,12 @@ from posthog.llm.gateway_internal_client import (
     ADMIN_ACTOR,
     IDEMPOTENCY_KEY_HEADER,
     INTERNAL_ACTOR_HEADER,
+    USAGE_REPORT_TIMEOUT_SECONDS,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     add_credit,
+    get_usage_report,
+    get_usage_report_rows,
     get_wallet,
 )
 
@@ -154,6 +157,68 @@ class TestAddCredit:
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, body)):
             result = add_credit(42, "10", "x", "key-123")
         assert result.balance_usd == "0"
+
+
+class TestGetUsageReport:
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_parses_a_page_and_uses_the_report_timeout(self, mock_settings):
+        _configured(mock_settings)
+        payload = {"rows": [{"keys": {"obo": "1"}}], "truncated": False}
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, payload)) as mock_get:
+            page = get_usage_report({"group_by": "obo"})
+
+        assert page.rows == [{"keys": {"obo": "1"}}]
+        assert page.truncated is False
+        assert page.next_cursor is None
+        assert mock_get.call_args.kwargs["timeout"] == USAGE_REPORT_TIMEOUT_SECONDS
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_follows_the_cursor_to_the_last_page(self, mock_settings):
+        _configured(mock_settings)
+        first = _response(200, {"rows": [{"keys": {"obo": "1"}}], "truncated": True, "next_cursor": "c1"})
+        second = _response(200, {"rows": [{"keys": {"obo": "2"}}], "truncated": False})
+        with patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=[first, second]) as mock_get:
+            rows = get_usage_report_rows({"group_by": "obo", "team_id": "2"})
+
+        assert [row["keys"]["obo"] for row in rows] == ["1", "2"]
+        first_params = mock_get.call_args_list[0].kwargs["params"]
+        second_params = mock_get.call_args_list[1].kwargs["params"]
+        assert first_params["order_by"] == "key"
+        assert "cursor" not in first_params
+        assert second_params["order_by"] == "key"
+        assert second_params["cursor"] == "c1"
+        assert second_params["team_id"] == "2"
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_when_truncated_without_a_cursor(self, mock_settings):
+        _configured(mock_settings)
+        payload = {"rows": [], "truncated": True}
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, payload)):
+            with pytest.raises(AIGatewayInternalError, match="truncated but returned no cursor"):
+                get_usage_report_rows({"group_by": "obo"})
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_on_a_repeated_cursor(self, mock_settings):
+        _configured(mock_settings)
+        page = _response(200, {"rows": [], "truncated": True, "next_cursor": "c1"})
+        with patch("posthog.llm.gateway_internal_client.httpx.get", side_effect=[page, page]):
+            with pytest.raises(AIGatewayInternalError, match="repeated cursor"):
+                get_usage_report_rows({"group_by": "obo"})
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_when_the_gateway_rejects_the_page_params(self, mock_settings):
+        _configured(mock_settings)
+        body = {"error": 'unknown query parameter "order_by"'}
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(400, body)):
+            with pytest.raises(AIGatewayInternalError, match="unknown query parameter"):
+                get_usage_report_rows({"group_by": "obo"})
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_raises_without_a_truncated_flag(self, mock_settings):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, {"rows": []})):
+            with pytest.raises(AIGatewayInternalError, match="no truncated flag"):
+                get_usage_report({"group_by": "obo"})
 
 
 class TestNotConfigured:
