@@ -509,8 +509,8 @@ export interface hogFlowEditorLogicActions {
                                         }
                                     }
                                 }
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
                             }
                             created_at?: number | undefined
                             description: string
@@ -1452,8 +1452,8 @@ export interface hogFlowEditorLogicActions {
                                         }
                                     }
                                 }
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                message_category_id?: string | null | undefined
+                                message_category_type?: 'marketing' | 'transactional' | null | undefined
                             }
                             created_at?: number | undefined
                             description: string
