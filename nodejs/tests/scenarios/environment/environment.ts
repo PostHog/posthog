@@ -114,7 +114,7 @@ export function createEnvironment({
             try {
                 await resetRoles(edge, settings)
             } catch (error) {
-                await stop()
+                await stop().catch(() => undefined)
                 throw error
             }
         },
@@ -254,10 +254,13 @@ export function createEnvironment({
     }
 
     async function stop(): Promise<void> {
-        await supervisor.stop()
-        await edge?.close()
-        edge = undefined
-        await releaseLock?.()
-        releaseLock = undefined
+        try {
+            await supervisor.stop()
+        } finally {
+            await edge?.close()
+            edge = undefined
+            await releaseLock?.()
+            releaseLock = undefined
+        }
     }
 }
