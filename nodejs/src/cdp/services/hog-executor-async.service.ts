@@ -1,5 +1,7 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
+import { ValueMatcher, buildIntegerMatcher } from '~/common/config/matchers'
 import { instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -48,11 +50,18 @@ import {
     selfLoopGuardCounter,
 } from './self-loop-guard'
 
+const integrationLookupRetries = new Counter({
+    name: 'cdp_fetch_integration_lookup_retries_total',
+    help: 'Fetches whose integration lookup hit a retriable dependency error, by whether the invocation was rescheduled or gave up.',
+    labelNames: ['outcome'],
+})
+
 export interface HogExecutorAsyncConfig {
     googleAdwordsDeveloperToken: string
     fetchRetries: number
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
+    fetchRetryIntegrationLookupTeams: string
     siteUrl: string
     internalApiBaseUrl: string
 }
@@ -96,7 +105,11 @@ export class HogExecutorAsyncService {
         public readonly hogExecutor: HogExecutorService,
         private config: HogExecutorAsyncConfig,
         private deps: HogExecutorAsyncDependencies
-    ) {}
+    ) {
+        this.retriesIntegrationLookup = buildIntegerMatcher(config.fetchRetryIntegrationLookupTeams, true)
+    }
+
+    private retriesIntegrationLookup: ValueMatcher<number>
 
     @instrumented('hog-executor.executeWithAsyncFunctions')
     async executeWithAsyncFunctions(
@@ -374,6 +387,45 @@ export class HogExecutorAsyncService {
         })
     }
 
+    private retryAfterIntegrationLookupFailed(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        invocation: CyclotronJobInvocationHogFunction,
+        options: Pick<HogExecutorExecuteAsyncOptions, 'maxFetchRetries'> | undefined,
+        error: unknown
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const addLog = createAddLogFunction(result.logs)
+        const attempts = ++result.invocation.state.attempts
+        const willRetry = attempts < (options?.maxFetchRetries ?? this.config.fetchRetries)
+        integrationLookupRetries.labels({ outcome: willRetry ? 'rescheduled' : 'gave_up' }).inc()
+        logger.warn('[HogExecutorAsync]', 'Integration lookup failed before a fetch', {
+            invocationId: invocation.id,
+            teamId: invocation.teamId,
+            attempts,
+            willRetry,
+            error: String(error),
+        })
+
+        if (!willRetry) {
+            result.error = new Error(
+                `Could not load the integration after ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}, so the request was not sent.`
+            )
+            addLog('error', result.error.message)
+            result.finished = true
+            return result
+        }
+
+        addLog('warn', `Could not load the integration on attempt ${attempts}. Retrying.`)
+        result.invocation.queueParameters = invocation.queueParameters
+        result.invocation.queuePriority = invocation.queuePriority + 1
+        result.invocation.queueScheduledAt = DateTime.utc().plus({
+            milliseconds: Math.min(
+                this.config.fetchBackoffBaseMs * attempts + Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+                this.config.fetchBackoffMaxMs
+            ),
+        })
+        return result
+    }
+
     @instrumented('hog-executor.executeFetch')
     async executeFetch(
         invocation: CyclotronJobInvocationHogFunction,
@@ -402,7 +454,15 @@ export class HogExecutorAsyncService {
             headers['developer-token'] = this.config.googleAdwordsDeveloperToken
         }
 
-        const tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
+        let tokenReplacements: [string, string][]
+        try {
+            tokenReplacements = await this.loadIntegrationTokenReplacements(invocation.hogFunction)
+        } catch (error) {
+            if (error?.isRetriable !== true || !this.retriesIntegrationLookup(invocation.teamId)) {
+                throw error
+            }
+            return this.retryAfterIntegrationLookupFailed(result, invocation, options, error)
+        }
         const replaceTokens = (value: string): string =>
             tokenReplacements.reduce((acc, [placeholder, token]) => acc.replaceAll(placeholder, token), value)
 

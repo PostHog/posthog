@@ -543,6 +543,7 @@ export function createCdpCoreServices(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
+            fetchRetryIntegrationLookupTeams: config.CDP_FETCH_RETRY_INTEGRATION_LOOKUP_TEAMS,
             siteUrl: config.SITE_URL,
             internalApiBaseUrl: config.INTERNAL_API_BASE_URL,
         },
