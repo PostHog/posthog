@@ -455,13 +455,19 @@ export class SessionRecordingIngester {
 
         // Persist whatever is buffered and store its offsets while we still own the partitions;
         // disconnect commits them as it leaves the group.
-        await this.flushCurrentBatch()
-        await this.kafkaConsumer.disconnect()
+        let promiseResults: PromiseSettledResult<any>[]
+        try {
+            await this.flushCurrentBatch()
+        } finally {
+            // The flush rejects when the consumer refuses the offset store. Without the disconnect,
+            // the partitions wait for the session timeout before another consumer takes them.
+            await this.kafkaConsumer.disconnect()
 
-        const promiseResults = await this.promiseScheduler.waitForAllSettled()
+            promiseResults = await this.promiseScheduler.waitForAllSettled()
 
-        this.keyStore.stop()
-        await this.stopEventIngestionRestrictionManager?.()
+            this.keyStore.stop()
+            await this.stopEventIngestionRestrictionManager?.()
+        }
         // Note: Kafka producers and Redis pools are owned by the server (IngestionSessionReplayServer),
         // not by the ingester. The server handles their lifecycle in getCleanupResources().
 

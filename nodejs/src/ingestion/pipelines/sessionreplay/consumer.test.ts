@@ -239,6 +239,19 @@ describe('SessionRecordingIngester', () => {
         expect(events).toEqual(['side_effect_settled', 'offsets_stored', 'disconnected'])
     })
 
+    it('stop() disconnects and stops the key store when the final flush cannot store its offsets', async () => {
+        jest.mocked(ingester.kafkaConsumer).offsetsStore.mockImplementation(() => {
+            throw new Error('offset store refused')
+        })
+        runPipelineMock.mockResolvedValue(progress(new Map([[0, 42]])))
+        await ingester.handleEachBatch([kafkaMessage(0, 42)])
+
+        await expect(ingester.stop()).rejects.toThrow('offset store refused')
+
+        expect(events).toEqual(['disconnected'])
+        expect(ingester['keyStore'].stop).toHaveBeenCalled()
+    })
+
     it('flushes on the age trigger: side effects drain before the batch offsets are stored, at exactly highest+1', async () => {
         createIngester({ SESSION_RECORDING_MAX_BATCH_AGE_MS: 0 })
 
