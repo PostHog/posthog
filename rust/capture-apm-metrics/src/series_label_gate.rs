@@ -770,6 +770,7 @@ mod tests {
             series_fingerprint,
             has_labels: true,
             retention_days: None,
+            start_timestamp: None,
         }
     }
 
