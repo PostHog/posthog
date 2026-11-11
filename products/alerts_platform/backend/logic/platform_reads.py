@@ -4,18 +4,21 @@ Separate from `platform_lifecycle`, which serves the source adapters. These serv
 outside the product, so they return views rather than rows and never change one.
 """
 
+import operator
 from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
+from functools import reduce
 from typing import Any
 from uuid import UUID
 
-from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, Max, OuterRef, Prefetch, Q, QuerySet, Subquery, Value, When
 from django.db.models.functions import Coalesce
 
 from posthog.helpers.trigram_search import NAME_FIELD, apply_trigram_search
 
 from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
+    EnabledNativeConfiguration,
     Grouping,
     InstanceCheckState,
     NativeConfigurationMatch,
@@ -180,6 +183,58 @@ def native_configuration_matches(
             "id", "created_at", "created_by_id", "source_config", "_is_exact", "_search_score"
         )
     )
+
+
+def enabled_native_configurations(
+    *,
+    team_ids: Collection[int],
+    source_kind: str,
+    created_by_id: int | None = None,
+    source_config_key: str | None = None,
+    values: Collection[Any] = (),
+    limit: int | None = None,
+) -> tuple[EnabledNativeConfiguration, ...]:
+    """The enabled configurations of a kind with no source row in these teams, newest first. With
+    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `source_config[key]` is one of `values`. With `limit`, at most that many."""
+    if not team_ids or (source_config_key is not None and not values):
+        return ()
+    # The caller names the teams, as a source's readers of its own rows across teams do.
+    rows = PlatformAlertConfiguration.objects.unscoped().filter(
+        team_id__in=list(team_ids), source_kind=source_kind, legacy_configuration_id__isnull=True, enabled=True
+    )
+    if created_by_id is not None:
+        rows = rows.filter(created_by_id=created_by_id)
+    if source_config_key is not None:
+        rows = rows.filter(
+            reduce(operator.or_, (Q(source_config__contains={source_config_key: value}) for value in values))
+        )
+    ordered = rows.order_by("-created_at", "-id").values_list(
+        "id", "team_id", "name", "created_at", "created_by_id", "source_config"
+    )
+    return tuple(
+        EnabledNativeConfiguration(
+            id=row_id,
+            team_id=team_id,
+            name=name,
+            created_at=created_at,
+            created_by_id=row_created_by_id,
+            source_config=source_config,
+        )
+        for row_id, team_id, name, created_at, row_created_by_id, source_config in (
+            ordered if limit is None else ordered[:limit]
+        )
+    )
+
+
+def native_configuration_team_id(*, configuration_id: UUID, source_kind: str) -> int | None:
+    """The team of a configuration of a kind with no source row, or None when there is none. For a
+    caller with no team yet, such as a click on a button in a message, which then checks access
+    against the team this returns."""
+    unscoped = PlatformAlertConfiguration.objects.unscoped()
+    # nosemgrep: idor-lookup-without-team — resolves the team only; the caller authorizes against it
+    rows = unscoped.filter(id=configuration_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+    return rows.values_list("team_id", flat=True).first()
 
 
 def owned_configuration_ids_without_source_rows(

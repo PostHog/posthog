@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     ControlChangeKind,
     DestinationSend,
     DestinationType,
+    EnabledNativeConfiguration,
     HandbackRefusal,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
@@ -236,6 +237,34 @@ def native_configuration_matches(
     them on beside its own rows. With `search`, only the ones whose name matches it, exact and
     similar alike: the source keeps only the exact tier when any row of either kind is exact."""
     return platform_reads.native_configuration_matches(team_id=team_id, source_kind=source_kind.value, search=search)
+
+
+def enabled_native_configurations(
+    *,
+    team_ids: Collection[int],
+    source_kind: SourceKind,
+    created_by_id: int | None = None,
+    source_config_key: str | None = None,
+    values: Collection[Any] = (),
+    limit: int | None = None,
+) -> tuple[EnabledNativeConfiguration, ...]:
+    """The enabled alerts of a kind with no source row in these teams, newest first. With
+    `created_by_id`, only the ones that user created. With `source_config_key`, only the ones whose
+    `source_config[key]` is one of `values`. With `limit`, at most that many."""
+    return platform_reads.enabled_native_configurations(
+        team_ids=team_ids,
+        source_kind=source_kind.value,
+        created_by_id=created_by_id,
+        source_config_key=source_config_key,
+        values=values,
+        limit=limit,
+    )
+
+
+def native_configuration_team_id(*, configuration_id: UUID, source_kind: SourceKind) -> int | None:
+    """The team of an alert of a kind with no source row, or None when there is none. The caller
+    authorizes against the team before it acts on the alert."""
+    return platform_reads.native_configuration_team_id(configuration_id=configuration_id, source_kind=source_kind.value)
 
 
 def owned_configuration_ids_without_source_rows(

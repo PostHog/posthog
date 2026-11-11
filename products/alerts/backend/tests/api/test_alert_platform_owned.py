@@ -24,7 +24,15 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
-from products.alerts.backend.facade.api import first_subscriber_id, snooze_alert_from_slack
+from products.alerts.backend.facade.api import (
+    enabled_alert_insight_ids,
+    first_subscriber_id,
+    get_alert_team_id,
+    insight_ids_with_enabled_alerts,
+    insight_short_ids_watched_by,
+    list_enabled_alerts,
+    snooze_alert_from_slack,
+)
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
 from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
@@ -828,6 +836,48 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             assert ActivityLog.objects.filter(
                 scope="AlertConfiguration", item_id=str(self.copy_id), activity="took_ownership", user=self.user
             ).exists()
+
+    @parameterized.expand(
+        [
+            ("team", "team_of", True, True),
+            # A snooze from Slack resolves the team first, and a switched-off alert answers it with "disabled".
+            ("team_of_a_switched_off_alert", "team_of", False, True),
+            ("enabled_insights", "enabled_alert_insights", True, True),
+            ("enabled_insights_skip_a_switched_off_alert", "enabled_alert_insights", False, False),
+            ("enabled_given_insights", "enabled_alerts_of_given_insights", True, True),
+            ("enabled_list", "enabled_alerts_list", True, True),
+            ("enabled_list_skips_a_switched_off_alert", "enabled_alerts_list", False, False),
+            ("watched_insights", "insights_the_creator_watches", True, True),
+        ]
+    )
+    def test_the_facade_readers_see_an_alert_insight_keeps_no_row_for(
+        self, _name: str, reader: str, enabled: bool, expected: bool
+    ) -> None:
+        self._forget_the_insight_row()
+        with team_scope(self.team.id):
+            platform_testing.set_enabled(self.copy_id, enabled)
+            assert assign_native_creator(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.INSIGHT.value],
+                configuration_id=self.copy_id,
+                created_by_id=self.user.id,
+            )
+        insight = self.alert.insight
+        reads: dict[str, Callable[[], bool]] = {
+            "team_of": lambda: get_alert_team_id(self.copy_id) == self.team.id,
+            "enabled_alert_insights": lambda: insight.id in enabled_alert_insight_ids(team_ids=[self.team.id]),
+            "enabled_alerts_of_given_insights": lambda: (
+                insight_ids_with_enabled_alerts(team_id=self.team.id, insight_ids=[insight.id]) == {insight.id}
+            ),
+            "enabled_alerts_list": lambda: (
+                [alert.id for alert in list_enabled_alerts(self.team, self.user, limit=10)] == [self.copy_id]
+            ),
+            "insights_the_creator_watches": lambda: (
+                insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10) == [insight.short_id]
+            ),
+        }
+
+        assert reads[reader]() is expected
 
     def test_taking_ownership_of_an_ai_alert_insight_keeps_no_row_for_reads_it_under_the_lock(self) -> None:
         insight = self.alert.insight
