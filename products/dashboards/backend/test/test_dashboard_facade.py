@@ -50,6 +50,7 @@ from products.dashboards.backend.facade.testing import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
 
 
@@ -194,6 +195,54 @@ class TestDashboardReadsUnderAccessControl(APIBaseTest):
             assert summary is not None
             assert api.can_access_dashboard(summary, user_access_control=environment_access) == expected
             assert environment_access.check_access_level_for_object(row, "viewer") == expected
+
+    @parameterized.expand(
+        [
+            ("object_rules", False, False, {"hidden"}),
+            ("object_rules_with_deleted", False, True, {"hidden", "deleted_hidden"}),
+            ("resource_wide_deny", True, False, {"visible", "hidden"}),
+            ("resource_wide_deny_with_deleted", True, True, {"visible", "hidden", "deleted_hidden"}),
+        ]
+    )
+    def test_hidden_dashboard_ids_agree_with_the_object_access_check(
+        self, _name: str, deny_the_resource: bool, include_deleted: bool, expected: set[str]
+    ) -> None:
+        member = self.organization_membership
+        dashboards = {
+            "visible": self.visible,
+            "hidden": self.hidden,
+            "own": create_dashboard(team_id=self.team.id, created_by_id=self.user.id),
+            "granted": create_dashboard(team_id=self.team.id),
+            "deleted_hidden": create_dashboard(team_id=self.team.id, deleted=True),
+        }
+        for name in ("own", "deleted_hidden"):
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=str(dashboards[name]), access_level="none"
+            )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(dashboards["granted"]),
+            organization_member=member,
+            access_level="viewer",
+        )
+        if deny_the_resource:
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", organization_member=member, access_level="none"
+            )
+        access = UserAccessControl(user=self.user, team=self.team)
+
+        hidden = api.hidden_dashboard_ids(
+            team_id=self.team.id, user_access_control=access, include_deleted=include_deleted
+        )
+
+        assert hidden == {dashboards[name] for name in expected}
+        rows = Dashboard.objects_including_soft_deleted.filter(id__in=dashboards.values())
+        assert hidden == {
+            row.id
+            for row in rows
+            if (include_deleted or not row.deleted) and not access.check_access_level_for_object(row, "viewer")
+        }
 
     @parameterized.expand([("soft_deleted", True, False), ("found_through_an_environment", False, True)])
     def test_access_ref_is_none_unless_the_dashboard_is_live_on_that_team(
@@ -466,6 +515,32 @@ class TestTilePlacements(APIBaseTest):
         ]
         with self.assertRaises(ValueError):
             api.live_tile_placements()
+
+    @parameterized.expand([("live", False), ("including_deleted", True)])
+    def test_insight_placements_match_the_tile_query_they_replace(self, _name: str, include_deleted: bool) -> None:
+        deleted_dashboard = create_dashboard(team_id=self.team.id, deleted=True)
+        create_insight_tile(dashboard_id=deleted_dashboard, insight_id=self.insight.id)
+        other_project = Team.objects.create(organization=self.organization)
+        create_insight_tile(dashboard_id=create_dashboard(team_id=other_project.id), insight_id=self.insight.id)
+        asked = [self.insight.id, self.removed.id]
+
+        placements = api.insight_placements(team_id=self.team.id, insight_ids=asked, include_deleted=include_deleted)
+
+        live = [
+            InsightPlacement(insight_id=self.insight.id, dashboard_id=self.opened),
+            InsightPlacement(insight_id=self.insight.id, dashboard_id=self.stale),
+        ]
+        deleted = [
+            InsightPlacement(insight_id=self.removed.id, dashboard_id=self.opened),
+            InsightPlacement(insight_id=self.insight.id, dashboard_id=deleted_dashboard),
+        ]
+        assert placements == (live + deleted if include_deleted else live)
+        dashboard_manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
+        tile_manager = DashboardTile.objects_including_soft_deleted if include_deleted else DashboardTile.objects
+        replaced = tile_manager.filter(
+            dashboard__in=dashboard_manager.filter(team_id=self.team.id), insight_id__in=asked
+        ).values_list("insight_id", "dashboard_id")
+        assert {(p.insight_id, p.dashboard_id) for p in placements} == set(replaced)
 
     def test_insight_ids_on_template_dashboards_needs_both_prefixes_on_a_template_dashboard(self) -> None:
         generated = create_dashboard(
