@@ -31,16 +31,11 @@ function loadWizardHogAnimation(): Promise<WizardHogAnimation> {
 export interface AnimatedWizardHogProps {
     className?: string
     speed?: number
-    /** Without it, the hog holds still between casts. */
     idle?: boolean
     /** The hog raises its staff and sparkles each time this changes. 0 never casts. */
     castKey?: number
 }
 
-/**
- * The wizard hedgehog, animated. Shows the static wizard hog instead when the visitor prefers reduced motion, when
- * the animation fails to load, and in visual regression runs, whose snapshots need a still frame.
- */
 export function AnimatedWizardHog({
     className,
     speed = 1,
@@ -48,8 +43,13 @@ export function AnimatedWizardHog({
     castKey = 0,
 }: AnimatedWizardHogProps): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
-    // A hog hidden at this width or scrolled out of sight never intersects, so it never downloads the animation.
-    const { ref: inViewRef, inView } = useInView({ triggerOnce: true })
+    const { ref: inViewRef, inView } = useInView()
+    const visible = useRef(inView)
+    visible.current = inView
+    const [seen, setSeen] = useState(inView)
+    if (inView && !seen) {
+        setSeen(true)
+    }
     const setContainer = useCallback(
         (element: HTMLDivElement | null) => {
             containerRef.current = element
@@ -63,9 +63,10 @@ export function AnimatedWizardHog({
     const [animation, setAnimation] = useState<AnimationItem | null>(null)
     const [failed, setFailed] = useState(false)
     const playedCastKey = useRef(0)
+    const playing = useRef(false)
 
     useEffect(() => {
-        if (still || !inView) {
+        if (still || !seen) {
             return
         }
         let cancelled = false
@@ -82,6 +83,9 @@ export function AnimatedWizardHog({
                     autoplay: false,
                     animationData: data,
                 })
+                item.addEventListener('complete', () => {
+                    playing.current = false
+                })
                 setAnimation(item)
             },
             () => {
@@ -94,7 +98,7 @@ export function AnimatedWizardHog({
             cancelled = true
             item?.destroy()
         }
-    }, [still, inView])
+    }, [still, seen])
 
     useEffect(() => {
         animation?.setSpeed(speed)
@@ -123,7 +127,22 @@ export function AnimatedWizardHog({
         } else {
             animation.goToAndStop(IDLE_START, true)
         }
+        playing.current = cast || idle
+        if (!visible.current) {
+            animation.pause()
+        }
     }, [animation, castKey, idle])
+
+    useEffect(() => {
+        if (!animation) {
+            return
+        }
+        if (!inView) {
+            animation.pause()
+        } else if (playing.current) {
+            animation.play()
+        }
+    }, [animation, inView])
 
     if (still || failed) {
         return <WizardHog className={className} loading="eager" />

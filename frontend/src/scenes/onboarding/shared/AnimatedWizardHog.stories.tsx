@@ -9,7 +9,6 @@ const meta: Meta<typeof AnimatedWizardHog> = {
     title: 'Scenes-Other/Onboarding/Animated wizard hog',
     component: AnimatedWizardHog,
     parameters: {
-        // The test runner renders the still hog, so a snapshot would only repeat the hog illustration stories.
         testOptions: { snapshotBrowsers: [] },
     },
     args: { speed: 1, idle: true },
