@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import threading
 import contextlib
+from contextlib import ExitStack
 from typing import Any
 
 import pytest
@@ -97,6 +98,10 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_running_activity,
     mark_observation_succeeded_activity,
 )
+from products.replay_vision.backend.temporal.activities.observation_steps import (
+    finalize_observation_activity,
+    prepare_observation_activity,
+)
 from products.replay_vision.backend.temporal.activities.resolve_experiment_variant import (
     resolve_experiment_variant_activity,
 )
@@ -148,10 +153,13 @@ from products.replay_vision.backend.temporal.types import (
     EventTable,
     FetchSessionEventsInputs,
     FetchSessionNetworkInputs,
+    FinalizeObservationInputs,
     MarkObservationFailedInputs,
     MarkObservationIneligibleInputs,
     MarkObservationRunningInputs,
     MarkObservationSucceededInputs,
+    PrepareObservationInputs,
+    PrepareObservationOutput,
     ResolveExperimentVariantOutput,
     ScannerCallOutput,
     ScannerLlmInputs,
@@ -2842,6 +2850,7 @@ async def _run_workflow(
     inputs: ApplyScannerInputs,
     mocks: _WorkflowMocks,
     workflow_id: str = "wf-test",
+    folded: bool = False,
 ) -> None:
     workflow_info = MagicMock()
     workflow_info.workflow_id = workflow_id
@@ -2852,6 +2861,8 @@ async def _run_workflow(
         # `wf.logger` requires a real workflow event loop, which this direct-call harness skips.
         patch("temporalio.workflow.logger"),
         patch("temporalio.workflow.now", return_value=dt.datetime(2026, 1, 1, tzinfo=dt.UTC)),
+        # Histories from before the fold replay the per-step activities, so both paths stay covered.
+        patch("temporalio.workflow.patched", return_value=folded),
     ):
         await ApplyScannerWorkflow().run(inputs)
 
@@ -2902,6 +2913,147 @@ async def test_apply_scanner_workflow_drives_full_success_pipeline() -> None:
     assert cleanup_input.gemini_file_name == "files/x"
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("finalize_fails", [False, True])
+async def test_folded_apply_scanner_workflow_runs_two_activities_around_the_model_call(finalize_fails: bool) -> None:
+    new_observation_id = uuid.uuid4()
+    model_output = MonitorOutput(verdict="yes", reasoning="user exported", confidence=0.9)
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=new_observation_id, was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            prepare_observation_activity: PrepareObservationOutput(asset=EnsureSessionAssetOutput(asset_id=42)),
+            upload_video_to_gemini_activity: UploadedVideo(
+                file_uri="gemini://files/x", mime_type="video/mp4", gemini_file_name="files/x"
+            ),
+            call_scanner_provider_activity: ScannerCallOutput(model_output=model_output),
+        },
+        activity_errors={finalize_observation_activity: ApplicationError("db down")} if finalize_fails else {},
+    )
+
+    if finalize_fails:
+        with pytest.raises(ApplicationError, match="db down"):
+            await _run_workflow(_build_inputs(), mocks, folded=True)
+    else:
+        await _run_workflow(_build_inputs(), mocks, folded=True)
+
+    pipeline = [
+        create_observation_activity,
+        prepare_observation_activity,
+        upload_video_to_gemini_activity,
+        call_scanner_provider_activity,
+        finalize_observation_activity,
+    ]
+    # Finalize deletes the Gemini file itself once the result is saved. When finalize fails, the
+    # workflow still marks the row failed and deletes the file.
+    expected = (
+        [*pipeline, mark_observation_failed_activity, cleanup_gemini_file_activity] if finalize_fails else pipeline
+    )
+    assert [fn for fn, _ in mocks.activity_calls] == expected
+    finalize_input = next(arg for fn, arg in mocks.activity_calls if fn is finalize_observation_activity)
+    assert finalize_input.gemini_file_name == "files/x"
+    assert finalize_input.exported_asset_id == 42
+    assert finalize_input.call_output.model_output == model_output
+
+
+_APPLY_STEPS = "products.replay_vision.backend.temporal.activities.observation_steps"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failing_step, expect_error",
+    [
+        # The network capture is a side input, so the scan runs without it.
+        ("fetch_session_network_activity", False),
+        ("fetch_session_events_activity", True),
+        ("resolve_experiment_variant_activity", True),
+    ],
+)
+async def test_prepare_observation_activity_only_absorbs_a_network_failure(
+    failing_step: str, expect_error: bool
+) -> None:
+    observation_id = uuid.uuid4()
+    async_steps = {
+        name: AsyncMock()
+        for name in (
+            "fetch_session_events_activity",
+            "fetch_session_network_activity",
+            "ensure_session_asset_activity",
+            "resolve_experiment_variant_activity",
+        )
+    }
+    async_steps["ensure_session_asset_activity"].return_value = EnsureSessionAssetOutput(asset_id=42)
+    async_steps["resolve_experiment_variant_activity"].return_value = ResolveExperimentVariantOutput(
+        applicable=True, experiment_variant="test"
+    )
+    async_steps[failing_step].side_effect = IneligibleSessionError("unexposed", kind=IneligibleSessionKind.NOT_EXPOSED)
+    mark_running = MagicMock()
+    with ExitStack() as stack:
+        stack.enter_context(patch(f"{_APPLY_STEPS}.mark_observation_running_activity", mark_running))
+        for name, mock in async_steps.items():
+            stack.enter_context(patch(f"{_APPLY_STEPS}.{name}", mock))
+        call = prepare_observation_activity(
+            PrepareObservationInputs(observation_id=observation_id, team_id=1, session_id="s", resolve_experiment=True)
+        )
+        if expect_error:
+            with pytest.raises(IneligibleSessionError):
+                await call
+            return
+        output = await call
+
+    mark_running.assert_called_once()
+    assert output.asset.asset_id == 42
+    assert output.experiment_resolution is not None
+    assert output.experiment_resolution.experiment_variant == "test"
+
+
+@pytest.mark.parametrize("fail", ["mark_succeeded", "event"])
+def test_finalize_observation_activity_only_raises_when_the_result_write_fails(fail: str) -> None:
+    calls: list[str] = []
+    mark_succeeded = MagicMock(side_effect=lambda _: calls.append("mark_succeeded"))
+    if fail == "mark_succeeded":
+        mark_succeeded.side_effect = RuntimeError("db down")
+
+    async def emit_event(_: object) -> None:
+        calls.append("event")
+        if fail == "event":
+            raise RuntimeError("capture down")
+
+    async def cleanup(_: object) -> None:
+        calls.append("cleanup")
+
+    inputs = FinalizeObservationInputs(
+        team_id=1,
+        session_id="s",
+        scanner_id=uuid.uuid4(),
+        observation_id=uuid.uuid4(),
+        scanner_type=ScannerType.MONITOR,
+        exported_asset_id=42,
+        call_output=ScannerCallOutput(model_output=MonitorOutput(verdict="yes", reasoning="r", confidence=0.9)),
+        gemini_file_name="files/x",
+    )
+    with (
+        patch(f"{_APPLY_STEPS}.mark_observation_succeeded_activity", mark_succeeded),
+        patch(f"{_APPLY_STEPS}.emit_observation_event_activity", emit_event),
+        patch(f"{_APPLY_STEPS}.embed_observation_activity", AsyncMock()),
+        patch(f"{_APPLY_STEPS}.cleanup_gemini_file_activity", cleanup),
+        patch(f"{_APPLY_STEPS}.time.sleep"),
+        # The sync activity wrapper probes Django connections, which this database-free test must not touch.
+        patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"),
+    ):
+        if fail == "mark_succeeded":
+            with pytest.raises(RuntimeError, match="db down"):
+                finalize_observation_activity(inputs)
+            # A retry of the activity must not repeat delivery, so nothing runs after a failed write.
+            assert calls == []
+            return
+        finalize_observation_activity(inputs)
+
+    # The result is saved before any delivery step, and a failed delivery step neither raises nor skips the cleanup.
+    assert calls == ["mark_succeeded", "event", "event", "event", "cleanup"]
 
 
 @pytest.mark.asyncio

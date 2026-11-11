@@ -348,3 +348,28 @@ class EmitObservationEventInputs(BaseModel, frozen=True):
 
     observation_id: UUID
     model_output: AnyScannerOutput
+
+
+class PrepareObservationInputs(BaseModel, frozen=True):
+    observation_id: UUID
+    team_id: int
+    session_id: str
+    resolve_experiment: bool
+
+
+class PrepareObservationOutput(BaseModel, frozen=True):
+    asset: EnsureSessionAssetOutput
+    experiment_resolution: ResolveExperimentVariantOutput | None = None
+
+
+class FinalizeObservationInputs(BaseModel, frozen=True):
+    team_id: int
+    session_id: str
+    scanner_id: UUID
+    observation_id: UUID
+    scanner_type: ScannerType
+    exported_asset_id: int
+    call_output: ScannerCallOutput
+    experiment_variant: str | None = None
+    session_duration_s: float | None = None
+    gemini_file_name: str | None = None
