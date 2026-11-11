@@ -422,8 +422,8 @@ export const HogFlowActionSchema = z.discriminatedUnion('type', [
         ..._commonActionFields,
         type: z.literal('email_sandbox'),
         config: z.object({
-            message_category_id: z.string().optional(),
-            message_category_type: z.enum(['marketing', 'transactional']).optional(),
+            message_category_id: z.string().nullish(),
+            message_category_type: z.enum(['marketing', 'transactional']).nullish(),
             inputs: z.object({
                 email: z.object({
                     templating: z.enum(['hog', 'liquid']).optional(),
