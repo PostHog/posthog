@@ -11,7 +11,6 @@ import type { AddressInfo } from 'node:net'
 import type { Pool } from 'pg'
 
 import { AuditExporter, captureSender } from './audit/exporter'
-import { pruneAuditLog } from './audit/retention'
 import { IntegrationVerifier } from './auth/integrations'
 import { JwtVerifier } from './auth/jwt'
 import { SigningKeyLoader } from './auth/registry'
@@ -35,9 +34,6 @@ const AUDIT_DRAIN_TIMEOUT_MS = 5_000
 
 /** How often to try the database again when it was unreachable at boot. */
 const DATABASE_RETRY_MS = 5_000
-
-/** How often to delete audit rows past the retention window. */
-const AUDIT_RETENTION_INTERVAL_MS = 3_600_000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -251,18 +247,12 @@ export class CredentialsServer {
     }
 
     private startAuditMaintenance(pool: Pool): void {
-        const { auditExport, auditRetentionDays } = this.config
+        const { auditExport } = this.config
         if (auditExport) {
             const exporter = new AuditExporter(pool, captureSender(auditExport), auditExport.batchSize)
             this.cancelTimers.push(every(auditExport.intervalSeconds * 1000, async () => void (await exporter.tick())))
             this.cancelTimers.push(() => exporter.stop())
         }
-        this.cancelTimers.push(
-            every(
-                AUDIT_RETENTION_INTERVAL_MS,
-                async () => void (await pruneAuditLog(pool, { retentionDays: auditRetentionDays }))
-            )
-        )
     }
 
     async stop(signal: string, error?: Error): Promise<void> {

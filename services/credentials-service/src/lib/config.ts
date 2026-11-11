@@ -106,9 +106,6 @@ export interface Config {
 
     /** Set when CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED is `true`. Without it no audit row leaves the database. */
     auditExport?: AuditExportConfig
-
-    /** Audit rows older than this are deleted. Needs the database. */
-    auditRetentionDays: number
 }
 
 function intFromEnv(key: string, fallback: number, min = 0): number {
@@ -212,14 +209,6 @@ function auditExportFromEnv(): AuditExportConfig | undefined {
     }
 }
 
-function auditRetentionDaysFromEnv(): number {
-    const days = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
-    if (days > MAX_AUDIT_RETENTION_DAYS) {
-        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
-    }
-    return days
-}
-
 function kmsFromEnv(env: string): KmsConfig | undefined {
     const raw = process.env.CREDENTIALS_SERVICE_KMS_PROVIDER
     if (!raw) {
@@ -286,6 +275,48 @@ function httpUrlFromEnv(key: string, raw: string): string {
     return raw
 }
 
+/**
+ * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
+ * one the service connects as, and gets grants from the migrations.
+ */
+export interface MigrateConfig {
+    url: string
+    /** Empty in single-role local development: the grants are then skipped. */
+    runtimeRole: string
+}
+
+/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
+export function loadMigrateConfig(): MigrateConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
+    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
+        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
+    }
+    return { url, runtimeRole }
+}
+
+/** What the maintenance command needs. It connects as the migrate role, never as the runtime role. */
+export interface MaintenanceConfig {
+    url: string
+    retentionDays: number
+}
+
+/** Undefined without a migrate URL. The command does not fall back to the runtime URL. */
+export function loadMaintenanceConfig(): MaintenanceConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const retentionDays = intFromEnv('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS', 30, 1)
+    if (retentionDays > MAX_AUDIT_RETENTION_DAYS) {
+        throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
+    }
+    return { url, retentionDays }
+}
+
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
     const config: Config = {
         port: intFromEnv('PORT', 8004),
@@ -302,8 +333,6 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
-
-        auditRetentionDays: auditRetentionDaysFromEnv(),
     }
 
     const auditExport = auditExportFromEnv()

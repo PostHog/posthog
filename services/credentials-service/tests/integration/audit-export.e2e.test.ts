@@ -22,6 +22,9 @@ const DAY_MS = 86_400_000
 
 let container: StartedPostgreSqlContainer
 let pool: Pool
+let runtimePool: Pool
+
+const RUNTIME_ROLE = 'credentials_runtime_export_test'
 
 const entry = (operation: string) => ({
     actor: { deployment: 'cdp-api', caller: 'tests', userId: 7, jti: 'jti-fake-0001', requestId: 'req-1' },
@@ -62,8 +65,17 @@ async function metricValue(name: string, labels: Record<string, string> = {}): P
 
 beforeAll(async () => {
     container = await new PostgreSqlContainer('postgres:17-alpine').start()
-    await runMigrations({ databaseUrl: container.getConnectionUri(), direction: 'up' })
     pool = new Pool({ connectionString: container.getConnectionUri(), max: 8 })
+    await pool.query(`CREATE ROLE ${RUNTIME_ROLE} LOGIN PASSWORD 'not-a-real-password'`)
+    await runMigrations({
+        databaseUrl: container.getConnectionUri(),
+        direction: 'up',
+        runtimeRole: RUNTIME_ROLE,
+    })
+    const runtimeUrl = new URL(container.getConnectionUri())
+    runtimeUrl.username = RUNTIME_ROLE
+    runtimeUrl.password = 'not-a-real-password'
+    runtimePool = new Pool({ connectionString: runtimeUrl.toString(), max: 4 })
 }, 120_000)
 
 beforeEach(async () => {
@@ -71,6 +83,7 @@ beforeEach(async () => {
 })
 
 afterAll(async () => {
+    await runtimePool?.end()
     await pool?.end()
     await container?.stop()
 })
@@ -87,6 +100,38 @@ describe('AuditExporter', () => {
 
         expect(await exporter.tick()).toBe('idle')
         expect(sent).toHaveLength(3)
+    })
+
+    // The service connects as the runtime role. It may set exported_at, and nothing else on audit_log.
+    it('exports as the runtime role, which can mark rows but not change or delete them', async () => {
+        await seed(3)
+        const { sent, send } = recorder()
+
+        expect(await new AuditExporter(runtimePool, send, 10).tick()).toBe('exported')
+        expect(await exportedCount()).toBe(3)
+        expect(sent.flat()).toHaveLength(3)
+
+        await expect(runtimePool.query(`UPDATE audit_log SET outcome = 'forged'`)).rejects.toThrow(/permission denied/)
+        await expect(runtimePool.query(`UPDATE audit_log SET exported_at = NULL, outcome = 'x'`)).rejects.toThrow(
+            /permission denied/
+        )
+        await expect(runtimePool.query('DELETE FROM audit_log')).rejects.toThrow(/permission denied/)
+        await expect(pruneAuditLog(runtimePool, { retentionDays: 0 })).rejects.toThrow(/permission denied/)
+    })
+
+    it('marks rows by key when their timestamps differ only in microseconds', async () => {
+        await pool.query(
+            `INSERT INTO audit_log (id, occurred_at, deployment, operation, outcome)
+             SELECT gen_random_uuid(), timestamptz '2026-11-10 12:00:00.123456+00' + n * interval '1 microsecond',
+                    'cdp-api', 'resolve', 'ok'
+             FROM generate_series(0, 4) AS n`
+        )
+        const { sent, send } = recorder()
+
+        expect(await new AuditExporter(pool, send, 10).tick()).toBe('exported')
+        expect(sent.flat()).toHaveLength(5)
+        expect(await exportedCount()).toBe(5)
+        expect(await new AuditExporter(pool, send, 10).tick()).toBe('idle')
     })
 
     it('sends the documented event shape', async () => {

@@ -55,11 +55,9 @@ class TwilioIntegration:
                 "sensitive_config": {
                     "auth_token": self.integration.sensitive_config["auth_token"],
                 },
-                "created_by": self.integration.created_by,
+                "created_by_id": self.integration.created_by_id,
+                "errors": "",
             },
         )
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration

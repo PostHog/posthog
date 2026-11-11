@@ -256,7 +256,6 @@ carry it; anything else collapses to a constant, and the `caller` claim is not a
 | `credentials_service_audit_written_total`                                | read audit rows written by the async queue                    |
 | `credentials_service_audit_exported_total{outcome}`                      | audit rows sent to capture: `sent` or `failed` (retried)      |
 | `credentials_service_audit_export_lag_seconds`                           | age of the oldest audit row not exported yet, 0 when none     |
-| `credentials_service_audit_retention_deleted_total`                      | audit rows deleted for age                                    |
 | `credentials_service_shutting_down`                                      | 1 while draining                                              |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
@@ -280,6 +279,7 @@ Tables:
 | `integration_secrets` | The encrypted secret blob of one integration (1:1)                                                            |
 | `audit_log`           | One row per access, partitioned by day on `occurred_at`                                                       |
 | `idempotency_keys`    | Request keys for create and exchange, with `expires_at` 24 hours after the write                              |
+| `auth_jti`            | Accepted token ids per deployment, so a token cannot be replayed. Index on `expires_at` for lazy cleanup      |
 
 `src/db/integrations.ts` holds the typed queries. Every query binds the owner, so no query reads or changes another team's row.
 
@@ -300,7 +300,25 @@ node credentials-service-migrate.mjs down 1     # revert the last migration
 pnpm --filter @posthog/credentials-service migrate   # the same, from source, in local development
 ```
 
-It reads `CREDENTIALS_SERVICE_DATABASE_URL` and the `migrations/` directory relative to the working directory.
+It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` and the `migrations/` directory relative to the working directory.
+In single-role local development it falls back to `CREDENTIALS_SERVICE_DATABASE_URL`.
+
+### Database roles
+
+The service uses two Postgres roles:
+
+- The **migrate role** owns the tables. Only the migration Job and the maintenance commands use it (`CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`).
+- The **runtime role** is the one the service connects as (`CREDENTIALS_SERVICE_DATABASE_URL`). It does not own any table.
+
+The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integration_secrets`, `idempotency_keys` and `auth_jti`.
+On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
+Audit retention runs under the migrate or a maintenance role, outside the service process.
+
+Infra creates both roles.
+The migration Job sets `CREDENTIALS_SERVICE_RUNTIME_ROLE` to the runtime role name.
+The Job passes it to Postgres as the session setting `credentials_service.runtime_role`, and the grants migration reads it, so the SQL file holds no role name.
+When the variable is unset, the migration skips the grants (single-role local development).
+Each migration that adds a table must grant on it in the same way.
 An advisory lock makes two Jobs that start together run one after the other.
 
 ### Audit partitions
@@ -322,10 +340,23 @@ The distinct id is always `credentials-service`, with `$process_person_profile` 
 An event carries key names in `fields`, never values. It carries no `details` and no `jti`.
 The request uses plain `fetch`, so it goes direct unless Node itself is set to use the proxy environment.
 
-`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS` (default 30, maximum 60) sets how long rows stay in Postgres.
-A loop deletes older rows in batches every hour, under its own advisory lock.
-It deletes rows that are not exported yet too, so alert on `credentials_service_audit_export_lag_seconds`.
-When infra runs pg_partman on `audit_log`, dropping partitions replaces this loop.
+The runtime role has `UPDATE (exported_at)` on `audit_log` and no other update right. The exporter marks rows by primary key `(id, occurred_at)`, with the values it read in its select.
+
+**Retention** does not run in the service, because the runtime role cannot delete audit rows.
+It runs as a separate command under the migrate (maintenance) role, from the same image, as a Kubernetes CronJob:
+
+```bash
+node credentials-service-maintenance.mjs audit-retention
+pnpm --filter @posthog/credentials-service maintenance audit-retention   # from source
+```
+
+It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` (it does not fall back to the runtime URL) and `CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS` (default 30, maximum 60).
+It deletes older rows in batches under an advisory lock, and logs `maintenance:complete`.
+Run it hourly. When infra runs pg_partman retention on `audit_log`, drop the CronJob.
+
+**Alerts.** Alert on service metrics and on the stdout audit lines (`integrations:audited`) in Loki.
+Never alert on `$credentials_access` events: anyone with the project key can forge them, so the events are for analysis only.
+Alert on `credentials_service_audit_dropped_total` above 0, and on export lag (`credentials_service_audit_export_lag_seconds`).
 
 ## Integrations API
 
@@ -375,6 +406,13 @@ Audit: one `audit_log` row for each record that a request returns or changes.
 A write stores its rows in its own transaction.
 A read hands them to an in-process queue (10k rows) that writes batches every second.
 When the queue is full, the service drops the rows and counts them on `credentials_service_audit_dropped_total`, so a read never waits.
+Every audit row is also written to stdout as one JSON line (`integrations:audited`), before the response. It holds field names only, never values. The queue never drops this line.
+
+Idempotency keys are scoped by deployment, owner and operation.
+
+`PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
+
+`src/auth/replay-postgres.ts` holds a Postgres store for token ids, on the `auth_jti` table. The token verifier does not use it yet: it needs the replay store interface from the auth PR.
 
 ## Isolation
 
@@ -438,21 +476,23 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 
 ## Configuration
 
-| Variable                                 | Default                       | Notes                                                   |
-| ---------------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| `CREDENTIALS_SERVICE_ENV`                | `dev`                         | Logical env, recorded on every startup log line         |
-| `CREDENTIALS_SERVICE_SECRET_SOURCE`      | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
-| `CREDENTIALS_SERVICE_SECRETS_DIR`        | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
-| `CREDENTIALS_SERVICE_SECRET_NAME`        | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
-| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`   | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
-| `CREDENTIALS_SERVICE_RELOAD_SECONDS`     | `30`                          | Re-read interval; a safety re-list next to the watch    |
-| `CREDENTIALS_SERVICE_METRICS_PORT`       | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
-| `CREDENTIALS_SERVICE_LOG_LEVEL`          | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                                   | `8004`                        |                                                         |
-| `HOST`                                   | `0.0.0.0`                     |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`              | `5000`                        | Wait before draining, for the Kubernetes prestop window |
-| `CREDENTIALS_SERVICE_DATABASE_URL`       | unset                         | Postgres URL; unset means platform secrets only         |
-| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE` | `20`                          | Connections per pod                                     |
+| Variable                                   | Default                       | Notes                                                   |
+| ------------------------------------------ | ----------------------------- | ------------------------------------------------------- |
+| `CREDENTIALS_SERVICE_ENV`                  | `dev`                         | Logical env, recorded on every startup log line         |
+| `CREDENTIALS_SERVICE_SECRET_SOURCE`        | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
+| `CREDENTIALS_SERVICE_SECRETS_DIR`          | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
+| `CREDENTIALS_SERVICE_SECRET_NAME`          | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
+| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`     | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
+| `CREDENTIALS_SERVICE_RELOAD_SECONDS`       | `30`                          | Re-read interval; a safety re-list next to the watch    |
+| `CREDENTIALS_SERVICE_METRICS_PORT`         | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
+| `CREDENTIALS_SERVICE_LOG_LEVEL`            | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
+| `PORT`                                     | `8004`                        |                                                         |
+| `HOST`                                     | `0.0.0.0`                     |                                                         |
+| `SHUTDOWN_PRESTOP_DELAY_MS`                | `5000`                        | Wait before draining, for the Kubernetes prestop window |
+| `CREDENTIALS_SERVICE_DATABASE_URL`         | unset                         | Postgres URL; unset means platform secrets only         |
+| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`   | `20`                          | Connections per pod                                     |
+| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` | unset                         | Migrate role URL, for the migration Job only            |
+| `CREDENTIALS_SERVICE_RUNTIME_ROLE`         | unset                         | Role that the migration Job grants access to            |
 
 The service exits at boot rather than starting degraded: a missing production variable, a
 numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`

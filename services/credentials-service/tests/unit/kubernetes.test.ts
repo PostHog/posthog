@@ -377,7 +377,6 @@ describe('credentials server on the kubernetes source', () => {
             mountDir: '/nonexistent/mount',
             reloadSeconds: 3600,
             metricsPort: 0,
-            auditRetentionDays: 30,
         }
     }
 

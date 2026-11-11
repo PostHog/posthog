@@ -1,12 +1,12 @@
 // Deletes audit rows older than the retention window, in small batches so no statement holds
-// locks for long. Once infra runs pg_partman on `audit_log`, dropping a whole partition
-// replaces this and the loop can go.
+// locks for long. Only the maintenance command runs it, as the migrate role: the runtime role
+// cannot delete audit rows. Once infra runs pg_partman retention on `audit_log`, dropping a
+// whole partition replaces this.
 
 import type { Pool } from 'pg'
 
 import { logger } from '../lib/logging'
 import { RETENTION_LOCK_KEY } from './exporter'
-import { auditRetentionDeletedTotal } from './metrics'
 
 const DAY_MS = 86_400_000
 
@@ -38,7 +38,6 @@ export async function pruneAuditLog(pool: Pool, opts: RetentionOptions): Promise
             )
             const deleted = result.rowCount ?? 0
             total += deleted
-            auditRetentionDeletedTotal.inc(deleted)
             if (deleted < batchSize) {
                 break
             }

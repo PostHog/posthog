@@ -16,9 +16,3 @@ export const auditExportLagSeconds = new Gauge({
     help: 'Age of the oldest audit row that is not exported yet. 0 when none is waiting',
     registers: [register],
 })
-
-export const auditRetentionDeletedTotal = new Counter({
-    name: 'credentials_service_audit_retention_deleted_total',
-    help: 'Audit rows deleted for being older than the retention window',
-    registers: [register],
-})

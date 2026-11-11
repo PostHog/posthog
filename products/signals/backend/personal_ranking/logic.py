@@ -489,6 +489,7 @@ def _capture(
     # Ids, counts and accounting only. Report text, reasons and the summary are user content.
     try:
         pools: dict[str, int] = {}
+        by_ref = {candidate.ref: candidate for candidate in build.candidates}
         for candidate in build.candidates:
             for pool in candidate.pools:
                 pools[pool] = pools.get(pool, 0) + 1
@@ -516,6 +517,12 @@ def _capture(
                     "candidate_count": len(build.candidates),
                     "ranked_by_llm_count": sum(1 for entry in build.entries if entry.ranked_by == "llm"),
                     "folded_count": len(build.folded),
+                    # The list as stored: the ranked reports by rank, then the folded reports. A later build
+                    # prunes the row, so an offline comparison of rankings and outcomes reads the order here.
+                    "report_ids": [
+                        *(by_ref[entry.ref].report_id for entry in build.entries),
+                        *(by_ref[fold.ref].report_id for fold in build.folded),
+                    ],
                     "tier_counts": {tier: sum(1 for entry in build.entries if entry.tier == tier) for tier in TIERS},
                     "pool_counts": pools,
                     **dataclasses.asdict(build.counts),

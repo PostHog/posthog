@@ -3,7 +3,7 @@
 // pods never race each other to change the schema.
 
 import { runMigrations } from './db/migrate'
-import { loadDatabaseConfig } from './lib/config'
+import { loadMigrateConfig } from './lib/config'
 import { logger } from './lib/logging'
 
 function parseArgs(args: string[]): { direction: 'up' | 'down'; count?: number } {
@@ -21,12 +21,12 @@ function parseArgs(args: string[]): { direction: 'up' | 'down'; count?: number }
 }
 
 async function main(): Promise<void> {
-    const database = loadDatabaseConfig()
+    const database = loadMigrateConfig()
     if (!database) {
-        throw new Error('CREDENTIALS_SERVICE_DATABASE_URL is not set')
+        throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not set')
     }
     const args = parseArgs(process.argv.slice(2))
-    const ran = await runMigrations({ databaseUrl: database.url, ...args })
+    const ran = await runMigrations({ databaseUrl: database.url, runtimeRole: database.runtimeRole, ...args })
     logger.info('migrate:complete', { direction: args.direction, migrations: ran })
 }
 

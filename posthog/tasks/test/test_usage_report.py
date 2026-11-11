@@ -3471,8 +3471,8 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
 class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
+        super().setUp()
         run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
-        return super().setUp()
 
     def _setup_teams(self) -> None:
         self.org_1 = Organization.objects.create(name="Org 1")

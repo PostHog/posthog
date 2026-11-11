@@ -23,8 +23,8 @@ export const RETENTION_LOCK_KEY = 7_201_002
 interface AuditRow {
     id: string
     occurred_at: Date
-    /** The exact value, with microseconds. A JS Date keeps milliseconds only. */
-    occurred_at_exact: string
+    /** Microseconds since the epoch. A JS Date keeps milliseconds only, so it cannot name the row. */
+    occurred_at_us: string
     deployment: string
     caller: string | null
     user_id: string | null
@@ -156,7 +156,7 @@ export class AuditExporter {
         await client.query('BEGIN')
         try {
             const result = await client.query<AuditRow>(
-                `SELECT id, occurred_at, occurred_at::text AS occurred_at_exact, deployment, caller, user_id, owner_id, integration_id, kind,
+                `SELECT id, occurred_at, (extract(epoch FROM occurred_at) * 1000000)::bigint AS occurred_at_us, deployment, caller, user_id, owner_id, integration_id, kind,
                         operation, fields, outcome, request_id
                  FROM audit_log
                  WHERE exported_at IS NULL
@@ -176,9 +176,13 @@ export class AuditExporter {
                 throw err
             }
             const marked = await client.query(
-                `UPDATE audit_log SET exported_at = now()
-                 WHERE (occurred_at, id) IN (SELECT * FROM unnest($1::timestamptz[], $2::uuid[]))`,
-                [result.rows.map((row) => row.occurred_at_exact), result.rows.map((row) => row.id)]
+                // Marks by primary key, with the values the select returned. Integer microseconds
+                // name the same instant exactly, with no text parsing.
+                `UPDATE audit_log AS a SET exported_at = now()
+                 FROM unnest($1::bigint[], $2::uuid[]) AS b(occurred_at_us, id)
+                 WHERE a.id = b.id
+                   AND a.occurred_at = timestamptz 'epoch' + b.occurred_at_us * interval '1 microsecond'`,
+                [result.rows.map((row) => row.occurred_at_us), result.rows.map((row) => row.id)]
             )
             // A row that stays unmarked would be selected and sent again on every pass.
             if (marked.rowCount !== result.rows.length) {

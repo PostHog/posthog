@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { loadConfig } from '@/lib/config'
+import { loadConfig, loadMaintenanceConfig, loadMigrateConfig } from '@/lib/config'
 
 const VAR = 'CREDENTIALS_SERVICE_RELOAD_SECONDS'
 
@@ -184,7 +184,6 @@ describe('loadConfig audit', () => {
         'CREDENTIALS_SERVICE_AUDIT_EXPORT_ENABLED',
         'CREDENTIALS_SERVICE_AUDIT_CAPTURE_HOST',
         'CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY',
-        'CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS',
     ]
 
     afterEach(() => {
@@ -193,10 +192,8 @@ describe('loadConfig audit', () => {
         }
     })
 
-    it('leaves the export off and keeps 30 days when nothing is set', () => {
-        const config = loadConfig()
-        expect(config.auditExport).toBeUndefined()
-        expect(config.auditRetentionDays).toBe(30)
+    it('leaves the export off when nothing is set', () => {
+        expect(loadConfig().auditExport).toBeUndefined()
     })
 
     it('turns the export on with a host and a key', () => {
@@ -216,15 +213,82 @@ describe('loadConfig audit', () => {
                 CREDENTIALS_SERVICE_AUDIT_CAPTURE_API_KEY: 'phc_fake',
             },
         ],
-        ['retention above the maximum', { CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS: '61' }],
-        ['retention of zero', { CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS: '0' }],
     ])('fails the boot on %s', (_label, env) => {
         Object.assign(process.env, env)
         expect(() => loadConfig()).toThrow()
     })
+})
+
+describe('loadMaintenanceConfig', () => {
+    const VARS = ['CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL', 'CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS']
+
+    afterEach(() => {
+        for (const key of VARS) {
+            delete process.env[key]
+        }
+    })
+
+    it('needs the migrate URL, and does not fall back to the runtime URL', () => {
+        process.env.CREDENTIALS_SERVICE_DATABASE_URL = 'postgres://runtime'
+        expect(loadMaintenanceConfig()).toBeUndefined()
+        delete process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    })
+
+    it('keeps 30 days when nothing else is set', () => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        expect(loadMaintenanceConfig()).toEqual({ url: 'postgres://migrate', retentionDays: 30 })
+    })
 
     it('accepts the maximum retention', () => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
         process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = '60'
-        expect(loadConfig().auditRetentionDays).toBe(60)
+        expect(loadMaintenanceConfig()?.retentionDays).toBe(60)
+    })
+
+    it.each(['61', '0', '-1', '30x'])('refuses retention %j', (days) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS = days
+        expect(() => loadMaintenanceConfig()).toThrow('CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS')
+    })
+})
+
+describe('loadMigrateConfig', () => {
+    const VARS = [
+        'CREDENTIALS_SERVICE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL',
+        'CREDENTIALS_SERVICE_RUNTIME_ROLE',
+    ]
+
+    afterEach(() => {
+        for (const key of VARS) {
+            delete process.env[key]
+        }
+    })
+
+    it.each([
+        ['nothing set', {}, undefined],
+        [
+            'only the runtime URL',
+            { CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://runtime' },
+            { url: 'postgres://runtime', runtimeRole: '' },
+        ],
+        [
+            'the migrate URL wins over the runtime URL',
+            {
+                CREDENTIALS_SERVICE_DATABASE_URL: 'postgres://runtime',
+                CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL: 'postgres://migrate',
+                CREDENTIALS_SERVICE_RUNTIME_ROLE: 'svc_runtime',
+            },
+            { url: 'postgres://migrate', runtimeRole: 'svc_runtime' },
+        ],
+    ])('%s', (_label, env, expected) => {
+        Object.assign(process.env, env)
+        expect(loadMigrateConfig()).toEqual(expected)
+    })
+
+    it.each(['bad role', 'role;DROP', '1role'])('rejects the role name %j', (role) => {
+        process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL = 'postgres://migrate'
+        process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE = role
+        expect(() => loadMigrateConfig()).toThrow('CREDENTIALS_SERVICE_RUNTIME_ROLE')
     })
 })

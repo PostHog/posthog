@@ -914,7 +914,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         if reference_counts is not None:
             # List passes counts for the whole page, so the field costs one query however many rows there are.
             return reference_counts.get(obj.integration_id, 0) > 1
-        return Integration.objects.filter(kind="github", integration_id=obj.integration_id).exclude(id=obj.id).exists()
+        return any(row.id != obj.id for row in IntegrationManager.github.oauth.list_by_external_id(obj.integration_id))
 
     @extend_schema_field(serializers.ChoiceField(choices=GITHUB_INSTALLATION_STATUS_CHOICES, allow_null=True))
     def get_installation_status(self, obj: Integration) -> str | None:
@@ -985,10 +985,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         # unauthorized helper upsert.
         with transaction.atomic():
             existing_integrations = {
-                integration.integration_id: integration
-                for integration in Integration.objects.only("id", "kind", "integration_id", "created_by_id").filter(
-                    team_id=team_id, kind=kind
-                )
+                integration.integration_id: integration for integration in IntegrationManager.kinds(kind).list(team_id)
             }
             instance = self._build_integration(validated_data)
             existing_integration = existing_integrations.get(instance.integration_id)
@@ -1412,10 +1409,9 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                             user_id=request.user.id,
                         )
 
-                    conflicting = (
-                        Integration.objects.filter(team_id=team_id, kind="stripe")
-                        .exclude(integration_id=stripe_user_id)
-                        .exists()
+                    conflicting = any(
+                        integration.integration_id != stripe_user_id
+                        for integration in IntegrationManager.stripe.oauth.list(team_id)
                     )
                     if conflicting:
                         capture_exception(
@@ -1594,9 +1590,8 @@ class IntegrationManagementPermission(TeamMemberStrictManagementPermission):
             return True
         requesting_level = integration_view.user_permissions.current_team.effective_membership_level
         has_management_access = requesting_level is not None and requesting_level >= OrganizationMembership.Level.ADMIN
-        return has_management_access or (
-            isinstance(obj, Integration) and obj.can_be_managed_by_creator(getattr(request.user, "id", None))
-        )
+        integration = cast(IntegrationRecord, obj)
+        return has_management_access or integration.can_be_managed_by_creator(getattr(request.user, "id", None))
 
 
 class PersonalConnectionRecentAuthPermission(BasePermission):
@@ -1612,7 +1607,7 @@ class PersonalConnectionRecentAuthPermission(BasePermission):
         return True
 
     def has_object_permission(self, request: Request, view: APIView, obj: object) -> bool:
-        if isinstance(obj, Integration) and obj.kind == POSTHOG_CONNECT_KIND:
+        if cast(IntegrationRecord, obj).kind == POSTHOG_CONNECT_KIND:
             return TimeSensitiveActionPermission().has_permission(request, view)
         return True
 
@@ -1760,7 +1755,7 @@ class IntegrationViewSet(
             return [PushTokenImportThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
-    def perform_destroy(self, instance: Integration) -> None:
+    def perform_destroy(self, instance: IntegrationRecord) -> None:
         # Check before the teardown below, which revokes grants at the provider. The delete at the end
         # does not check again, because a check decrypts the inputs of every warehouse source of the team.
         try:
@@ -1807,10 +1802,9 @@ class IntegrationViewSet(
             # last team integration for an installation is removed, tear it down everywhere:
             # uninstall the App on GitHub and delete the now-orphaned personal integrations.
             # Other teams still sharing the same GitHub account keep it installed.
-            is_last_team_reference = (
-                not Integration.objects.filter(kind="github", integration_id=instance.integration_id)
-                .exclude(id=instance.id)
-                .exists()
+            is_last_team_reference = not any(
+                row.id != instance.id
+                for row in IntegrationManager.github.oauth.list_by_external_id(instance.integration_id)
             )
             github_audit.record("disconnect_started", last_reference=is_last_team_reference)
             if not is_last_team_reference:
@@ -2510,7 +2504,7 @@ class IntegrationViewSet(
 
         return Response(body)
 
-    def _get_anthropic_integration_or_400(self) -> Integration:
+    def _get_anthropic_integration_or_400(self) -> IntegrationRecord:
         instance = self.get_object()
         if instance.kind != Integration.IntegrationKind.ANTHROPIC.value:
             raise ValidationError(f"Integration {instance.id} is not an Anthropic integration (kind={instance.kind!r})")
@@ -2529,10 +2523,9 @@ class IntegrationViewSet(
         raise ValueError(f"unknown anthropic managed-agents resource: {resource!r}")
 
     @staticmethod
-    def _record_anthropic_auth_failure(instance: Integration, message: str) -> None:
+    def _record_anthropic_auth_failure(instance: IntegrationRecord, message: str) -> None:
         if instance.errors != ERROR_TOKEN_REFRESH_FAILED:
-            instance.errors = ERROR_TOKEN_REFRESH_FAILED
-            instance.save(update_fields=["errors"])
+            IntegrationManager.anthropic.token.update(instance.team_id, instance.id, errors=ERROR_TOKEN_REFRESH_FAILED)
         logger.warning("anthropic_managed_list_auth_failure", integration_id=instance.id, message=message)
 
     @extend_schema(
@@ -2919,7 +2912,7 @@ class IntegrationViewSet(
         result = import_push_tokens(
             integration,
             data["subscriptions"],
-            integration.team.api_token,
+            self.team.api_token,
             dry_run=data["dry_run"],
             create_missing_persons=data["create_missing_persons"],
             import_id=data["import_id"],
@@ -3142,10 +3135,9 @@ class IntegrationViewSet(
         return Response({"url": url})
 
     def _record_email_setup_method(self, integration_id: int, setup_method: str) -> None:
-        with transaction.atomic():
-            instance = Integration.objects.select_for_update().get(id=integration_id, team_id=self.team_id)
-            instance.config["setup_method"] = setup_method
-            instance.save(update_fields=["config"])
+        IntegrationManager.email.credentials.update(
+            self.team_id, integration_id, config_patch={"setup_method": setup_method}
+        )
 
     # Defined last: a method named `list` shadows the builtin for the annotations of every method
     # declared after it in this class body.

@@ -58,6 +58,9 @@ COPY --from=build --chown=node:node /code/services/credentials-service/dist/cred
 # ./migrations relative to the working directory.
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs ./credentials-service-migrate.mjs
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs.map ./credentials-service-migrate.mjs.map
+# The audit retention CronJob runs `node credentials-service-maintenance.mjs audit-retention`.
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs ./credentials-service-maintenance.mjs
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs.map ./credentials-service-maintenance.mjs.map
 COPY --from=build --chown=node:node /code/services/credentials-service/migrations ./migrations
 
 ENV NODE_ENV=production \
