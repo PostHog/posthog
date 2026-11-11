@@ -1,6 +1,6 @@
 import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
-import { mkdirSync, mkdtempSync, readFileSync, rmdirSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmdirSync, writeFileSync } from 'fs'
 import http from 'http'
 import net from 'net'
 import os from 'os'
@@ -9,7 +9,9 @@ import { setTimeout as nextTimers } from 'timers/promises'
 
 import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
+import { defaultConfig } from '~/common/config/config'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { isPortFree } from '~/tests/helpers/service-process'
@@ -19,8 +21,7 @@ import { Environment, createEnvironment } from './environment'
 import * as processes from './processes'
 import { ProcEntry, holdRunLock, lockAddress, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, consumerGroupsOf, roleSpecs, secretsOf } from './roles'
-import * as stack from './stack'
-import { forgetSesBucket, membersOf, pingRedis, seekFailures } from './stack'
+import { STACK, forgetSesBucket, membersOf, pingRedis, seekFailures, withPostgres } from './stack'
 import { createSupervisor } from './supervisor'
 
 const SELF = 100
@@ -51,6 +52,21 @@ const stateOf = (pid: number): string => {
     const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
     return stat.slice(stat.lastIndexOf(')') + 2, stat.lastIndexOf(')') + 3)
 }
+
+const inSchema = (url: string, schema: string): string =>
+    `${url}${url.includes('?') ? '&' : '?'}options=${encodeURIComponent(`-c search_path=${schema}`)}`
+
+const writeFake = (file: string, body: string): void => {
+    writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
+}
+
+const callsOf = (file: string): string[][] =>
+    existsSync(file)
+        ? readFileSync(file, 'utf8')
+              .split('\n')
+              .filter(Boolean)
+              .map((line) => parseJSON(line))
+        : []
 
 describe('scenario environment', () => {
     describe('planCleanup', () => {
@@ -622,7 +638,7 @@ describe('scenario environment', () => {
         const realSpawn = childProcess.spawn
         const stubRolePids = new Set<number>()
         const stubRole =
-            "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "require('http').createServer((_request, response) => response.end(String(process.pid))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
             "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
@@ -637,6 +653,98 @@ describe('scenario environment', () => {
                     .once('error', () => setTimeout(bind, 20))
             bind()
         `
+        const templateSchema = `scenario_up_${process.pid}`
+        const templatesUrl = inSchema(defaultConfig.DATABASE_URL, templateSchema)
+        const insertTemplates = `INSERT INTO posthog_hogfunctiontemplate (id, template_id, sha, name, code, code_language, inputs_schema, type, status, category, free, created_at, updated_at) SELECT gen_random_uuid(), template_id, 'scenario', template_id, '', 'hog', '[]', 'destination', 'stable', '[]', true, now(), now() FROM unnest($1::text[]) AS template_id`
+        const templatesInDjango = async (): Promise<string[]> =>
+            await withPostgres(
+                async (client) =>
+                    (
+                        await client.query<{ template_id: string }>(
+                            'SELECT template_id FROM posthog_hogfunctiontemplate ORDER BY template_id'
+                        )
+                    ).rows.map((row) => row.template_id),
+                templatesUrl
+            )
+        const fakeHogli = `
+            const fs = require('fs')
+            const path = require('path')
+            const args = process.argv.slice(2)
+            fs.appendFileSync(path.join(__dirname, 'hogli-calls'), JSON.stringify(args) + '\\n')
+            if (args.join(' ') === 'wait --timeout 0') {
+                process.exit(Number(fs.readFileSync(path.join(__dirname, 'hogli-wait'), 'utf8')))
+            }
+            if (args[0] === 'dev:sync-hog-templates') {
+                const { Client } = require(${JSON.stringify(require.resolve('pg'))})
+                const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
+                client
+                    .connect()
+                    .then(() => client.query(${JSON.stringify(insertTemplates)}, [${JSON.stringify(STACK.templates)}]))
+                    .then(() => client.end())
+                    .then(
+                        () => process.exit(0),
+                        (error) => {
+                            process.stderr.write(String(error))
+                            process.exit(1)
+                        }
+                    )
+            }
+        `
+        const fakeDocker = `
+            const fs = require('fs')
+            const path = require('path')
+            const args = process.argv.slice(2)
+            fs.appendFileSync(path.join(__dirname, 'docker-calls'), JSON.stringify(args) + '\\n')
+            const [exec, container, rpk, noun, verb, group] = args
+            if (
+                [exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' ||
+                !['describe', 'seek'].includes(verb)
+            ) {
+                process.stderr.write('The up test ran docker ' + args.join(' '))
+                process.exit(1)
+            }
+            if (verb === 'seek') {
+                const topic = args[args.indexOf('--topics') + 1]
+                const answer = path.join(__dirname, 'seek')
+                const { stdout, stderr, code } = fs.existsSync(answer)
+                    ? JSON.parse(fs.readFileSync(answer, 'utf8'))
+                    : {
+                          stdout: 'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n',
+                          stderr: '',
+                          code: 0,
+                      }
+                process.stdout.write(stdout)
+                process.stderr.write(stderr)
+                process.exit(code)
+            }
+            const counts = JSON.parse(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
+            const members = counts.length > 0 ? counts.shift() : 0
+            fs.writeFileSync(path.join(__dirname, 'members'), JSON.stringify(counts))
+            process.stdout.write(
+                'GROUP        ' + group + '\\nCOORDINATOR  0\\nSTATE        ' + (members > 0 ? 'Stable' : 'Empty') +
+                    '\\nBALANCER     range\\nMEMBERS      ' + members + '\\nTOTAL-LAG    0\\n'
+            )
+        `
+        const jobsSchema = `scenario_reset_${process.pid}`
+        const cyclotronUrl = inSchema(defaultConfig.CYCLOTRON_NODE_DATABASE_URL!, jobsSchema)
+        const cyclotronFromEnv = process.env.CYCLOTRON_NODE_DATABASE_URL
+        const testRedis = { host: '127.0.0.1', port: 6379 }
+        const jobsLeft = async (): Promise<string[]> =>
+            await withPostgres(
+                async (client) =>
+                    (
+                        await client.query<{ status: string }>(
+                            'SELECT status::text AS status FROM cyclotron_jobs ORDER BY status'
+                        )
+                    ).rows.map((row) => row.status),
+                cyclotronUrl
+            )
+        const eventsGroup = (): { group: string; topic: string } => {
+            const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({})))
+            return { group, topic: topics[0] }
+        }
+        const rolePids = new Map<string, number>()
+        let fakes = ''
         let stranger: ChildProcess | undefined
         let environment: Environment | undefined
         let portHolder: http.Server | undefined
@@ -652,19 +760,56 @@ describe('scenario environment', () => {
             portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
             await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
         }
-        const stubTheStack = (consumerGroupMembers: number[]): void => {
-            jest.spyOn(stack, 'startStack').mockResolvedValue()
-            jest.spyOn(stack, 'missingTemplates').mockResolvedValue([])
-            const members = jest.spyOn(stack, 'groupMembers').mockResolvedValue(0)
-            consumerGroupMembers.forEach((count) => members.mockResolvedValueOnce(count))
-        }
-        const stubTheReset = (): void => {
-            jest.spyOn(stack, 'deleteUnfinishedJobs').mockResolvedValue()
-            jest.spyOn(stack, 'forgetSesBucket').mockResolvedValue()
-            jest.spyOn(stack, 'seekToEnd').mockResolvedValue()
-        }
+        const answerMembers = (counts: number[]): void =>
+            writeFileSync(path.join(fakes, 'members'), JSON.stringify(counts))
+        const environmentOf = (): Environment =>
+            createEnvironment({
+                hogli: { command: path.join(fakes, 'hogli'), cwd: fakes },
+                docker: path.join(fakes, 'docker'),
+                postgresUrl: templatesUrl,
+                sesRateLimiterValkey: testRedis,
+            })
 
-        beforeEach(() => {
+        beforeAll(async () => {
+            await withPostgres(async (client) => {
+                await client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`)
+                await client.query(`CREATE SCHEMA ${templateSchema}`)
+                await client.query(
+                    `CREATE TABLE ${templateSchema}.posthog_hogfunctiontemplate (LIKE public.posthog_hogfunctiontemplate INCLUDING ALL)`
+                )
+            }, defaultConfig.DATABASE_URL)
+            await withPostgres(async (client) => {
+                await client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`)
+                await client.query(`CREATE SCHEMA ${jobsSchema}`)
+                await client.query(
+                    `CREATE TABLE ${jobsSchema}.cyclotron_jobs (LIKE public.cyclotron_jobs INCLUDING ALL)`
+                )
+            }, defaultConfig.CYCLOTRON_NODE_DATABASE_URL)
+        })
+
+        afterAll(async () => {
+            await withPostgres(
+                (client) => client.query(`DROP SCHEMA IF EXISTS ${templateSchema} CASCADE`),
+                defaultConfig.DATABASE_URL
+            )
+            await withPostgres(
+                (client) => client.query(`DROP SCHEMA IF EXISTS ${jobsSchema} CASCADE`),
+                defaultConfig.CYCLOTRON_NODE_DATABASE_URL
+            )
+        })
+
+        beforeEach(async () => {
+            fakes = mkdtempSync(path.join(os.tmpdir(), 'scenario-fakes-'))
+            writeFake(path.join(fakes, 'hogli'), fakeHogli)
+            writeFake(path.join(fakes, 'docker'), fakeDocker)
+            writeFileSync(path.join(fakes, 'hogli-wait'), '0')
+            answerMembers([])
+            process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
+            await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
+            await withPostgres(async (client) => {
+                await client.query('DELETE FROM posthog_hogfunctiontemplate')
+                await client.query(insertTemplates, [STACK.templates])
+            }, templatesUrl)
             const realTerminate = processes.terminate
             jest.spyOn(processes, 'terminate').mockImplementation((plan, graceMs) => {
                 const foreign = [...plan.groups, ...plan.pids].filter((pid) => !stubRolePids.has(pid))
@@ -672,12 +817,14 @@ describe('scenario environment', () => {
                     ? Promise.reject(new Error(`The up test would kill ${foreign.join(', ')}.`))
                     : realTerminate(plan, graceMs)
             })
-            jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The up test reached the dev stack.'))
             jest.spyOn(childProcess, 'spawn').mockImplementation(((
                 command: string,
                 args: string[],
                 options: SpawnOptions
             ) => {
+                if (command.endsWith(path.join('bin', 'hogli')) && command !== path.join(fakes, 'hogli')) {
+                    throw new Error('The up test reached the dev stack.')
+                }
                 if (!command.endsWith(path.join('node_modules', '.bin', 'tsx'))) {
                     return realSpawn(command, args, options)
                 }
@@ -706,6 +853,7 @@ describe('scenario environment', () => {
                     }
                 })
                 stubRolePids.add(role.pid!)
+                rolePids.set(mode!, role.pid!)
                 return role
             }) as unknown as typeof childProcess.spawn)
             process.env.XDG_CACHE_HOME = mkdtempSync(path.join(os.tmpdir(), 'scenario-cache-'))
@@ -720,6 +868,12 @@ describe('scenario environment', () => {
             losesItsPort = undefined
             takesPortOnExit = undefined
             exitsAfterHealth = undefined
+            rolePids.clear()
+            if (cyclotronFromEnv === undefined) {
+                delete process.env.CYCLOTRON_NODE_DATABASE_URL
+            } else {
+                process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronFromEnv
+            }
             jest.restoreAllMocks()
             stranger?.kill('SIGKILL')
             if (cacheHome === undefined) {
@@ -730,15 +884,77 @@ describe('scenario environment', () => {
         })
 
         it('waits for a dead consumer to leave the events group instead of refusing it', async () => {
-            stubTheStack([1, 1])
-            environment = createEnvironment()
+            answerMembers([1, 1])
+            environment = environmentOf()
 
             await expect(environment.up()).resolves.toBeUndefined()
+            const describe = ['exec', 'posthog-kafka-1', 'rpk', 'group', 'describe', 'cdp-processed-events-consumer']
+            expect(callsOf(path.join(fakes, 'docker-calls'))).toEqual([describe, describe, describe])
+        }, 30_000)
+
+        it.each<[string, string, string[], (stateDir: string) => string[][]]>([
+            ['a running stack', '0', STACK.templates, () => [['wait', '--timeout', '0'], ['wait']]],
+            [
+                'a stack hogli cannot reach',
+                '3',
+                STACK.templates,
+                (stateDir) => [
+                    ['wait', '--timeout', '0'],
+                    ['dev:generate', '--with', 'workflows', '--without', 'nodejs'],
+                    ['up', '-d', '--custom', path.join(stateDir, 'mprocs.yaml')],
+                    ['wait'],
+                ],
+            ],
+            [
+                'a stack whose Django lacks the templates',
+                '0',
+                [],
+                () => [['wait', '--timeout', '0'], ['wait'], ['dev:sync-hog-templates']],
+            ],
+        ])(
+            'asks hogli to bring up %s and ends with the templates in Django',
+            async (_name, waitExit, templates, commands) => {
+                writeFileSync(path.join(fakes, 'hogli-wait'), waitExit)
+                await withPostgres(
+                    (client) =>
+                        client.query('DELETE FROM posthog_hogfunctiontemplate WHERE NOT (template_id = ANY($1))', [
+                            templates,
+                        ]),
+                    templatesUrl
+                )
+                environment = environmentOf()
+
+                await environment.up()
+
+                expect({
+                    commands: callsOf(path.join(fakes, 'hogli-calls')),
+                    templates: await templatesInDjango(),
+                }).toEqual({
+                    commands: commands(path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios')),
+                    templates: [...STACK.templates].sort(),
+                })
+            },
+            30_000
+        )
+
+        it('records a role that dies and starts it again', async () => {
+            const role = 'cdp-processed-events'
+            environment = environmentOf()
+            await environment.up()
+            const killed = rolePids.get(role)!
+
+            process.kill(killed, 'SIGKILL')
+
+            await waitForExpect(async () => {
+                const answer = await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)
+                expect(answer.status).toBe(200)
+                expect(Number(await answer.text())).not.toBe(killed)
+            }, 15_000)
+            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
         }, 30_000)
 
         it('brings every role up healthy', async () => {
-            stubTheStack([])
-            environment = createEnvironment()
+            environment = environmentOf()
 
             await environment.up()
 
@@ -771,9 +987,8 @@ describe('scenario environment', () => {
         ])(
             'fails naming a role that %s and its log',
             async (_name, role, arrange) => {
-                stubTheStack([])
                 arrange()
-                environment = createEnvironment()
+                environment = environmentOf()
 
                 const failure = await environment.up().then(
                     () => null,
@@ -787,9 +1002,8 @@ describe('scenario environment', () => {
         )
 
         it('refuses a role port another server already answers on, naming the port and how to see its holder', async () => {
-            stubTheStack([])
             await holdPort('cdp-processed-events')
-            environment = createEnvironment()
+            environment = environmentOf()
 
             await expect(environment.up()).rejects.toMatchObject({
                 exitCode: 2,
@@ -811,9 +1025,7 @@ describe('scenario environment', () => {
         ])(
             'brings every role back healthy on reset%s',
             async (_name, arrange) => {
-                stubTheStack([])
-                stubTheReset()
-                environment = createEnvironment()
+                environment = environmentOf()
                 await environment.up()
                 await arrange()
 
@@ -822,6 +1034,109 @@ describe('scenario environment', () => {
                 const health = await Promise.all(CdpRole.options.map(async (role) => [role, await healthOf(role)]))
                 expect(Object.fromEntries(health)).toEqual(
                     Object.fromEntries(CdpRole.options.map((role) => [role, 200]))
+                )
+            },
+            30_000
+        )
+
+        it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
+            const valkey = createRedisV2PoolFromConfig({
+                connection: { url: testRedis.host, options: { port: testRedis.port } },
+                poolMinSize: 1,
+                poolMaxSize: 1,
+            })
+            const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+            const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
+            const { group, topic } = eventsGroup()
+            environment = environmentOf()
+            await environment.up()
+            await withPostgres(
+                (client) =>
+                    client.query(
+                        "INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition) SELECT gen_random_uuid(), 9999001, 'hog', status::public.cyclotronjobstatus, 0, now(), now(), now() FROM unnest($1::text[]) AS status",
+                        [['available', 'running', 'completed']]
+                    ),
+                cyclotronUrl
+            )
+            try {
+                await limiter.claimUpTo(claim)
+
+                await environment.reset({})
+
+                expect({
+                    jobs: await jobsLeft(),
+                    tokens: await limiter.claimUpTo(claim),
+                    seeks: callsOf(path.join(fakes, 'docker-calls')).filter((call) => call[4] === 'seek'),
+                }).toEqual({
+                    jobs: ['completed'],
+                    tokens: 5,
+                    seeks: [
+                        [
+                            'exec',
+                            'posthog-kafka-1',
+                            'rpk',
+                            'group',
+                            'seek',
+                            group,
+                            '--to',
+                            'end',
+                            '--topics',
+                            topic,
+                            '--allow-new-topics',
+                        ],
+                    ],
+                })
+            } finally {
+                await forgetSesBucket(testRedis)
+            }
+        }, 30_000)
+
+        it.each<[string, (topic: string) => { stdout: string; stderr: string; code: number }, boolean]>([
+            [
+                'a topic that does not exist yet',
+                () => ({
+                    stdout: '',
+                    stderr: 'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
+                    code: 1,
+                }),
+                true,
+            ],
+            [
+                'a partition the broker refused to move',
+                (topic) => ({
+                    stdout: [
+                        ['TOPIC', 'PARTITION', 'PRIOR-OFFSET', 'CURRENT-OFFSET', 'ERROR'],
+                        [topic, '0', '-1', '-1', 'INVALID_OPERATION: seeking a non-empty group is not allowed.'],
+                    ]
+                        .map(([name, ...columns]) =>
+                            [name.padEnd(topic.length + 2), ...columns.map((column) => column.padEnd(16))]
+                                .join('')
+                                .trimEnd()
+                        )
+                        .map((line) => `${line}\n`)
+                        .join(''),
+                    stderr: '',
+                    code: 1,
+                }),
+                false,
+            ],
+        ])(
+            'moves the events group past %s only when rpk reports no failed partition',
+            async (_name, answer, resets) => {
+                const { group, topic } = eventsGroup()
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(answer(topic)))
+                environment = environmentOf()
+                await environment.up()
+
+                const failure = await environment.reset({}).then(
+                    () => null,
+                    (error: Error) => error.message
+                )
+
+                expect(failure).toEqual(
+                    resets
+                        ? null
+                        : `Could not move ${group} to the end of ${topic}:\n${topic}/0: INVALID_OPERATION: seeking a non-empty group is not allowed.`
                 )
             },
             30_000
@@ -847,9 +1162,7 @@ describe('scenario environment', () => {
         ])(
             'fails a reset at once naming a role that %s, why, and its log',
             async (_name, role, why, arrange) => {
-                stubTheStack([])
-                stubTheReset()
-                environment = createEnvironment()
+                environment = environmentOf()
                 await environment.up()
                 arrange()
 
@@ -866,9 +1179,7 @@ describe('scenario environment', () => {
         )
 
         it('refuses a reset when another server takes a role port while the roles are stopped', async () => {
-            stubTheStack([])
-            stubTheReset()
-            environment = createEnvironment()
+            environment = environmentOf()
             await environment.up()
             takesPortOnExit = 'cdp-processed-events'
 
