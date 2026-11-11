@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 from django.db.models import Q
 from django.utils import timezone
 
+import structlog
 from asgiref.sync import async_to_sync
 
 from posthog.clickhouse.client import sync_execute
@@ -21,6 +22,8 @@ from products.ai_observability.backend.models.eval_suggestions import (
 from .client import TemporalUnreachable, start_first_visit_run
 from .config import SuggestionSettings, is_enabled_for_organization
 from .queries import MAX_EXECUTION_TIME_SECONDS
+
+logger = structlog.get_logger(__name__)
 
 VISIT_LOOKBACK = timedelta(days=14)
 MIN_DAYS_IN_28 = 4
@@ -77,8 +80,10 @@ def queue_first_visit_run(team: Team) -> None:
     except TemporalUnreachable:
         run.delete()
         raise
-    # Any other error can come after Temporal accepted the start, and the worker may already have published
-    # cards on this row. It stays; a row no worker picks up stops counting as pending after TEAM_TIMEOUT.
+    except Exception:
+        # This error can come after Temporal accepted the start, and the worker may already have published
+        # cards on this row. It stays pending; a row no worker picks up stops counting after TEAM_TIMEOUT.
+        logger.exception("llma.eval_suggestions_first_visit_start_unclear", team_id=team.pk, run_id=str(run.id))
 
 
 def steady_traffic_team_ids(team_ids: list[int], now: datetime) -> set[int]:

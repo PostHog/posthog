@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, cast
 
 from django.db.models import F, Q, QuerySet
 from django.utils import timezone
@@ -16,8 +16,14 @@ from rest_framework.throttling import BaseThrottle
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.rate_limit import AIObservabilityBackfillEstimateSustainedThrottle, AIObservabilityBackfillEstimateThrottle
+
+from products.access_control.backend.facade.api import (
+    get_restricted_properties_with_group_type_index_for_team,
+    split_restricted_property_names,
+)
 
 from ..eval_suggestions import accept as accept_logic
 from ..eval_suggestions.client import TEAM_TIMEOUT
@@ -281,6 +287,13 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         suggestions = EvalSuggestion.objects.for_team(self.team_id)
         if is_service_auth(self.request):
             return suggestions
+        # Runs read every event property as the project, and a card's filters, headline and evidence can carry
+        # any of them, so a member with a hidden event property sees no suggestions rather than a masked one.
+        restrictions = get_restricted_properties_with_group_type_index_for_team(
+            user=cast(User, self.request.user), team_id=self.team_id
+        )
+        if split_restricted_property_names(restrictions).event:
+            return suggestions.none()
         visible = self.user_access_control.filter_queryset_by_access_level(
             Evaluation.objects.filter(team_id=self.team_id)
         ).values("id")
@@ -366,6 +379,8 @@ class EvalSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         result = accept_logic.accept(
             pk, team=self.team, request=request, serializer_context=self.get_serializer_context()
         )
+        # A repeat returns the evaluation the first accept created, which can have been restricted since.
+        self.check_object_permissions(request, result.evaluation)
         return Response(
             EvalSuggestionAcceptSerializer(
                 {

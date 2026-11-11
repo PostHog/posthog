@@ -15,7 +15,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.backfill_candidates import BackfillScope
 from products.ai_observability.backend.eval_suggestions.client import TemporalUnreachable
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -29,6 +31,7 @@ from products.ai_observability.backend.models.evaluation_backfill import Evaluat
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 ACCEPT_MODULE = "products.ai_observability.backend.eval_suggestions.accept"
 API_MODULE = "products.ai_observability.backend.api.eval_suggestions"
@@ -276,19 +279,22 @@ class TestEvalSuggestionsApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("burst_then_an_empty_slice", [5000, 0], 0),
-            ("still_too_full_after_every_shrink", [5000, 4000, 3000, 2000], 3),
+            ("burst_then_an_empty_slice", [5000, 0], 0, 10),
+            ("still_too_full_after_every_shrink", [5000, 4000, 3000, 2000], 3, 10),
+            # A second count would raise, as the side effects run out.
+            ("counts_use_up_the_budget", [5000], 0, -1),
         ]
     )
     @patch(f"{BACKFILLS_MODULE}.sync_connect")
     @patch(f"{ACCEPT_MODULE}.count_backfill_candidates")
     def test_accept_falls_back_to_the_last_window_with_traffic(
-        self, _name: str, counts: list[int], kept_window: int, count: MagicMock, connect: MagicMock
+        self, _name: str, counts: list[int], kept_window: int, budget: int, count: MagicMock, connect: MagicMock
     ) -> None:
         connect.return_value = _temporal_client()
         count.side_effect = [BackfillScope(to_evaluate=units, already_judged=0) for units in counts]
 
-        response = self.client.post(f"{self.url}/{self._suggestion().id}/accept/")
+        with patch(f"{ACCEPT_MODULE}.PLAN_BUDGET_SECONDS", budget):
+            response = self.client.post(f"{self.url}/{self._suggestion().id}/accept/")
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         backfill = EvaluationBackfill.objects.for_team(self.team.pk).get()
@@ -347,7 +353,7 @@ class TestEvalSuggestionsApi(APIBaseTest):
             ("starts", None, True, True),
             ("temporal_unreachable", TemporalUnreachable("connection refused"), False, False),
             # The start may have reached Temporal, so the run stays and reads as pending.
-            ("start_outcome_unknown", RuntimeError("deadline exceeded"), False, True),
+            ("start_outcome_unknown", RuntimeError("deadline exceeded"), True, True),
         ]
     )
     @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
@@ -461,3 +467,54 @@ class TestEvalSuggestionsAccessControl(APIBaseTest):
 
         assert self.client.get(f"{url}/").json()["results"] == []
         assert self.client.get(f"{url}/{suggestion.id}/").status_code == status.HTTP_404_NOT_FOUND
+
+    @patch(f"{API_MODULE}.is_enabled_for_organization", return_value=True)
+    def test_member_with_a_hidden_event_property_sees_no_suggestions(self, _flag: MagicMock) -> None:
+        self.organization.available_product_features = [
+            *(self.organization.available_product_features or []),
+            {"key": AvailableFeature.PROPERTY_ACCESS_CONTROL, "name": AvailableFeature.PROPERTY_ACCESS_CONTROL},
+        ]
+        self.organization.save()
+        self._grant("editor")
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.create(
+                team=self.team, name="ai_product", property_type="String", type=PropertyDefinition.Type.EVENT
+            ),
+            organization_member=OrganizationMembership.objects.get(user=self.member, organization=self.organization),
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+        suggestion = EvalSuggestion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            run=self.suggestion_run,
+            kind=EvalSuggestionKind.NEW_HOG,
+            dedupe_key="segment:one",
+            headline="1 in 40 chat traces ends on a failed call",
+            reason="Reason",
+            draft=CHECK_DRAFT,
+            filters=[{"key": "ai_product", "value": ["chat"], "operator": "exact", "type": "event"}],
+        )
+        self.client.force_login(self.member)
+        url = f"/api/projects/{self.team.id}/evaluation_suggestions"
+
+        assert self.client.get(f"{url}/").json()["results"] == []
+        assert self.client.get(f"{url}/{suggestion.id}/accept_estimate/").status_code == status.HTTP_404_NOT_FOUND
+
+    @patch(f"{ACCEPT_MODULE}.count_backfill_candidates", return_value=BackfillScope(to_evaluate=0, already_judged=0))
+    def test_repeat_accept_checks_access_to_the_created_evaluation(self, _count: MagicMock) -> None:
+        self._grant("editor")
+        suggestion = EvalSuggestion.objects.for_team(self.team.pk).create(
+            team=self.team,
+            run=self.suggestion_run,
+            kind=EvalSuggestionKind.NEW_HOG,
+            dedupe_key="check:one",
+            headline="Suggestion",
+            reason="Reason",
+            draft=CHECK_DRAFT,
+        )
+        url = f"/api/projects/{self.team.id}/evaluation_suggestions/{suggestion.id}/accept/"
+        created = Evaluation.objects.get(id=self.client.post(url).json()["evaluation_id"])
+        self._grant("none", created)
+        self.client.force_login(self.member)
+
+        assert self.client.post(url).status_code == status.HTTP_403_FORBIDDEN

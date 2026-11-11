@@ -1,5 +1,6 @@
 """Starting eval suggestion workflows. Light on purpose: the API and schedule setup import it, the pipeline stays out."""
 
+import asyncio
 from datetime import timedelta
 
 from django.conf import settings
@@ -72,6 +73,10 @@ class TeamRunInputs:
     run_id: str = ""
 
 
+# A page load waits for the start, so a stalled Temporal must not hold the web worker.
+START_TIMEOUT = timedelta(seconds=5)
+
+
 class TemporalUnreachable(Exception):
     """Connecting failed, so no start request reached Temporal."""
 
@@ -79,7 +84,7 @@ class TemporalUnreachable(Exception):
 async def start_first_visit_run(team_id: int, run_id: str) -> None:
     """Start the free stages for one team. A run already in flight for the team absorbs the request."""
     try:
-        client = await async_connect()
+        client = await asyncio.wait_for(async_connect(), START_TIMEOUT.total_seconds())
     except Exception as error:
         raise TemporalUnreachable(str(error)) from error
     await client.start_workflow(
@@ -90,6 +95,7 @@ async def start_first_visit_run(team_id: int, run_id: str) -> None:
         id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
         execution_timeout=TEAM_TIMEOUT,
         retry_policy=RetryPolicy(maximum_attempts=1),
+        rpc_timeout=START_TIMEOUT,
     )
 
 

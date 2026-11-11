@@ -290,11 +290,12 @@ export const evaluationSuggestionsLogic = kea<evaluationSuggestionsLogicType>([
             actions.loadEvalSuggestionEstimate(suggestion.id)
         },
 
-        acceptSuggestion: async ({ suggestion }) => {
+        acceptSuggestion: async ({ suggestion }, breakpoint) => {
             let accepted
             try {
                 accepted = await api.evaluationSuggestionsAcceptCreate(String(values.currentTeamId), suggestion.id)
             } catch (error) {
+                breakpoint()
                 const message = evaluationErrorMessage(error, "Couldn't add the eval. Try again.")
                 // The judge confirm shows the error itself, with the key settings when the key is the cause.
                 if (!values.judgeConfirm) {
@@ -304,6 +305,7 @@ export const evaluationSuggestionsLogic = kea<evaluationSuggestionsLogicType>([
                 return
             }
             captureSuggestionEvent('llma eval suggestion accepted', suggestion)
+            breakpoint()
             actions.suggestionRemoved(suggestion.id)
             // The list and the overview only fetch on mount, so they would miss the new eval on the way back.
             llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()

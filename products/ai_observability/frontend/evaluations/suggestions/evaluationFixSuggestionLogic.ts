@@ -11,6 +11,7 @@ import { evaluationErrorMessage } from '../apiErrors'
 import { llmEvaluationLogic } from '../llmEvaluationLogic'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { markEvaluationsOverviewStale } from '../overview/evaluationsOverviewLogic'
+import type { EvaluationConditionSet } from '../types'
 import { captureSuggestionEvent, evaluationSuggestionsLogic } from './evaluationSuggestionsLogic'
 
 export interface EvaluationFixSuggestionLogicProps {
@@ -141,7 +142,12 @@ export const evaluationFixSuggestionLogic = kea<evaluationFixSuggestionLogicType
             actions.applyFixSucceeded(fixed)
             lemonToast.success('Filter updated. The eval runs on new traffic again.')
             // The form holds the old filter, and saving it again would put that filter back.
-            llmEvaluationLogic.findMounted({ evaluationId: props.evaluationId })?.actions.loadEvaluation()
+            const evaluationLogic = llmEvaluationLogic.findMounted({ evaluationId: props.evaluationId })
+            if (evaluationLogic?.values.hasUnsavedChanges && fixed.draft.conditions) {
+                evaluationLogic.actions.setTriggerConditions(fixed.draft.conditions as EvaluationConditionSet[])
+            } else {
+                evaluationLogic?.actions.loadEvaluation()
+            }
             evaluationSuggestionsLogic.findMounted()?.actions.suggestionRemoved(fixed.id)
             llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
             markEvaluationsOverviewStale()

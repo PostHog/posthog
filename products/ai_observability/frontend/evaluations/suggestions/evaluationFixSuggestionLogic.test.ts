@@ -117,4 +117,24 @@ describe('evaluationFixSuggestionLogic', () => {
         })
         evaluationLogic.unmount()
     })
+
+    it('keeps edits made while the fix applies, with the new filter in the form', async () => {
+        const evaluationLogic = llmEvaluationLogic({ evaluationId: 'eval-1' })
+        evaluationLogic.mount()
+        await expectLogic(evaluationLogic).toDispatchActions(['loadEvaluationSuccess'])
+        const logic = evaluationFixSuggestionLogic({ suggestionId: 'fix-1', evaluationId: 'eval-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.applyFix()
+            evaluationLogic.actions.setEvaluationName('Renamed while applying')
+        }).toFinishAllListeners()
+
+        expect(evaluationLogic.values.evaluation).toMatchObject({
+            name: 'Renamed while applying',
+            conditions: conditions('signals_scout'),
+        })
+        evaluationLogic.unmount()
+    })
 })

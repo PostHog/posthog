@@ -126,6 +126,27 @@ describe('evaluationSuggestionsLogic', () => {
         expect(capture).toHaveBeenCalledWith('llma eval suggestion accepted', trackingProperties(CODE_CHECK))
     })
 
+    it('leaves the user where they went when accept finishes after they left', async () => {
+        useMocks({
+            post: {
+                [`${SUGGESTIONS_URL}/:id/accept/`]: {
+                    suggestion: { ...CODE_CHECK, status: 'accepted', created_evaluation: 'eval-1' },
+                    evaluation_id: 'eval-1',
+                    backfill_id: null,
+                    backfill_units: null,
+                },
+            },
+        })
+        const pathBefore = router.values.location.pathname
+
+        logic.actions.acceptSuggestion(CODE_CHECK)
+        logic.unmount()
+        await new Promise((resolve) => setTimeout(resolve, 50))
+
+        expect(router.values.location.pathname).toEqual(pathBefore)
+        logic.mount()
+    })
+
     it.each([
         ['offers the key settings without a working key', null, true],
         ['leaves out the key settings with a working key', { id: 'key-1', provider: 'openai', state: 'ok' }, false],

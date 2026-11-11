@@ -4,6 +4,7 @@ The run is an ordinary backfill over a window shrunk with the backfill estimate,
 500 units for a Hog check and 50 for a judge, which runs on the team's own provider key.
 """
 
+import time
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, cast
@@ -48,6 +49,8 @@ BACKFILL_LOOKBACK = timedelta(days=7)
 # Each shrink assumes units arrive evenly, so it aims a little under the cap to absorb bursts.
 SHRINK_MARGIN = 0.9
 MAX_SHRINKS = 4
+# The estimate and accept requests wait for every count, so shrinking stops once they have waited this long.
+PLAN_BUDGET_SECONDS = 10
 
 NO_KEY_MESSAGE = (
     "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
@@ -105,12 +108,16 @@ def plan_backfill(
     """The most recent window that holds at most `cap` units, or None when recent data holds none.
 
     Shrinking assumes even traffic, so a burst can leave a shrunk window empty or still too full. Then the last
-    window with traffic runs, and the backfill's `max_units` stops it at `cap`.
+    window with traffic runs, and the backfill's `max_units` stops it at `cap`. The same holds when the counts
+    use up `PLAN_BUDGET_SECONDS`.
     """
     now = timezone.now()
     window = clamp_backfill_window(team, target, target_config, now - BACKFILL_LOOKBACK, now)
     last_with_traffic: BackfillWindow | None = None
+    started = time.monotonic()
     for _ in range(MAX_SHRINKS):
+        if last_with_traffic and time.monotonic() - started > PLAN_BUDGET_SECONDS:
+            break
         scope = count_backfill_candidates(
             team=team,
             evaluation_id=evaluation_id,
