@@ -5,6 +5,7 @@ writer that changes it calls `sync_subscriber_destinations` too. The platform de
 destinations, which resolve each user's address and insight access at send time.
 """
 
+from collections.abc import Collection
 from typing import Final
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from posthog.dataclasses import frozen
 
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription
 from products.alerts.backend.tasks.tasks import remove_departed_subscriber
-from products.alerts_platform.backend.facade.api import set_subscriber_destinations
+from products.alerts_platform.backend.facade.api import set_subscriber_destinations, subscriber_user_ids_by_public_id
 from products.alerts_platform.backend.facade.contracts import AlertEventKind
 
 # What a subscriber hears today: a firing and a failed check. An insight alert sends no resolve.
@@ -88,3 +89,23 @@ def backfill_subscriber_destinations(*, team_id: int | None = None) -> Subscribe
         else:
             without_copy += 1
     return SubscriberBackfillCounts(written=written, without_copy=without_copy)
+
+
+def platform_subscriber_ids(*, team_id: int, alert_ids: Collection[UUID]) -> dict[UUID, tuple[int, ...]]:
+    """The users each alert's platform copy names as subscribers, by public id. An alert whose copy has
+    no subscriber destination is left out, and its subscriptions hold the same users until the backfill
+    reaches it."""
+    return subscriber_user_ids_by_public_id(team_id=team_id, public_ids=alert_ids)
+
+
+def first_subscriber_id(*, team_id: int, alert_id: UUID) -> int | None:
+    """One subscriber, from the platform copy's destinations when it has any. None when nobody subscribes."""
+    copied = platform_subscriber_ids(team_id=team_id, alert_ids=[alert_id]).get(alert_id)
+    if copied is not None:
+        return min(copied, default=None)
+    return (
+        AlertSubscription.objects.filter(alert_configuration_id=alert_id, alert_configuration__team_id=team_id)
+        .order_by("user_id")
+        .values_list("user_id", flat=True)
+        .first()
+    )
