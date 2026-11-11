@@ -30,8 +30,46 @@ GROUP BY message_id
 """
 
 
-def queued_at(message_id: UUID) -> datetime | None:
+# A keyed send's ID holds no time, so its own rows say when it was queued. The sort key starts with the team and
+# the message, so this reads one message's rows in each partition the retention keeps.
+_KEYED_CREATED_AT_QUERY = f"""
+SELECT created_at
+FROM {EMAIL_STATUS_TABLE}
+WHERE team_id = %(team_id)s
+  AND message_id = %(message_id)s
+  AND created_at >= %(start)s
+LIMIT 1
+"""
+
+
+def is_keyed_message_id(message_id: UUID) -> bool:
+    """A keyed send's ID is uuid5(team, scope, key), so every retry of the key gets the same ID.
+
+    A UUIDT reads as version 5 only once its per-millisecond series passes 0x5000, which takes one process
+    minting 20,480 IDs within a single millisecond.
+    """
+    return message_id.version == 5
+
+
+def message_created_at(team_id: int, message_id: UUID, workload: Workload) -> datetime | None:
     """When the send was queued, or None when no send the table still keeps can have this ID."""
+    if not is_keyed_message_id(message_id):
+        return queued_at(message_id)
+    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+    rows = cast(
+        list,
+        sync_execute(
+            _KEYED_CREATED_AT_QUERY,
+            {"team_id": team_id, "message_id": str(message_id), "start": datetime.now(UTC) - _RETENTION},
+            workload=workload,
+            team_id=team_id,
+        ),
+    )
+    return rows[0][0].replace(tzinfo=UTC) if rows else None
+
+
+def queued_at(message_id: UUID) -> datetime | None:
+    """When the send with this UUIDT was queued, or None when no send the table still keeps can have this ID."""
     # The first 6 bytes of a UUIDT are the Unix time in milliseconds. They are compared as a number first, because a
     # made-up ID can name a time far past the last year a datetime holds.
     queued_ms = int.from_bytes(message_id.bytes[:6], "big")
@@ -43,7 +81,7 @@ def queued_at(message_id: UUID) -> datetime | None:
 
 def get_email_status(team_id: int, message_id: UUID) -> EmailStatus | None:
     """The send's status, or None when no send of this team has this ID or its first status has not arrived."""
-    created_at = queued_at(message_id)
+    created_at = message_created_at(team_id, message_id, Workload.OFFLINE)
     if created_at is None:
         return None
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)

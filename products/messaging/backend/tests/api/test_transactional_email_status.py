@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from uuid import NAMESPACE_URL, uuid5
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -131,6 +132,22 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "created_at": self.queued_at.isoformat().replace("+00:00", "Z"),
             "status_at": self._at(status_offset).isoformat().replace("+00:00", "Z"),
             "reason": reason,
+        }
+
+    def test_reports_a_keyed_send_whose_id_holds_no_time(self, _flag):
+        # A keyed send's id is a name-based UUID, so only its stored rows say when it was queued.
+        self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
+        self._status_rows([("queued", 0, ""), ("sent", 2, "")])
+
+        response = self.client.get(self._url(self.message_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "id": self.message_id,
+            "status": "sent",
+            "created_at": self.queued_at.isoformat().replace("+00:00", "Z"),
+            "status_at": self._at(2).isoformat().replace("+00:00", "Z"),
+            "reason": None,
         }
 
     @parameterized.expand(

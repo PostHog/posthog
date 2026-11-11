@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -22,7 +22,7 @@ from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.messaging.backend.facade.contracts import EmailStatsInterval
-from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_EVENTS_DATA_TABLE
+from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_DATA_TABLE, EMAIL_STATUS_EVENTS_DATA_TABLE
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.transactional_email_log import _bucket_starts
@@ -66,10 +66,37 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         team: Team | None = None,
         workflow_id: str | None = None,
         domain: str = "mail.example.com",
+        keyed: bool = False,
     ) -> str:
         queued_at = NOW - timedelta(minutes=minutes_ago)
-        message_id = str(UUIDT(unix_time_ms=int(queued_at.timestamp() * 1000)))
+        message_id = (
+            str(uuid5(NAMESPACE_URL, f"{recipient}/{minutes_ago}"))
+            if keyed
+            else str(UUIDT(unix_time_ms=int(queued_at.timestamp() * 1000)))
+        )
         rows = [("queued", 0, ""), *statuses]
+        if keyed:
+            # Both tables read the same topic, and a keyed id is found through email_status's sort key.
+            sync_execute(
+                f"""
+                INSERT INTO {EMAIL_STATUS_DATA_TABLE}
+                    (team_id, message_id, status, version, created_at, status_at, _timestamp, _offset, _partition)
+                VALUES
+                """,
+                [
+                    {
+                        "team_id": (team or self.team).id,
+                        "message_id": message_id,
+                        "status": "queued",
+                        "version": int(queued_at.timestamp() * 1000),
+                        "created_at": queued_at,
+                        "status_at": queued_at,
+                        "_timestamp": queued_at,
+                        "_offset": 0,
+                        "_partition": 0,
+                    }
+                ],
+            )
         sync_execute(
             f"""
             INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
@@ -170,8 +197,9 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [r["recipient"] for r in response.json()["results"]] == expected_recipients
         assert response.json()["has_more"] == expected_has_more
 
-    def test_finds_a_send_by_message_id_only_inside_the_date_range(self, _flag):
-        message_id = self._send(60, "jane@example.com", [("sent", 1, "")])
+    @parameterized.expand([("uuidt", False), ("keyed", True)])
+    def test_finds_a_send_by_message_id_only_inside_the_date_range(self, _flag, _name, keyed):
+        message_id = self._send(60, "jane@example.com", [("sent", 1, "")], keyed=keyed)
         self._send(10, "bob@example.com", [("sent", 1, "")])
 
         inside = self.client.get(self._url(), {"search": message_id}).json()
@@ -199,9 +227,10 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
 
-    def test_shows_one_send_with_its_timeline(self, _flag):
+    @parameterized.expand([("uuidt", False), ("keyed", True)])
+    def test_shows_one_send_with_its_timeline(self, _flag, _name, keyed):
         message_id = self._send(
-            10, "jane@example.com", [("failed", 1, "provider_error"), ("run_failed", 2, "hog_error")]
+            10, "jane@example.com", [("failed", 1, "provider_error"), ("run_failed", 2, "hog_error")], keyed=keyed
         )
 
         response = self.client.get(self._url(f"{message_id}/"))
