@@ -932,9 +932,7 @@ class ScenePersonalisationSerializer(serializers.ModelSerializer):
         instance = cast(User, self.instance)
 
         dashboard_team_id = find_dashboard_team_id(dashboard_id=value)
-        if dashboard_team_id is None:
-            raise serializers.ValidationError(f'Invalid pk "{value}" - object does not exist.', code="does_not_exist")
-        if instance.current_team is None or dashboard_team_id != instance.current_team.id:
+        if dashboard_team_id is None or instance.current_team is None or dashboard_team_id != instance.current_team.id:
             raise serializers.ValidationError("Dashboard must belong to the user's current team.")
 
         return value
