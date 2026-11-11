@@ -87,6 +87,17 @@ You can find your API keys in your [EasyPost account settings](https://www.easyp
             "403 Client Error: Forbidden for url: https://api.easypost.com": "Your EasyPost API key is inactive or not authorized. Activate the key (or create a new one) in your EasyPost account settings, then reconnect.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # `_fetch_page` (easypost.py) already retries `EasypostRetryableError` (429/5xx),
+        # `requests.ReadTimeout`, and `requests.ConnectionError` with backoff; if that budget
+        # still exhausts, Temporal retries the whole activity, so the failure is transient and
+        # self-recovering. Match the host rather than the per-endpoint path, so a timeout or
+        # dropped connection on any EasyPost endpoint is covered.
+        return {
+            "HTTPSConnectionPool(host='api.easypost.com', port=443)",
+            "EasyPost API error (retryable)",
+        }
+
     def get_schemas(
         self,
         config: EasypostSourceConfig,
