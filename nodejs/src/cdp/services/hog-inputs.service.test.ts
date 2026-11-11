@@ -12,6 +12,7 @@ import { HOG_FILTERS_EXAMPLES } from '../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction, insertIntegration } from '../_tests/fixtures'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, classifyHogError } from '../utils/hog-error-classification'
 import { replaceIntegrationInputsWithRefs, signIntegrationRef } from '../utils/integration-input-refs'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
@@ -264,6 +265,14 @@ describe('Hog Inputs', () => {
         let hogFunction: HogFunctionType
         let globals: HogFunctionInvocationGlobals
 
+        const insertUndecryptableIntegration = async (id: number, teamId = team.id): Promise<void> => {
+            await insertIntegration(hub.postgres, teamId, {
+                id,
+                kind: 'slack',
+                sensitive_config: { access_token: new EncryptedFields('f'.repeat(32)).encrypt('token') },
+            })
+        }
+
         beforeEach(async () => {
             hogFunction = createHogFunction({
                 id: 'hog-function-1',
@@ -401,6 +410,66 @@ describe('Hog Inputs', () => {
             await expect(
                 hogInputsService.buildInputs(hogFunction, globals, hogFunction.mappings[0].inputs ?? {})
             ).rejects.toThrow("The integration for input 'slack' no longer exists.")
+        })
+
+        it('fails a used integration input when the integration cannot be decrypted', async () => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.inputs = { oauth: { value: id } }
+            hogFunction.inputs_schema = [{ key: 'oauth', type: 'integration', required: true }]
+
+            const error = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogConfigurationError)
+            expect(error.message).toContain('could not be decrypted')
+            expect(classifyHogError(error, { runtimeContract: 'any' })).toBe('config')
+        })
+
+        it('loads an undecryptable integration on a mapping this invocation does not use', async () => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.mappings = [
+                { inputs: { slack: { value: id } }, inputs_schema: [{ key: 'slack', type: 'integration' }] },
+            ]
+
+            await expect(hogInputsService.buildInputs(hogFunction, globals)).resolves.toBeDefined()
+            const loaded = await hogInputsService.loadIntegrationInputs(hogFunction)
+            expect(loaded.slack.value).toEqual({ $integration_id: id })
+        })
+
+        it('keeps the other channels of a used integration_multi input but drops the undecryptable secrets', async () => {
+            const id = 100000000 + team.id
+            await insertUndecryptableIntegration(id)
+            hogFunction.inputs = { channels: { value: [integrationId1, id] } }
+            hogFunction.inputs_schema = [{ key: 'channels', type: 'integration_multi', required: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.channels).toHaveLength(2)
+            expect(inputs.channels[0]).toMatchObject({ $integration_id: integrationId1 })
+            expect(inputs.channels[1]).toEqual({ $integration_id: id })
+        })
+
+        it.each([
+            ['integration', "The integration for input 'connection' no longer exists."],
+            ['integration_multi', null],
+        ])('does not reveal decrypt failures from another team for %s', async (type, message) => {
+            const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+            const foreignId = 100000000 + otherTeam.id
+            await insertUndecryptableIntegration(foreignId, otherTeam.id)
+            hogFunction.inputs = {
+                connection: { value: type === 'integration' ? foreignId : [integrationId1, foreignId] },
+            }
+            hogFunction.inputs_schema = [{ key: 'connection', type: type as any, required: true }]
+
+            const result = await hogInputsService.buildInputs(hogFunction, globals).catch((e) => e)
+
+            if (message) {
+                expect(result.message).toContain(message)
+            } else {
+                expect(result).not.toBeInstanceOf(Error)
+            }
+            expect(result.message ?? '').not.toContain('could not be decrypted')
         })
 
         it('should not load a posthog connection', async () => {
@@ -691,6 +760,27 @@ describe('Hog Inputs', () => {
             const built = await hogInputsService.buildInputs(hogFunction, createHogExecutionGlobals())
 
             await expect(hogInputsService.resolveIntegrationRefs(hogFunction, built)).resolves.toBe(built)
+        })
+
+        it.each([
+            ['integration', 'oauth', (ref: any) => ref],
+            ['integration_multi', 'channels', (ref: any) => [ref]],
+        ])('fails an %s reference when the integration cannot be decrypted', async (_type, key, wrap) => {
+            const id = 100000000 + team.id
+            await insertIntegration(hub.postgres, team.id, {
+                id,
+                kind: 'slack',
+                sensitive_config: { access_token: new EncryptedFields('f'.repeat(32)).encrypt('token') },
+            })
+            hogFunction.inputs = { [key]: { value: key === 'oauth' ? id : [id] } }
+
+            const error = await hogInputsService
+                .resolveIntegrationRefs(hogFunction, { [key]: wrap(signedRef(key, id)) })
+                .catch((e) => e)
+
+            expect(error).toBeInstanceOf(HogConfigurationError)
+            expect(error.message).toContain('could not be decrypted')
+            expect(error.message).toContain(key)
         })
 
         it('does not resolve a reference in an input that is not an integration input', async () => {

@@ -61,6 +61,9 @@ class ManagedWarehouseViewTranslationJobAdmin(admin.ModelAdmin):
     def posthog_admin(self, obj: ManagedWarehouseViewTranslationJob) -> SafeString:
         return MovedToConsole.action("organization", obj.organization, "managed-warehouse", "Start or retry a job")
 
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        return False
+
     def has_delete_permission(
         self, request: HttpRequest, obj: ManagedWarehouseViewTranslationJob | None = None
     ) -> bool:
