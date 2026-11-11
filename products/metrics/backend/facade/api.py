@@ -170,17 +170,31 @@ def _unit_for_fingerprints(fingerprints: set[int], units_by_fingerprint: dict[in
     return unit
 
 
+# Prometheus names carry the base unit as a suffix, and a scraped metric has no unit field.
+_PROMETHEUS_UNIT_SUFFIXES = (("_seconds", "s"), ("_milliseconds", "ms"), ("_bytes", "By"))
+
+
+def _prometheus_name_unit(metric_name: str) -> str | None:
+    return next((unit for suffix, unit in _PROMETHEUS_UNIT_SUFFIXES if metric_name.endswith(suffix)), None)
+
+
 def _output_unit(ingested: str | None, clause: MetricQueryClause) -> str | None:
     """The unit of the values a clause returns, which differs from the
     ingested unit when the clause transforms the values. COUNT returns a
     number of series, so it has no unit, even after a range function. RATE
     divides by the bucket length in seconds, so it returns the ingested unit
     per second, as a UCUM string the frontend formatter reads. Every other
-    aggregation keeps the ingested unit."""
+    aggregation keeps the ingested unit.
+
+    A histogram quantile of series that all carry no unit reads the unit from
+    a Prometheus name suffix: a percentile is in the unit of the observations,
+    and `http_request_duration_seconds` observes seconds."""
     if ingested is None or clause.aggregation is MetricAggregation.COUNT:
         return None
     if clause.aggregation is MetricAggregation.RATE or clause.range_function is MetricRangeFunction.RATE:
         return f"{ingested or '1'}/s"
+    if not ingested and clause.aggregation is MetricAggregation.HISTOGRAM_QUANTILE:
+        return _prometheus_name_unit(clause.metric_name)
     return ingested or None
 
 

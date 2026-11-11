@@ -97,6 +97,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("trigger_label", {"trigger_label": "review-me"}),
             ("routing_mode", {"routing_mode": RoutingMode.FALLBACK}),
             ("routing_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
+            ("review_on_clean_external_review", {"review_on_clean_external_review": True}),
         ]
     )
     def test_member_cannot_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -175,6 +176,7 @@ class TestStamphogRepoConfigAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("turns_reviews_off", {"enabled": False}),
             ("turns_reviewer_requests_on", {"routing_mode": RoutingMode.FALLBACK}),
             ("sets_fork_labels", {"routing_fork_labels": {"team-alpha": "area: alpha"}}),
+            ("turns_clean_review_trigger_on", {"review_on_clean_external_review": True}),
         ]
     )
     def test_member_granted_manager_can_change_a_review_gating_field(self, _name: str, payload: dict) -> None:
@@ -761,6 +763,24 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("manual_beats_label_mode", ReviewMode.LABEL, {"manual_review": {"acting_user_id": 1}}, "manual"),
+            (
+                "manual_beats_silent",
+                ReviewMode.LABEL,
+                {"manual_review": {"acting_user_id": 1}, "review_trigger": "reviewhog_clean"},
+                "manual",
+            ),
+            (
+                "silent_beats_label_mode",
+                ReviewMode.LABEL,
+                {"review_trigger": "reviewhog_clean"},
+                "reviewhog_clean",
+            ),
+            (
+                "silent_beats_all_mode",
+                ReviewMode.ALL,
+                {"review_trigger": "reviewhog_clean"},
+                "reviewhog_clean",
+            ),
             ("label_mode", ReviewMode.LABEL, {}, "label"),
             ("all_mode", ReviewMode.ALL, {}, "all"),
         ]
@@ -898,6 +918,7 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("same_base_is_returned", ReviewRunStatus.COMPLETED, "master", False, False),
             # A base retarget changes the diff without moving the head.
             ("other_base_is_replaced", ReviewRunStatus.COMPLETED, "feat/parent", True, True),
+            ("silent_in_flight_is_superseded", ReviewRunStatus.REVIEWING, None, True, True, True),
         ]
     )
     def test_repeat_request_dedupes_on_the_current_head(
@@ -907,9 +928,12 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         reviewed_base_ref: str | None,
         expect_created: bool,
         expect_start: bool,
+        existing_silent: bool = False,
     ) -> None:
         first = self._request().json()["run"]["id"]
-        output = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        output: dict[str, Any] = {"pr": {"base": {"ref": reviewed_base_ref}}} if reviewed_base_ref else {}
+        if existing_silent:
+            output["review_trigger"] = "reviewhog_clean"
         ReviewRun.objects.unscoped().filter(id=first).update(status=existing_status, output=output)
         self.start_workflow.reset_mock()
 
@@ -920,6 +944,8 @@ class TestReviewRequestAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["created"] is expect_created
         assert (body["run"]["id"] == first) is not expect_created
         assert self.start_workflow.called is expect_start
+        if existing_silent:
+            assert ReviewRun.objects.unscoped().get(id=first).status == ReviewRunStatus.SUPERSEDED
 
     @parameterized.expand(
         [
@@ -1083,6 +1109,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             trigger_label="nobody-uses-this",
             routing_mode=RoutingMode.ALWAYS,
             routing_fork_labels={"team-alpha": "area: alpha"},
+            review_on_clean_external_review=True,
         )
         response = self.client.post(
             self.url, {"installation_id": "42", "code": "oauth-code", "state": self.state}, format="json"
@@ -1100,6 +1127,7 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert manual.trigger_label == StamphogRepoConfig._meta.get_field("trigger_label").get_default()
         assert manual.routing_mode == RoutingMode.OFF
         assert manual.routing_fork_labels == {}
+        assert manual.review_on_clean_external_review is False
 
     @patch(f"{_GITHUB_FACADE}.list_user_accessible_repositories", return_value=["PostHog/posthog"])
     @patch(f"{_VIEWS}.user_can_access_installation", return_value=True)

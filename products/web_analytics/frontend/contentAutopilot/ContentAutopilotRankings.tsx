@@ -7,7 +7,7 @@ import type { Series, TimeSeriesLineChartConfig } from '@posthog/quill-charts'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { percentage } from 'lib/utils/numbers'
-import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 import { PagePerformanceCard } from 'scenes/web-analytics/PagePerformanceCard'
 import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceCardHeader'
 
@@ -17,10 +17,12 @@ import type {
     AEORankedPageApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotBrandedSegmentControl } from './ContentAutopilotBrandedSegmentControl'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { RANKINGS_DAYS, contentAutopilotRankingsLogic } from './contentAutopilotRankingsLogic'
 import { visibilityChange } from './rankingsReport'
+import { brandedAnswersNote, segmentPrompts } from './utils'
 
 const CHART_CONFIG: TimeSeriesLineChartConfig = {
     xAxis: { interval: 'day' },
@@ -80,6 +82,51 @@ export const ContentAutopilotRankings = (): JSX.Element => {
     if (!rankings) {
         return <LemonSkeleton className="h-32 w-full" />
     }
+    const header = (
+        <div className="flex flex-wrap items-start justify-between gap-2">
+            <div className="min-w-0 flex-1 basis-80">
+                <h4 className="m-0">Last {RANKINGS_DAYS} days, all engines</h4>
+                <p className="m-0 text-xs text-muted" data-attr="content-autopilot-rankings-answers">
+                    {brandedAnswersNote(rankings.branded, rankings.answers)} Visibility is the share of those answers
+                    that name a brand or cite its site.{' '}
+                    {rankings.competitors_confirmed ? (
+                        <>
+                            Competitors are the ones you confirmed in{' '}
+                            <Link to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}>
+                                AI visibility brands
+                            </Link>
+                            .
+                        </>
+                    ) : (
+                        <>
+                            Competitors are guessed from the sites the engines cite most.{' '}
+                            <Link
+                                to={urls.settings('environment-web-analytics', 'ai-visibility-brands')}
+                                data-attr="content-autopilot-rankings-confirm-competitors"
+                            >
+                                Confirm your competitors
+                            </Link>{' '}
+                            to rank against them by name.
+                        </>
+                    )}
+                </p>
+            </div>
+            <ContentAutopilotBrandedSegmentControl tab="rankings" />
+        </div>
+    )
+    if (rankings.answers === 0 && rankings.branded !== 'all') {
+        return (
+            <section className="flex flex-col gap-4" data-attr="content-autopilot-rankings">
+                {header}
+                <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-segment-empty">
+                    <h4 className="m-0">
+                        No answers to {segmentPrompts(rankings.branded)} in the last {RANKINGS_DAYS} days
+                    </h4>
+                    <p className="m-0 mt-1 text-muted">Choose another option above to see the other answers.</p>
+                </LemonCard>
+            </section>
+        )
+    }
     if (rankings.answers === 0) {
         return (
             <LemonCard hoverEffect={false} className="p-4" data-attr="content-autopilot-rankings-empty">
@@ -102,14 +149,7 @@ export const ContentAutopilotRankings = (): JSX.Element => {
 
     return (
         <section className="@container/rankings flex flex-col gap-4" data-attr="content-autopilot-rankings">
-            <div>
-                <h4 className="m-0">Last {RANKINGS_DAYS} days, all engines</h4>
-                <p className="m-0 text-xs text-muted">
-                    Visibility is the share of {pluralize(rankings.answers, 'answer')} that name a brand or cite its
-                    site. Competitors are the brands behind the sites the engines cite most, matched by the name in
-                    their domain, so a name that is also a common word can count extra answers.
-                </p>
-            </div>
+            {header}
             <div className="grid grid-cols-1 @5xl/rankings:grid-cols-2 gap-4">
                 <PagePerformanceCard className="min-w-0">
                     <PagePerformanceCardHeader title="Visibility" />
@@ -139,8 +179,17 @@ export const ContentAutopilotRankings = (): JSX.Element => {
                                     title: 'Brand',
                                     key: 'domain',
                                     render: (_, brand) => (
-                                        <span className="flex items-center gap-2 font-semibold">
-                                            {brand.domain}
+                                        <span className="flex items-center gap-2">
+                                            <span className="flex flex-col">
+                                                <span className="font-semibold">
+                                                    {rankings.competitors_confirmed && !brand.is_target
+                                                        ? brand.name
+                                                        : brand.domain}
+                                                </span>
+                                                {rankings.competitors_confirmed && !brand.is_target ? (
+                                                    <span className="text-xs text-muted">{brand.domain}</span>
+                                                ) : null}
+                                            </span>
                                             <SiteTag isTarget={brand.is_target} isCompetitor={false} />
                                         </span>
                                     ),

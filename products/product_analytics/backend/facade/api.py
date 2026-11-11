@@ -12,18 +12,20 @@ project's root team, because that is the team ``RootTeamMixin.save()`` writes th
 """
 
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q, QuerySet
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.contracts import (
+    AgentInsightRead,
     ChartExplanation,
     ChartExplanationAuthor,
     InsightDashboardContext,
@@ -139,6 +141,19 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
 
 
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    """Store metadata a backfill computed from ``query_at_read``, without holding a lock while it computed.
+
+    Writes only while the insight still lacks current metadata and its query is still ``query_at_read``,
+    so a save that landed after the backfill read the insight wins. Returns whether the write happened.
+    """
+    return logic.store_backfilled_query_metadata(
+        insight_id=insight_id, query_at_read=query_at_read, query_metadata=query_metadata
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 
@@ -157,6 +172,28 @@ def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insigh
     logic.record_insight_views(
         team_id=team_id, user_id=user_id, last_viewed_at_by_insight_id=last_viewed_at_by_insight_id
     )
+
+
+def record_agent_insight_read(*, team: Team, user_id: int, insight_id: int) -> None:
+    try:
+        logic.record_agent_insight_read(team=team, user_id=user_id, insight_id=insight_id)
+    except Exception as error:
+        capture_exception(error, {"team_id": team.id, "insight_id": insight_id})
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[AgentInsightRead]:
+    return [
+        AgentInsightRead(short_id=short_id, read_days=tuple(read_days))
+        for short_id, read_days in logic.insight_reads_by_agents(
+            team_id=team_id, user_id=user_id, since=since, min_days=min_days, limit=limit
+        )
+    ]
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    logic.delete_agent_insight_reads_for_teams(team_ids)
 
 
 def with_last_viewed_at(insights: QuerySet) -> QuerySet:

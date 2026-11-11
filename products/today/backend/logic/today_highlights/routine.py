@@ -21,11 +21,16 @@ from products.dashboards.backend.facade.api import (
 from products.product_analytics.backend.facade.api import (
     get_insight_series,
     insight_query_complete,
+    insight_reads_by_agents,
     insight_series_supported,
     insight_short_ids_built_by,
     viewable_insight_definitions,
 )
-from products.product_analytics.backend.facade.contracts import InsightDashboardContext, InsightSeriesNotReady
+from products.product_analytics.backend.facade.contracts import (
+    AgentInsightRead,
+    InsightDashboardContext,
+    InsightSeriesNotReady,
+)
 from products.subscriptions.backend.facade.api import insight_short_ids_subscribed_by
 
 from ...facade import contracts
@@ -44,10 +49,11 @@ DASHBOARD_TILES_TRIED = 6
 OPENED_DAYS_WINDOW = 14
 MOVERS_SHOWN = 4
 REPEAT_DAYS = 3
+AGENT_REPEAT_DAYS = 2
 REPEAT_WINDOW_DAYS = 28
 RECENT_DAYS = 14
 BUILT_DAYS = 28
-SIGNAL_MIX = (3, 2, 2)
+SIGNAL_MIX = (3, 2, 2, 2)
 SIGNAL_CANDIDATES = 12
 
 
@@ -275,10 +281,29 @@ def _own_candidates(context: Context, excluded: Collection[str]) -> list[ViewedI
         ),
         none,
     )
+    no_reads: list[AgentInsightRead] = []
+    agent_reads = context.guard(
+        "agent insight reads",
+        partial(
+            insight_reads_by_agents,
+            team_id=context.team.id,
+            user_id=context.user.id,
+            since=context.today - timedelta(days=REPEAT_WINDOW_DAYS - 1),
+            min_days=AGENT_REPEAT_DAYS,
+            limit=limit,
+        ),
+        no_reads,
+    )
+    asked = [
+        read.short_id
+        for read in agent_reads
+        if read.short_id not in skipped and _repeated(read.read_days, context.today, AGENT_REPEAT_DAYS)
+    ]
     watched = [ref for ref in (*alerted, *subscribed) if ref not in skipped]
     built = [ref for ref in built if ref not in skipped]
     groups = [
         used,
+        [ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.AGENT) for ref in asked],
         [
             ViewedItem(kind="insight", ref=ref, days=frozenset(), reason=HighlightMetricReason.WATCHED)
             for ref in dict.fromkeys(watched)
@@ -288,11 +313,9 @@ def _own_candidates(context: Context, excluded: Collection[str]) -> list[ViewedI
     return _mixed(groups, SIGNAL_MIX)[:SIGNAL_CANDIDATES]
 
 
-def _repeated(view_days: Collection[date], today: date) -> bool:
+def _repeated(view_days: Collection[date], today: date, times: int = REPEAT_DAYS) -> bool:
     ages = [(today - day).days for day in view_days]
-    return sum(0 <= age < REPEAT_WINDOW_DAYS for age in ages) >= REPEAT_DAYS and any(
-        0 <= age < RECENT_DAYS for age in ages
-    )
+    return sum(0 <= age < REPEAT_WINDOW_DAYS for age in ages) >= times and any(0 <= age < RECENT_DAYS for age in ages)
 
 
 def _mixed(groups: Sequence[Sequence[ViewedItem]], quotas: Sequence[int]) -> list[ViewedItem]:

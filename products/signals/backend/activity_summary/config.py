@@ -104,6 +104,8 @@ class ActivitySummaryConfig:
     rebuild_before: datetime.datetime | None = None
     # The largest share of a tick that rebuilds of stale summaries can take. Other updates get the rest.
     rebuild_budget_share: float = 0.3
+    # The share of a tick kept for the first summary of pairs that opened the Inbox. The other passes get the unused part.
+    inbox_visit_budget_share: float = 0.2
     mcp_buffer_enabled: bool = False
     # The buffer keeps the enrolled teams of these organizations and of the `mcp_buffer_percentage` rollout.
     # Use `mcp_buffer_percentage: 100` for every enrolled team.
@@ -254,6 +256,7 @@ def parse_config(payload: Any) -> ActivitySummaryConfig:
         limits=parse_limits(payload.get("limits")),
         rebuild_before=_timestamp(payload.get("rebuild_before")),
         rebuild_budget_share=_fraction(payload.get("rebuild_budget_share"), defaults.rebuild_budget_share),
+        inbox_visit_budget_share=_fraction(payload.get("inbox_visit_budget_share"), defaults.inbox_visit_budget_share),
         mcp_buffer_enabled=_bool(payload.get("mcp_buffer_enabled"), defaults.mcp_buffer_enabled),
         mcp_buffer_organization_ids=_organization_ids(payload.get("mcp_buffer_organization_ids")),
         mcp_buffer_percentage=_percentage(payload.get("mcp_buffer_percentage"), defaults.mcp_buffer_percentage),

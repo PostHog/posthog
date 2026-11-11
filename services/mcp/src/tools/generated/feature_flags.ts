@@ -289,6 +289,7 @@ const featureFlagGetAll = (): ToolBase<
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
+                ids: params.ids,
                 key: params.key,
                 limit: params.limit,
                 offset: params.offset,
@@ -1054,6 +1055,7 @@ const scheduledChangesList = (): ToolBase<
                 model_name: params.model_name,
                 offset: params.offset,
                 record_id: params.record_id,
+                record_ids: params.record_ids,
             },
         })
         return await withPostHogUrl(context, result, '/feature-flags')

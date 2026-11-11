@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
+import { wizardScansDetectedSourcesRetrieve } from '../../generated/api'
 import type { WizardRunApi } from '../../generated/api.schemas'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 import { wizardRunSidebarLogic } from './wizardRunSidebarLogic'
@@ -13,6 +14,15 @@ import { wizardRunSidebarLogic } from './wizardRunSidebarLogic'
 jest.mock('../../generated/api', () => ({
     wizardRunsList: jest.fn().mockResolvedValue({ results: [], next: null }),
     getWizardRunsStreamRetrieveUrl: (_: string, id: string) => `/stream/${id}`,
+    wizardScansDetectedSourcesRetrieve: jest.fn().mockResolvedValue([
+        { kind: 'Stripe', warehouse_source_type: 'Stripe', first_seen_at: '', last_seen_at: '2026-05-19T10:05:00Z' },
+        {
+            kind: 'Postgres',
+            warehouse_source_type: 'Postgres',
+            first_seen_at: '',
+            last_seen_at: '2026-05-18T09:00:00Z',
+        },
+    ]),
 }))
 
 const props = { projectId: '1', userId: MOCK_DEFAULT_USER.id }
@@ -66,14 +76,6 @@ describe('wizardRunSidebarLogic', () => {
             remaining_run_count: 0,
         })
         expect(logic.values.visibleRuns).toEqual([])
-        logic.actions.clickState('today_more_menu')
-        expect(posthog.capture).toHaveBeenLastCalledWith('wizard sidebar state clicked', {
-            event_source: 'wizard_ui',
-            project_id: '1',
-            location: 'today_more_menu',
-            run_count: 3,
-            active_run_count: 3,
-        })
         expect(MockEventSource.instances.every((stream) => stream.readyState === MockEventSource.CLOSED)).toBe(true)
         sync.actions.runsLoaded([{ ...run('new'), status: 'running' }, ...runs])
         expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['new'])
@@ -86,6 +88,40 @@ describe('wizardRunSidebarLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded([run('new'), ...runs])
         expect(logic.values.visibleRuns.map((run) => run.id)).toEqual(['new'])
+    })
+
+    it('shows only the sources a scan found since the earliest visible run started', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        wizardRunSyncLogic({ projectId: '1' }).actions.runsLoaded([
+            { ...run('current'), created_at: '2026-05-19T10:00:00Z' },
+        ])
+
+        expect(logic.values.runDetectedSources.map((source) => source.warehouse_source_type)).toEqual(['Stripe'])
+    })
+
+    it('refreshes detected sources while a run is active and until a load after it ends succeeds', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const sync = wizardRunSyncLogic({ projectId: '1' })
+        const retrieve = jest.mocked(wizardScansDetectedSourcesRetrieve)
+        const tick = async (): Promise<number> => {
+            const before = retrieve.mock.calls.length
+            logic.actions.refreshDetectedSources()
+            await expectLogic(logic).toFinishAllListeners()
+            return retrieve.mock.calls.length - before
+        }
+
+        expect(await tick()).toBe(0)
+
+        sync.actions.runsLoaded([{ ...run('current'), status: 'running' }])
+        logic.actions.refreshDetectedSources()
+        expect(await tick()).toBe(0)
+
+        sync.actions.runsLoaded([{ ...run('current'), status: 'completed' }])
+        retrieve.mockRejectedValueOnce(new Error('offline'))
+        expect(await tick()).toBe(1)
+        expect(await tick()).toBe(1)
+        expect(await tick()).toBe(0)
     })
 
     it('scopes dismissals to the current project and user', async () => {

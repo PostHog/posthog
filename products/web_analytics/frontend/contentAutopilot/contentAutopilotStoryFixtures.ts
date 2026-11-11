@@ -257,6 +257,7 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     archived_at: null,
     current_version: 1,
     version_count: 1,
+    branded: false,
     latest_checks: [
         {
             engine: 'claude-web-search',
@@ -334,8 +335,9 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
     {
         ...EXAMPLE_PROMPT,
         id: '00000000-0000-4000-8000-000000000304',
-        prompt: 'Is there a free alternative to paid feature flag services?',
+        prompt: 'Is Example a good free alternative to paid feature flag services?',
         topic: '',
+        branded: true,
         latest_checks: [
             {
                 engine: 'exa-answer',
@@ -570,6 +572,9 @@ export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
     prompts_tracked: 42,
     target_domains: ['example.com'],
     brand_names: ['example'],
+    branded: 'non_branded',
+    branded_answers: 520,
+    non_branded_answers: 2460,
     current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }, 2.3),
     previous: setCounts({ checks: 2400, failed: 40, cited: 826, mentioned: 1416, prompts: 40, prompts_cited: 27 }, 2.8),
     engines: [
@@ -719,7 +724,9 @@ export const EXAMPLE_PROMPT_SET_RANKINGS: AEOPromptSetRankingsApi = {
     days: 30,
     window_from: RANKED_DAYS[0],
     window_to: RANKED_DAYS[RANKED_DAYS.length - 1],
+    branded: 'non_branded',
     answers: 2468,
+    competitors_confirmed: false,
     brands: RANKED_BRANDS,
     daily: RANKED_DAYS.flatMap((date, index) =>
         RANKED_BRANDS.map((brand, brandIndex) => ({

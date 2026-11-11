@@ -1107,7 +1107,8 @@ export const sceneLogic = kea<sceneLogicType>([
                         return
                     } else if (
                         isFirstProjectWithoutData(user) &&
-                        user.onboarding_skipped_reason === 'connector' &&
+                        (user.onboarding_skipped_reason === 'connector' ||
+                            user.onboarding_skipped_reason === 'device_login') &&
                         user.onboarding_skipped_organization_id === user.organization?.id &&
                         // Only the homepage redirects, so a deep link the connecting assistant hands out still opens.
                         removeProjectIdIfPresent(router.values.location.pathname) === urls.projectHomepage()

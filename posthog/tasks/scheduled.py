@@ -120,6 +120,7 @@ from products.legal_documents.backend.facade.tasks import reconcile_pending_lega
 from products.logs.backend.facade.tasks import logs_alert_events_cleanup_task
 from products.managed_warehouse.backend.facade.tasks import push_all_warehouse_member_teams
 from products.notebooks.backend.facade.tasks import cleanup_widget_snapshots
+from products.product_analytics.backend.facade.tasks import expire_agent_insight_reads
 from products.pulse.backend.tasks import mark_stale_pulse_briefs_failed
 from products.reminders.backend.tasks import process_due_reminders
 from products.signals.backend.facade.tasks import (
@@ -823,6 +824,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="1", minute="27"),
         cleanup_canvas_builds.s(),
         name="apply canvas build artifact retention",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="3", minute="43"),
+        expire_agent_insight_reads.s(),
+        name="expire agent insight reads past their window",
     )
 
     add_periodic_task_with_expiry(

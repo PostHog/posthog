@@ -56,7 +56,14 @@ from posthog.api.tagged_item import (
     normalize_tag_names,
     resolve_bulk_tags,
 )
-from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, ServiceRequest, action
+from posthog.api.utils import (
+    MAX_LISTED_IDS,
+    ClassicBehaviorBooleanFieldSerializer,
+    ErrorResponseSerializer,
+    ServiceRequest,
+    action,
+    parse_id_list,
+)
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -4448,6 +4455,7 @@ class FeatureFlagViewSet(
             # never read the field.
             queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
 
+            requested_ids = parse_id_list(self.request.GET.get("ids"), name="ids", parse=int)
             # Soft-deleted flags can be restored, so the list returns them when asked for them, and only them.
             show_deleted = str_to_bool(self.request.GET.get("deleted", False))
             queryset = (
@@ -4464,6 +4472,13 @@ class FeatureFlagViewSet(
                     )
                 )
             )
+
+            if requested_ids is not None:
+                return (
+                    queryset.filter(id__in=requested_ids)
+                    .order_by("-created_at")
+                    .select_related("created_by", "last_modified_by")
+                )
 
             survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
             # nosemgrep: environment-model-scoped-by-project -- feature flags live on the project root team and a tour on any environment of the project can own an internal targeting flag
@@ -4518,6 +4533,17 @@ class FeatureFlagViewSet(
                 description=(
                     "Search by feature flag key or name. Case insensitive. "
                     "Spaces, underscores, and hyphens count as the same separator."
+                ),
+            ),
+            OpenApiParameter(
+                "ids",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    f"Comma-separated flag IDs, at most {MAX_LISTED_IDS}. Returns exactly those flags, including "
+                    "archived flags and flags that surveys or product tours own. Other filters are ignored, "
+                    "and soft-deleted flags are left out unless deleted=true."
                 ),
             ),
             OpenApiParameter(

@@ -11,6 +11,7 @@
 | `src/posthog/`        | The PostHog API client, the pagination helpers every list uses, and credentials                                                                                                           |
 | `src/ci/`             | CI setup. `providers/registry.ts` lists the providers whose OIDC tokens hog exchanges, and each provider has its own folder                                                               |
 | `src/error-tracking/` | Symbol upload: discovery, artifact types under `kinds/`, the container and content hash, releases, git, the upload protocol, and `run.ts`, the inject and upload steps the commands share |
+| `src/setup/`          | `hog setup`: the steps, the state file each folder keeps in `~/.posthog/setup/`, the AGENTS.md note and the product table                                                                 |
 | `src/endpoints/`      | The endpoint YAML files, how they compare with PostHog, and the push and pull plans                                                                                                       |
 | `test/parity/`        | Goldens recorded from posthog-cli and the tests that hold hog to them. Read its README before changing anything that reaches an upload                                                    |
 | `src/cli.ts`          | Turns the command tree into a commander program, runs it, and maps errors to exit codes                                                                                                   |

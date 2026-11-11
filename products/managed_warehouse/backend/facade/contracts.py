@@ -43,6 +43,7 @@ __all__ = [
     "ManagedWarehousePostgresConnection",
     "ManagedWarehouseTrinoConnection",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "ProvisionedWarehouseLogin",
     "ManagedWarehouseProvisionStatus",
     "ManagedWarehouseSourceAuth",
     "ManagedWarehouseSourceJobRecord",
@@ -56,6 +57,7 @@ __all__ = [
     "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
     "StaffActionOutcome",
+    "StaffProvisionPreview",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
@@ -495,10 +497,47 @@ class DuckgresServerSummary:
 
 
 @frozen
+class ProvisionedWarehouseLogin:
+    """The root login of a newly provisioned warehouse. The control plane returns the password only once."""
+
+    host: str
+    port: int
+    database: str
+    username: str
+    # Empty when the control plane returned no password.
+    password: str = field(repr=False)
+
+
+@frozen
 class StaffActionOutcome:
     ok: bool
     status_code: int
     message: str
+    login: ProvisionedWarehouseLogin | None = None
+
+
+@frozen
+class StaffProvisionPreview:
+    """What provisioning would set up, for staff to confirm. `problem` says why it cannot run."""
+
+    team_name: str
+    host: str
+    problem: str | None = None
+
+
+@frozen
+class ViewTranslationSummary:
+    """An organization's view translation jobs as staff see them in PostHog Admin."""
+
+    latest_status: str
+    total_count: int
+    compiled_count: int
+    failed_count: int
+    stale_count: int
+    # True while a job is pending or running. An organization runs one job at a time.
+    active: bool
+    # The latest job, when it has failed or stale views to retry. None otherwise.
+    retry_job_id: UUID | None
 
 
 class HoglakeBackfillCatalog(Protocol):

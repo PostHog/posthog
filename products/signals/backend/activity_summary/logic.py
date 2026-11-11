@@ -21,6 +21,7 @@ from products.signals.backend.activity_summary.inputs import (
     McpRead,
     activity_parents,
     user_activity,
+    user_inbox,
     user_mcp_records,
     user_tasks,
     user_views,
@@ -30,6 +31,8 @@ from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     RENDER_VERSION,
     ActivityItem,
+    Drop,
+    InboxActivity,
     McpItem,
     Product,
     RenderedInput,
@@ -149,6 +152,7 @@ class _WindowInputs:
     activity: list[ActivityItem]
     views: list[ViewItem]
     mcp: McpRead | None = None
+    inbox: InboxActivity = InboxActivity()
 
     @property
     def mcp_records(self) -> tuple[McpItem, ...]:
@@ -161,6 +165,8 @@ def _read_inputs(
     start: datetime.datetime,
     end: datetime.datetime,
     mcp_buffer_days: int | None = None,
+    *,
+    read_inbox: bool = True,
 ) -> _WindowInputs:
     return _WindowInputs(
         tasks=user_tasks(team_id, user_id, start, end),
@@ -171,6 +177,7 @@ def _read_inputs(
             if mcp_buffer_days is not None
             else None
         ),
+        inbox=user_inbox(team_id, user_id, start, end) if read_inbox else InboxActivity(),
     )
 
 
@@ -184,6 +191,7 @@ def _render(
     as_of: datetime.datetime,
     limits: RenderLimits,
     mcp: tuple[McpItem, ...] = (),
+    inbox: InboxActivity | None = None,
 ) -> RenderedInput | None:
     return build_input(
         tasks,
@@ -194,6 +202,7 @@ def _render(
         limits=limits,
         parents=activity_parents(team_id, activity),
         mcp=mcp,
+        inbox=inbox,
     )
 
 
@@ -206,6 +215,9 @@ def _inputs_used(rendered: RenderedInput, limits: RenderLimits, mcp: McpRead | N
         "input_chars": rendered.input_chars,
         "intent_lines": rendered.intent_lines,
         "intent_chars": rendered.intent_chars,
+        "inbox_lines": rendered.n_inbox_lines,
+        "inbox_pool": rendered.inbox_pool,
+        "inbox_chars": rendered.inbox_chars,
         "drops": rendered.drops,
         "limits": dataclasses.asdict(limits),
     }
@@ -411,7 +423,17 @@ def update_activity_summary(
     start = _input_start(stored.input_watermark if stored and not rebuild else None, now, limits.window_days)
     window = _read_inputs(team_id, user_id, start, now, mcp_buffer_days)
     tasks, activity, views = window.tasks, window.activity, window.views
-    rendered = _render(team_id, user_id, tasks, activity, views, as_of=now, limits=limits, mcp=window.mcp_records)
+    rendered = _render(
+        team_id,
+        user_id,
+        tasks,
+        activity,
+        views,
+        as_of=now,
+        limits=limits,
+        mcp=window.mcp_records,
+        inbox=window.inbox,
+    )
     if rendered is None or rendered.units < min_units:
         if not dry_run:
             _back_off(team_id, user_id, stored, now, max_skip_backoff, rebuild=rebuild)
@@ -422,17 +444,19 @@ def update_activity_summary(
         )
 
     inputs_used = _inputs_used(rendered, limits, window.mcp)
+    inbox_at = window.inbox.latest_at
     watermark = max(
         [task.at for task in tasks]
         + [item.at for item in activity]
         + [view.at for view in views]
         + [record.at for record in window.mcp_records]
+        + ([inbox_at] if inbox_at is not None else [])
     )
     # An incremental update reads only the rows after the watermark, so the computed fields read the full window.
     if start == window_start:
         fields = compute_fields(tasks, activity, views)
     else:
-        full = _read_inputs(team_id, user_id, window_start, now)
+        full = _read_inputs(team_id, user_id, window_start, now, read_inbox=False)
         fields = compute_fields(full.tasks, full.activity, full.views)
     computed = fields.with_line_refs(rendered).as_json()
     previous = stored.summary if stored is not None and not rebuild else None
@@ -544,7 +568,21 @@ def render_as_of(
     tasks, activity, views = window.tasks, window.activity, window.views
     excluded: Counter[str] = Counter()
     activity, views = without_products(activity, views, exclude_products, excluded)
-    rendered = _render(team_id, user_id, tasks, activity, views, as_of=as_of, limits=limits, mcp=window.mcp_records)
+    inbox = window.inbox
+    if Product.INBOX in exclude_products:
+        excluded[Drop.EXCLUDED_PRODUCT] += len(inbox.actions) + len(inbox.artefacts)
+        inbox = InboxActivity()
+    rendered = _render(
+        team_id,
+        user_id,
+        tasks,
+        activity,
+        views,
+        as_of=as_of,
+        limits=limits,
+        mcp=window.mcp_records,
+        inbox=inbox,
+    )
     if rendered is None:
         return None
     inputs_used = _inputs_used(rendered, limits, window.mcp)

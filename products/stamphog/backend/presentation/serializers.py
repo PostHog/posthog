@@ -84,7 +84,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode, trigger_label, routing_mode or routing_fork_labels."
+            "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
         ),
     )
 
@@ -151,6 +151,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "trigger_label",
             "routing_mode",
             "routing_fork_labels",
+            "review_on_clean_external_review",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -185,6 +186,14 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
                 "required": False,
                 "help_text": (
                     "Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."
+                ),
+            },
+            "review_on_clean_external_review": {
+                "read_only": True,
+                "help_text": (
+                    "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a "
+                    "silent stamphog review of that head, whatever review_mode says. A silent review posts only an "
+                    "approval: any other verdict is stored and nothing is written to the pull request. Defaults to false."
                 ),
             },
         }
@@ -571,9 +580,13 @@ class ReviewRunSerializer(DataclassSerializer):
         help_text="Branch name of the PR head.",
     )
     trigger = serializers.ChoiceField(
-        choices=[(t.value, t.name) for t in ReviewTrigger],
+        choices=ReviewTrigger.choices,
         read_only=True,
-        help_text="What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.",
+        help_text=(
+            "What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean "
+            "PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo "
+            "reviewing every PR event."
+        ),
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],
@@ -889,6 +902,14 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             "outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are "
             "GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces "
             "the whole map, and an empty object removes every label."
+        ),
+    )
+    review_on_clean_external_review = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a "
+            "silent stamphog review of that head, whatever review_mode says. A silent review posts only an "
+            "approval: any other verdict is stored and nothing is written to the pull request. Defaults to false."
         ),
     )
 

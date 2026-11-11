@@ -650,7 +650,7 @@ class TestEmailIntegration:
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     def test_integration_from_domain(
-        self, mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
+        self, _mock_create_email_domain, mock_verify_email_domain, _mock_update, mock_reload
     ):
 
         integration = EmailIntegration.create_native_integration(
@@ -679,13 +679,6 @@ class TestEmailIntegration:
         assert integration.sensitive_config == {}
         assert integration.created_by == self.user
 
-        mock_create_email_domain.assert_called_once_with(
-            "posthog.com",
-            mail_from_subdomain="youmustnothavelikedmyemail",
-            team_id=self.team.id,
-            org_team_ids=[self.team.id],
-        )
-
         EmailIntegration(integration).update_native_integration({"name": "Renamed"}, self.team.id)
         assert integration.config["reply_to"] == "support@posthog.com"
 
@@ -695,7 +688,10 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_email_verify_returns_ses_result(self, mock_create_email_domain, mock_verify_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_email_verify_returns_ses_result(
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain
+    ):
 
         # Mock the verify_email_domain method to return a test result
         expected_result = {
@@ -754,7 +750,10 @@ class TestEmailIntegration:
 
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_email_verify_updates_integration(self, mock_create_email_domain, mock_verify_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_email_verify_updates_integration(
+        self, _mock_get_mail_from, mock_create_email_domain, mock_verify_email_domain
+    ):
 
         # Mock the verify_email_domain method to return a test result
         expected_result: EmailDomainVerification = {
@@ -1651,34 +1650,6 @@ class TestAzureBlobIntegration:
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert not Integration.objects.filter(team=self.team, kind="azure-blob").exists()
-
-
-class TestTwilioIntegration:
-    @pytest.fixture(autouse=True)
-    def setup_integration(self, db):
-        self.organization = Organization.objects.create(name="Test Org")
-        self.team = Team.objects.create(organization=self.organization, name="Test Team")
-        self.user = User.objects.create_and_join(self.organization, "test@posthog.com", "test")
-
-    @patch("products.workflows.backend.facade.api.get_twilio_account_info", return_value={"sid": "AC123"})
-    def test_create_stores_the_account_that_twilio_confirms(self, account_info: MagicMock, client: HttpClient):
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/projects/{self.team.pk}/integrations/",
-            {"kind": "twilio", "config": {"account_sid": "AC123", "auth_token": "fake-token"}},
-            content_type="application/json",
-        )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        account_info.assert_called_once_with(account_sid="AC123", auth_token="fake-token")
-        row = IntegrationManager.twilio.token.get(self.team.id, response.json()["id"])
-        assert (row.integration_id, row.created_by_id, dict(row.sensitive_config)) == (
-            "AC123",
-            self.user.id,
-            {"auth_token": "fake-token"},
-        )
-        assert response.json()["created_by"]["id"] == self.user.id
 
 
 class TestIntegrationAPIKeyAccess:

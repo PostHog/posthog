@@ -1783,6 +1783,16 @@ export interface CohortHistoryBuildApi {
     updated_at: string | null
 }
 
+/**
+ * * `history_over_limit` - History over limit
+ */
+export type CohortRealtimeUnavailableReasonEnumApi =
+    (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
+
+export const CohortRealtimeUnavailableReasonEnumApi = {
+    HistoryOverLimit: 'history_over_limit',
+} as const
+
 export interface CohortRealtimeReadinessApi {
     /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
@@ -1801,6 +1811,15 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
+    /** A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+     *
+     * * `history_over_limit` - History over limit */
+    reason: CohortRealtimeUnavailableReasonEnumApi | null
+    /**
+     * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+     * @nullable
+     */
+    history_limit_days: number | null
 }
 
 export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
@@ -2706,6 +2725,10 @@ export type FeatureFlagsListParams = {
      */
     has_evaluation_contexts?: FeatureFlagsListHasEvaluationContexts
     /**
+     * Comma-separated flag IDs, at most 200. Returns exactly those flags, including archived flags and flags that surveys or product tours own. Other filters are ignored, and soft-deleted flags are left out unless deleted=true.
+     */
+    ids?: string
+    /**
      * Filter by exact feature flag key match. Case insensitive.
      */
     key?: string
@@ -2868,4 +2891,8 @@ export type ScheduledChangesListParams = {
      * Filter by the ID of a specific feature flag.
      */
     record_id?: string
+    /**
+     * Comma-separated feature flag IDs. Returns the schedules of any of them, at most 200 IDs.
+     */
+    record_ids?: string
 }

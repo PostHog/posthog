@@ -19,12 +19,19 @@ from products.signals.backend.activity_summary.logic import (
     ActivitySummaryUpdate,
     UpdateStatus,
     build_summary_as_of,
+    render_as_of,
     update_activity_summary,
 )
 from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
 from products.signals.backend.activity_summary.read import ActivitySummaryStatus, get_summary
 from products.signals.backend.activity_summary.render import MCP_HEADER, RENDER_VERSION, Product, RenderLimits
-from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    UserActivitySummary,
+    UserActivitySummaryVersion,
+)
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 
 NOW = datetime.datetime(2026, 10, 19, 12, tzinfo=datetime.UTC)
@@ -462,6 +469,56 @@ class TestUpdateActivitySummary(BaseTest):
 
         assert self._update(llm).status == UpdateStatus.SKIPPED_AI_NOT_APPROVED
         assert llm.requests == []
+
+    def _report(self, title: str, status: str = "ready") -> SignalReport:
+        return SignalReport.objects.create(team=self.team, status=status, title=title, summary="Summary")
+
+    def _artefact(
+        self, report: SignalReport, kind: str, content: dict[str, Any], days_ago: float, **fields: Any
+    ) -> None:
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team, report=report, type=kind, content=json.dumps(content), created_by=self.user, **fields
+        )
+        SignalReportArtefact.objects.filter(id=artefact.id).update(created_at=NOW - datetime.timedelta(days=days_ago))
+
+    def test_inbox_activity_reaches_the_input_and_the_inbox_exclusion_drops_it(self) -> None:
+        self._changes(2)
+        pricing = self._report("Pageview drop on pricing")
+        action = SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team, report=pricing, user=self.user, type="view", last_at=NOW
+        )
+        SignalReportAction.objects.for_team(self.team.id).filter(id=action.id).update(
+            first_at=NOW - datetime.timedelta(days=4), last_at=NOW - datetime.timedelta(days=1)
+        )
+        self._artefact(
+            pricing,
+            "dismissal",
+            {"state": "suppressed", "reason": "wontfix_irrelevant", "note": "internal test traffic"},
+            days_ago=0.5,
+        )
+        self._artefact(pricing, "note", {"note": "agent wrote this"}, days_ago=0.5, actor_kind="agent")
+        self._artefact(self._report("Deleted report", status="deleted"), "note", {"note": "gone"}, days_ago=1)
+        llm = FakeLLM([ANSWER])
+
+        result = self._update(llm)
+
+        assert result.status == UpdateStatus.OK
+        assert result.rendered_input is not None
+        assert (
+            '- 2026-10-19 "Pageview drop on pricing": dismissed it as not interested '
+            '(not relevant to this project, "internal test traffic"), opened it on more than one day'
+        ) in result.rendered_input
+        assert "agent wrote this" not in result.rendered_input and "Deleted report" not in result.rendered_input
+        stored = self._stored()
+        assert stored is not None
+        assert (stored.inputs_used["inbox_lines"], stored.inputs_used["drops"]) == (1, {"inbox_agent_actor": 1})
+        assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
+
+        excluded = render_as_of(self.team.id, self.user.id, NOW, exclude_products=frozenset({Product.INBOX}))
+
+        assert excluded is not None
+        assert "Pageview drop on pricing" not in excluded.rendered.text
+        assert excluded.inputs_used["drops"]["excluded_product"] == 3
 
     def test_a_build_as_of_a_past_date_reads_only_the_rows_before_it_and_writes_nothing(self) -> None:
         self._changes(3, days_ago=11)

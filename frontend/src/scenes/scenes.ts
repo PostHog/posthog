@@ -118,6 +118,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: false,
         organizationBased: false,
         layout: 'plain',
+        allowUnauthenticated: true,
     },
     [Scene.CLILive]: {
         name: 'Authorize Live',

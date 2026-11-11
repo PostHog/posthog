@@ -189,6 +189,7 @@ from products.product_analytics.backend.facade.api import (
     map_stale_to_latest,
     recent_viewers_by_insight,
     recently_viewed_insights,
+    record_agent_insight_read,
     record_insight_view,
     record_insight_views,
     with_last_viewed_at,
@@ -1711,6 +1712,7 @@ INCLUDE_DASHBOARDS_PARAMETER = OpenApiParameter(
 
 
 INSIGHT_VIEWED_MAX_IDS = 2500
+AGENT_READ_SOURCES = frozenset({EventSource.MCP, EventSource.POSTHOG_AI, EventSource.POSTHOG_CODE, EventSource.WEBMCP})
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
@@ -2219,6 +2221,9 @@ class InsightViewSet(
         span.set_attribute("posthog.saved", str_to_bool(request.query_params.get("saved", "0")))
         span.set_attribute("posthog.order", request.query_params.get("order", ""))
         response = super().list(request, *args, **kwargs)
+        if request.query_params.get("short_id") and isinstance(response.data, dict):
+            found = [item["id"] for item in response.data.get("results", []) if "id" in item]
+            self._record_agent_reads(request, get_event_source(request), found)
         if request.query_params.get("search"):
             data = response.data if isinstance(response.data, dict) else {}
             results_len = data.get("count", len(data.get("results", [])))
@@ -2665,9 +2670,10 @@ When set, the specified dashboard's filters and date range override will be appl
 
         response = Response(serialized_data)
 
+        source = get_event_source(request)
         # Track non-web reads (API/MCP/wizard/…) as a distinct event so programmatic
         # reads are measurable without inflating the web-only `insight viewed` metric.
-        if get_event_source(request) != EventSource.WEB:
+        if source != EventSource.WEB:
             report_user_action(
                 request.user,
                 "insight read",
@@ -2677,8 +2683,15 @@ When set, the specified dashboard's filters and date range override will be appl
                 team=self.team,
                 request=request,
             )
+        self._record_agent_reads(request, source, [instance.id])
 
         return response
+
+    def _record_agent_reads(self, request: Request, source: EventSource, insight_ids: Sequence[int]) -> None:
+        if source not in AGENT_READ_SOURCES or not request.user.is_authenticated:
+            return
+        for insight_id in insight_ids:
+            record_agent_insight_read(team=self.team, user_id=request.user.id, insight_id=insight_id)
 
     @action(methods=["POST"], detail=False, required_scopes=["insight:write"])
     def generate_metadata(self, request: Request, **kwargs) -> Response:

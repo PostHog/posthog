@@ -301,6 +301,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                                 loading={runsLoadingBySourceId[definition.source.id] ?? false}
                                 loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
                                 targetType={targetType}
+                                logSourceId={definition.source.external_data_schema ?? definition.source.saved_query}
                                 searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
                                 entryCount={runsCountBySourceId[definition.source.id] ?? 0}
                                 currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}

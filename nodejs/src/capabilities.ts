@@ -15,6 +15,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
     cdpApi: true,
+    cdpSesWebhooks: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
     cdpLegacyOnEvent: false, // most of the times not needed

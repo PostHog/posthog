@@ -17,7 +17,7 @@ import functools
 import dataclasses
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from enum import StrEnum
+from enum import IntEnum, StrEnum
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -25,7 +25,7 @@ from posthog.dataclasses import frozen
 
 # Bump on any code change to the filters, the default caps, the sampling or the rendered layout, so summaries
 # stay comparable. Limits from the flag payload go into `inputs_used` instead.
-RENDER_VERSION = 12
+RENDER_VERSION = 13
 
 WINDOW_DAYS = 28
 RECENCY_HALF_LIFE_DAYS = 7
@@ -36,6 +36,7 @@ CHARS_PER_TOKEN = 4
 MAX_TASKS_PER_PERSON = 200
 MAX_ACTIVITY_ROWS_PER_PERSON = 1000
 MAX_VIEW_ROWS_PER_PERSON = 500
+MAX_INBOX_ROWS_PER_PERSON = 500
 
 # Units one source may keep from a single UTC day, newest first, so one busy afternoon cannot fill a section.
 MAX_UNITS_PER_DAY = 3
@@ -77,6 +78,10 @@ MIN_SHARED_OPENING_CHARS = 20
 SECTIONS_MAX_CHARS = 8000
 # Hidden reasoning tokens count against the cap too, so a cap near the answer size truncates answers.
 MAX_COMPLETION_TOKENS = 4000
+INBOX_LINES = 6
+INBOX_LINE_CHARS = 240
+INBOX_TITLE_CHARS = 90
+INBOX_NOTE_CHARS = 100
 # About 1,500 output tokens: one page of markdown. The prompt asks for it, and the normalization cuts a longer profile.
 PROFILE_MAX_CHARS = 6000
 
@@ -91,6 +96,7 @@ TASKS_HEADER = "Tasks the person gave to PostHog AI or the Slack agent ([tags] g
 ACTIVITY_HEADER = "Things the person created or changed in PostHog (agent: why their coding agent did it):"
 VIEWS_HEADER = "Things the person opened in PostHog, by type (days: distinct days in the window; not theirs: someone else made it):"
 MCP_HEADER = "What the person's AI agent looked into for them over MCP (one line per session; intents in order):"
+INBOX_HEADER = "Reports in the Inbox and what the person did with each (the strongest first):"
 MCP_CHAIN_SEPARATOR = " --> "
 
 # Helper tasks that a task spawns for itself, such as repository selection, carry the parent's origin.
@@ -171,6 +177,47 @@ MCP_PLUMBING_ROUTES: frozenset[str] = frozenset(
 MCP_PLUMBING_ROUTE_PREFIXES: tuple[str, ...] = ("project_llm_skills-", "project_community_skills-")
 # The same chain of intents in this many sessions of the window is a scheduled job, not a person.
 MIN_REPEATED_MCP_CHAINS = 4
+SIGNAL_REPORT_SCOPE = "SignalReport"
+INBOX_VIEW = "view"
+INBOX_READ = "read"
+INBOX_FEEDBACK = "feedback"
+INBOX_SLACK_DISCUSSION = "slack_discussion"
+INBOX_DISMISSAL = "dismissal"
+INBOX_NOTE = "note"
+# The other work log entry types that a person writes on purpose, and what each one says they did.
+_INBOX_WORK_ARTEFACTS: Mapping[str, str] = {
+    "work_claim": "claimed the work",
+    "task_run": "started a task",
+    "pull_request": "linked a pull request",
+    "title_change": "edited the title",
+    "summary_change": "edited the summary",
+    "reviewer_corrections": "corrected the reviewers",
+}
+INBOX_ARTEFACT_TYPES: frozenset[str] = frozenset({INBOX_DISMISSAL, INBOX_NOTE, *_INBOX_WORK_ARTEFACTS})
+# Dismissal reasons that say the person does not care about the topic of the report.
+NOT_INTERESTED_REASONS: frozenset[str] = frozenset({"wontfix_irrelevant", "report_unclear", "analysis_wrong"})
+# Dismissal reasons that say the person cared about the report and dealt with it.
+RESOLVED_REASONS: frozenset[str] = frozenset(
+    {"already_fixed", "pr_merged", "fixed_outside_posthog", "verified_manually"}
+)
+# The canonical reason codes of `SIGNAL_REPORT_DISMISSAL_REASON_CHOICES` in `views.py`. The reason is free
+# text on the artefact, so a code that is not here renders without its reason.
+DISMISSAL_REASON_LABELS: Mapping[str, str] = {
+    "already_fixed": "already fixed",
+    "report_unclear": "report unclear",
+    "analysis_wrong": "analysis wrong",
+    "wrong_assignee": "wrong assignee",
+    "wrong_repo": "wrong repository",
+    "wontfix_intentional": "intentional behavior",
+    "wontfix_irrelevant": "not relevant to this project",
+    "fixed_outside_posthog": "fixed outside PostHog",
+    "verified_manually": "verified manually",
+    "no_action_needed": "no action needed",
+    "pr_merged": "pull request merged",
+}
+# Dismissals of this many reports inside the window are one bulk triage, such as a bulk state change.
+MIN_INBOX_BULK_TRIAGE = 10
+INBOX_BULK_TRIAGE_WINDOW = datetime.timedelta(minutes=1)
 _DIGITS = re.compile(r"\d+")
 _CAMEL_WORD = re.compile(r"[A-Z]+(?=[A-Z][a-z])|[A-Z]?[a-z]+|[A-Z]+|\d+")
 
@@ -296,6 +343,8 @@ class RenderLimits:
     mcp_lines: int = _limit(MCP_LINES, max_value=50)
     mcp_line_chars: int = _limit(MCP_LINE_CHARS, max_value=1000)
     mcp_chain_max_intents: int = _limit(MCP_CHAIN_MAX_INTENTS, max_value=20)
+    inbox_lines: int = _limit(INBOX_LINES, max_value=20)
+    inbox_line_chars: int = _limit(INBOX_LINE_CHARS, max_value=1000)
 
 
 DEFAULT_LIMITS = RenderLimits()
@@ -330,6 +379,13 @@ class Drop(StrEnum):
     MCP_IN_ACTIVITY = "mcp_in_activity"
     MCP_THIN_SESSION = "mcp_thin_session"
     MCP_REPEATED_CHAIN = "mcp_repeated_chain"
+    # Read marks and cleared ratings with nothing else on the report. "Mark all as read" writes many at once.
+    INBOX_READ_ONLY = "inbox_read_only"
+    # A report opened on one day and nothing else. The ranking chose to show it, so the open says little.
+    INBOX_SINGLE_VIEW = "inbox_single_view"
+    INBOX_BULK_TRIAGE = "inbox_bulk_triage"
+    INBOX_AGENT_ACTOR = "inbox_agent_actor"
+    INBOX_IN_ACTIVITY = "inbox_in_activity"
 
 
 @frozen
@@ -399,6 +455,62 @@ class McpItem:
 
 
 @frozen
+class InboxAction:
+    """One `SignalReportAction` row of the person: they opened, read, rated or discussed one report.
+
+    `count` is lifetime and only roughly right, and `first_at` can be before the window."""
+
+    report_id: str
+    title: str
+    type: str
+    first_at: datetime.datetime
+    last_at: datetime.datetime
+    count: int = 1
+    # Feedback only: "positive", "negative", or None for a cleared rating.
+    sentiment: str | None = None
+
+
+@frozen
+class InboxArtefact:
+    """One work log entry that the person wrote on a report, such as a dismissal, a note or a claim."""
+
+    report_id: str
+    title: str
+    type: str
+    at: datetime.datetime
+    # A task or the person's coding agent wrote the entry, so it is not the person's own intent.
+    by_agent: bool = False
+    # Dismissals only: the verdict ("suppressed", "resolved", or "potential" for a snooze) and the reason code.
+    state: str | None = None
+    reason: str | None = None
+    # The note of a dismissal, or the text of a note.
+    note: str | None = None
+
+
+@frozen
+class InboxActivity:
+    actions: tuple[InboxAction, ...] = ()
+    artefacts: tuple[InboxArtefact, ...] = ()
+
+    @property
+    def latest_at(self) -> datetime.datetime | None:
+        times = [action.last_at for action in self.actions] + [artefact.at for artefact in self.artefacts]
+        return max(times) if times else None
+
+
+class InboxStrength(IntEnum):
+    """How much one thing that the person did with a report says about what they care about."""
+
+    VIEWED = 1
+    DISCUSSED = 2
+    RATED = 3
+    # Snoozes, and dismissals for a reason that says nothing about the topic.
+    TRIAGED = 4
+    REJECTED = 5
+    ACTED = 6
+
+
+@frozen
 class Unit:
     """One rendered line, dated by its latest activity."""
 
@@ -461,10 +573,21 @@ class RenderedInput:
     # The refs of the task and MCP lines in `text`, in the order of the lines.
     task_refs: tuple[LineRef, ...] = ()
     mcp_refs: tuple[LineRef, ...] = ()
+    n_inbox_lines: int = 0
+    inbox_chars: int = 0
+    # Inbox lines that passed the named filters, before the line cap.
+    inbox_pool: int = 0
 
     @property
     def units(self) -> int:
-        return self.n_tasks + self.n_activity_lines + self.n_view_lines + self.n_mcp_lines + self.n_page_units
+        return (
+            self.n_tasks
+            + self.n_activity_lines
+            + self.n_view_lines
+            + self.n_mcp_lines
+            + self.n_page_units
+            + self.n_inbox_lines
+        )
 
 
 def _reads_as_name(segments: Sequence[str]) -> bool:
@@ -1232,6 +1355,170 @@ def mcp_units(
     return sorted(units, key=lambda unit: (unit.at, unit.text))
 
 
+@frozen
+class _InboxFact:
+    strength: InboxStrength
+    text: str
+    at: datetime.datetime
+
+
+@frozen
+class InboxUnits:
+    """The inbox lines in chronological order, each with its `InboxStrength` as its weight, and the reports they cover."""
+
+    units: list[Unit]
+    report_ids: frozenset[str]
+    pool: int
+
+
+def _inbox_note(note: str | None) -> str:
+    return cap_line(clean_text(note or "", INBOX_NOTE_CHARS * 2), INBOX_NOTE_CHARS)
+
+
+def _dismissal_fact(artefact: InboxArtefact) -> _InboxFact:
+    reason = artefact.reason or ""
+    details = [label] if (label := DISMISSAL_REASON_LABELS.get(reason)) else []
+    if note := _inbox_note(artefact.note):
+        details.append(f'"{note}"')
+    detail = f" ({', '.join(details)})" if details else ""
+    if reason in NOT_INTERESTED_REASONS:
+        return _InboxFact(
+            strength=InboxStrength.REJECTED, text=f"dismissed it as not interested{detail}", at=artefact.at
+        )
+    if reason in RESOLVED_REASONS or artefact.state == "resolved":
+        return _InboxFact(strength=InboxStrength.ACTED, text=f"resolved it{detail}", at=artefact.at)
+    verb = "snoozed" if artefact.state == "potential" else "dismissed"
+    return _InboxFact(strength=InboxStrength.TRIAGED, text=f"{verb} it{detail}", at=artefact.at)
+
+
+def _artefact_fact(artefact: InboxArtefact) -> _InboxFact | None:
+    if artefact.type == INBOX_DISMISSAL:
+        return _dismissal_fact(artefact)
+    if artefact.type == INBOX_NOTE:
+        note = _inbox_note(artefact.note)
+        return _InboxFact(
+            strength=InboxStrength.ACTED, text=f'left a note: "{note}"' if note else "left a note", at=artefact.at
+        )
+    if (text := _INBOX_WORK_ARTEFACTS.get(artefact.type)) is not None:
+        return _InboxFact(strength=InboxStrength.ACTED, text=text, at=artefact.at)
+    return None
+
+
+def _action_fact(action: InboxAction) -> _InboxFact | None:
+    """The fact of one action, or None for one that says nothing on its own: a read mark, a cleared
+    rating, or a report opened on one day only."""
+    if action.type == INBOX_FEEDBACK and action.sentiment in ("positive", "negative"):
+        text = "rated it useful" if action.sentiment == "positive" else "rated it not useful"
+        return _InboxFact(strength=InboxStrength.RATED, text=text, at=action.last_at)
+    if action.type == INBOX_SLACK_DISCUSSION:
+        return _InboxFact(strength=InboxStrength.DISCUSSED, text="discussed it in Slack", at=action.last_at)
+    if action.type == INBOX_VIEW and _day(action.first_at) != _day(action.last_at):
+        return _InboxFact(strength=InboxStrength.VIEWED, text="opened it on more than one day", at=action.last_at)
+    return None
+
+
+def _bulk_triage(
+    dismissals: Sequence[InboxArtefact], drops: Counter[str], limits: RenderLimits
+) -> tuple[list[InboxArtefact], list[tuple[Unit, frozenset[str]]]]:
+    """The dismissals outside a bulk triage, and one line for each run of `MIN_INBOX_BULK_TRIAGE` or more
+    reports dismissed inside `INBOX_BULK_TRIAGE_WINDOW`, with the most common reason."""
+    ordered = sorted(dismissals, key=lambda artefact: artefact.at)
+    kept: list[InboxArtefact] = []
+    lines: list[tuple[Unit, frozenset[str]]] = []
+    start = 0
+    while start < len(ordered):
+        end = start
+        while end < len(ordered) and ordered[end].at - ordered[start].at <= INBOX_BULK_TRIAGE_WINDOW:
+            end += 1
+        run = ordered[start:end]
+        reports = frozenset(artefact.report_id for artefact in run)
+        if len(reports) < MIN_INBOX_BULK_TRIAGE:
+            kept.append(ordered[start])
+            start += 1
+            continue
+        reasons = Counter(label for artefact in run if (label := DISMISSAL_REASON_LABELS.get(artefact.reason or "")))
+        mostly = f", mostly as {reasons.most_common(1)[0][0]}" if reasons else ""
+        latest = run[-1].at
+        text = f"- {_day(latest).isoformat()} dismissed {len(reports)} reports at once{mostly}"
+        unit = Unit(at=latest, text=cap_line(text, limits.inbox_line_chars), weight=float(InboxStrength.TRIAGED))
+        lines.append((unit, reports))
+        drops[Drop.INBOX_BULK_TRIAGE] += len(run) - 1
+        start = end
+    return kept, lines
+
+
+def inbox_units(inbox: InboxActivity, drops: Counter[str], limits: RenderLimits = DEFAULT_LIMITS) -> InboxUnits:
+    """One line per report that the person touched, with what they did with it, the strongest first.
+
+    Lines rank by their strongest fact and then by recency, and the first `limits.inbox_lines` stay. Entries
+    that a task or an agent wrote go first, then a bulk triage collapses to one line. A report with
+    only a read mark or an open on one day gets no line."""
+    artefacts: list[InboxArtefact] = []
+    for artefact in inbox.artefacts:
+        if artefact.by_agent:
+            drops[Drop.INBOX_AGENT_ACTOR] += 1
+        else:
+            artefacts.append(artefact)
+    dismissals = [artefact for artefact in artefacts if artefact.type == INBOX_DISMISSAL]
+    kept_dismissals, bulk_lines = _bulk_triage(dismissals, drops, limits)
+    kept_ids = {id(artefact) for artefact in kept_dismissals}
+    artefacts = [artefact for artefact in artefacts if artefact.type != INBOX_DISMISSAL or id(artefact) in kept_ids]
+
+    titles: dict[str, str] = {}
+    facts: dict[str, list[_InboxFact]] = {}
+    viewed: set[str] = set()
+    for action in inbox.actions:
+        titles.setdefault(action.report_id, action.title)
+        facts.setdefault(action.report_id, [])
+        if action.type == INBOX_VIEW:
+            viewed.add(action.report_id)
+        if (fact := _action_fact(action)) is not None:
+            facts[action.report_id].append(fact)
+    for artefact in artefacts:
+        titles.setdefault(artefact.report_id, artefact.title)
+        facts.setdefault(artefact.report_id, [])
+        if (fact := _artefact_fact(artefact)) is not None:
+            facts[artefact.report_id].append(fact)
+
+    ranked: list[tuple[Unit, frozenset[str]]] = list(bulk_lines)
+    for report_id, report_facts in facts.items():
+        if not report_facts:
+            drops[Drop.INBOX_SINGLE_VIEW if report_id in viewed else Drop.INBOX_READ_ONLY] += 1
+            continue
+        title = (titles[report_id] or "").strip()
+        if is_unnamed(title):
+            drops[Drop.UNNAMED_OBJECT] += 1
+            continue
+        ordered = sorted(report_facts, key=lambda fact: (-fact.strength, -fact.at.timestamp(), fact.text))
+        latest = max(fact.at for fact in report_facts)
+        title_text = cap_line(clean_text(title, INBOX_TITLE_CHARS * 2), INBOX_TITLE_CHARS)
+        fact_text = ", ".join(dict.fromkeys(fact.text for fact in ordered))
+        text = cap_line(f'- {_day(latest).isoformat()} "{title_text}": {fact_text}', limits.inbox_line_chars)
+        ranked.append((Unit(at=latest, text=text, weight=float(ordered[0].strength)), frozenset({report_id})))
+    ranked.sort(key=lambda line: (-line[0].weight, -line[0].at.timestamp(), line[0].text))
+    if len(ranked) > limits.inbox_lines:
+        drops[Drop.SAMPLE_CAP] += len(ranked) - limits.inbox_lines
+    kept = ranked[: limits.inbox_lines]
+    return InboxUnits(
+        units=sorted((unit for unit, _ in kept), key=lambda unit: (unit.at, unit.text)),
+        report_ids=frozenset(report_id for _, reports in kept for report_id in reports),
+        pool=len(ranked),
+    )
+
+
+def without_inbox_rows(
+    activity: Iterable[ActivityItem], report_ids: frozenset[str], drops: Counter[str]
+) -> list[ActivityItem]:
+    """The activity rows without those on a report that an inbox line covers, so the report is described once."""
+    kept: list[ActivityItem] = []
+    for item in activity:
+        if item.scope == SIGNAL_REPORT_SCOPE and item.item_id in report_ids:
+            drops[Drop.INBOX_IN_ACTIVITY] += 1
+        else:
+            kept.append(item)
+    return kept
+
+
 def dedupe_latest(units: Iterable[Unit], drops: Counter[str]) -> list[Unit]:
     """One unit per distinct text, the latest one, in chronological order."""
     latest: dict[str, Unit] = {}
@@ -1334,6 +1621,7 @@ def build_input(
     limits: RenderLimits = DEFAULT_LIMITS,
     parents: ParentLookup | None = None,
     mcp: Iterable[McpItem] = (),
+    inbox: InboxActivity | None = None,
 ) -> RenderedInput | None:
     """The rendered input of one (project, person) pair, or None when nothing survives the filters.
 
@@ -1341,20 +1629,23 @@ def build_input(
     budget, so the sample is drawn from clean units only. `parents` groups activity lines under the
     objects that hold them. The views section shows its lines grouped by type after the budget,
     because the budget drops the oldest unit of a section first. `mcp` holds the calls of the
-    person's agent from the MCP intent buffer, and gets its own section after the activity."""
+    person's agent from the MCP intent buffer, and gets its own section after the activity. `inbox` holds
+    what the person did with inbox reports. Its section shows the strongest lines first after the budget,
+    and an activity row on a report that an inbox line covers goes."""
     drops: Counter[str] = Counter()
     activity = list(activity)
     views = list(views)
     task_pool = burst_cap(dedupe_latest(task_units(tasks, drops, limits), drops), drops, limits.max_units_per_day)
+    inbox_lines = inbox_units(inbox or InboxActivity(), drops, limits)
     capped_before = drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP]
-    activity_lines = activity_units(activity, drops, parents, limits)
+    activity_lines = activity_units(without_inbox_rows(activity, inbox_lines.report_ids, drops), drops, parents, limits)
     # Lines that `activity_units` dropped for its line cap or its per-day cap.
     activity_pool = len(activity_lines) + drops[Drop.SAMPLE_CAP] + drops[Drop.BURST_CAP] - capped_before
     view_lines = view_units(views, activity, drops, limits)
     pages = page_products(views, drops)
     mcp_sessions = dedupe_latest(mcp_units(mcp, activity_lines, drops, limits), drops)
     mcp_pool = burst_cap(mcp_sessions, drops, limits.max_units_per_day)
-    if not task_pool and not activity_lines and not view_lines and not mcp_pool and not pages:
+    if not task_pool and not activity_lines and not view_lines and not mcp_pool and not pages and not inbox_lines.units:
         return None
     chosen_tasks = sample_units(task_pool, limit=limits.task_lines, as_of=as_of, seed=seed)
     drops[Drop.SAMPLE_CAP] += len(task_pool) - len(chosen_tasks)
@@ -1365,22 +1656,24 @@ def build_input(
         (TASKS_HEADER, _with_refs(chosen_tasks, "t", limits.task_line_chars)),
         (ACTIVITY_HEADER, activity_lines),
         (MCP_HEADER, _with_refs(chosen_mcp, "m", limits.mcp_line_chars)),
+        (INBOX_HEADER, inbox_lines.units),
         (VIEWS_HEADER, view_lines),
     ]
     enforce_budget(sections, drops, limits.sections_max_chars)
     sections[0] = (TASKS_HEADER, _renumbered(sections[0][1], "t"))
     sections[2] = (MCP_HEADER, _renumbered(sections[2][1], "m"))
-    sections[3] = (VIEWS_HEADER, sorted(sections[3][1], key=lambda unit: unit.text))
+    sections[3] = (INBOX_HEADER, sorted(sections[3][1], key=lambda unit: (-unit.weight, -unit.at.timestamp())))
+    sections[4] = (VIEWS_HEADER, sorted(sections[4][1], key=lambda unit: unit.text))
     rendered = [_section(header, units) for header, units in sections]
     text = "\n\n".join(part for part in rendered if part)
     return RenderedInput(
         text=text,
         n_tasks=len(sections[0][1]),
         n_activity_lines=len(sections[1][1]),
-        n_view_lines=len(sections[3][1]),
+        n_view_lines=len(sections[4][1]),
         task_chars=len(rendered[0]),
         activity_chars=len(rendered[1]),
-        view_chars=len(rendered[3]),
+        view_chars=len(rendered[4]),
         input_chars=len(text),
         input_tokens_estimate=estimate_tokens(len(text)),
         drops={str(reason): count for reason, count in sorted(drops.items()) if count},
@@ -1397,4 +1690,7 @@ def build_input(
         n_page_units=len(pages),
         task_refs=_line_refs(sections[0][1], "t"),
         mcp_refs=_line_refs(sections[2][1], "m"),
+        n_inbox_lines=len(sections[3][1]),
+        inbox_chars=len(rendered[3]),
+        inbox_pool=inbox_lines.pool,
     )

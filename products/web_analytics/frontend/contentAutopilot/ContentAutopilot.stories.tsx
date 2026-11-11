@@ -72,8 +72,15 @@ const workspaceHandlers = ({
                 { count: EXAMPLE_PROMPTS.length, next: null, previous: null, results: EXAMPLE_PROMPTS },
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
-            '/api/projects/:team_id/aeo_prompts/overview/': () => [200, EXAMPLE_PROMPT_SET_OVERVIEW],
-            '/api/projects/:team_id/aeo_prompts/rankings/': () => [200, EXAMPLE_PROMPT_SET_RANKINGS],
+            // The segment control reads the segment back from the response, so the mocks echo the requested one.
+            '/api/projects/:team_id/aeo_prompts/overview/': ({ request }) => [
+                200,
+                { ...EXAMPLE_PROMPT_SET_OVERVIEW, branded: new URL(request.url).searchParams.get('branded') ?? 'all' },
+            ],
+            '/api/projects/:team_id/aeo_prompts/rankings/': ({ request }) => [
+                200,
+                { ...EXAMPLE_PROMPT_SET_RANKINGS, branded: new URL(request.url).searchParams.get('branded') ?? 'all' },
+            ],
             '/api/projects/:team_id/aeo_prompts/:id/': () => [200, EXAMPLE_PROMPTS[0]],
             '/api/projects/:team_id/aeo_prompts/:id/stats/': () => [200, EXAMPLE_PROMPT_STATS],
             '/api/projects/:team_id/aeo_prompts/:id/versions/': () => [200, EXAMPLE_PROMPT_VERSIONS],
@@ -87,6 +94,10 @@ const workspaceHandlers = ({
             ],
         },
         post: {
+            '/api/projects/:team_id/aeo_prompts/create_dashboard/': () => [
+                201,
+                { id: 1, name: 'AI visibility weekly' },
+            ],
             '/api/projects/:team_id/web_analytics_content_autopilot_opportunities/refresh/': () => [200, opportunities],
             '/api/projects/:team_id/web_analytics_content_autopilot_profiles/discover/': () => [
                 200,

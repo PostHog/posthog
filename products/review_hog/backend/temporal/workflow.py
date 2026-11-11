@@ -89,6 +89,7 @@ from products.review_hog.backend.temporal.activities import (
     fail_status_comment_activity,
     fetch_pr_data_activity,
     finalize_status_comment_activity,
+    finish_standard_automatic_turn_activity,
     gate_push_activity,
     generate_schemas_activity,
     lens_review_activity,
@@ -113,11 +114,17 @@ from products.review_hog.backend.temporal.activities import (
     validate_chunk_activity,
     validate_github_integration_activity,
 )
-from products.review_hog.backend.temporal.scheduling import ReviewPRQueueWorkflow, ReviewRequestQueue
+from products.review_hog.backend.temporal.scheduling import (
+    SILENT_STAMPHOG_PATCH,
+    ReviewPRQueueWorkflow,
+    ReviewRequestQueue,
+    request_silent_stamphog,
+)
 from products.review_hog.backend.temporal.types import (
     TRIGGER_AUTOMATIC,
     TRIGGER_INBOX,
     TRIGGER_LABEL,
+    FinishedStandardAutomaticTurn,
     ResolvePRWorkflowInputs,
     ReviewPRQueueInputs,
     ReviewPRWorkflowInputs,
@@ -529,6 +536,15 @@ class ReviewPRWorkflow:
             return report_id
         if inputs.trigger_source == TRIGGER_AUTOMATIC and (meta.already_completed or not meta.pr_open):
             workflow.logger.info("Automatic review skipped: the PR is closed or this head is already complete")
+            # A draft marked ready without a push gets no new turn, so the head's earlier automatic turn answers.
+            if (
+                workflow.patched(SILENT_STAMPHOG_PATCH)
+                and meta.already_completed
+                and meta.pr_open
+                and inputs.marks_ready
+                and inputs.requested_head_sha == head_sha
+            ):
+                await request_silent_stamphog(inputs, head_sha)
             return report_id
         # The patch keeps a history written before the label check on its old command sequence.
         if workflow.patched("reviewhog-skip-agent-review-label-2026-10") and meta.skip_agent_review:
@@ -641,6 +657,7 @@ class ReviewPRWorkflow:
                         head_sha=head_sha,
                         run_index=meta.run_index,
                         turn_trigger_source=inputs.trigger_source,
+                        turn_trigger_action=inputs.trigger_action,
                         review_mode=inputs.review_mode,
                         flash_reasoning_effort=acting.flash_reasoning_effort,
                         review_design=review_design,
@@ -876,6 +893,7 @@ class ReviewPRWorkflow:
                             report_id=report_id,
                             run_index=meta.run_index,
                             turn_trigger_source=inputs.trigger_source,
+                            turn_trigger_action=inputs.trigger_action,
                             review_mode=inputs.review_mode,
                             flash_reasoning_effort=acting.flash_reasoning_effort,
                             review_design=review_design,
@@ -900,6 +918,27 @@ class ReviewPRWorkflow:
         # After publish, so a stamphog re-run finds this turn's findings on the PR.
         if workflow.patched("reviewhog-nudge-stamphog-2026-10") and publishes_to_pr and meta.pr_number is not None:
             await self._nudge_stamphog(repository, meta.pr_number, head_sha)
+        if (
+            workflow.patched(SILENT_STAMPHOG_PATCH)
+            and publishes_to_pr
+            and meta.pr_number is not None
+            and inputs.trigger_source == TRIGGER_AUTOMATIC
+            and inputs.review_mode == REVIEW_MODE_FLASH
+        ):
+            await self._finish_standard_automatic_turn(
+                FinishedStandardAutomaticTurn(
+                    team_id=inputs.team_id,
+                    report_id=report_id,
+                    repository=repository,
+                    pr_number=meta.pr_number,
+                    head_sha=head_sha,
+                    run_index=meta.run_index,
+                    lens_chunks_capped=meta.lens_chunks_capped,
+                    delta_review=delta_since_head_sha is not None,
+                    # The event names its head, and the turn reviews the live head, which can be newer.
+                    marks_ready=inputs.marks_ready and inputs.requested_head_sha == head_sha,
+                )
+            )
         # One analytics event per finalized turn (the review-level count dashboards aggregate);
         # best-effort — a review must never fail over its own telemetry.
         try:
@@ -913,6 +952,7 @@ class ReviewPRWorkflow:
                     published=posted,
                     workflow_started_at=workflow.info().start_time.isoformat(),
                     turn_trigger_source=inputs.trigger_source,
+                    turn_trigger_action=inputs.trigger_action,
                     review_mode=inputs.review_mode,
                     flash_reasoning_effort=acting.flash_reasoning_effort,
                     marker=marker,
@@ -1201,6 +1241,18 @@ class ReviewPRWorkflow:
             )
         except ActivityError:
             workflow.logger.warning("Could not ask stamphog to re-review")
+
+    @staticmethod
+    async def _finish_standard_automatic_turn(turn: FinishedStandardAutomaticTurn) -> None:
+        try:
+            await workflow.execute_activity(
+                finish_standard_automatic_turn_activity,
+                turn,
+                start_to_close_timeout=_QUICK_TIMEOUT,
+                retry_policy=_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("Could not record the turn coverage or start a silent stamphog review")
 
     @staticmethod
     async def _remove_eyes_reaction(team_id: int, repository: str, pr_number: int, reaction_id: int) -> None:

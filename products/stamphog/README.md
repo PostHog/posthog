@@ -47,6 +47,20 @@ A project member can also ask for a review directly, by creating a review run (`
 The request replaces the trigger label, so it works in label mode.
 Every other rule still applies: drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access are refused.
 
+A repository can also let a clean PostHog Review run start a review, with the `review_on_clean_external_review` switch on the repo config API (off by default, `manager` level to change, reset when a placeholder row binds).
+Such a run is silent: it has the `reviewhog_clean` trigger, and only an approval reaches the PR.
+Any other verdict, and a failure, is stored on the run and nothing is written to GitHub: no review, no label change, no failure notice, no 👀.
+A stored verdict that was not posted has an empty `verdict_posted_at`.
+The silent trigger skips the review mode and nothing else, so the same PRs are refused as for a direct request, and so is a head that moved or already has a review.
+
+A silent run never answers a visible request: adding the trigger label or asking for a review while a silent run is in flight supersedes it with a normal review.
+A visible request always gets its own run.
+When the latest run of the head already withheld a refusal or an escalation, that run first reads the PR's review inputs from GitHub again, without a sandbox or an LLM call.
+If nothing changed (reviews, comments, review threads and their resolution, the base, the merge base, the `Migration risk` check, the default-branch policy, the author's teams and history, external review evidence), it completes with the stored verdict and posts it as a normal review would, with the trigger label removed in label mode.
+If anything changed, or the check fails, the same run reviews the PR normally.
+A stored WAIT is never reused, and an approval is never posted this way, because a silent approval was already posted.
+The `stamphog_review_timings` event marks a reused verdict with `stamphog_verdict_reused`.
+
 ## Connect a repository
 
 1. Install the Stamphog GitHub App on your GitHub organization.

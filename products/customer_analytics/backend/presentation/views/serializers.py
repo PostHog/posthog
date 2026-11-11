@@ -1805,12 +1805,15 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
     workflow_id = serializers.CharField(
         read_only=True,
         allow_null=True,
-        help_text="Temporal workflow identifier associated with the current account sync phase.",
+        help_text="Staff-only Temporal workflow identifier of the run. Null for non-staff users.",
     )
     workflow_run_id = serializers.UUIDField(
         read_only=True,
         allow_null=True,
-        help_text="Temporal run identifier associated with the current account sync phase.",
+        help_text=(
+            "Identifier of the worker job that executed the run. Person and group runs use it to find "
+            "the run's progress log lines. Null for runs recorded before it was stored."
+        ),
     )
     temporal_url = serializers.URLField(
         read_only=True,

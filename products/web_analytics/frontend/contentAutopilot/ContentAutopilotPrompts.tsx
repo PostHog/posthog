@@ -87,6 +87,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         promptEngines,
         showArchived,
         needsImprovement,
+        promptsBranded,
     } = useValues(contentAutopilotPromptsLogic)
     const {
         loadAeoPrompts,
@@ -95,6 +96,7 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
         setNeedsImprovement,
         setPromptsPage,
         setPromptsTopic,
+        setPromptsBranded,
         setShowArchived,
     } = useActions(contentAutopilotPromptsLogic)
     const { opportunityByPromptId } = useValues(contentAutopilotLogic)
@@ -139,6 +141,26 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                         })),
                     ]}
                     data-attr="content-autopilot-prompts-topic-filter"
+                />
+                <LemonSelect
+                    size="small"
+                    aria-label="Branded"
+                    value={promptsBranded === null ? 'all' : promptsBranded ? 'branded' : 'non_branded'}
+                    onChange={(value) => setPromptsBranded(value === 'all' ? null : value === 'branded')}
+                    options={[
+                        { value: 'all', label: 'Branded and non-branded' },
+                        {
+                            value: 'branded',
+                            label: 'Branded',
+                            tooltip: 'Prompts that name your brand.',
+                        },
+                        {
+                            value: 'non_branded',
+                            label: 'Non-branded',
+                            tooltip: "Prompts that don't name your brand.",
+                        },
+                    ]}
+                    data-attr="content-autopilot-prompts-branded-filter"
                 />
                 {promptTopicsError ? (
                     <span className="flex items-center gap-1 text-danger text-sm">
@@ -189,7 +211,11 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 promptsError ? null : (
                     <LemonSkeleton className="h-40 w-full" />
                 )
-            ) : count === 0 && promptsTopic === null && !showArchived && !needsImprovement ? (
+            ) : count === 0 &&
+              promptsTopic === null &&
+              promptsBranded === null &&
+              !showArchived &&
+              !needsImprovement ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
@@ -236,6 +262,16 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     >
                                         {prompt.prompt}
                                     </Link>
+                                    {prompt.branded ? (
+                                        <LemonTag
+                                            type="muted"
+                                            size="small"
+                                            className="ml-2 align-middle"
+                                            title="This prompt names your brand, so answers to it almost always mention you."
+                                        >
+                                            Branded
+                                        </LemonTag>
+                                    ) : null}
                                     <PromptSearchesLine prompt={prompt} />
                                 </div>
                             ),

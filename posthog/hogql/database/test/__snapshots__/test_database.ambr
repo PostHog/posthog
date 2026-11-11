@@ -2868,6 +2868,115 @@
           "row_count": null,
           "type": "system"
       },
+      "system.aeo_brands": {
+          "certification": null,
+          "description": "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from competitor pages.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Brand id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "description": "Brand name as people say it.",
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "domain": {
+                  "chain": null,
+                  "description": "Registrable domain, for example 'example.com'. Citations on its subdomains count for the brand.",
+                  "fields": null,
+                  "hogql_value": "domain",
+                  "id": null,
+                  "name": "domain",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "description": "What the brand is to the team: 'own', 'competitor', 'publisher' or 'unknown'.",
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "description": "Whether a person confirmed the brand ('confirmed'), ignored it ('ignored'), or has not looked at it yet ('suggested').",
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source": {
+                  "chain": null,
+                  "description": "How the brand entered the catalog: 'citations' or 'manual'.",
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "aliases": {
+                  "chain": null,
+                  "description": "JSON array of other names for the brand, used to find it in answer text.",
+                  "fields": null,
+                  "hogql_value": "aliases",
+                  "id": null,
+                  "name": "aliases",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the brand entered the catalog.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the brand was last edited.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.aeo_brands",
+          "name": "system.aeo_brands",
+          "row_count": null,
+          "type": "system"
+      },
       "system.aeo_citation_checks": {
           "certification": null,
           "description": "AEO citation checks: one row per prompt x answer engine per run, recording whether the team's target domain was cited. Written only by the citation runner.",
@@ -9636,17 +9745,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "AI author's confidence for a proposed metric, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,
@@ -19503,6 +19601,115 @@
           "row_count": null,
           "type": "system"
       },
+      "system.aeo_brands": {
+          "certification": null,
+          "description": "AEO brand catalog: one row per company whose domain the answer engines cite, labeled as the team's own brand, a competitor, a publisher, or unknown. Join a cited URL's host to `domain` to tell own pages from competitor pages.",
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "description": "Brand id.",
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "name": {
+                  "chain": null,
+                  "description": "Brand name as people say it.",
+                  "fields": null,
+                  "hogql_value": "name",
+                  "id": null,
+                  "name": "name",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "domain": {
+                  "chain": null,
+                  "description": "Registrable domain, for example 'example.com'. Citations on its subdomains count for the brand.",
+                  "fields": null,
+                  "hogql_value": "domain",
+                  "id": null,
+                  "name": "domain",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "kind": {
+                  "chain": null,
+                  "description": "What the brand is to the team: 'own', 'competitor', 'publisher' or 'unknown'.",
+                  "fields": null,
+                  "hogql_value": "kind",
+                  "id": null,
+                  "name": "kind",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "status": {
+                  "chain": null,
+                  "description": "Whether a person confirmed the brand ('confirmed'), ignored it ('ignored'), or has not looked at it yet ('suggested').",
+                  "fields": null,
+                  "hogql_value": "status",
+                  "id": null,
+                  "name": "status",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "source": {
+                  "chain": null,
+                  "description": "How the brand entered the catalog: 'citations' or 'manual'.",
+                  "fields": null,
+                  "hogql_value": "source",
+                  "id": null,
+                  "name": "source",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "aliases": {
+                  "chain": null,
+                  "description": "JSON array of other names for the brand, used to find it in answer text.",
+                  "fields": null,
+                  "hogql_value": "aliases",
+                  "id": null,
+                  "name": "aliases",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "description": "When the brand entered the catalog.",
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "description": "When the brand was last edited.",
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.aeo_brands",
+          "name": "system.aeo_brands",
+          "row_count": null,
+          "type": "system"
+      },
       "system.aeo_citation_checks": {
           "certification": null,
           "description": "AEO citation checks: one row per prompt x answer engine per run, recording whether the team's target domain was cited. Written only by the citation runner.",
@@ -26271,17 +26478,6 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
-              },
-              "confidence": {
-                  "chain": null,
-                  "description": "AI author's confidence for a proposed metric, 0-1.",
-                  "fields": null,
-                  "hogql_value": "confidence",
-                  "id": null,
-                  "name": "confidence",
-                  "schema_valid": true,
-                  "table": null,
-                  "type": "float"
               },
               "reasoning": {
                   "chain": null,

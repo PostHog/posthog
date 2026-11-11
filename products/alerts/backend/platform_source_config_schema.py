@@ -12,11 +12,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
-from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
+from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS, RECURRENCE
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
+    guard_native_insight_edit,
     mirror_platform_edit,
-    remove_native_destinations,
+    remove_alert_destinations,
 )
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
@@ -106,11 +107,15 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     mirror=mirror_platform_edit,
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
     # HogFunctions. Creates stay off, and out of the API schema, until `creates` and
-    # `creates_native_alert` turn them on. The interval only sets a native create's cadence.
+    # `creates_native_alert` turn them on. A native create picks any insight cadence, daily by default.
     native=NativeAlertLifecycle(
-        check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations, creates=False
+        check_interval_minutes=MINUTES_PER_DAY,
+        check_intervals=dict(RECURRENCE.values()),
+        remove_destinations=remove_alert_destinations,
+        creates=False,
     ),
     native_create=creates_native_alert,
+    native_edit_guard=guard_native_insight_edit,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
     kept_source_config_keys=INSIGHT_ROW_SETTINGS,
 )

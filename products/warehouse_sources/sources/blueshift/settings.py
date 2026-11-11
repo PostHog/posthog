@@ -1,3 +1,4 @@
+from dataclasses import field
 from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType, frozen
@@ -10,6 +11,10 @@ BLUESHIFT_REGION_URLS: dict[str, str] = {
 DEFAULT_REGION = "us"
 
 PAGE_SIZE = 100
+# Blueshift's list examples start at page 0. The page walk also copes with an endpoint that counts from 1.
+FIRST_PAGE = 0
+# Without `startdate` the campaign list leaves out one-time campaigns that started over 30 days ago.
+CAMPAIGNS_START_DATE = "2000-01-01T00:00:00.000Z"
 
 # The v1 performance summary returns totals for a time window, so the stats table walks one UTC
 # day at a time. The first sync reaches this far back when no watermark exists yet.
@@ -17,6 +22,7 @@ STATS_BACKFILL_DAYS = 365
 # Opens, clicks and purchases keep arriving for days after a campaign sends, so every incremental
 # stats sync reads this many days before its start position again.
 STATS_REREAD_DAYS = 7
+STATS_REQUEST_INTERVAL_SECONDS = 0.5
 
 STATS_DATE_INCREMENTAL_FIELD: IncrementalField = {
     "label": "date",
@@ -37,18 +43,20 @@ class BlueshiftEndpointConfig:
     pagination: Literal["page", "single", "daily"] = "page"
     incremental_fields: list[IncrementalField] | None = None
     partition_key: Optional[str] = None
+    params: dict[str, str] = field(default_factory=dict)
+    passes: tuple[dict[str, str], ...] = ({},)
 
 
 BLUESHIFT_ENDPOINTS: dict[str, BlueshiftEndpointConfig] = {
-    # Full refresh only: the list takes no sort param, and `created_after` would miss status
-    # changes. Without `startdate` the list omits one-time campaigns older than 30 days, and the
-    # documented meaning of that filter is not precise enough to send blindly.
+    # Full refresh only: the list takes no sort param, and `created_after` would miss status changes.
     "campaigns": BlueshiftEndpointConfig(
         name="campaigns",
         path="/api/v2/campaigns.json",
         data_selector=None,
         primary_keys=["uuid"],
         partition_key="created_at",
+        params={"startdate": CAMPAIGNS_START_DATE},
+        passes=({"archived": "false"}, {"archived": "true"}),
     ),
     "campaign_stats": BlueshiftEndpointConfig(
         name="campaign_stats",

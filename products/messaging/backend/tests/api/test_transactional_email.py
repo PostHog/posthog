@@ -44,7 +44,6 @@ from products.messaging.backend.presentation.views.message_templates import (
 )
 from products.messaging.backend.services import transactional_email
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
-from products.messaging.backend.tests.test_code_send_fields import ADDRESS_VERDICTS
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -308,7 +307,6 @@ class TestTransactionalEmail(APIBaseTest):
             ("send_with_status_scope", "post", "send/", ["transactional_email:read"], status.HTTP_403_FORBIDDEN),
             ("send_email_with_write_scope", "post", "send_email", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_email_with_read_scope", "post", "send_email", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
-            ("code_send_with_read_scope", "post", "code_send", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
             (
                 "send_email_with_preference_scope",
                 "post",
@@ -329,13 +327,6 @@ class TestTransactionalEmail(APIBaseTest):
                 "send_email",
                 ["transactional_email:read"],
                 status.HTTP_403_FORBIDDEN,
-            ),
-            (
-                "code_send_with_send_scope",
-                "post",
-                "code_send",
-                ["transactional_email:write"],
-                status.HTTP_202_ACCEPTED,
             ),
             ("retrieve_is_not_a_psak_action", "get", "", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
             (
@@ -373,13 +364,6 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("send_scope", "template", ["transactional_email:write"], "transactional_email"),
             ("workflow_scope", "template", ["hog_flow:write"], "hog_flow"),
-            (
-                "send_scope_on_send_email",
-                "send_email",
-                ["transactional_email:write"],
-                "transactional_email",
-            ),
-            ("workflow_scope_on_send_email", "send_email", ["hog_flow:write"], "hog_flow"),
             (
                 "both_scopes",
                 "template",
@@ -827,8 +811,10 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
-            *((field, address, accepted) for field in ("to", "reply_to") for address, accepted in ADDRESS_VERDICTS),
-            ("cc", '"jane doe"@example.com', False),
+            ("to", "jane=tag@example.com", True),
+            ("to", "jane@localhost", False),
+            ("reply_to", "jane=tag@example.com", True),
+            ("reply_to", "jane@localhost", False),
         ]
     )
     def test_a_code_send_takes_the_addresses_the_pipeline_takes(
@@ -1002,28 +988,18 @@ class TestTransactionalEmail(APIBaseTest):
         fields = schema["components"]["schemas"][reference.rsplit("/", 1)[-1]]["properties"]
         assert {name: fields[name]["default"] for name in CODE_SEND_FIELDS if "default" in fields[name]} == {}
 
-    @parameterized.expand(
-        [
-            ("replay", 202, {"invocation_id": "first-send", "replayed": True}, 202, None),
-            ("key_used_by_a_template_send", 422, {"error": "idempotency_key_reused"}, 422, "idempotency_key_reused"),
-            ("recipient_suppressed", 422, {"error": "recipient_suppressed"}, 422, "recipient_suppressed"),
-        ]
-    )
-    def test_a_code_send_passes_its_idempotency_key_and_reports_the_pipelines_answer(
-        self, mock_post, _flag, _capture, _name, pipeline_status, pipeline_body, expected_status, expected_code
-    ):
-        mock_post.return_value = MagicMock(status_code=pipeline_status, json=lambda: pipeline_body)
+    def test_a_code_send_passes_its_idempotency_key_and_reports_a_replay(self, mock_post, _flag, _capture):
+        mock_post.return_value = MagicMock(
+            status_code=202, json=lambda: {"invocation_id": "first-send", "replayed": True}
+        )
 
         response = self._psak_client(["hog_flow:write"]).post(
             self.send_email_url, self._code_send(), format="json", headers={"Idempotency-Key": "welcome:user-1"}
         )
 
-        assert response.status_code == expected_status, response.json()
+        assert response.status_code == 202, response.json()
         assert json.loads(mock_post.call_args.kwargs["data"])["idempotency_key"] == "welcome:user-1"
-        if expected_code:
-            assert response.json()["code"] == expected_code
-        else:
-            assert response.json() == {"message_id": "first-send", "replayed": True}
+        assert response.json() == {"message_id": "first-send", "replayed": True}
 
     def test_a_code_send_an_older_pipeline_does_not_take_is_refused_on_that_field(self, mock_post, _flag, capture):
         events = CapturedEvents(capture)

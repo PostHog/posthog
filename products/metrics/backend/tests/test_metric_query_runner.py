@@ -972,12 +972,31 @@ class TestOutputUnit(SimpleTestCase):
             ("rate_of_unitless", "", MetricAggregation.RATE, None, "1/s"),
             ("unitless_without_rate", "", MetricAggregation.SUM, None, None),
             ("rate_of_disagreeing_units", None, MetricAggregation.RATE, None, None),
+            (
+                "unitless_seconds_histogram_quantile",
+                "",
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                "s",
+                "latency_seconds",
+            ),
+            ("unitless_bytes_histogram_quantile", "", MetricAggregation.HISTOGRAM_QUANTILE, None, "By", "size_bytes"),
+            ("ingested_unit_wins_over_name", "ms", MetricAggregation.HISTOGRAM_QUANTILE, None, "ms", "latency_seconds"),
+            (
+                "disagreeing_units_ignore_name",
+                None,
+                MetricAggregation.HISTOGRAM_QUANTILE,
+                None,
+                None,
+                "latency_seconds",
+            ),
+            ("unitless_seconds_gauge_average", "", MetricAggregation.AVG, None, None, "start_time_seconds"),
         ]
     )
-    def test_output_unit(self, _name, ingested, aggregation, range_function, expected):
+    def test_output_unit(self, _name, ingested, aggregation, range_function, expected, metric_name="m1"):
         quantile = 0.5 if aggregation.needs_quantile else None
         clause = MetricQueryClause(
-            name="a", metric_name="m1", aggregation=aggregation, range_function=range_function, quantile=quantile
+            name="a", metric_name=metric_name, aggregation=aggregation, range_function=range_function, quantile=quantile
         )
         self.assertEqual(_output_unit(ingested, clause), expected)
 

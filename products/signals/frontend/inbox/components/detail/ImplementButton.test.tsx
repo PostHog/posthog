@@ -51,6 +51,14 @@ describe('ImplementButton', () => {
     let createPrFromReport: jest.Mock
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                    next: null,
+                },
+            },
+        })
         initKeaTests()
         window.localStorage.removeItem('inbox-report-implementation-prompt:combo')
         inboxTaskKickoffLogic.mount()

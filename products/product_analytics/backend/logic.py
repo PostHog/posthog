@@ -1,19 +1,24 @@
 from collections.abc import Collection, Mapping
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import Count, OuterRef, QuerySet, Subquery, TextField, Value
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import router
+from django.db.models import Count, Max, OuterRef, Q, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
+from posthog.ingress.dispatch.database import bounded_statement_timeout
+
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
 from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The columns `InsightVariableDefinition` carries; `values` and `values_query` stay on the row.
@@ -50,10 +55,66 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     )
 
 
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    needs_metadata = Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True)
+    return (
+        Insight.objects_including_soft_deleted.filter(needs_metadata, id=insight_id, query=query_at_read).update(
+            query_metadata=query_metadata
+        )
+        > 0
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
     InsightViewed.objects.update_or_create(  # type: ignore[misc]  # nullable FKs; django-stubs drops None from *_id lookups
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
     )
+
+
+AGENT_READ_DAYS_KEPT = 35
+AGENT_READ_DELETE_BATCH = 10_000
+AGENT_READ_WRITE_TIMEOUT_MS = 500
+
+
+def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
+    team_id = team.parent_team_id or team.id
+    day = now().astimezone(team.timezone_info).date()
+    with bounded_statement_timeout(AGENT_READ_WRITE_TIMEOUT_MS, aliases=[router.db_for_write(InsightAgentRead)]):
+        InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
+            [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
+            ignore_conflicts=True,
+        )
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[tuple[str, list[date]]]:
+    return list(
+        InsightAgentRead.objects.for_team(team_id)
+        .filter(user_id=user_id, day__gte=since, insight__deleted=False, insight__saved=True)
+        .values("insight__short_id")
+        .annotate(read_days=ArrayAgg("day", order_by="day"), days=Count("day"), last_day=Max("day"))
+        .filter(days__gte=min_days)
+        .order_by("-last_day")
+        .values_list("insight__short_id", "read_days")[:limit]
+    )
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids))
+
+
+def expire_agent_insight_reads() -> None:
+    oldest = now().date() - timedelta(days=AGENT_READ_DAYS_KEPT)
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(day__lt=oldest))
+
+
+def _delete_in_batches(reads: QuerySet[InsightAgentRead]) -> None:
+    writer = reads.using(router.db_for_write(InsightAgentRead))
+    while batch := list(writer.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
+        writer.filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:

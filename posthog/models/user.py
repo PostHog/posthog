@@ -259,6 +259,7 @@ class OnboardingSkippedReason(models.TextChoices):
     OTHER = "other", "Other"
     PROVISIONED = "provisioned", "Account provisioned by a partner"
     CONNECTOR = "connector", "Signed up through an OAuth connector"
+    DEVICE_LOGIN = "device_login", "Signed up through an OAuth device login"
 
 
 class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore[django-manager-missing]

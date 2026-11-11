@@ -229,6 +229,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     plan_lens_chunks,
     reconcile_chunks,
 )
+from products.review_hog.backend.silent_stamphog import finish_standard_automatic_turn, start_silent_stamphog
 from products.review_hog.backend.temporal.heartbeat import ReviewActivityHeartbeater
 from products.review_hog.backend.temporal.types import (
     REQUESTED_TRIGGERS,
@@ -236,6 +237,8 @@ from products.review_hog.backend.temporal.types import (
     TRIGGER_LABEL,
     TRIGGER_MANUAL,
     TRIGGER_STAMPHOG,
+    FinishedStandardAutomaticTurn,
+    SilentStamphogRequest,
 )
 from products.signals.backend.facade.report_artefacts import (
     CodeReview,
@@ -633,6 +636,7 @@ class TrackReviewCompletedInput:
     # and a person's re-trigger of an inbox report is the case the tier telemetry has to see.
     # Defaulted so in-flight payloads from before the field still deserialize.
     turn_trigger_source: str | None = None
+    turn_trigger_action: str | None = None
     # What THIS turn ran on; the event names the flash arm in both seats for a flash turn.
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
@@ -674,6 +678,7 @@ class TrackReviewStartedInput:
     head_sha: str
     run_index: int
     turn_trigger_source: str | None
+    turn_trigger_action: str | None = None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
@@ -692,6 +697,7 @@ class TrackReviewFailedInput:
     report_id: str
     run_index: int
     turn_trigger_source: str | None = None
+    turn_trigger_action: str | None = None
     review_mode: str = REVIEW_MODE_FULL
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value
     review_design: str = REVIEW_DESIGN_PIPELINE
@@ -2303,12 +2309,17 @@ def _review_event_identity(report: ReviewReport) -> str:
 
 
 def _turn_event_properties(
-    report: ReviewReport, *, run_index: int, turn_trigger_source: str | None
+    report: ReviewReport,
+    *,
+    run_index: int,
+    turn_trigger_source: str | None,
+    turn_trigger_action: str | None = None,
 ) -> dict[str, str | int | None]:
     """The identity every per-turn review event shares: which report, which turn, and who asked for it.
 
     `trigger_source` is the trigger that created the report; `turn_trigger_source` is the trigger
-    of this turn, which differs when a person re-triggers an inbox report.
+    of this turn, which differs when a person re-triggers an inbox report. `turn_trigger_action` is
+    the GitHub `pull_request` action behind an automatic turn, and None for every other trigger.
     """
     return {
         "report_id": str(report.id),
@@ -2318,6 +2329,7 @@ def _turn_event_properties(
         "run_index": run_index,
         "trigger_source": report.trigger_source,
         "turn_trigger_source": turn_trigger_source,
+        "turn_trigger_action": turn_trigger_action,
         **({"$update_person_last_seen_at": False} if turn_trigger_source == TRIGGER_AUTOMATIC else {}),
         "author_login": report.author_login,
     }
@@ -2401,7 +2413,12 @@ def _track_review_started(input: TrackReviewStartedInput) -> None:
             review_design=input.review_design,
         ),
         properties={
-            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **_turn_event_properties(
+                report,
+                run_index=input.run_index,
+                turn_trigger_source=input.turn_trigger_source,
+                turn_trigger_action=input.turn_trigger_action,
+            ),
             **review_routing_properties(
                 report,
                 review_mode=input.review_mode,
@@ -2612,7 +2629,12 @@ def _track_review_completed(input: TrackReviewCompletedInput) -> None:
             review_design=input.review_design,
         ),
         properties={
-            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **_turn_event_properties(
+                report,
+                run_index=input.run_index,
+                turn_trigger_source=input.turn_trigger_source,
+                turn_trigger_action=input.turn_trigger_action,
+            ),
             "published": input.published,
             "findings_total": len(findings),
             "findings_valid": sum(1 for _, verdict in findings if verdict is not None and verdict.is_valid),
@@ -2732,7 +2754,12 @@ def _track_review_failed(input: TrackReviewFailedInput) -> None:
             review_design=input.review_design,
         ),
         properties={
-            **_turn_event_properties(report, run_index=input.run_index, turn_trigger_source=input.turn_trigger_source),
+            **_turn_event_properties(
+                report,
+                run_index=input.run_index,
+                turn_trigger_source=input.turn_trigger_source,
+                turn_trigger_action=input.turn_trigger_action,
+            ),
             **review_routing_properties(
                 report,
                 review_mode=input.review_mode,
@@ -2931,6 +2958,60 @@ async def nudge_stamphog_activity(input: TurnEndedInput) -> None:
     catches the final failure, because a lost nudge must never fail the review.
     """
     await database_sync_to_async(_nudge_stamphog, thread_sensitive=False)(input)
+
+
+def _log_silent_stamphog(repository: str, pr_number: int, head_sha: str) -> None:
+    logger.info(
+        "Queued a silent stamphog review of %s#%s at %s after a clean Standard review", repository, pr_number, head_sha
+    )
+
+
+def _finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> None:
+    queued = finish_standard_automatic_turn(
+        team_id=input.team_id,
+        report_id=input.report_id,
+        repository=input.repository,
+        pr_number=input.pr_number,
+        head_sha=input.head_sha,
+        run_index=input.run_index,
+        lens_chunks_capped=input.lens_chunks_capped,
+        delta_review=input.delta_review,
+        marks_ready=input.marks_ready,
+    )
+    if queued:
+        _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def finish_standard_automatic_turn_activity(input: FinishedStandardAutomaticTurn) -> None:
+    """Record on the turn marker whether the turn was clean with full coverage, and start a silent stamphog
+    review when the turn's own event marked the PR ready.
+
+    The workflow catches the final failure. The turn then stays unrecorded, which never counts as clean.
+    """
+    await database_sync_to_async(_finish_standard_automatic_turn, thread_sensitive=False)(input)
+
+
+def _start_silent_stamphog(input: SilentStamphogRequest) -> None:
+    queued = start_silent_stamphog(
+        team_id=input.team_id, repository=input.repository, pr_number=input.pr_number, head_sha=input.head_sha
+    )
+    if queued:
+        _log_silent_stamphog(input.repository, input.pr_number, input.head_sha)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def start_silent_stamphog_activity(input: SilentStamphogRequest) -> None:
+    """Ask stamphog for a silent review of a head that a later event marked ready, when its automatic turn was recorded clean.
+
+    A dispatch error raises, so Temporal retries it. The workflow catches the final failure, because
+    a missed stamphog review must never fail the review.
+    """
+    await database_sync_to_async(_start_silent_stamphog, thread_sensitive=False)(input)
 
 
 # --- The signals report's code_review receipt --------------------------------------------------------

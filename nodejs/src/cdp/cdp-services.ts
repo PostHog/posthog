@@ -35,6 +35,7 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
+import { buildAttachmentStore } from './services/messaging/attachment-store'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
@@ -178,6 +179,14 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_ACCESS_KEY_ID'
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_BUCKET'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_REGION'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_PREFIX'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY'
+        | 'CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS'
         | 'SES_ENDPOINT'
         | 'SES_TRACKED_CONFIGURATION_SET'
         | 'SES_UNTRACKED_CONFIGURATION_SET'
@@ -215,7 +224,6 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_EVENTS_DLQ_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
-        | 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'
     > &
     InternalLogsProducerConfig
 
@@ -506,7 +514,8 @@ export function createCdpCoreServices(
         workflowsActivationReporter,
         messageAssetsService,
         workflowEmailRateLimiter,
-        teamEmailRateLimiter
+        teamEmailRateLimiter,
+        buildAttachmentStore(config)
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -628,7 +637,7 @@ export function createCdpCoreServices(
         emailSuppressionService,
         emailStatusService,
         redis,
-        config.CDP_SES_WEBHOOKS_QUEUE_ENABLED ? outputs : null
+        outputs
     )
 
     const nativeDestinationExecutorService = new NativeDestinationExecutorService(config)

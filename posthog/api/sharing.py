@@ -1292,7 +1292,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
-            ok, err = is_heatmap_url_allowed(heatmap_url, resource.export_context.get("heatmap_type"))
+            ok, err = is_heatmap_url_allowed(heatmap_url, resource.export_context.get("heatmap_type"), resource.team)
             if not ok:
                 raise ValidationError(f"heatmap_url not allowed: {err}")
 

@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { z } from 'zod'
 
-import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+import type { ApiToolLibrary, SkillsLibrary, SkillsLibraryOptions } from '@posthog/mcp/src/cli/library-types'
 
 import type { WorkloadProvider } from '@/ci/providers/registry'
 import { parseJson, parseJsonOrUndefined } from '@/core/json'
@@ -32,6 +33,8 @@ export interface FakeRuntimeOptions {
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
+    // Builds the skills library `hog learn` loads. Without it, loading the skills fails the test.
+    skills?: (options: SkillsLibraryOptions) => SkillsLibrary
     // Items already in the keychain, by name.
     keychain?: Record<string, string>
     // Replaces the keychain, to fake one that is slow, unavailable or denied.
@@ -58,6 +61,8 @@ function fakePrompts(answers: string[]): Prompts {
     }
     return {
         select: (message) => next(message) as never,
+        // The answer lists the values picked, separated by commas.
+        multiselect: async (message) => (await next(message)).split(',').filter(Boolean) as never,
         text: (message) => next(message),
         password: (message) => next(message),
         confirm: async (message) => (await next(message)) === 'yes',
@@ -212,6 +217,10 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         writeFile: async (path, contents) => {
             files[path] = contents
         },
+        realPath: async (path) => resolve(path),
+        replaceFile: async (path, contents) => {
+            files[path] = contents
+        },
         writePrivateFile: async (path, contents) => {
             files[path] = contents
         },
@@ -241,6 +250,12 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
                 throw new Error('This test loads the API tools without passing apiTools')
             }
             return options.apiTools
+        },
+        loadSkills: async (skillsOptions) => {
+            if (!options.skills) {
+                throw new Error('This test loads the skills without passing skills')
+            }
+            return options.skills(skillsOptions)
         },
         stdout: () => stdout,
         stderr: () => stderr,

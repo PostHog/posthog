@@ -16,6 +16,7 @@ from posthog.migration_helpers import deprecate_field
 from posthog.models.file_system.constants import DEFAULT_SURFACE
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
 from posthog.models.file_system.file_system_representation import FileSystemRepresentation
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
@@ -500,3 +501,23 @@ def generate_insight_filters_hash(insight: Insight, dashboard: Optional["Dashboa
             exc_info=True,
         )
         raise
+
+
+class InsightAgentRead(TeamScopedRootMixin):
+    team = models.ForeignKey(
+        "posthog.Team", on_delete=models.CASCADE, db_constraint=False, db_index=False, related_name="+"
+    )
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    insight = models.ForeignKey(Insight, on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    day = models.DateField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["team", "user", "insight", "day"], name="product_analytics_unique_agent_read_day"
+            )
+        ]
+        indexes = [
+            models.Index(fields=["team", "user", "-day"], name="product_analytics_agent_recent"),
+            models.Index(fields=["day"], name="product_analytics_agent_day"),
+        ]

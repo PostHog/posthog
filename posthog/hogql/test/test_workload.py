@@ -112,12 +112,6 @@ class TestExecuteHogQLQueryWorkload(BaseTest):
             ("logs_offline", "SELECT 1 FROM logs", Workload.OFFLINE, Workload.LOGS),
             ("events_offline", "SELECT 1 FROM events", Workload.OFFLINE, Workload.OFFLINE),
             ("metrics_offline", "SELECT 1 FROM posthog.metrics", Workload.OFFLINE, Workload.METRICS),
-            (
-                "metrics_joined_with_logs",
-                "SELECT 1 FROM posthog.metrics AS m JOIN logs AS l ON m.trace_id = l.trace_id",
-                Workload.METRICS,
-                Workload.LOGS,
-            ),
         ]
     )
     def test_table_cluster_wins_over_priority_workload(
@@ -127,3 +121,9 @@ class TestExecuteHogQLQueryWorkload(BaseTest):
             execute_hogql_query(query=parse_select(query), team=self.team, workload=requested)
 
         assert sync_execute.call_args.kwargs["workload"] == expected
+
+    def test_metrics_joined_with_logs_is_refused(self) -> None:
+        query = parse_select("SELECT 1 FROM posthog.metrics AS m JOIN logs AS l ON m.trace_id = l.trace_id")
+
+        with pytest.raises(QueryError, match="Cannot query tables from different clusters"):
+            execute_hogql_query(query=query, team=self.team, workload=Workload.METRICS)

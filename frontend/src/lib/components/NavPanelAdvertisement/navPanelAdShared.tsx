@@ -22,6 +22,15 @@ export const NAV_PANEL_CARD_TYPE = {
     PRODUCT_PUSH: 'product_push',
 } as const
 
+/** Where an ad-slot card renders, sent as `placement` on its events. */
+// pinned: analytics property values. Renaming them breaks dashboards.
+export const NAV_PANEL_PLACEMENT = {
+    SIDEBAR: 'sidebar',
+    TODAY_HOME: 'today_home',
+} as const
+
+export type NavPanelPlacement = (typeof NAV_PANEL_PLACEMENT)[keyof typeof NAV_PANEL_PLACEMENT]
+
 export interface BroadcastPayload {
     /** Slug identifying this broadcast, e.g. 'managed-warehouse-beta'. Keys dismissal state. */
     broadcast: string
@@ -79,6 +88,12 @@ export interface ProductPushDisplay {
     href?: string
 }
 
+/** The parts of a display a card's hero draws: the title color and the illustration. */
+export type ProductHeroDisplay = Pick<
+    ProductPushDisplay,
+    'Hoggie' | 'Icon' | 'iconUpright' | 'accentColor' | 'hoggieOffset'
+>
+
 const DEFAULT_HOGGIE_OFFSET: Required<HoggieOffset> = { x: 50, y: 22 }
 
 /**
@@ -95,7 +110,7 @@ export function ProductHogHero({
     text,
     topRight,
 }: {
-    hero: ProductPushDisplay
+    hero: ProductHeroDisplay
     title: string
     text: React.ReactNode
     topRight?: JSX.Element
@@ -155,7 +170,7 @@ export function AdvertisementCard({
     emojiLabel?: string
     title: string
     text: React.ReactNode
-    hero?: ProductPushDisplay
+    hero?: ProductHeroDisplay
     onClose?: () => void
 }): JSX.Element {
     const { hideAdvertisement } = useActions(navPanelAdvertisementLogic)

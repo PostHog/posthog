@@ -168,6 +168,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             github_repo_id=_REPO_ID,
             draft=draft,
             skip_agent_review=False,
+            action=action,
         )
 
     @parameterized.expand(
@@ -324,14 +325,14 @@ class TestAuthoredPRReviewTask(BaseTest):
         )
 
     def _queued_event(
-        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = ()
+        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = (), action: str = "opened"
     ) -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels))
+            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels, action=action))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
-    def _expected_start(self, *, team_id: int, user_id: int) -> dict[str, object]:
+    def _expected_start(self, *, team_id: int, user_id: int, marks_ready: bool = True) -> dict[str, object]:
         return {
             "pr_url": "https://github.com/PostHog/posthog/pull/42",
             "team_id": team_id,
@@ -342,6 +343,8 @@ class TestAuthoredPRReviewTask(BaseTest):
             "review_mode": "flash",
             "trigger_source": "automatic",
             "requested_head_sha": _HEAD_SHA,
+            "trigger_action": "opened",
+            "marks_ready": marks_ready,
             "installation_id": _INSTALLATION_ID,
             "github_repo_id": _REPO_ID,
         }
@@ -375,7 +378,9 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         process_authored_pr_event.run(**self._queued_event(draft=drafts))
 
-        start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
+        start.assert_called_once_with(
+            **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not drafts)
+        )
         assert _dispatch_count("started") - started_before == 1.0
         # The first sighting stores GitHub's id, so a later rename keeps the row.
         self.repository.refresh_from_db()
@@ -473,7 +478,9 @@ class TestAuthoredPRReviewTask(BaseTest):
         process_authored_pr_event.run(**self._queued_event(login="dependabot[bot]", draft=draft))
 
         if expected_outcome == "started":
-            start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
+            start.assert_called_once_with(
+                **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not draft)
+            )
         else:
             start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0

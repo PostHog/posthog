@@ -401,6 +401,40 @@ class TestAEOPromptAPI(APIBaseTest):
         ]
         assert response["count"] == 3
 
+    @parameterized.expand(
+        [
+            (
+                "brand_from_a_subdomain_target",
+                ["docs.example.com"],
+                ["Is EXAMPLE's replay fast?", "how does example.com price replay?", "is example good for funnels?"],
+            ),
+            ("no_brand", [], []),
+        ]
+    )
+    def test_list_flags_branded_prompts_and_filters_on_them(
+        self, _name: str, target_domains: list[str], expected_branded: list[str]
+    ) -> None:
+        texts = [
+            "is example good for funnels?",
+            "how does example.com price replay?",
+            "Is EXAMPLE's replay fast?",
+            "are examples of funnels useful?",
+            "counterexample to funnels?",
+            "best funnel tools?",
+        ]
+        self.client.post(f"{self.url}bulk_import/", {"prompts": [{"prompt": t} for t in texts]}, format="json")
+
+        for domain in target_domains:
+            create_own_brand(self.team, domain)
+        listed = self.client.get(self.url).json()["results"]
+        branded = self.client.get(self.url, {"branded": "true"}).json()
+        non_branded = self.client.get(self.url, {"branded": "false"}).json()
+
+        assert sorted(row["prompt"] for row in listed if row["branded"]) == expected_branded
+        assert sorted(row["prompt"] for row in branded["results"]) == expected_branded
+        assert branded["count"] == len(expected_branded)
+        assert sorted(row["prompt"] for row in non_branded["results"]) == sorted(set(texts) - set(expected_branded))
+
     def test_list_query_count_does_not_grow_with_page_size(self) -> None:
         prompts = [{"prompt": f"q{i}?"} for i in range(4)]
         self.client.post(f"{self.url}bulk_import/", {"prompts": prompts}, format="json")
@@ -806,6 +840,74 @@ class TestAEOPromptAPI(APIBaseTest):
         ]
 
     @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_rankings_use_the_competitors_confirmed_in_the_catalog(self) -> None:
+        ids = self._import_prompts([{"prompt": "funnels?"}])
+        with team_scope(self.team.pk):
+            AEOBrand.objects.create(
+                team=self.team,
+                name="Acme",
+                domain="acme.co.uk",
+                kind="competitor",
+                status="confirmed",
+                source="manual",
+                aliases=["Acme Ltd!"],
+            )
+            AEOBrand.objects.create(
+                team=self.team,
+                name="Rival",
+                domain="rival.io",
+                kind="competitor",
+                status="suggested",
+                source="citations",
+            )
+        self._record_check(
+            ids["funnels?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Acme Ltd! is popular.",
+            cited_urls=["https://rival.io/x"],
+        )
+        self._record_check(ids["funnels?"], "exa-answer", minutes_ago=20, answer_text="Nothing here.")
+
+        create_own_brand(self.team, "example.com")
+        rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert rankings["competitors_confirmed"] is True
+        assert [(row["domain"], row["name"], row["answers_mentioning"]) for row in rankings["brands"]] == [
+            ("acme.co.uk", "Acme", 1),
+            ("example.com", "example", 0),
+        ]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_rankings_fallback_skips_brands_ignored_or_labeled_otherwise(self) -> None:
+        ids = self._import_prompts([{"prompt": "funnels?"}])
+        with team_scope(self.team.pk):
+            AEOBrand.objects.create(
+                team=self.team, name="Rival", domain="rival.io", kind="competitor", status="ignored", source="citations"
+            )
+            AEOBrand.objects.create(
+                team=self.team,
+                name="Acme",
+                domain="acme.co.uk",
+                kind="publisher",
+                status="confirmed",
+                source="citations",
+            )
+        self._record_check(
+            ids["funnels?"],
+            "claude-web-search",
+            minutes_ago=10,
+            answer_text="Rival and Acme.",
+            cited_urls=["https://rival.io/x", "https://acme.co.uk/z", "https://third.io/y"],
+        )
+
+        create_own_brand(self.team, "example.com")
+        rankings = self.client.get(f"{self.url}rankings/").json()
+
+        assert rankings["competitors_confirmed"] is False
+        assert [row["domain"] for row in rankings["brands"]] == ["third.io", "example.com"]
+
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
     def test_rankings_compare_the_brand_with_competitors_from_cited_domains(self) -> None:
         ids = self._import_prompts([{"prompt": "funnels?"}, {"prompt": "replay?"}])
         day = 24 * 60
@@ -846,6 +948,7 @@ class TestAEOPromptAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         rankings = response.json()
         assert (rankings["window_from"], rankings["window_to"], rankings["answers"]) == ("2026-09-21", "2026-10-20", 3)
+        assert rankings["competitors_confirmed"] is False
         assert [
             (
                 row["domain"],
@@ -885,6 +988,121 @@ class TestAEOPromptAPI(APIBaseTest):
             "https://www.example.com/pricing": True,
             "https://www.reddit.com/r/a": False,
         }
+
+    @parameterized.expand(
+        [
+            (
+                "all",
+                ["example.com"],
+                "all",
+                (6, 1, 3, 1, 2, 1, 5, 3, 2),
+                ["example.com", "rival.example.org"],
+                ["example pricing", "funnel tools"],
+                (5, ["https://example.com/pricing", "https://rival.example.org/x"]),
+            ),
+            (
+                "branded",
+                ["example.com"],
+                "branded",
+                (3, 0, 2, 1, 1, 1, 3, 3, 2),
+                ["example.com"],
+                ["example pricing"],
+                (3, ["https://example.com/pricing"]),
+            ),
+            (
+                "non_branded",
+                ["example.com"],
+                "non_branded",
+                (3, 1, 1, 0, 1, 0, 2, 3, 2),
+                ["rival.example.org"],
+                ["funnel tools"],
+                (2, ["https://rival.example.org/x"]),
+            ),
+            ("no_brand_branded", [], "branded", (0, 0, 0, 0, 0, 0, 0, 0, 5), [], [], (0, [])),
+            (
+                "no_brand_non_branded",
+                [],
+                "non_branded",
+                (6, 1, 1, 1, 2, 0, 5, 0, 5),
+                ["example.com", "rival.example.org"],
+                ["example pricing", "funnel tools"],
+                (5, ["https://example.com/pricing", "https://rival.example.org/x"]),
+            ),
+        ]
+    )
+    @time_machine.travel("2026-10-20T12:00:00Z", tick=False)
+    def test_overview_and_rankings_count_one_side_of_the_branded_split(
+        self,
+        _name: str,
+        target_domains: list[str],
+        branded: str,
+        expected_counts: tuple[int, ...],
+        expected_domains: list[str],
+        expected_searches: list[str],
+        expected_rankings: tuple[int, list[str]],
+    ) -> None:
+        ids = self._import_prompts(
+            [
+                {"prompt": "is example good for funnels?"},
+                {"prompt": "how does example.com price replay?"},
+                {"prompt": "Is EXAMPLE's replay fast?"},
+                {"prompt": "are examples of funnels useful?"},
+                {"prompt": "best funnel tools?"},
+            ]
+        )
+        ours, rival = "https://example.com/pricing", "https://rival.example.org/x"
+        self._record_check(ids["is example good for funnels?"], "exa-answer", minutes_ago=10, answer_text="Example.")
+        self._record_check(
+            ids["how does example.com price replay?"],
+            "exa-answer",
+            minutes_ago=10,
+            cited=True,
+            position=1,
+            cited_urls=[ours],
+            search_queries=["example pricing"],
+        )
+        self._record_check(ids["Is EXAMPLE's replay fast?"], "exa-answer", minutes_ago=10, answer_text="Yes.")
+        self._record_check(
+            ids["are examples of funnels useful?"], "exa-answer", minutes_ago=10, answer_text="Example has funnels."
+        )
+        self._record_check(
+            ids["best funnel tools?"],
+            "exa-answer",
+            minutes_ago=10,
+            answer_text="Rival.",
+            cited_urls=[rival],
+            search_queries=["funnel tools"],
+        )
+        self._record_check(ids["best funnel tools?"], "claude-web-search", minutes_ago=10, check_failed=True)
+        self._record_check(
+            ids["is example good for funnels?"], "exa-answer", minutes_ago=35 * 24 * 60, answer_text="Example."
+        )
+        self._record_check(ids["best funnel tools?"], "exa-answer", minutes_ago=35 * 24 * 60, answer_text="None.")
+
+        for domain in target_domains:
+            create_own_brand(self.team, domain)
+        overview = self.client.get(f"{self.url}overview/", {"branded": branded}).json()
+        rankings = self.client.get(f"{self.url}rankings/", {"branded": branded}).json()
+
+        current, previous = overview["current"], overview["previous"]
+        assert overview["branded"] == rankings["branded"] == branded
+        assert (
+            current["checks"],
+            current["failed"],
+            current["mentioned"],
+            current["cited"],
+            previous["checks"],
+            previous["mentioned"],
+            overview["prompts_tracked"],
+            overview["branded_answers"],
+            overview["non_branded_answers"],
+        ) == expected_counts
+        assert [row["domain"] for row in overview["top_domains"]] == expected_domains
+        assert [row["query"] for row in overview["top_searches"]] == expected_searches
+        assert (rankings["answers"], sorted(row["url"] for row in rankings["top_pages"])) == expected_rankings
+
+    def test_overview_rejects_an_unknown_branded_value(self) -> None:
+        assert self.client.get(f"{self.url}overview/?branded=yes").status_code == status.HTTP_400_BAD_REQUEST
 
     def test_overview_rejects_a_window_outside_the_bounds(self) -> None:
         assert self.client.get(f"{self.url}overview/?days=0").status_code == status.HTTP_400_BAD_REQUEST
@@ -961,6 +1179,8 @@ class TestAEOPromptAPI(APIBaseTest):
         }
         competitors = self.client.get(f"{url}?kind=competitor").json()["results"]
         assert [brand["domain"] for brand in competitors] == ["amplitude.com"]
+        searched = self.client.get(f"{url}?search=STAT").json()["results"]
+        assert [brand["domain"] for brand in searched] == ["statsig.com"]
 
     @parameterized.expand(
         [
