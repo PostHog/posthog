@@ -1093,6 +1093,23 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(1, len(response.results))
         self.assertNotIn("compare_label", response.results[0])
 
+    def test_metric_display_total_counts_unique_users_across_the_range(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",
+            "2020-01-19",
+            IntervalType.DAY,
+            [EventsNode(event="$pageview", math=BaseMathType.DAU)],
+            TrendsFilter(display=ChartDisplayType.METRIC),
+        )
+
+        self.assertEqual([2, 0, 1, 0, 1], response.results[0]["data"])
+        self.assertEqual(
+            [("current", 2), ("previous", 3)],
+            [(result["compare_label"], result["count"]) for result in response.results],
+        )
+
     def test_formula_with_compare_to_week(self):
         self._create_test_events()
 

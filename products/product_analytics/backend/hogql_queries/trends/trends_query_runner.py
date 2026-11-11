@@ -14,6 +14,7 @@ from natsort import natsorted, ns
 
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownItem,
     BreakdownType,
     CachedTrendsQueryResponse,
@@ -25,6 +26,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    GroupMathType,
     GroupNode,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -34,6 +36,7 @@ from posthog.schema import (
     MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
+    PropertyMathType,
     QueryTiming,
     ResolvedDateRangeResponse,
     Series,
@@ -114,6 +117,20 @@ def resolve_series_custom_name(
     if series.name and series.name != series_label:
         return series.name
     return None
+
+
+# Daily values of these add up to the range total, so any other math needs its total counted over the whole range.
+ADDITIVE_MATHS: frozenset[str | None] = frozenset(
+    {
+        None,
+        BaseMathType.TOTAL,
+        BaseMathType.FIRST_TIME_FOR_USER,
+        BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+        GroupMathType.FIRST_TIME_FOR_GROUP,
+        GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
+        PropertyMathType.SUM,
+    }
+)
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -549,6 +566,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         final_result, has_more = self.format_results(returned_results)
 
+        if self._metric_total_needs_range_query():
+            with self.timings.measure("metric_range_totals"):
+                self._apply_range_totals(final_result)
+
         timings_matrix[-1] = self.timings.to_list()
 
         timings: list[QueryTiming] = []
@@ -574,6 +595,42 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             if self.query.compareFilter is not None and self.query.compareFilter.compare
             else None,
         )
+
+    def _metric_total_needs_range_query(self) -> bool:
+        trends_filter = self.query.trendsFilter
+        if trends_filter is None or trends_filter.display != ChartDisplayType.METRIC:
+            return False
+        if trends_filter.metricSummary not in (None, MetricSummary.TOTAL):
+            return False
+        return bool(trends_filter.formulaNodes) or any(
+            getattr(series, "math", None) not in ADDITIVE_MATHS for series in self.query.series
+        )
+
+    def _apply_range_totals(self, results: list[dict[str, Any]]) -> None:
+        query = self.query.model_copy(deep=True)
+        assert query.trendsFilter is not None
+        query.trendsFilter.display = ChartDisplayType.BOLD_NUMBER
+        runner = TrendsQueryRunner(
+            query=query,
+            team=self.team,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+            workload=self.workload,
+            hogql_settings=self.hogql_settings,
+        )
+        runner._shared_database = self._shared_database
+        totals = {
+            self._range_total_key(item): item.get("aggregated_value") for item in runner.calculate().results or []
+        }
+        for item in results:
+            total = totals.get(self._range_total_key(item))
+            if total is not None:
+                item["count"] = total
+
+    @staticmethod
+    def _range_total_key(item: dict[str, Any]) -> tuple[Any, str, Any]:
+        return item.get("order"), repr(item.get("breakdown_value")), item.get("compare_label")
 
     def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:
         """Format pre-computed per-series results into a flat result list.
