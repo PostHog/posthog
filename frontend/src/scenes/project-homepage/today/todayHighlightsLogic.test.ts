@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -63,8 +65,17 @@ describe('todayHighlightsLogic', () => {
         ])
     })
 
-    it('hides a pulse metric in this project only, fills its place with the next suggestion, and undoes the hide', async () => {
+    it('moves numbers hidden in this browser to the server, fills a hidden place with the next suggestion, and undoes the hide', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        const saved: string[][] = []
+        jest.spyOn(todayApi, 'todayPulsePinsHiddenUpdate').mockImplementation(async (_projectId, { keys }) => {
+            saved.push(keys)
+            return { hidden: keys.map((key) => ({ key, name: key.toUpperCase() })) }
+        })
+        window.localStorage.setItem(
+            'scenes.project-homepage.today.todayHighlightsLogic.hiddenPulseMetrics',
+            JSON.stringify({ [`${MOCK_TEAM_ID}:insight:a`]: true, '2:insight:x': true })
+        )
         const pulse = ['a', 'b', 'c', 'd', 'e', 'f'].map((key) => makePulseMetric({ key: `insight:${key}` }))
         highlightResponses = [[200, makeHighlights({ pulse })]]
         const logic = todayHighlightsLogic()
@@ -72,23 +83,77 @@ describe('todayHighlightsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
 
-        logic.actions.setHiddenPulseMetrics({ '1:insight:a': true })
-        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+        expect([saved, logic.values.hiddenPulseMetrics, shown()]).toEqual([
+            [['insight:a']],
+            { '2:insight:x': true },
+            ['insight:b', 'insight:c', 'insight:d', 'insight:e'],
+        ])
 
         logic.actions.hidePulseMetric(pulse[1], 1)
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:d'])
-
-        logic.actions.hidePulseMetric(pulse[3], 3)
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: [...pulse.slice(0, 4), pulse[5], pulse[4]] }))
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
+        expect(shown()).toEqual(['insight:f', 'insight:c', 'insight:d', 'insight:e'])
+        await expectLogic(logic).toFinishAllListeners()
         expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
 
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: pulse.filter((metric) => metric !== pulse[1]) }))
-        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
-
-        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse }))
         logic.actions.unhidePulseMetric(pulse[1], 1)
-        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:f'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect([saved.slice(1), logic.values.pulseHidden]).toEqual([
+            [['insight:a', 'insight:b'], ['insight:a']],
+            [{ key: 'insight:a', name: 'INSIGHT:A' }],
+        ])
+    })
+
+    it('keeps numbers hidden in this browser when the server does not save them', async () => {
+        jest.spyOn(todayApi, 'todayPulsePinsHiddenUpdate').mockRejectedValue(new Error('down'))
+        const key = `${MOCK_TEAM_ID}:insight:a`
+        window.localStorage.setItem(
+            'scenes.project-homepage.today.todayHighlightsLogic.hiddenPulseMetrics',
+            JSON.stringify({ [key]: true })
+        )
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.hiddenPulseMetrics).toEqual({ [key]: true })
+    })
+
+    it('blocks a hide until the saved choices load, skips an ignored number at once, and restores one without placing it', async () => {
+        let releasePins: () => void = () => undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/pulse_pins/': () =>
+                    new Promise((resolve) => {
+                        releasePins = () => resolve([200, { pins: [], hidden: [{ key: 'insight:e', name: 'E' }] }])
+                    }),
+            },
+        })
+        const save = jest
+            .spyOn(todayApi, 'todayPulsePinsHiddenUpdate')
+            .mockImplementation(async (_projectId, { keys }) => ({ hidden: keys.map((key) => ({ key, name: key })) }))
+        const pulse = ['a', 'b', 'c', 'd', 'e', 'f'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [
+            [200, makeHighlights({ pulse: pulse.filter((metric) => metric.key !== 'insight:e') })],
+            [200, makeHighlights({ pulse })],
+        ]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess'])
+        const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
+
+        logic.actions.hidePulseMetric(pulse[0], 0)
+        releasePins()
+        await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess']).toFinishAllListeners()
+        expect([save.mock.calls.length, shown()]).toEqual([0, ['insight:a', 'insight:b', 'insight:c', 'insight:d']])
+
+        logic.actions.hidePulseMetric(pulse[1], 1)
+        expect(logic.values.pulseSuggestions.map((row) => row.key)).not.toContain('insight:b')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.restoreHiddenPulseNumber({ key: 'insight:e', name: 'E' })
+        await expectLogic(logic).toFinishAllListeners()
+        expect([save.mock.calls.at(-1)?.[1], shown()]).toEqual([
+            { keys: ['insight:b'] },
+            ['insight:a', 'insight:f', 'insight:c', 'insight:d'],
+        ])
     })
 
     it('keeps numbers in their places when a later result reorders or drops them, and starts fresh on a new visit', async () => {
@@ -473,7 +538,6 @@ describe('todayHighlightsLogic', () => {
             expect.objectContaining({
                 number_count: 1,
                 first_card_duration_ms: expect.any(Number),
-                loading_mode: 'progressive',
             })
         )
         logic.actions.pulseViewUnmounted()

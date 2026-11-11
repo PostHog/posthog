@@ -17,7 +17,9 @@ class GatewayRequestCost:
     cost_microusd: int
 
 
-async def fetch_gateway_cost(request_id: str, *, base_url: str, api_key: str) -> GatewayRequestCost | None:
+async def fetch_gateway_cost(
+    request_id: str, *, base_url: str, api_key: str, timeout_seconds: float = 15
+) -> GatewayRequestCost | None:
     import aiohttp  # noqa: PLC0415 - keeps aiohttp off Django's startup path
 
     base_url = base_url.rstrip("/").removesuffix("/v1")
@@ -30,7 +32,7 @@ async def fetch_gateway_cost(request_id: str, *, base_url: str, api_key: str) ->
             session.get(
                 f"{base_url}/v1/usage/{request_id}",
                 headers={"Authorization": f"Bearer {api_key}"},
-                timeout=aiohttp.ClientTimeout(total=15, connect=2, sock_read=3),
+                timeout=aiohttp.ClientTimeout(total=timeout_seconds, connect=2, sock_read=3),
                 allow_redirects=False,
             ) as response,
         ):

@@ -19,9 +19,9 @@ Do NOT:
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from copy import copy
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
@@ -50,6 +50,7 @@ from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
 from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
+    get_non_writable_property_names as _get_non_writable_property_names,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
 )
@@ -57,6 +58,7 @@ from . import contracts
 from .contracts import PropertyAccessLevel
 from .enums import AI_EVENT_PROPERTY_CHOICES
 from .user_access_control import (
+    ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
@@ -147,6 +149,18 @@ def get_restricted_properties_with_group_type_index_for_team(
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
 
 
+def get_restricted_properties_for_group_type(
+    *, user: User | None, team_id: int, group_type_index: int
+) -> set[RestrictedProperty]:
+    """Return property restrictions for a query over one group type, leaving out other group types' restrictions."""
+    return {
+        restriction
+        for restriction in _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        if restriction.property_type != PropertyDefinition.Type.GROUP
+        or restriction.group_type_index in (None, group_type_index)
+    }
+
+
 def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
     """Return restricted event, person, and group property names."""
     group: defaultdict[int | None, set[str]] = defaultdict(set)
@@ -165,6 +179,29 @@ def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> co
             if restriction.property_type == PropertyDefinition.Type.PERSON
         ),
         group={group_type_index: frozenset(names) for group_type_index, names in group.items()},
+    )
+
+
+def get_restricted_group_property_names_by_type_index(
+    *, user: User | None, team_id: int
+) -> dict[int | None, frozenset[str]]:
+    """Return restricted group property names keyed by group type index (None applies to every group type)."""
+    names_by_index: dict[int | None, set[str]] = defaultdict(set)
+    for restriction in _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id):
+        if restriction.property_type == PropertyDefinition.Type.GROUP:
+            names_by_index[restriction.group_type_index].add(restriction.name)
+    return {index: frozenset(names) for index, names in names_by_index.items()}
+
+
+def get_non_writable_group_property_names(*, user: User | None, team_id: int, group_type_index: int) -> frozenset[str]:
+    """Return group property names of this group type that the user cannot write."""
+    return frozenset(
+        _get_non_writable_property_names(
+            team_id=team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.GROUP,
+            group_type_index=group_type_index,
+        )
     )
 
 
@@ -243,6 +280,43 @@ def group_property_names_with_access_rules(*, team_id: int, group_type_index: in
             property_definition__group_type_index=group_type_index,
         ).values_list("property_definition__name", flat=True)
     )
+
+
+def property_key_overlaps_restriction(key: str, restricted_names: Collection[str]) -> bool:
+    """Whether a top-level property key is restricted, sits under a restricted name, or holds one inside its value.
+
+    Names are dot paths, as HogQL reads them: a rule on `a.b` covers the flat key `a.b` and the child `b` of `a`.
+    """
+    segments = key.split(".")
+    for name in restricted_names:
+        name_segments = name.split(".")
+        shared = min(len(segments), len(name_segments))
+        if segments[:shared] == name_segments[:shared]:
+            return True
+    return False
+
+
+def redact_restricted_properties(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
+    """Drop restricted properties, following dot paths into nested objects and arrays the way HogQL masks them."""
+    return _redact_object(properties, restricted_names)
+
+
+def _redact_object(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
+    redacted: dict[str, Any] = {}
+    for key, value in properties.items():
+        if any(key == name or key.startswith(f"{name}.") for name in restricted_names):
+            continue
+        children = [name[len(key) + 1 :] for name in restricted_names if name.startswith(f"{key}.")]
+        redacted[key] = _redact_value(value, children) if children else value
+    return redacted
+
+
+def _redact_value(value: Any, restricted_names: Collection[str]) -> Any:
+    if isinstance(value, Mapping):
+        return _redact_object(value, restricted_names)
+    if isinstance(value, list):
+        return [_redact_value(item, restricted_names) for item in value]
+    return value
 
 
 def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
@@ -540,6 +614,70 @@ def replace_object_access_rules(
                     organization_member_id=member_id,
                     role_id=role_id,
                 )
+
+
+def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
+    """Whether the object has access rules of its own, as opposed to only the rules it inherits."""
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id).exists()
+
+
+def _copyable_object_rules(team_id: int, resource: str, resource_id: str) -> list[contracts.ObjectAccessRuleInput]:
+    # Rules naming a member or role of another organization never apply, so they are not copied.
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    return [
+        contracts.ObjectAccessRuleInput(
+            access_level=rule.access_level,
+            organization_member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
+        for rule in AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id)
+        .filter(Q(organization_member__isnull=True) | Q(organization_member__organization_id=team.organization_id))
+        .filter(Q(role__isnull=True) | Q(role__organization_id=team.organization_id))
+    ]
+
+
+def check_object_access_rules_copy(
+    *, team_id: int, resource: str, from_resource_id: str, to_resource_id: str | None
+) -> None:
+    """Raise `InvalidObjectAccessControlError` when copying the rules of one object to another would pass
+    the cap the rule endpoint applies when a rule is first set on an object.
+
+    `to_resource_id` is None for an object that doesn't exist yet, which has no rules.
+    """
+    if not AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=from_resource_id).exists():
+        return
+    if (
+        to_resource_id is not None
+        and AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=to_resource_id).exists()
+    ):
+        return
+    objects_with_rules = (
+        AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        .values("resource_id")
+        .distinct()
+        .count()
+    )
+    if objects_with_rules >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE:
+        raise InvalidObjectAccessControlError(
+            f"Reached the limit of {ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE} {resource}s with access control overrides."
+        )
+
+
+def copy_object_access_rules(*, team_id: int, resource: str, from_resource_id: str, to_resource_id: str) -> None:
+    """Make the rules on one object the same as the rules on another object of the same resource.
+
+    Replaces every rule the target has, through `replace_object_access_rules`, so each change goes
+    into the activity log. The caller decides whether the change is allowed.
+    """
+    check_object_access_rules_copy(
+        team_id=team_id, resource=resource, from_resource_id=from_resource_id, to_resource_id=to_resource_id
+    )
+    replace_object_access_rules(
+        team_id=team_id,
+        resource=resource,
+        resource_id=to_resource_id,
+        rules=_copyable_object_rules(team_id, resource, from_resource_id),
+    )
 
 
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:

@@ -44,6 +44,9 @@ TEAM_DELETE_RPC_TIMEOUT_SECONDS = 30 * 60
 RETIRED_SESSION_SUMMARY_TABLES = ("ee_single_session_summary",)
 # Child-first order for legacy loop tables retained outside Django state until their safe drop.
 RETIRED_LOOP_TABLES = ("posthog_task_loop_fire", "posthog_task_loop_trigger", "posthog_task_loop")
+# Out of Django state since warehouse_sources/0199, so the Team cascade cannot reach it. It holds encrypted
+# source credentials. Delete with the table.
+RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES = ("warehouse_sources_externaldatasourceinputsbackup",)
 
 
 class TeamPurgeStopped(Exception):
@@ -116,6 +119,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     _delete_llm_evaluations_for_teams(team_ids)
     _delete_retired_session_summaries_for_teams(team_ids)
     _delete_retired_loops_for_teams(team_ids)
+    _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids)
 
 
 def _delete_llm_evaluations_for_teams(team_ids: list[int]) -> None:
@@ -141,6 +145,10 @@ def _delete_retired_session_summaries_for_teams(team_ids: list[int], batch_size:
 
 def _delete_retired_loops_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
     _delete_retired_team_rows(RETIRED_LOOP_TABLES, team_ids, batch_size)
+
+
+def _delete_retired_warehouse_source_inputs_backups_for_teams(team_ids: list[int], batch_size: int = 10000) -> None:
+    _delete_retired_team_rows(RETIRED_WAREHOUSE_SOURCE_INPUTS_BACKUP_TABLES, team_ids, batch_size)
 
 
 def _delete_retired_team_rows(tables: tuple[str, ...], team_ids: list[int], batch_size: int) -> None:

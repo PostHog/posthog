@@ -50,7 +50,7 @@ export interface CustomizedSidebarProps {
         lists: Partial<Record<AnalyticsListSourceApi, SidebarNavigationItem[]>>
         metric: (item: AnalyticsFragmentMetricApi, value: string) => JSX.Element
     }
-    customization: { url: string; event: string }
+    customization: { prompt: string; event: string }
     dataAttrPrefix: string
     refreshError: string
 }
@@ -143,7 +143,7 @@ export function CustomizedSidebar(props: CustomizedSidebarProps): JSX.Element {
                     <SidebarCustomizationControls
                         {...props}
                         {...identity}
-                        customizeUrl={props.customization.url}
+                        customizePrompt={props.customization.prompt}
                         customizeEvent={props.customization.event}
                     />
                     <PostHogErrorBoundary fallback={<></>}>

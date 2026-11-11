@@ -693,7 +693,10 @@ jobs:
             # - N "local" tasks that build each platform's binaries and platform-specific installers
             matrix: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix }}
         runs-on: ${{ matrix.runner }}
-        timeout-minutes: 30
+        # Sized for a slow x86_64-apple-darwin run, not a typical one. That runner
+        # can take twice as long for the same build, and a job that reaches this
+        # limit is cancelled, which skips every publish job.
+        timeout-minutes: 40
         container: ${{ matrix.container && matrix.container.image || null }}
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -799,6 +802,10 @@ jobs:
               # Dogfooding only: a failed symbol upload degrades our own error
               # tracking, and must not block shipping the CLI to users.
               continue-on-error: true
+              # continue-on-error does not apply when the job reaches its own
+              # timeout-minutes, which cancels the whole job. This limit fails
+              # only this step, before the job reaches that timeout.
+              timeout-minutes: 8
               shell: bash
               env:
                   POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
@@ -816,12 +823,21 @@ jobs:
                   symbols_dir="$RUNNER_TEMP/posthog-cli-symbols"
                   mkdir -p "$symbols_dir"
 
+                  # dist builds with --target, so `cargo run` without it uses another
+                  # target directory and compiles the whole CLI again. Use a packaged
+                  # binary when this runner can execute it. The aarch64 Linux targets
+                  # are cross-built on an x86_64 runner, so they cannot.
+                  uploader=(cargo run --manifest-path cli/Cargo.toml --profile dist --)
                   for target in $TARGETS; do
                       package_dir="target/distrib/posthog-cli-$target"
                       target_symbols_dir="$symbols_dir/$target"
                       mkdir -p "$target_symbols_dir"
                       cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
+                      if "$package_dir/posthog-cli" --version >/dev/null; then
+                          uploader=("$package_dir/posthog-cli")
+                      fi
                   done
+                  echo "Uploading with: ${uploader[*]}"
 
                   # Cargo builds into cli/target (the cargo workspace root is cli/),
                   # while repo-root target/ only holds cargo-dist's staging area, so
@@ -832,7 +848,7 @@ jobs:
                       cp -R -L "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
                   done < <(find -L target cli/target -type d -name 'posthog-cli.dSYM' -print0)
 
-                  cargo run --manifest-path cli/Cargo.toml --profile dist -- \
+                  "${uploader[@]}" \
                       symbol-sets upload --directory "$symbols_dir" \
                       --release-name posthog-cli \
                       --release-version "$RELEASE_VERSION"
@@ -1275,6 +1291,7 @@ jobs:
     # cargo-dist generates the jobs below, so per-job failure steps do not survive `dist generate`,
     # and the 7-target matrix would alert 7 times. The release job stays out of the condition: a
     # rejected approval marks it failed, and a rejection must not raise a release-failure alert.
+    # A retired runner label or a build timeout ends a job as cancelled, not failed, so both count.
     notify-publish-failed:
         name: Notify Slack - Publish Failed
         needs:
@@ -1290,9 +1307,13 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >-
-            always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
-            || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
-            || needs.publish-npm.result == 'failure' || needs.publish-homebrew.result == 'failure' || needs.publish-cargo.result == 'failure')
+            always() && (contains(fromJSON('["failure", "cancelled"]'), needs.plan-release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-local-artifacts.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.build-global-artifacts.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.host-release.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-npm.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-homebrew.result)
+            || contains(fromJSON('["failure", "cancelled"]'), needs.publish-cargo.result))
         steps:
             - name: Collect failed jobs
               id: failure-metadata
@@ -1302,7 +1323,7 @@ jobs:
                   set -euo pipefail
 
                   failed_jobs=$(printf '%s' "$NEEDS_JSON" | jq -r '
-                      to_entries | map(select(.value.result == "failure") | .key) | join(", ")
+                      to_entries | map(select(.value.result == "failure" or .value.result == "cancelled") | .key) | join(", ")
                   ')
                   [ -n "$failed_jobs" ] || failed_jobs='unknown'
                   echo "failed-jobs=$failed_jobs" >> "$GITHUB_OUTPUT"

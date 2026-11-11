@@ -1,10 +1,13 @@
+from io import StringIO
 from typing import Any
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from posthog.models import Team
+from django.core.management import call_command
+
+from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.facade.api import list_configurations
@@ -17,8 +20,10 @@ from products.logs.backend.platform_alert_backfill import (
 
 
 class TestPlatformLogsAlertBackfill(APIBaseTest):
-    def _alert(self, team: Team, name: str = "API errors") -> LogsAlertConfiguration:
-        return LogsAlertConfiguration.objects.create(team=team, name=name, filters={"serviceNames": ["api"]})
+    def _alert(self, team: Team, name: str = "API errors", created_by: User | None = None) -> LogsAlertConfiguration:
+        return LogsAlertConfiguration.objects.create(
+            team=team, name=name, filters={"serviceNames": ["api"]}, created_by=created_by
+        )
 
     def _copies(self, team: Team) -> dict[UUID | None, Any]:
         with team_scope(team.id):
@@ -69,3 +74,24 @@ class TestPlatformLogsAlertBackfill(APIBaseTest):
 
         assert disable_platform_alert_configurations(alert_ids=[rotated]) == 1
         assert {key: view.enabled for key, view in self._copies(self.team).items()} == {kept: True, rotated: False}
+
+    def test_copies_carry_the_creator_and_the_command_fills_only_copies_without_one(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", None)
+        copied = self._alert(self.team, created_by=self.user)
+        predates_column = self._alert(self.team, name="Slow requests")
+        no_creator = self._alert(self.team, name="Not named")
+        backfill_platform_alert_configurations(team_id=self.team.id)
+        LogsAlertConfiguration.objects.filter(id=predates_column.id).update(created_by=self.user)
+        LogsAlertConfiguration.objects.filter(id=copied.id).update(created_by=other_user)
+
+        dry_run = StringIO()
+        call_command("backfill_platform_logs_alert_creators", dry_run=True, stdout=dry_run)
+        assert self._copies(self.team)[predates_column.id].created_by_id is None
+        call_command("backfill_platform_logs_alert_creators", stdout=StringIO())
+
+        assert "Would fill the creator on 1 " in dry_run.getvalue()
+        assert {key: view.created_by_id for key, view in self._copies(self.team).items()} == {
+            copied.id: self.user.id,
+            predates_column.id: self.user.id,
+            no_creator.id: None,
+        }

@@ -28,7 +28,7 @@ import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusReason, EmailStatusService, isTransactionalEmailSend } from './email-status.service'
-import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailSendingAppSourceVersion,
@@ -236,6 +236,12 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
+const SUPPRESSION_RETRY_MS = 30_000
+
+function suppressionRetryDelayMs(attempt: number): number {
+    return Math.min(Math.floor(SUPPRESSION_RETRY_MS * 2 ** (attempt - 1) * (1 + Math.random())), CAP_RETRY_MAX_MS)
+}
+
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
 // A sustained rate up there means a team queues more email than its limit can send.
@@ -336,10 +342,7 @@ export interface EmailServiceConfig {
     sesSecretAccessKey: string
     sesRegion: string
     sesEndpoint: string
-    // Configuration set with ESP-level open/click tracking enabled.
     sesTrackedConfigurationSet: string
-    // Configuration set without open/click tracking. Empty means not provisioned: tracking-off
-    // sends fall back to the tracked set (with a warning) rather than failing.
     sesUntrackedConfigurationSet: string
     // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
     // builds an EmailService without them keeps its pre-cap behavior.
@@ -424,7 +427,6 @@ export class EmailService {
     sesV2Client: SESv2Client | null
 
     private recipientTokensService: RecipientTokensService
-    private untrackedConfigSetWarningLogged = false
     private workflowRunLinkTagTeams: ValueMatcher<number>
 
     constructor(
@@ -840,6 +842,19 @@ export class EmailService {
                 result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+            } else if (error instanceof SuppressionLookupError && !isTest) {
+                // A test send runs in process and cannot wait for a retry, so it fails in the branch below.
+                const attempt = (invocation.queueMetadata?.suppressionLookupAttempts ?? 0) + 1
+                const retryAfterMs = suppressionRetryDelayMs(attempt)
+                rescheduled = true
+                result.finished = false
+                result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, suppressionLookupAttempts: attempt }
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
+                addLog(
+                    'warn',
+                    `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                )
             } else {
                 addLog('error', error.message)
                 result.error = error.message
@@ -1095,30 +1110,6 @@ export class EmailService {
         }
     }
 
-    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
-    // destination (suppression and the Metrics tab depend on those events); they differ only in
-    // ESP-level open/click tracking.
-    private resolveConfigurationSetName(
-        trackingEnabled: boolean,
-        invocation: CyclotronJobInvocationHogFunction
-    ): string {
-        if (trackingEnabled) {
-            return this.sesConfig.sesTrackedConfigurationSet
-        }
-        if (this.sesConfig.sesUntrackedConfigurationSet) {
-            return this.sesConfig.sesUntrackedConfigurationSet
-        }
-        // The missing set is static per process - one warning is signal, one per send is noise.
-        if (!this.untrackedConfigSetWarningLogged) {
-            this.untrackedConfigSetWarningLogged = true
-            logger.warn(
-                'Email tracking disabled for send but no untracked SES configuration set is configured - falling back to the tracked set, ESP-level open/click tracking may still apply',
-                { teamId: invocation.teamId, functionId: invocation.functionId }
-            )
-        }
-        return this.sesConfig.sesTrackedConfigurationSet
-    }
-
     private resolveFromSender(
         integration: IntegrationType,
         from: CyclotronInvocationQueueParametersEmailType['from'],
@@ -1249,6 +1240,11 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
+        if (!trackingEnabled && !this.sesConfig.sesUntrackedConfigurationSet) {
+            throw new Error(
+                'Email not sent: tracking is off, but SES_UNTRACKED_CONFIGURATION_SET is empty. Set it to the SES configuration set without open and click tracking.'
+            )
+        }
         const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
@@ -1297,7 +1293,9 @@ export class EmailService {
                     },
                 },
             },
-            ConfigurationSetName: this.resolveConfigurationSetName(trackingEnabled, result.invocation),
+            ConfigurationSetName: trackingEnabled
+                ? this.sesConfig.sesTrackedConfigurationSet
+                : this.sesConfig.sesUntrackedConfigurationSet,
             // Short unsigned tag kept as a backwards-compat carrier for in-flight messages and
             // environments where the configuration set isn't yet emitting original headers.
             EmailTags: [

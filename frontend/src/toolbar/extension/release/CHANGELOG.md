@@ -1,5 +1,11 @@
 # @posthog/toolbar-extension
 
+## 0.3.0
+
+### Minor changes
+
+- [4904c8a8819](https://github.com/PostHog/posthog/commit/4904c8a88199ea8e91647b5b0927467bbed310ee) Let the PostHog app check that the extension is installed, and open an authorized URL with the side panel from the app's toolbar page.
+
 ## 0.2.0
 
 ### Minor changes
