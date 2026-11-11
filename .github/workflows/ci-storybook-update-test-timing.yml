@@ -208,13 +208,17 @@ jobs:
               if: steps.check-changes.outputs.changed == 'true'
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
-                  RUN_ID: ${{ steps.find-run.outputs.run_id }}
+                  RUN_IDS: ${{ steps.find-run.outputs.run_ids }}
                   REPO: ${{ github.repository }}
               run: |
                   existing_pr=$(gh pr list --head "chore/update-storybook-timings" --json number --jq '.[0].number' 2>/dev/null || true)
                   if [ -n "$existing_pr" ]; then
                     echo "PR #$existing_pr already exists — updated by commit"
                   else
+                    run_links=""
+                    for run_id in $RUN_IDS; do
+                      run_links="$run_links [run $run_id](https://github.com/$REPO/actions/runs/$run_id)"
+                    done
                     body=$(cat <<EOF
                   ## Problem
 
@@ -222,11 +226,11 @@ jobs:
 
                   ## Changes
 
-                  Refresh the timing manifest from [Storybook CI run ${RUN_ID}](https://github.com/${REPO}/actions/runs/${RUN_ID}).
+                  Refresh the timing manifest from Storybook CI${run_links}.
 
                   ## How did you test this code?
 
-                  The scheduled workflow validated that the source was a successful full master run with all Chromium and WebKit shard artifacts, then regenerated the manifest.
+                  The scheduled workflow validated that the sources were a successful master push with all Chromium shard artifacts and, when one was found, a successful nightly run with all WebKit shard artifacts, then regenerated the manifest.
 
                   ## Docs update
 
