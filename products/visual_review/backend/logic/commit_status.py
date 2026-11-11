@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 
 from ..db import WRITER_DB
 from ..facade.contracts import NoRunNeededInput
-from ..facade.enums import NoRunNeededOutcome, RunGate, RunPurpose, RunStatus
+from ..facade.enums import BaselineMode, NoRunNeededOutcome, RunPurpose, RunStatus
 from ..models import Repo, Run
 from . import app_urls, baseline_approvals, baselines, ci_status, errors, gating
 
@@ -51,12 +51,18 @@ def _newest_run(repo: Repo, commit_sha: str, run_type: str) -> Run | None:
     )
 
 
-def _guards_stale_approvals(run: Run) -> bool:
-    """Whether a stale approval can fail the run: a pull request run whose gate is this commit status.
+def guards_stale_approvals(repo: Repo) -> bool:
+    """Whether a stale approval can fail a pull request run of the repo: in `ledger` mode with the status gate on.
 
-    A run with the `ci_job` gate keeps the verdict of its own mode, and a queue run fails on drift by itself.
+    The mode decides and not the gate a run was created under. After the switch to `ledger`, the approval
+    rows are the baseline, also for a run created in `shadow` mode and finalized after the switch.
     """
-    return run.gate == RunGate.COMMIT_STATUS and run.purpose != RunPurpose.OBSERVE and run.pr_number is not None
+    return repo.baseline_mode == BaselineMode.LEDGER and publishes_by_commit(repo)
+
+
+def _guards_stale_approvals(run: Run, repo: Repo) -> bool:
+    """Whether a stale approval can fail the run. A queue run fails on drift by itself."""
+    return guards_stale_approvals(repo) and run.purpose != RunPurpose.OBSERVE and run.pr_number is not None
 
 
 def stale_approval_count(run: Run) -> int:
@@ -64,7 +70,7 @@ def stale_approval_count(run: Run) -> int:
 
     A superseded run counts 0, because only the newest run of a commit decides its status.
     """
-    if run.superseded_by_id is not None or not _guards_stale_approvals(run) or not publishes_by_commit(run.repo):
+    if run.superseded_by_id is not None or not _guards_stale_approvals(run, run.repo):
         return 0
     return len(baseline_approvals.stale_approvals(run))
 
@@ -174,7 +180,7 @@ def _run_facts(run: Run, repo: Repo) -> RunFacts:
             awaiting = 0 if unresolved else gating.count_awaiting_finalize(run, WRITER_DB)
             hidden = 0 if unresolved or awaiting else gating.count_hidden_by_quarantine(run, WRITER_DB)
         # A run that already fails on its review needs no stale count.
-        if _guards_stale_approvals(run) and unresolved == 0 and awaiting == 0:
+        if _guards_stale_approvals(run, repo) and unresolved == 0 and awaiting == 0:
             stale = len(baseline_approvals.stale_approvals(run))
     return RunFacts(
         status=RunStatus(run.status),
@@ -275,8 +281,9 @@ def schedule_publish(repo: Repo, commit_sha: str, run_type: str) -> None:
 def publish_for_pull_requests(repo: Repo, pull_requests: set[tuple[int, str]]) -> None:
     """Publish again, through the task, for the newest run of each (pull request number, run type).
 
-    Only runs that `_guards_stale_approvals` accepts and no newer run superseded are looked up. A
-    merge-queue run can carry the pull request's number too, and a stale approval never changes its verdict.
+    Runs of any gate are looked up, because a run created in `shadow` mode can rest on approvals that
+    the ledger moved past after the switch to `ledger`. Superseded runs are skipped. A merge-queue run
+    can carry the pull request's number too, and a stale approval never changes its verdict.
     """
     if not pull_requests:
         return
@@ -286,7 +293,6 @@ def publish_for_pull_requests(repo: Repo, pull_requests: set[tuple[int, str]]) -
             repo_id=repo.id,
             pr_number__in={pr_number for pr_number, _run_type in pull_requests},
             run_type__in={run_type for _pr_number, run_type in pull_requests},
-            gate=RunGate.COMMIT_STATUS,
             superseded_by__isnull=True,
         )
         .exclude(purpose=RunPurpose.OBSERVE)

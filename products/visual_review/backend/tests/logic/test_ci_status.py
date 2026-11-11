@@ -1046,15 +1046,26 @@ class TestStatusByCommit:
         assert all(str(finalized.id) not in call.kwargs["target_url"] for call in sender.call_args_list)
 
     @pytest.mark.parametrize(
-        ("gate", "after", "expected", "stale_count"),
+        ("mode", "gate", "after", "expected", "stale_count"),
         [
-            pytest.param(RunGate.COMMIT_STATUS, _no_push, STALE_ONE, 1, id="stale_approval"),
-            pytest.param(RunGate.CI_JOB, _no_push, _verdict("success", "Visual changes approved"), 0, id="ci_job_gate"),
-            pytest.param(RunGate.COMMIT_STATUS, _push_again, STALE_ONE, 0, id="superseded_by_a_newer_push"),
+            pytest.param(BaselineMode.LEDGER, RunGate.COMMIT_STATUS, _no_push, STALE_ONE, 1, id="stale_approval"),
+            pytest.param(BaselineMode.LEDGER, RunGate.CI_JOB, _no_push, STALE_ONE, 1, id="run_made_in_shadow_mode"),
+            pytest.param(
+                BaselineMode.SHADOW,
+                RunGate.CI_JOB,
+                _no_push,
+                _verdict("success", "Visual changes approved"),
+                0,
+                id="shadow_mode",
+            ),
+            pytest.param(
+                BaselineMode.LEDGER, RunGate.COMMIT_STATUS, _push_again, STALE_ONE, 0, id="superseded_by_a_newer_push"
+            ),
         ],
     )
-    def test_a_finalized_run_on_a_moved_baseline(self, repo, sender, gate, after, expected, stale_count) -> None:
+    def test_a_finalized_run_on_a_moved_baseline(self, repo, sender, mode, gate, after, expected, stale_count) -> None:
         run = _finalized_run_on_a_moved_baseline(repo, gate)
+        set_baseline_mode(repo, mode, status_gate=True)
         after(repo, run)
 
         commit_status.publish(repo, run.commit_sha, run.run_type)
