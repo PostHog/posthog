@@ -1838,6 +1838,27 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.deleted
 
+    def test_restoring_a_template_whose_key_another_template_took_answers_409(self, mock_post, _flag):
+        self.client.force_login(self.user)
+        MessageTemplate.objects.filter(pk=self.template.pk).update(key="synthetic-reset", deleted=True)
+        MessageTemplate.objects.create(
+            team=self.team,
+            name="Password reset v2",
+            content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
+            type="email",
+            key="synthetic-reset",
+        )
+
+        restored = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "message_template", "ref": str(self.template.id)}]},
+            format="json",
+        )
+
+        assert restored.status_code == status.HTTP_409_CONFLICT, restored.content
+        self.template.refresh_from_db()
+        assert self.template.deleted
+
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):
         self._login_member("viewer@example.com", {None: "viewer", str(self.hog_flow_id): "editor"})

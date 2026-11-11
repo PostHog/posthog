@@ -524,6 +524,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
         )
 
+    def _only_viewed_workflow_files(self, queryset: QuerySet) -> QuerySet:
+        viewed = recent_view_logs(
+            team_id=self.team.id, user_id=cast(User, self.request.user).id, surface=self.file_system_surface
+        ).filter(type=OuterRef("type"), ref=OuterRef("ref"))
+        return queryset.filter(~Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) | Exists(viewed))
+
     def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str, int]]) -> None:
         """Require editor access on every backing object the delete would reach.
 
@@ -1043,7 +1049,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=False, pagination_class=None)
     def frequent(self, request: Request, **kwargs: object) -> Response:
         queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id)
-        queryset = self._filter_by_access_control(queryset)
+        queryset = self._filter_by_access_control(self._only_viewed_workflow_files(queryset))
         items = get_recent_file_system_items(
             team_id=self.team.id,
             user_id=cast(User, request.user).id,
@@ -1101,7 +1107,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
             type__in=RETIRED_FILE_SYSTEM_TYPES
         )
-        base_queryset = self._filter_by_access_control(base_queryset)
+        base_queryset = self._filter_by_access_control(self._only_viewed_workflow_files(base_queryset))
         if search_param:
             base_queryset = self._apply_search_to_queryset(
                 base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))

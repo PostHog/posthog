@@ -10,7 +10,11 @@ from django.core.exceptions import (
     ObjectDoesNotExist,
     ValidationError as DjangoValidationError,
 )
+from django.db import IntegrityError, transaction
 
+import psycopg
+
+from posthog.exceptions import Conflict
 from posthog.models.file_system.file_system import FileSystem, join_path, split_path
 from posthog.models.signals import mute_selected_signals
 
@@ -481,8 +485,16 @@ def undo_delete(
     if capabilities.has_last_modified_by and context.user is not None:
         instance.last_modified_by = context.user
 
-    with mute_selected_signals():
-        instance.save()
+    try:
+        # A savepoint, so the unique violation leaves the caller's transaction usable for the 409.
+        with mute_selected_signals(), transaction.atomic():
+            instance.save()
+    except IntegrityError as exc:
+        if not isinstance(exc.__cause__, psycopg.errors.UniqueViolation):
+            raise
+        raise Conflict(
+            "Can't restore this because another item now uses its key. Change that item's key first, then try again."
+        ) from exc
 
     post_hook = _POST_RESTORE_HOOKS.get(type_string)
     if post_hook:
