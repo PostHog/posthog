@@ -8,7 +8,7 @@ import { setTimeout as sleep } from 'timers/promises'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
-import { CdpRole, LoadedCard } from '../cards'
+import { CdpRole, LoadedCard, PRODUCER_SETTING } from '../cards'
 import { durationMs } from '../duration'
 import { EDGE_URL, Environment, defaultStateDir } from '../environment/environment'
 import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
@@ -44,7 +44,6 @@ export interface Runner {
 }
 
 const HEALTH_INTERVAL_MS = 5000
-const PRODUCER_SETTING = 'KAFKA_PRODUCER_'
 const DELIVERY_TIMEOUT_MS = 10_000
 
 type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>

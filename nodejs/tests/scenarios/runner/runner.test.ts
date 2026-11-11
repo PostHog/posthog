@@ -1,12 +1,14 @@
 import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { stringify } from 'yaml'
 
 import { LoadedCard, load } from '../cards'
 import { Environment } from '../environment/environment'
 import { Runner, createRunner } from './runner'
 
-const SMOKE = load(path.join(__dirname, '..', 'cards', 'smoke.yaml'))
+const SMOKE_CARD = path.join(__dirname, '..', 'cards', 'smoke.yaml')
+const SMOKE = load(SMOKE_CARD)
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
 const NEVER_ABORTED = new AbortController().signal
@@ -68,13 +70,17 @@ describe('runner', () => {
         expect(result).toMatchObject({ status: 'invalid', statusReason: expect.stringMatching(statusReason) })
     })
 
-    it('produces with the Kafka settings each card profile names', async () => {
-        await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
-
-        const result = await runner.run(
-            withSettings({ DATABASE_URL: PROFILE_DATABASE_URL, KAFKA_PRODUCER_SCENARIO_UNKNOWN: 'on' }),
-            NEVER_ABORTED
+    it('produces with the Kafka settings the card profile names', async () => {
+        const profile = path.join(cacheHome, 'profile.yaml')
+        writeFileSync(
+            profile,
+            stringify({
+                ...SMOKE.profile,
+                settings: { DATABASE_URL: PROFILE_DATABASE_URL, KAFKA_PRODUCER_SCENARIO_UNKNOWN: 'on' },
+            })
         )
+
+        const result = await runner.run(load(SMOKE_CARD, { profilePath: profile }), NEVER_ABORTED)
 
         expect(result).toMatchObject({
             status: 'invalid',
