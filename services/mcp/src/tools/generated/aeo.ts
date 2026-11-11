@@ -203,6 +203,7 @@ const aeoPromptsList = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/`,
             query: {
                 active: params.active,
+                branded: params.branded,
                 include_archived: params.include_archived,
                 limit: params.limit,
                 needs_improvement: params.needs_improvement,
@@ -231,6 +232,7 @@ const aeoPromptsOverviewGet = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/aeo_prompts/overview/`,
             query: {
+                branded: params.branded,
                 days: params.days,
             },
         })
