@@ -2538,6 +2538,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def _take_native_ownership(self, alert: AlertConfiguration, user: User) -> AlertConfiguration:
         """`take_ownership` for an alert with no insight row: the platform stores its owner, and its
         enable goes through the platform's admission, after the AI detector's."""
+        requester = cast(User, self.request.user)
         with transaction.atomic():
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
@@ -2548,13 +2549,22 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if reloaded is None:
                 raise Http404
             alert = reloaded
+            alert.insight.refresh_from_db()
+            with upgrade_insight(alert.insight):
+                query = alert.insight.query
+            _validate_transfer_query_access(requester, alert.team, query, requirement="You need")
+            if user.pk != requester.pk:
+                _validate_transfer_query_access(user, alert.team, query, requirement="The new owner needs")
             assign_alert_owner(
-                team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                user=user,
+                actor=requester,
+                was_impersonated=get_was_impersonated(),
             )
             alert.created_by = user
             # The same checks the row path's enable runs, against the insight as it is under the lock,
             # so an insight edit that broke the alert's configuration refuses the enable.
-            alert.insight.refresh_from_db()
             self.get_serializer(alert, data={"enabled": True}, partial=True).is_valid(raise_exception=True)
             _admit_llm_alert_write(
                 self.get_serializer_context(),

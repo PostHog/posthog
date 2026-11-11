@@ -1,5 +1,9 @@
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -7,10 +11,14 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.scoping import team_scope
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.platform_cutover import cut_over_team
+from products.alerts.backend.platform_insight_alert import native_insight_alert_view
 from products.alerts.backend.test.insight_alerts import create_insight_alert
+from products.alerts_platform.backend.facade import testing as platform_testing
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
@@ -102,9 +110,16 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.content
 
     @parameterized.expand(
-        [(False, "requester"), (True, "requester"), (False, "owner"), (True, "owner"), (False, None), (True, None)]
+        [
+            (storage, enabled, denied_user)
+            for storage in ("insight", "platform")
+            for enabled in (False, True)
+            for denied_user in ("requester", "owner", None)
+        ]
     )
-    def test_transfer_checks_both_users_table_access(self, enabled: bool, denied_user: str | None) -> None:
+    def test_transfer_checks_both_users_table_access(
+        self, storage: str, enabled: bool, denied_user: str | None
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
         ]
@@ -123,10 +138,19 @@ class TestAlertTakeOwnership(APIBaseTest):
             self.team,
             created_by=self.user,
             enabled=enabled,
+            next_check_at=timezone.now() + timedelta(minutes=5),
             config={"type": "HogQLAlertConfig", "evaluation": "last_row"},
         )
         alert.insight.query = {"kind": "HogQLQuery", "query": "SELECT value FROM governed_view"}
         alert.insight.save()
+        alert_id = alert.id
+        if storage == "platform":
+            [cutover] = cut_over_team(self.team.id)
+            assert cutover.skipped is None
+            with team_scope(self.team.id):
+                alert_id = platform_testing.copy_of(alert.id).id
+                platform_testing.forget_source_row(alert_id)
+            AlertConfiguration.objects.filter(id=alert.id).delete()
         if denied_user:
             AccessControl.objects.create(
                 team=self.team,
@@ -137,22 +161,35 @@ class TestAlertTakeOwnership(APIBaseTest):
 
         with patch("posthog.hogql.database.database._evaluate_warehouse_access_control_flag", return_value=True):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/alerts/{alert.id}/take_ownership/", {"user_uuid": str(owner.uuid)}
+                f"/api/projects/{self.team.id}/alerts/{alert_id}/take_ownership/", {"user_uuid": str(owner.uuid)}
             )
 
-        alert.refresh_from_db()
+        if storage == "platform":
+            view = native_insight_alert_view(self.team.id, alert_id)
+            assert view is not None
+            native_alert = AlertConfiguration.from_platform_view(view, team_id=self.team.id)
+            assert native_alert is not None
+            alert = native_alert
+        else:
+            alert.refresh_from_db()
         if denied_user:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
             assert "governed_view" in response.json()["detail"]
             assert alert.created_by == self.user
             assert alert.enabled is enabled
             assert not ActivityLog.objects.filter(
-                scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership"
+                scope="AlertConfiguration", item_id=str(alert_id), activity="took_ownership"
             ).exists()
         else:
             assert response.status_code == status.HTTP_200_OK, response.content
             assert alert.created_by == owner
             assert alert.enabled is True
+            assert (
+                ActivityLog.objects.get(
+                    scope="AlertConfiguration", item_id=str(alert_id), activity="took_ownership"
+                ).user
+                == self.user
+            )
 
     def test_take_ownership_of_an_ai_alert_needs_the_rollout(self) -> None:
         former_member = User.objects.create_user(email="former-member@example.com", first_name="", password=None)
