@@ -37,7 +37,9 @@ _DESKTOP_LEGACY_MODEL_ADAPTERS: dict[str, str] = {"gpt-5.4": "codex", "gpt-5.3-c
 _DESKTOP_LEGACY_MODELS: tuple[str, ...] = tuple(_DESKTOP_LEGACY_MODEL_ADAPTERS)
 
 
-def desktop_legacy_runtime_adapter(model_id: str) -> str | None:
+def uncataloged_runtime_adapter(model_id: str) -> str | None:
+    if model_id in SDK_IMPLICIT_MODELS:
+        return "claude"
     return _DESKTOP_LEGACY_MODEL_ADAPTERS.get(model_id)
 
 

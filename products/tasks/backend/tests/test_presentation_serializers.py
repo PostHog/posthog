@@ -161,13 +161,16 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         [
             ("gpt-5.5", "high", "codex"),
             ("gpt-5.3-codex", "high", "codex"),
+            ("claude-haiku-4-5", None, "claude"),
+            ("claude-sonnet-4-5", None, "claude"),
             ("claude-sonnet-4-6", "medium", "claude"),
             ("unknown-model", "high", None),
             ("gpt-5.5", "ultracode", None),
         ]
     )
-    def test_model_only_selection(self, model: str, effort: str, adapter: str | None) -> None:
-        serializer = TaskRunCreateRequestSerializer(data={"model": model, "reasoning_effort": effort})
+    def test_model_only_selection(self, model: str, effort: str | None, adapter: str | None) -> None:
+        data = {"model": model} if effort is None else {"model": model, "reasoning_effort": effort}
+        serializer = TaskRunCreateRequestSerializer(data=data)
         assert serializer.is_valid() is (adapter is not None), serializer.errors
         if adapter is not None:
             assert serializer.validated_data["runtime_adapter"] == adapter
