@@ -20,6 +20,7 @@ import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import get_cached_instance_license
+from posthog.constants import AvailableFeature
 from posthog.email import EmailMessage, get_email_team_and_org_context, is_email_available
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
@@ -35,7 +36,8 @@ from . import pandadoc as pandadoc_client
 
 logger = structlog.get_logger(__name__)
 
-# Addon types that entitle an organization to a BAA.
+# A trial of these addons grants the BAA entitlement, but a BAA needs a paid
+# subscription, so an active trial of one of them blocks it.
 BAA_ADDON_TYPES = frozenset({"boost", "scale", "enterprise"})
 
 # Startup program organizations always pay with credits, and credits do not cover
@@ -86,11 +88,11 @@ def get_baa_block_reason(organization: Organization, impersonated: bool) -> BaaB
     on_startup_program = billing.get("startup_program_label") == BAA_BLOCKED_STARTUP_PROGRAM_LABEL
     if on_startup_program and not impersonated:
         return BaaBlockReason.STARTUP_PROGRAM
-    for product in billing.get("products") or []:
-        for addon in product.get("addons") or []:
-            if addon.get("type") in BAA_ADDON_TYPES and addon.get("subscribed"):
-                return None
-    return BaaBlockReason.NO_QUALIFYING_ADDON
+    trial = billing.get("trial") or {}
+    on_qualifying_trial = trial.get("status") == "active" and trial.get("target") in BAA_ADDON_TYPES
+    if on_qualifying_trial or not organization.is_feature_available(AvailableFeature.HIPAA_BAA):
+        return BaaBlockReason.NO_QUALIFYING_ADDON
+    return None
 
 
 def _signed_baa_subquery() -> QuerySet[LegalDocument]:

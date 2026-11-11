@@ -64,16 +64,18 @@ def _org_has_realtime_notifications(org: Organization) -> bool:
 
 def _get_digest_variant(user: User, org_id: str, flag_key: str) -> str | None:
     try:
-        variant = cast(
-            "bool | str | None",
-            posthoganalytics.get_feature_flag(
-                flag_key,
-                distinct_id=str(user.distinct_id),
-                groups={"organization": org_id},
-                only_evaluate_locally=False,
-                send_feature_flag_events=True,
-            ),
-        )
+        with posthoganalytics.new_context(capture_exceptions=False):
+            posthoganalytics.tag("$update_person_last_seen_at", False)
+            variant = cast(
+                "bool | str | None",
+                posthoganalytics.get_feature_flag(
+                    flag_key,
+                    distinct_id=str(user.distinct_id),
+                    groups={"organization": org_id},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=True,
+                ),
+            )
     except Exception as e:
         logger.warning(
             "wa digest notification: holdout flag eval failed, treating user as not exposed",
@@ -183,6 +185,7 @@ def _capture_digest_sent(
                 distinct_id=str(user.distinct_id),
                 event="web_analytics_digest_notification_sent",
                 properties={
+                    "$update_person_last_seen_at": False,
                     "org_id": str(org.id),
                     "team_id": team_id,
                     "variant": variant,

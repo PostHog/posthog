@@ -294,6 +294,9 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(list_response.json()["results"][0]["email_suppressed"], expected_suppressed)
         events = [c.kwargs["event"] for c in capture.call_args_list]
         self.assertEqual(events, ["invite email suppressed"] if expected_suppressed else [])
+        if expected_suppressed:
+            assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+            assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email_on_instance_but_send_email_prop_false(self, mock_capture):

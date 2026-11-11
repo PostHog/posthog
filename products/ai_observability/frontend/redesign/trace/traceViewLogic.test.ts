@@ -14,12 +14,14 @@ import {
     makeEvaluationResult,
     makeEvaluationResults,
     makeNodeDetail,
+    makeRawNode,
     makeTraceResource,
 } from './adapter/testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
@@ -44,6 +46,8 @@ describe('traceViewLogic', () => {
     let requestedHint: string | null = null
     let requestedPath: string | null = null
     let nodeRequests: string[] = []
+    let rawRequests: string[] = []
+    let rawStatus = 200
     let nodeHints: (string | null)[] = []
     let nodeStatus = 200
     let nodeGate: Promise<void> = Promise.resolve()
@@ -53,6 +57,8 @@ describe('traceViewLogic', () => {
         requestedHint = null
         requestedPath = null
         nodeRequests = []
+        rawRequests = []
+        rawStatus = 200
         nodeHints = []
         nodeStatus = 200
         nodeGate = Promise.resolve()
@@ -72,6 +78,13 @@ describe('traceViewLogic', () => {
                         return [404, { detail: 'Node not found.' }]
                     }
                     return nodeStatus === 200 ? [200, makeNodeDetail({ id: nodeId })] : [nodeStatus, { detail: 'nope' }]
+                },
+                [RAW_URL]: ({ params }) => {
+                    const nodeId = decodeIdSegment(String(params.node_id))
+                    rawRequests.push(nodeId)
+                    return rawStatus === 200
+                        ? [200, makeRawNode({ id: nodeId, properties: { $ai_model: 'gpt-4o' } })]
+                        : [rawStatus, { detail: 'nope' }]
                 },
                 [TRACE_URL]: ({ request }) => {
                     const url = new URL(request.url)
@@ -395,6 +408,47 @@ describe('traceViewLogic', () => {
                 trigger: 'selection',
                 waited_ms: 6000,
             })
+        })
+    })
+
+    describe('raw reads', () => {
+        it('reads a step raw event once, however many times it is asked for', async () => {
+            const logic = await mountedLogic()
+
+            logic.actions.loadRawNode('span-1')
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(rawRequests).toEqual(['span-1'])
+        })
+
+        it('stores the raw event once it arrives', async () => {
+            const logic = await mountedLogic()
+
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.rawNodes['span-1']).toMatchObject({
+                status: 'ready',
+                raw: { id: 'span-1', event: { properties: { $ai_model: 'gpt-4o' } } },
+            })
+        })
+
+        it('stores not_found for a missing step and reads it again on the next request', async () => {
+            silenceKeaLoadersErrors()
+            const logic = await mountedLogic()
+            rawStatus = 404
+
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.rawNodes['span-1']).toEqual({ status: 'error', failure: 'not_found' })
+
+            rawStatus = 200
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'ready' })
         })
     })
 })
