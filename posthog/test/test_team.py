@@ -175,8 +175,13 @@ class TestTeam(BaseTest):
         assert team.primary_dashboard is not None
         self.assertEqual(team.primary_dashboard.name, "Your starter dashboard")
 
-        # Ensure insights are created and linked (8 insight tiles + 5 text tiles + 3 button tiles)
-        self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 16)
+        # Ensure insights are created and linked (9 insight tiles + 4 text tiles + 3 button tiles)
+        tiles = DashboardTile.objects.filter(dashboard=team.primary_dashboard)
+        self.assertEqual(tiles.count(), 16)
+        self.assertEqual(
+            {tile.group_key for tile in tiles if tile.group_key},
+            set(team.primary_dashboard.customization["groups"]),
+        )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
@@ -287,12 +292,12 @@ class TestTeam(BaseTest):
 
     @parameterized.expand(
         [
-            ("Active users (last 30 days)",),
-            ("Daily active users (DAUs)",),
-            ("Weekly active users (WAUs)",),
+            ("Active users (last 30 days)", "monthly_active"),
+            ("Daily active users (DAUs)", "dau"),
+            ("Weekly active users (WAUs)", "dau"),
         ]
     )
-    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name):
+    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name, expected_math):
         team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         tile = DashboardTile.objects.get(
             dashboard=team.primary_dashboard,
@@ -304,7 +309,7 @@ class TestTeam(BaseTest):
         assert len(series) == 1
         assert series[0]["kind"] == "GroupNode"
         assert series[0]["operator"] == "OR"
-        assert series[0]["math"] == "dau"
+        assert series[0]["math"] == expected_math
         assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
 
     @parameterized.expand(
