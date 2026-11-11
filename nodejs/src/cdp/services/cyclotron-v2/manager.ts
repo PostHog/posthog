@@ -35,18 +35,8 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-/**
- * Compute the `dequeue_seq` of each email job in a batch, given each job's
- * team in input order. One UPSERT covers the whole batch, so a team's counter
- * row is locked once per batch, not once per job.
- *
- * A team's first-ever email starts at `MAX(counter) + 1` across the table
- * (Hatchet's `p_max_assigned` pattern), so a new tenant can't enqueue a burst
- * that gets free priority over established tenants' in-flight emails.
- *
- * Do not add an index on `counter` to make `MAX` cheap: every call changes
- * `counter`, so the index would block HOT updates on this hot row.
- */
+// Do not add an index on `counter` to make `MAX` cheap: every call changes
+// `counter`, so the index would block HOT updates on this hot row.
 export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
@@ -61,13 +51,11 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
         return []
     }
 
-    // Concurrent batches lock their teams' rows in one shared order, ascending
-    // team_id, so two batches that share teams cannot deadlock.
+    // One shared lock order, so two concurrent batches that share teams cannot deadlock.
     const teamIds = [...indicesByTeam.keys()].sort((a, b) => a - b)
     const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
 
-    // New-team rows insert at `MAX + increment`. The ON CONFLICT branch
-    // subtracts the MAX shift back out, so existing rows add just `increment`.
+    // Hatchet's `p_max_assigned`: a team's first email starts at MAX + 1, so a newcomer's burst cannot cut ahead.
     const upsertResult = await pool.query<{ team_id: number; counter: string }>(
         `WITH max_counter AS (
              SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
@@ -93,20 +81,13 @@ export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[])
         const startCounter = newCounter - BigInt(indices.length) + 1n
         const teamIdBigInt = BigInt(teamId)
         for (let k = 0; k < indices.length; k++) {
-            // pg accepts BIGINT as string to avoid JS number precision loss
             dequeueSeqs[indices[k]] = ((startCounter + BigInt(k)) * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
         }
     }
     return dequeueSeqs
 }
 
-/**
- * Returns an allocator for callers that assign one email job at a time, such
- * as the worker's reroute of a hog or hogflow job into the email queue. The
- * callers of one result batch reach it in the same event-loop turn, so it
- * holds their jobs until the next turn and allocates them together with
- * `allocateEmailDequeueSeqs`.
- */
+// The reroutes of one result batch arrive in one event-loop turn and share one allocation on the next.
 export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<string> {
     let pending: { teamId: number; resolve: (dequeueSeq: string) => void; reject: (error: unknown) => void }[] = []
     const flush = async (): Promise<void> => {
