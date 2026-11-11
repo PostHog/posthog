@@ -1,6 +1,7 @@
 import json
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
@@ -13,10 +14,13 @@ from posthog.dags.geoip_backfill_persons import (
     INITIAL_GEOIP_KEYS,
     GeoipPersonsConfig,
     GeoipPersonsLog,
+    StagedPersonEvents,
     geoip_backfill_persons_job,
     staged_person_events,
 )
+from posthog.dags.tests.conftest import GeoipTeams
 from posthog.dags.tests.test_geoip_backfill import PUBLIC_IP, SeededEvent, run_staging, seed
+from posthog.dataclasses import frozen
 from posthog.personhog_client.fake_client import fake_personhog_client
 
 
@@ -35,14 +39,21 @@ def test_staged_person_events_merges_the_earliest_and_last_event_across_shards()
         ),
     ]
 
-    [merged] = staged_person_events(rows).values()
+    [merged] = staged_person_events([StagedPersonEvents.from_row(row) for row in rows]).values()
 
     assert merged.initial_geoip["$initial_geoip_country_code"] == "US"
     assert merged.latest_geoip["$geoip_country_code"] == "FR"
     assert merged.last_written_at == start + timedelta(minutes=10)
 
 
-def written_persons(cluster: ClickhouseCluster, run_id: str) -> dict[int, tuple[dict, dict, dict]]:
+@frozen
+class WrittenPerson:
+    set_once: dict[str, Any]
+    set_properties: dict[str, Any]
+    previous: dict[str, Any]
+
+
+def written_persons(cluster: ClickhouseCluster, run_id: str) -> dict[int, WrittenPerson]:
     rows = cluster.any_host_by_role(
         Query(
             f"""SELECT person_id, set_once_properties, set_properties, previous_properties
@@ -50,15 +61,20 @@ def written_persons(cluster: ClickhouseCluster, run_id: str) -> dict[int, tuple[
         ),
         NodeRole.DATA,
     ).result()
-    return {row[0]: (json.loads(row[1]), json.loads(row[2]), json.loads(row[3])) for row in rows}
+    return {
+        row[0]: WrittenPerson(
+            set_once=json.loads(row[1]), set_properties=json.loads(row[2]), previous=json.loads(row[3])
+        )
+        for row in rows
+    }
 
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("dry_run", [False, True], ids=["repair", "dry_run"])
 def test_persons_get_missing_geoip_once(
-    cluster: ClickhouseCluster, geoip_teams: tuple[int, int], tmp_path: Path, dry_run: bool
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path, dry_run: bool
 ) -> None:
-    with_geoip, _ = geoip_teams
+    with_geoip = geoip_teams.with_geoip
     # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
     now = datetime.now(UTC).replace(microsecond=0)
     new_person, earlier_person, located_later = uuid4(), uuid4(), uuid4()
@@ -139,10 +155,10 @@ def test_persons_get_missing_geoip_once(
             assert later == located_later_properties
             first_log, second_log = (written_persons(cluster, run_id) for run_id in persons_run_ids)
             assert set(first_log) == {1, 2}
-            set_once, set_properties, previous = first_log[2]
-            assert set_once["$initial_geoip_country_code"] == "US"
-            assert set_properties["$geoip_country_code"] == "US"
-            assert previous == {"$initial_geoip_country_code": "FR", "$geoip_country_code": "FR"}
+            logged = first_log[2]
+            assert logged.set_once["$initial_geoip_country_code"] == "US"
+            assert logged.set_properties["$geoip_country_code"] == "US"
+            assert logged.previous == {"$initial_geoip_country_code": "FR", "$geoip_country_code": "FR"}
             assert set(second_log) == (set() if not dry_run else {1, 2})
             if dry_run:
                 assert new == {"email": "a@example.com"}

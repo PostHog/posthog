@@ -21,6 +21,7 @@ configured, the first write fails the job. A dry run only reads, so it works wit
 import json
 import time
 import uuid
+import dataclasses
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from functools import partial
@@ -40,7 +41,7 @@ from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
 from posthog.dags.common import dagster_tags
 from posthog.dags.flag_evaluations_backfill import shard_workload
-from posthog.dags.geoip_backfill import OWNER_TAG, GeoipStagingTable, tagged
+from posthog.dags.geoip_backfill import OWNER_TAG, GeoipStagingTable, staged_team_ids, tagged
 from posthog.dags.geoip_enrichment import GEOIP_KEYS, GEOIP_PREFIX, INITIAL_GEOIP_PREFIX
 from posthog.dataclasses import frozen
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -93,6 +94,19 @@ class StagedPersonEvents:
     last_written_at: datetime
     latest_geoip: dict[str, Any]
 
+    @classmethod
+    def from_row(cls, row: Sequence[Any]) -> "StagedPersonEvents":
+        """A row of staged_person_events_query."""
+        team_id, person_uuid, first_timestamp, set_once, last_written_at, latest_set = row
+        return cls(
+            team_id=team_id,
+            person_uuid=str(person_uuid),
+            first_timestamp=first_timestamp,
+            initial_geoip=_pick(_json_object(set_once), INITIAL_GEOIP_KEYS),
+            last_written_at=last_written_at,
+            latest_geoip=_pick(_json_object(latest_set), LATEST_GEOIP_KEYS),
+        )
+
 
 @frozen
 class PersonRepair:
@@ -137,37 +151,22 @@ EMPTY_TOTALS = PersonRepairTotals(
 
 
 def staged_person_events(
-    rows: Sequence[tuple[int, Any, datetime, str, datetime, str]],
+    per_shard: Sequence[StagedPersonEvents],
 ) -> dict[tuple[int, str], StagedPersonEvents]:
-    """Keep each person's earliest and last staged event across the rows that every shard returned.
+    """Keep each person's earliest and last staged event across what every shard returned.
 
     A person's distinct IDs can live on different shards, so each shard returns its own earliest and last event.
     """
     merged: dict[tuple[int, str], StagedPersonEvents] = {}
-    for team_id, person_uuid, first_timestamp, set_once, last_written_at, latest_set in rows:
-        key = (team_id, str(person_uuid))
-        shard_events = StagedPersonEvents(
-            team_id=team_id,
-            person_uuid=str(person_uuid),
-            first_timestamp=first_timestamp,
-            initial_geoip=_pick(_json_object(set_once), INITIAL_GEOIP_KEYS),
-            last_written_at=last_written_at,
-            latest_geoip=_pick(_json_object(latest_set), LATEST_GEOIP_KEYS),
-        )
+    for shard_events in per_shard:
+        key = (shard_events.team_id, shard_events.person_uuid)
         known = merged.get(key)
         if known is None:
             merged[key] = shard_events
             continue
-        first = known if known.first_timestamp <= first_timestamp else shard_events
-        last = known if known.last_written_at >= last_written_at else shard_events
-        merged[key] = StagedPersonEvents(
-            team_id=team_id,
-            person_uuid=str(person_uuid),
-            first_timestamp=first.first_timestamp,
-            initial_geoip=first.initial_geoip,
-            last_written_at=last.last_written_at,
-            latest_geoip=last.latest_geoip,
-        )
+        first = known if known.first_timestamp <= shard_events.first_timestamp else shard_events
+        last = known if known.last_written_at >= shard_events.last_written_at else shard_events
+        merged[key] = dataclasses.replace(first, last_written_at=last.last_written_at, latest_geoip=last.latest_geoip)
     return merged
 
 
@@ -344,11 +343,11 @@ class PersonsRepair:
             written=written,
         )
 
-    def _read_staged(self, team_ids: tuple[int, ...]) -> list[tuple[int, Any, datetime, str, datetime, str]]:
+    def _read_staged(self, team_ids: tuple[int, ...]) -> list[StagedPersonEvents]:
         query = staged_person_events_query(self.table)
 
-        def read(client: Client) -> list[tuple[int, Any, datetime, str, datetime, str]]:
-            return client.execute(query, {"team_ids": team_ids})
+        def read(client: Client) -> list[StagedPersonEvents]:
+            return [StagedPersonEvents.from_row(row) for row in client.execute(query, {"team_ids": team_ids})]
 
         return self._on_every_shard(read)
 
@@ -456,17 +455,7 @@ def repair_geoip_persons(
     Persons whose `$initial_geoip_country_code` differs from their first staged event are only counted.
     """
     table = GeoipStagingTable(id=uuid.UUID(config.staging_run_id))
-    if not cluster.any_host_by_role(table.exists, NodeRole.DATA).result():
-        raise dagster.Failure(description=f"{table.qualified_name} does not exist.")
-
-    def staged_teams(client: Client) -> list[tuple[int]]:
-        return client.execute(f"SELECT DISTINCT team_id FROM {table.qualified_name}")
-
-    team_ids = {
-        team_id for rows in cluster.map_one_host_per_shard(staged_teams).result().values() for (team_id,) in rows
-    }
-    if config.team_ids:
-        team_ids &= set(config.team_ids)
+    team_ids = staged_team_ids(cluster, table, config.team_ids)
     written_persons = GeoipPersonsLog(id=uuid.UUID(context.run_id))
     cluster.map_hosts_by_role(written_persons.create, NodeRole.DATA).result()
     totals = PersonsRepair(
@@ -476,7 +465,7 @@ def repair_geoip_persons(
         config=config,
         log=context.log,
         query_tags=dagster_tags(context),
-    ).run(sorted(team_ids))
+    ).run(team_ids)
     context.log.info(f"{written_persons.qualified_name} lists the persons this run wrote or would write")
     context.add_output_metadata(
         {
