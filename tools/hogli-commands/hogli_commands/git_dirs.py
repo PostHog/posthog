@@ -4,9 +4,9 @@ from pathlib import Path
 
 
 def git_common_dir(repo_root: Path) -> Path | None:
-    """Resolve the shared .git directory of the checkout at ``repo_root`` without spawning git.
+    """Return the shared .git directory of the checkout at ``repo_root``, reading files instead of running git.
 
-    In a linked worktree ``.git`` is a file pointing at ``<common>/worktrees/<name>``.
+    In a linked worktree ``.git`` is a file that points at ``<common>/worktrees/<name>``.
     """
     dot_git = repo_root / ".git"
     if dot_git.is_dir():

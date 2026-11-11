@@ -1,9 +1,9 @@
-"""Make a linked worktree import its own copy of each editable workspace package.
+"""Make hogli in a linked worktree import the worktree's copy of each editable package.
 
-A worktree often runs hogli with the main clone's venv. Its editable installs point at the main
-clone's files, but hogli loads commands from the worktree, so a command can run against a package
-from another commit and fail or skip. Listed first in ``config.boot_modules``, so it runs before
-any command imports a workspace package.
+A worktree often borrows the main clone's venv, whose editable installs point at the main clone.
+hogli loads its commands from the worktree, so without this module a command runs against packages
+from another commit. It is first in ``config.boot_modules``, so it runs before any command imports
+one of those packages.
 """
 
 from __future__ import annotations
@@ -20,8 +20,8 @@ from hogli_commands.git_dirs import git_common_dir
 
 
 def _editable_import_roots(site_dirs: Iterable[str]) -> list[str]:
-    # An editable install writes its import root as a bare absolute path line in a .pth file,
-    # and `site` adds it to sys.path as os.path.abspath(line). Lines that start with `import` run code.
+    # `site` adds an absolute .pth line to sys.path as os.path.abspath(line), so the same form
+    # finds that entry in sys.path later.
     roots = []
     for site_dir in site_dirs:
         for pth in sorted(Path(site_dir).glob("*.pth")):
@@ -36,7 +36,7 @@ def _editable_import_roots(site_dirs: Iterable[str]) -> list[str]:
 
 
 def worktree_import_roots(repo_root: Path, site_dirs: Iterable[str]) -> dict[str, str]:
-    """Map each sys.path entry that an editable install points into the main clone to the worktree's copy."""
+    """Map each editable sys.path entry under the main clone to the same directory in the worktree."""
     if not (repo_root / ".git").is_file():
         return {}
     common_dir = git_common_dir(repo_root)
@@ -47,7 +47,7 @@ def worktree_import_roots(repo_root: Path, site_dirs: Iterable[str]) -> dict[str
     roots = {}
     for root in _editable_import_roots(site_dirs):
         resolved = Path(root).resolve()
-        # The main clone root itself would put every top-level repo directory on sys.path.
+        # Mapping the main clone root would put every top-level repo directory on sys.path.
         if resolved == main_clone or not resolved.is_relative_to(main_clone):
             continue
         ours = worktree / resolved.relative_to(main_clone)
@@ -57,10 +57,9 @@ def worktree_import_roots(repo_root: Path, site_dirs: Iterable[str]) -> dict[str
 
 
 def _prefer_worktree_packages() -> None:
-    # Each entry keeps its position after site-packages, as the editable install placed it, so a
-    # package root cannot shadow the standard library. PYTHONPATH stays unset, because it would put
-    # this branch's code ahead of the standard library in child processes, including ones that run
-    # another venv. A nested hogli runs this module again.
+    # The swap keeps each entry after the standard library, where the editable install put it.
+    # PYTHONPATH stays unset because it would put branch code ahead of the standard library in every
+    # child process, including ones on another venv. A nested hogli runs this module again.
     roots = worktree_import_roots(REPO_ROOT, site.getsitepackages())
     if roots:
         sys.path[:] = [roots.get(entry, entry) for entry in sys.path]
