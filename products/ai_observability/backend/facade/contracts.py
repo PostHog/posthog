@@ -2,7 +2,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
 
 from posthog.dataclasses import frozen
@@ -212,6 +212,33 @@ class TraceNodeRaw(Contract):
     kind: TraceNodeKind
     event: TraceNodeEvent | None = Field(
         description="The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event."
+    )
+
+
+_JSON_VALUE_VARIANTS: list[dict[str, Any]] = [
+    {"type": "object", "additionalProperties": True},
+    {"type": "array", "items": {}},
+    {"type": "string"},
+    {"type": "number"},
+    {"type": "boolean"},
+]
+JSONValue = Annotated[Any, WithJsonSchema({"oneOf": _JSON_VALUE_VARIANTS})]
+NullableJSONValue = Annotated[Any, WithJsonSchema({"oneOf": [*_JSON_VALUE_VARIANTS, {"type": "null"}]})]
+
+
+class TraceNodeDatasetItem(Contract):
+    client_item_id: str = Field(
+        description="An id that identifies the step among dataset items: the event's uuid, or the trace id for the root."
+    )
+    source_trace_id: str = Field(description="The id of the trace the step belongs to.")
+    source_event_id: str = Field(description="The step's event uuid, or the trace id for the root.")
+    source_timestamp: datetime = Field(description="When the trace happened, as given by the timestamp hint.")
+    input: JSONValue = Field(description="The step's input value as ingested, or an empty object when it has none.")
+    source_output: NullableJSONValue = Field(
+        description="The step's output value as ingested, or null when it has none."
+    )
+    metadata: dict[str, Any] = Field(
+        description="The step's custom event properties, without `$` names. Empty for the root."
     )
 
 
