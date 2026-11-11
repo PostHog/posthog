@@ -35,9 +35,8 @@ UNSCORED_TRUTH_VALUES = frozenset({"not_applicable"})
 def replay_command(arguments: argparse.Namespace) -> int:
     if arguments.eval:
         return eval_command(arguments)
-    github_token = os.environ.get("GITHUB_TOKEN") or os.environ["GH_TOKEN"]
     flagged = 0
-    github = PersonalTokenGitHub(github_token)
+    github = environment_github()
     source = docs_source_for(arguments.docs_repository)
     with httpx.Client(timeout=30) as http:
         merges = (
@@ -70,8 +69,12 @@ def replay_command(arguments: argparse.Namespace) -> int:
     return 0
 
 
+def environment_github() -> PersonalTokenGitHub:
+    return PersonalTokenGitHub(os.environ.get("GITHUB_TOKEN") or os.environ["GH_TOKEN"])
+
+
 def eval_command(arguments: argparse.Namespace) -> int:
-    github = PersonalTokenGitHub(os.environ.get("GITHUB_TOKEN") or os.environ["GH_TOKEN"])
+    github = environment_github()
     source = docs_source_for(arguments.docs_repository)
     variants = (arguments.variant,) if arguments.variant else tuple(Variant)
     eval_rows = read_merges(arguments.eval)
