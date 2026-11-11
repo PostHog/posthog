@@ -101,9 +101,7 @@ describe('hogFunctionBackfillsLogic', () => {
     })
 
     it('opens backfills when an enable that reported failure went through on the server', async () => {
-        mockApi.get
-            .mockResolvedValueOnce(makeHogFunction())
-            .mockResolvedValue(makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID }))
+        mockApi.get.mockResolvedValue(makeHogFunction())
         mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
         useMocks({
             get: {
@@ -135,11 +133,11 @@ describe('hogFunctionBackfillsLogic', () => {
             .toMatchValues({ enableBackfillsFailed: true, configuration: partial({ name: 'Edited destination' }) })
     })
 
-    it('keeps unsaved edits when a failed enable went through, and clearing them keeps backfills open', async () => {
+    it('keeps unsaved edits when a failed enable went through and reloading fails, and clearing them keeps backfills open', async () => {
         const enabledHogFunction = makeHogFunction({ batch_export_id: MOCK_BATCH_EXPORT_ID })
         mockApi.get
             .mockResolvedValueOnce(makeHogFunction({ batch_export_id: null }))
-            .mockResolvedValue(enabledHogFunction)
+            .mockRejectedValue(new Error('Network error'))
         mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
         useMocks({
             get: { [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/`]: enabledHogFunction },
@@ -158,6 +156,7 @@ describe('hogFunctionBackfillsLogic', () => {
                 enableBackfillsFailed: false,
                 configuration: partial({ name: 'Edited destination', batch_export_id: MOCK_BATCH_EXPORT_ID }),
             })
+        await expectLogic(configurationLogic).toMatchValues({ unsavedConfiguration: null })
 
         await expectLogic(logic, () => {
             configurationLogic.actions.resetForm()

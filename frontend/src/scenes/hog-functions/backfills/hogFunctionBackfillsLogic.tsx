@@ -41,9 +41,6 @@ export interface hogFunctionBackfillsLogicActions {
     setConfigurationValues: (values: DeepPartial<HogFunctionConfigurationType>) => {
         values: DeepPartial<HogFunctionConfigurationType>
     } // hogFunctionConfigurationLogic
-    setUnsavedConfiguration: (configuration: HogFunctionConfigurationType | null) => {
-        configuration: HogFunctionConfigurationType | null
-    } // hogFunctionConfigurationLogic
     enableHogFunctionBackfills: () => boolean
     enableHogFunctionBackfillsFailure: () => boolean
     setLoading: (loading: boolean) => {
@@ -79,7 +76,7 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
         ],
         actions: [
             hogFunctionConfigurationLogic(props),
-            ['setConfigurationValues', 'setUnsavedConfiguration', 'loadHogFunction', 'loadHogFunctionSuccess'],
+            ['setConfigurationValues', 'loadHogFunction', 'loadHogFunctionSuccess'],
         ],
     })),
     actions({
@@ -134,13 +131,14 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                     () => null
                 )
                 if (hogFunction?.batch_export_id) {
-                    if (values.configurationChanged) {
-                        actions.setUnsavedConfiguration({
-                            ...values.configuration,
+                    const unsavedEdits = values.configurationChanged ? values.configuration : null
+                    actions.loadHogFunctionSuccess(hogFunction as unknown as HogFunctionType)
+                    if (unsavedEdits) {
+                        actions.setConfigurationValues({
+                            ...unsavedEdits,
                             batch_export_id: hogFunction.batch_export_id,
                         })
                     }
-                    actions.loadHogFunction()
                 }
             } finally {
                 actions.setLoading(false)
