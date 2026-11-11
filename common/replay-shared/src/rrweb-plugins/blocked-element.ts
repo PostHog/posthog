@@ -7,27 +7,50 @@ export const BLOCKED_ELEMENT_TITLE = 'Hidden from recording'
 export const BLOCKED_ELEMENT_DESCRIPTION = "The site's settings block this element from being captured."
 
 const FONT = `font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"`
+const CARD = '#1d1f27'
+const TITLE = `<text x="195" y="27" text-anchor="middle" ${FONT} font-size="15" font-weight="600" fill="#ffffff">${BLOCKED_ELEMENT_TITLE}</text>`
+const DESCRIPTION = `<text x="195" y="50" text-anchor="middle" ${FONT} font-size="12.5" fill="#c9cbc4">${BLOCKED_ELEMENT_DESCRIPTION.replace("'", '&#39;')}</text>`
 
-function blockedElementLabelImage(): string {
-    // The hog sits behind the top of the card, so it looks like it is peeking over it.
-    // The viewBox lets the label shrink to fit a small element while keeping its proportions.
-    const svg =
-        `<svg xmlns="http://www.w3.org/2000/svg" width="390" height="146" viewBox="0 0 390 146">` +
-        `<image href="${PEEK_OVER_HOGGIE_PNG}" x="125" y="0" width="140" height="83"/>` +
-        `<rect x="0" y="78" width="390" height="68" rx="12" fill="#1d1f27"/>` +
-        `<text x="195" y="104" text-anchor="middle" ${FONT} font-size="15" font-weight="600" fill="#ffffff">${BLOCKED_ELEMENT_TITLE}</text>` +
-        `<text x="195" y="127" text-anchor="middle" ${FONT} font-size="12.5" fill="#c9cbc4">${BLOCKED_ELEMENT_DESCRIPTION.replace("'", '&#39;')}</text>` +
-        `</svg>`
+function svgUrl(width: number, height: number, body: string): string {
+    // The viewBox lets each label shrink inside its box while keeping its proportions.
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`
     return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+}
+
+// The card sits in the middle of the image so it lands exactly on top of the medium label. The hog peeks over it.
+const LARGE_LABEL = svgUrl(
+    390,
+    224,
+    `<image href="${PEEK_OVER_HOGGIE_PNG}" x="125" y="0" width="140" height="83"/>` +
+        `<g transform="translate(0 78)"><rect width="390" height="68" rx="12" fill="${CARD}"/>${TITLE}${DESCRIPTION}</g>`
+)
+const MEDIUM_LABEL = svgUrl(390, 68, `<rect width="390" height="68" rx="12" fill="${CARD}"/>${TITLE}${DESCRIPTION}`)
+const SMALL_LABEL = svgUrl(
+    200,
+    34,
+    `<rect width="200" height="34" rx="17" fill="${CARD}"/>` +
+        `<text x="100" y="22" text-anchor="middle" ${FONT} font-size="13" font-weight="600" fill="#ffffff">${BLOCKED_ELEMENT_TITLE}</text>`
+)
+const STRIPES = 'repeating-linear-gradient(135deg, #eeefe9 0 10px, #e5e7e0 10px 20px)'
+
+/** A background size that is `size` when the element is at least `min` along that axis, and 0 (not drawn) when smaller. */
+function shownFrom(min: string, size: string): string {
+    return `clamp(0px, (100% - ${min} + 1px) * 1000, ${size})`
 }
 
 /**
  * The player's style for an element the site blocked from recording. rrweb replays it as an empty box of the
- * same size, and plain stripes read as a broken or loading element, so the label says what happened.
+ * same size, and plain stripes read as a broken or loading element, so a label says what happened.
+ * A label shrunk too far is unreadable, so each one shows only from the element size where it reads well,
+ * and the larger ones cover the smaller ones. The smallest elements get the stripes alone.
  */
 export const BLOCKED_ELEMENT_STYLE_RULE = `.ph-no-capture {
-    background-image: ${blockedElementLabelImage()}, repeating-linear-gradient(135deg, #eeefe9 0 10px, #e5e7e0 10px 20px);
-    background-position: center, 0 0;
-    background-size: min(390px, 90%) min(146px, 90%), auto;
-    background-repeat: no-repeat, repeat;
+    background-image: ${LARGE_LABEL}, ${MEDIUM_LABEL}, ${SMALL_LABEL}, ${STRIPES};
+    background-position: center;
+    background-repeat: no-repeat, no-repeat, no-repeat, repeat;
+    background-size:
+        ${shownFrom('440px', '390px')} ${shownFrom('230px', '224px')},
+        ${shownFrom('320px', 'min(390px, 90%)')} ${shownFrom('56px', '100%')},
+        ${shownFrom('150px', 'min(200px, 90%)')} ${shownFrom('28px', '100%')},
+        auto;
 }`
