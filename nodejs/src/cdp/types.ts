@@ -15,6 +15,7 @@ import {
 } from '../types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
+import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
 
 export type HogBytecode = any[]
 
@@ -442,6 +443,10 @@ export type CyclotronJobInvocationHogFunctionContext = {
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     renderedWorkflowVersion?: number
+    // Set when the inputs come from the stored function config, so the job queue can drop them and the
+    // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
+    inputsSource?: RebuildableInputsSource
+    inputsOmitted?: true
 }
 
 export type SandboxEmailOutcome = {
@@ -684,6 +689,7 @@ export type HogFunctionTypeType =
 export const RERUNNABLE_HOG_FUNCTION_TYPES = new Set<HogFunctionTypeType>(['destination', 'internal_destination'])
 
 export interface HogFunctionMappingType {
+    name?: string | null
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null
