@@ -603,7 +603,7 @@ def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, use
     assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
     assert new_run.state["include_live_context"] is False
     task = Task.objects.get(id=started.task_id)
-    assert "fff999" in task.description and "Only touch the API reference." in task.description
+    assert "fff999" in task.description and "asked: Only touch the API reference.\nUNTRUSTED>>>" in task.description
     stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
     assert (
         isinstance(stored_request, dict) and stored_request["trigger_instructions"] == "Only touch the API reference."
