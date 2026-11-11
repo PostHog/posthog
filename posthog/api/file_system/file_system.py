@@ -3,6 +3,7 @@ import json
 import shlex
 import logging
 import builtins
+from collections.abc import Iterable
 from functools import cached_property
 from typing import Any, Optional, cast
 from uuid import UUID
@@ -34,16 +35,22 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.file_system.access_levels import (
+    RESOURCE_LEVEL_ONLY_TYPES,
     FileSystemAccessLevelSerializerMixin,
     _coerce_refs_for_lookup,
+    canonical_file_system_ref,
     denied_short_id_refs,
     entries_missing_access_level,
+    file_system_ref_alternate_spellings,
+    file_system_resource,
+    filter_workflow_files_by_access_level,
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
+    prepare_file_system_deletes,
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -55,13 +62,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.decorators import disallow_if_impersonated
-from posthog.exceptions import Conflict
+from posthog.exceptions import Conflict, InsufficientScope
 from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH
-from posthog.models.file_system.constants import RETIRED_FILE_SYSTEM_TYPES
+from posthog.models.file_system.constants import (
+    RETIRED_FILE_SYSTEM_TYPES,
+    WORKFLOW_FILE_SYSTEM_TYPES,
+    workflows_list_v2_enabled,
+)
 from posthog.models.file_system.file_system import (
     DEFAULT_SURFACE,
     FileSystem,
-    create_or_update_file,
+    escape_path,
     join_path,
     split_path,
     surface_q,
@@ -80,6 +91,7 @@ from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
+from posthog.permissions import scopes_caller_lacks
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -133,6 +145,15 @@ def validate_file_system_path(path: Any) -> str:
     return path
 
 
+def validate_file_system_placement(folder: str | None, name: str | None) -> None:
+    if not folder:
+        return
+    try:
+        validate_file_system_path(f"{folder}/{escape_path(name or 'Untitled')}")
+    except serializers.ValidationError as error:
+        raise serializers.ValidationError({"_create_in_folder": error.detail})
+
+
 class FileSystemListQuerySerializer(serializers.Serializer):
     include_content_type = serializers.BooleanField(
         default=False,
@@ -158,6 +179,37 @@ class FileSystemFrequentQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         default=8, min_value=1, max_value=20, help_text="Maximum number of frequently viewed items to return."
     )
+
+
+def _any_surface_q(team_id: int) -> Q:
+    surfaces: list[str] = []
+    named = FileSystem.objects.filter(team_id=team_id, surface__isnull=False).order_by("surface")
+    while (
+        surface := (named.filter(surface__gt=surfaces[-1]) if surfaces else named)
+        .values_list("surface", flat=True)
+        .first()
+    ) is not None:
+        surfaces.append(surface)
+    return Q(surface__isnull=True) | Q(surface__in=surfaces)
+
+
+def _stored_spellings(team_id: int, file_type: str, refs: set[str], any_surface: Q) -> dict[str, set[str]]:
+    spellings = {ref: {ref} for ref in refs}
+    canonical_by_spelling = {
+        spelling: ref for ref in refs for spelling in file_system_ref_alternate_spellings(file_type, ref)
+    }
+    if not canonical_by_spelling:
+        return spellings
+    stored_spellings = (
+        FileSystem.objects.filter(any_surface, team_id=team_id, type=file_type, shortcut=False)
+        .filter(ref__in=canonical_by_spelling)
+        .values_list("ref", flat=True)
+        .distinct()
+    )
+    for stored in stored_spellings:
+        if stored is not None:
+            spellings[canonical_by_spelling[stored]].add(stored)
+    return spellings
 
 
 class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.ModelSerializer):
@@ -200,6 +252,13 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         if len(json.dumps(meta, default=str).encode()) > MAX_META_BYTES:
             raise serializers.ValidationError(f"Meta must be smaller than {MAX_META_BYTES / 1_000_000:g} MB.")
         return meta
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        entry_type = attrs.get("type") or (self.instance.type if self.instance else None)
+        if attrs.get("ref") and entry_type:
+            attrs["ref"] = canonical_file_system_ref(entry_type, attrs["ref"])
+        return attrs
 
     def update(self, instance: FileSystem, validated_data: dict[str, Any]) -> FileSystem:
         if "path" in validated_data:
@@ -446,7 +505,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         about, so its product registers a filter. Evaluated on every read, so a channel's type or
         membership changing needs no resync.
         """
-        return apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        return self._visible_files(queryset)
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         queryset = self._filter_by_product_visibility(queryset)
@@ -455,8 +515,13 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         accessible_team_ids = self._accessible_team_ids
         if accessible_team_ids is not None:
             queryset = queryset.filter(team_id__in=accessible_team_ids)
+        if not self._workflow_files_enabled:
+            return self.user_access_control.filter_and_annotate_file_system_queryset(
+                queryset, extra_denied_refs=self._denied_short_id_refs
+            )
+        queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
-            queryset, extra_denied_refs=self._denied_short_id_refs
+            queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
         )
 
     def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str, int]]) -> None:
@@ -471,7 +536,47 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return
         denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
         if denied:
-            raise PermissionDenied("You need editor access to delete this. Ask a project admin to grant it.")
+            raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
+
+    def _ensure_can_change_workflow_files(self, files: QuerySet) -> None:
+        workflow_files = self._filter_by_access_control(self._scope_by_project_and_environment(files)).filter(
+            type__in=WORKFLOW_FILE_SYSTEM_TYPES, shortcut=False
+        )
+        self._ensure_can_delete_objects(
+            [
+                (entry_type, ref, team_id)
+                for entry_type, ref, team_id in workflow_files.values_list("type", "ref", "team_id")
+                if ref
+            ]
+        )
+
+    def _ensure_token_can_write_workflow_objects(self, file_types: Iterable[str]) -> None:
+        if any(file_type in WORKFLOW_FILE_SYSTEM_TYPES for file_type in file_types):
+            if missing_scopes := scopes_caller_lacks(self.request, ["hog_flow:write"]):
+                raise InsufficientScope(missing_scopes)
+
+    def _ensure_can_place_workflow_file(
+        self, entry_type: Optional[str], ref: Optional[str], shortcut: Optional[bool], team_id: int
+    ) -> None:
+        if entry_type in WORKFLOW_FILE_SYSTEM_TYPES and ref and not shortcut:
+            self._ensure_can_delete_objects([(entry_type, ref, team_id)])
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        data = serializer.validated_data
+        self._ensure_can_place_workflow_file(data.get("type"), data.get("ref"), data.get("shortcut"), self.team.id)
+        super().perform_create(serializer)
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        instance = cast(FileSystem, serializer.instance)
+        data = serializer.validated_data
+        self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=instance.pk))
+        self._ensure_can_place_workflow_file(
+            data.get("type", instance.type),
+            data.get("ref", instance.ref),
+            data.get("shortcut", instance.shortcut),
+            instance.team_id,
+        )
+        super().perform_update(serializer)
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -613,6 +718,33 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # type !~ 'hog_function/.*' or team = $current
         queryset = queryset.filter(Q(**self.parent_query_kwargs) | ~Q(type__startswith="hog_function/"))
         return queryset
+
+    @cached_property
+    def _workflow_files_enabled(self) -> bool:
+        return workflows_list_v2_enabled(self.team, cast(User, self.request.user))
+
+    def _visible_files(self, queryset: QuerySet) -> QuerySet:
+        if self._workflow_files_enabled:
+            return queryset
+        other_files = (
+            self._scope_by_project(FileSystem.objects.all())
+            .filter(path__startswith=Concat(OuterRef("path"), Value("/")))
+            .exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+            .exclude(type="folder", path__in=["Unfiled/Workflows", "Unfiled/Email templates"])
+        )
+        workflow_files = self._scope_by_project(FileSystem.objects.all()).filter(
+            path__startswith=Concat(OuterRef("path"), Value("/")), type__in=WORKFLOW_FILE_SYSTEM_TYPES
+        )
+        return (
+            queryset.exclude(type__in=WORKFLOW_FILE_SYSTEM_TYPES)
+            .alias(_has_other_files=Exists(other_files), _has_workflow_files=Exists(workflow_files))
+            .exclude(
+                type="folder",
+                path__in=["Unfiled", "Unfiled/Workflows", "Unfiled/Email templates"],
+                _has_other_files=False,
+                _has_workflow_files=True,
+            )
+        )
 
     def _filter_queryset_by_parents_lookups(self, queryset):
         return self._scope_by_project(queryset)
@@ -962,6 +1094,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         not_type_param = request.query_params.get("not_type")
         # Drop retired types before the view-log limit, or their views take slots that hydration then empties.
         exclude_types = [*RETIRED_FILE_SYSTEM_TYPES, *([not_type_param] if not_type_param else [])]
+        if not self._workflow_files_enabled:
+            exclude_types.extend(WORKFLOW_FILE_SYSTEM_TYPES)
         search_param = request.query_params.get("search")
 
         base_queryset = FileSystem.objects.filter(surface_q(self.file_system_surface), team_id=self.team.id).exclude(
@@ -1039,6 +1173,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not entries_to_check:
             return {}
 
+        self._ensure_can_delete_objects(
+            [
+                (entry.type, entry.ref, entry.team_id)
+                for entry in entries_to_check
+                if entry.type in WORKFLOW_FILE_SYSTEM_TYPES and entry.ref
+            ]
+        )
+
         ids_to_remove = {entry.id for entry in entries_to_check}
 
         # Several leaf rows can share one (team, type, ref) - that's the "last reference" case
@@ -1050,8 +1192,20 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # would treat unrelated rows as references to one object.
         entries_by_group: dict[tuple[int, str, Optional[str], str], list[FileSystem]] = {}
         for current in entries_to_check:
-            group_key = (current.team_id, current.type, current.ref, "" if current.ref else str(current.id))
+            ref = canonical_file_system_ref(current.type, current.ref) if current.ref else current.ref
+            group_key = (current.team_id, current.type, ref, "" if current.ref else str(current.id))
             entries_by_group.setdefault(group_key, []).append(current)
+
+        refs_by_type: dict[tuple[int, str], set[str]] = {}
+        for team_id, file_type, ref, _row_key in entries_by_group:
+            if ref:
+                refs_by_type.setdefault((team_id, file_type), set()).add(ref)
+        prepare_file_system_deletes(self.request, refs_by_type)
+        any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {key[0] for key in refs_by_type}}
+        spellings_by_type = {
+            key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
+            for key, refs in sorted(refs_by_type.items())
+        }
 
         objects_to_delete: builtins.list[tuple[str, str, int]] = []
         reaches_backing_object: dict[UUID, bool] = {}
@@ -1064,7 +1218,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for (team_id, file_type, ref, _row_key), group in sorted(
             entries_by_group.items(), key=lambda kv: (kv[0][0], kv[0][1], kv[0][2] or "", kv[0][3])
         ):
-            if ref is None:
+            if not ref:
                 # No ref means no shared backing object, so there is no sibling set to count and
                 # nothing for a concurrent delete to race us to. Locking on (team, type, NULL)
                 # would instead row-lock every ref-less row of this type in the team for the rest
@@ -1075,10 +1229,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 # so a concurrent request deleting a sibling row locks the same row set in the
                 # same order and blocks on it, rather than each request locking a different subset
                 # and deadlocking against the other.
+                spellings = spellings_by_type[(team_id, file_type)][ref] | {row.ref for row in group if row.ref}
                 sibling_ids = {
                     row.id
                     for row in FileSystem.objects.select_for_update()
-                    .filter(team_id=team_id, type=file_type, ref=ref, shortcut=False)
+                    .filter(any_surface_by_team[team_id], team_id=team_id, type=file_type, shortcut=False)
+                    .filter(ref__in=spellings)
                     .order_by("id")
                 }
                 remaining = len(sibling_ids - ids_to_remove)
@@ -1102,6 +1258,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if remaining == 0 and ref:
                 objects_to_delete.append((file_type, ref, team_id))
 
+        self._ensure_token_can_write_workflow_objects([file_type for file_type, _ref, _team_id in objects_to_delete])
         self._ensure_can_delete_objects(objects_to_delete)
 
         return reaches_backing_object
@@ -1218,6 +1375,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # other. Sorting means every request takes those locks in the same order instead.
         items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
         undo_results: list[dict[str, str]] = []
+        self._ensure_token_can_write_workflow_objects([item["type"] for item in items])
 
         with transaction.atomic():
             for item in items:
@@ -1246,9 +1404,16 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """`undo_delete` takes a caller-supplied (type, ref) rather than a tree row, so neither
         the tree's visibility filter nor `get_object` has run by the time we get here."""
         instance = get_restorable_object(type_string, ref, team_id=self.team.id)
+        user_access_control = self.user_access_control
         allowed = instance is not None and (
-            not self.user_access_control
-            or self.user_access_control.check_access_level_for_object(instance, required_level="editor")
+            not user_access_control
+            or (
+                user_access_control.check_access_level_for_resource(
+                    file_system_resource(type_string), required_level="editor"
+                )
+                if type_string in RESOURCE_LEVEL_ONLY_TYPES
+                else user_access_control.check_access_level_for_object(instance, required_level="editor")
+            )
         )
         if not allowed:
             raise serializers.ValidationError({"detail": UNDO_DELETE_REFUSED})
@@ -1295,6 +1460,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         if instance.type == "folder" and is_path_under(new_path, instance.path):
             return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+        moving_files = FileSystem.objects.filter(pk=instance.pk)
+        if instance.type == "folder":
+            moving_files = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
+        self._ensure_can_change_workflow_files(moving_files)
 
         self._assure_parent_folders(new_path, cast(User, request.user))
 
@@ -1582,30 +1751,32 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         self._assure_parent_folders(restore_path, created_by_user, team)
 
-        update_count = FileSystem.objects.filter(
-            surface_q(self.file_system_surface), team=team, type=payload["type"], ref=payload["ref"]
-        ).update(
-            path=restore_path,
-            depth=len(split_path(restore_path)),
+        fs_data: FileSystemRepresentation | None = (
+            instance.get_file_system_representation() if hasattr(instance, "get_file_system_representation") else None
         )
+        # The restore's save signal files the object under its canonical ref, which can differ from the sent
+        # ref (`+42` against `42`), so both refs match, and a row is created only when neither has one.
+        refs = {payload["ref"], fs_data.ref} if fs_data else {payload["ref"]}
+        restored = FileSystem.objects.filter(
+            surface_q(self.file_system_surface), team=team, type=payload["type"], ref__in=refs
+        ).update(path=restore_path, depth=len(split_path(restore_path)))
+        if restored or fs_data is None:
+            return
 
-        if update_count == 0 and hasattr(instance, "get_file_system_representation"):
-            fs_data: FileSystemRepresentation = instance.get_file_system_representation()
-            segments = split_path(restore_path)
-            folder_path = "/".join(segments[:-1]) if len(segments) > 1 else ""
-            name = segments[-1] if segments else fs_data.name
-            create_or_update_file(
-                team=team,
-                base_folder=folder_path or fs_data.base_folder,
-                name=name,
-                file_type=fs_data.type,
-                ref=fs_data.ref,
-                href=fs_data.href,
-                meta=fs_data.meta,
-                created_at=fs_data.meta.get("created_at"),
-                created_by_id=fs_data.meta.get("created_by"),
-                surface=self.file_system_surface,
-            )
+        segments = split_path(restore_path) or [*split_path(fs_data.base_folder), fs_data.name]
+        FileSystem.objects.create(
+            team=team,
+            path=join_path(segments),
+            depth=len(segments),
+            type=fs_data.type,
+            ref=fs_data.ref,
+            href=fs_data.href,
+            meta=fs_data.meta,
+            shortcut=False,
+            surface=self.file_system_surface,
+            created_by_id=fs_data.meta.get("created_by"),
+            created_at=fs_data.meta.get("created_at") or timezone.now(),
+        )
 
     def _retroactively_fix_folders_and_depth(self, user: User) -> None:
         """
@@ -1614,7 +1785,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """
 
         # TODO: this needs some concurrency controls or a unique index
-        scoped_files = self._scope_by_project_and_environment(FileSystem.objects.all())
+        scoped_files = self._visible_files(self._scope_by_project_and_environment(FileSystem.objects.all()))
         existing_paths = set(scoped_files.values_list("path", flat=True))
 
         folders_to_create = []

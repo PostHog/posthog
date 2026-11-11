@@ -451,7 +451,8 @@ class TestFileSystemAPI(APIBaseTest):
             self.assertEqual(response.json()["code"], "directory_not_empty")
         self.assertTrue(FileSystem.objects.filter(pk=unrelated.pk).exists())
 
-    def test_delete_ref_less_registered_row_refused_on_web_surface(self):
+    @parameterized.expand([("null_ref", None), ("empty_ref", "")])
+    def test_delete_ref_less_registered_row_refused_on_web_surface(self, _name: str, ref: str | None):
         """
         On the default (web) surface every registered-type row points at a real object via `ref`.
         A ref-less registered row is a data-integrity error, so deletion is refused, not silently applied.
@@ -460,6 +461,7 @@ class TestFileSystemAPI(APIBaseTest):
             team=self.team,
             path="DeleteMe/RefLessDashboard",
             type="dashboard",
+            ref=ref,
             created_by=self.user,
         )
 
@@ -468,6 +470,34 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
         self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
+
+    @parameterized.expand(
+        [
+            ("signed", "+{pk}", None),
+            ("leading_zeros", "00{pk}", None),
+            ("on_another_surface", "+{pk}", "desktop"),
+        ]
+    )
+    def test_deleting_the_canonical_dashboard_file_keeps_the_dashboard_for_another_spelling(
+        self, _name: str, spelling: str, surface: str | None
+    ) -> None:
+        dashboard = Dashboard.objects.create(team=self.team, name="Spelled twice", created_by=self.user)
+        canonical = FileSystem.objects.get(team=self.team, type="dashboard", ref=str(dashboard.pk))
+        alias = FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Spelled twice copy",
+            depth=2,
+            type="dashboard",
+            ref=spelling.format(pk=dashboard.pk),
+            shortcut=False,
+            surface=surface,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{canonical.pk}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(Dashboard.objects_including_soft_deleted.get(pk=dashboard.pk).deleted)
+        self.assertTrue(FileSystem.objects.filter(pk=alias.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """
@@ -1727,8 +1757,9 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertIn("Docs/FileA", paths)
         self.assertIn("Docs/FileB", paths)
 
+    @parameterized.expand([("path",), ("-path",)])
     @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_list_annotates_resolved_user_access_level(self, mock_flag):
+    def test_list_annotates_resolved_user_access_level(self, order_by, mock_flag):
         blocked_dashboard = Dashboard.objects.create(team=self.team, name="Blocked", created_by=self.other_user)
         FileSystem.objects.create(
             team=self.team,
@@ -1738,11 +1769,26 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
             ref=str(blocked_dashboard.pk),
             created_by=self.other_user,
         )
+        owned_dashboard = Dashboard.objects.create(team=self.team, name="Owned", created_by=self.user)
+        moved = FileSystem.objects.filter(team=self.team, type="dashboard", ref=str(owned_dashboard.pk)).update(
+            path="Docs/Owned", depth=2
+        )
+        self.assertEqual(moved, 1)
+        # Another spelling of the same pk, filed by someone else. Either order of the two rows
+        # must resolve both to the owner's level.
+        FileSystem.objects.create(
+            team=self.team,
+            path="Docs/Owned copy",
+            depth=2,
+            type="dashboard",
+            ref=f"0{owned_dashboard.pk}",
+            created_by=self.other_user,
+        )
         # Resource-level "none" doesn't exclude rows from the tree, so the annotation is
         # what tells the UI to grey them out
         self._create_access_control(resource="dashboard", resource_id=None, access_level="none")
 
-        response = self.client.get(f"/api/projects/{self.team.id}/file_system/")
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/?order_by={order_by}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         levels = {item["path"]: item["user_access_level"] for item in response.json()["results"]}
@@ -1750,6 +1796,8 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         # file_b's tree row was created by someone else, but the user created the dashboard itself
         self.assertEqual(levels["Docs/FileB"], "manager")
         self.assertEqual(levels["Docs/Blocked"], "none")
+        self.assertEqual(levels["Docs/Owned"], "manager")
+        self.assertEqual(levels["Docs/Owned copy"], "manager")
         self.assertIsNone(levels["Docs"])  # folders have no access controls
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
@@ -1950,6 +1998,26 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(response.json()["results"][0]["meta"]["content_type"], content_type)
         if entry_type == "insight":
             self.assertEqual(response.json()["results"][0]["meta"]["insight_type"], "hog")
+
+    def test_undo_delete_with_a_non_canonical_ref_restores_one_file_at_the_sent_path(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team, key="restored-flag", name="Restored flag", created_by=self.user
+        )
+        flag.deleted = True
+        flag.save()
+        FileSystem.objects.filter(team=self.team, type="feature_flag", ref=str(flag.pk)).delete()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "feature_flag", "ref": f"+{flag.pk}", "path": "Launches/Restored flag"}]},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertEqual(
+            list(FileSystem.objects.filter(team=self.team, type="feature_flag").values_list("ref", "path", "shortcut")),
+            [(str(flag.pk), "Launches/Restored flag", False)],
+        )
 
     def test_undo_delete_refuses_an_object_that_is_not_deleted(self):
         flag = FeatureFlag.objects.create(

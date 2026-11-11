@@ -22,6 +22,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.1
@@ -47,6 +48,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.10
@@ -645,6 +647,7 @@
          AND "posthog_filesystem"."type" = 'session_recording_playlist'
          AND NOT ("posthog_filesystem"."shortcut"
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
+  ORDER BY "posthog_filesystem"."id" ASC
   '''
 # ---
 # name: TestSessionRecordingPlaylist.test_filters_playlist_by_type.20

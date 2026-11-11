@@ -69300,6 +69300,8 @@ export namespace Schemas {
     }
 
     export interface MessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id: string;
       /**
          * Human-readable template name shown in the library.
@@ -69340,6 +69342,14 @@ export namespace Schemas {
       readonly transactional_hog_flow_id: string | null;
       /** Unpublished edits to a transactional template's content. Sends keep using `content`. Saving `content` publishes it and clears the draft. Set null to discard the draft. */
       draft_content?: MessageTemplateContent | null;
+    }
+
+    export interface MessageTemplatePlacement {
+      /**
+         * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+         * @nullable
+         */
+      path: string | null;
     }
 
     export interface MessagingError {
@@ -88124,6 +88134,8 @@ export namespace Schemas {
     }
 
     export interface PatchedMessageTemplate {
+      /** Project folder for the new email template. */
+      _create_in_folder?: string;
       readonly id?: string;
       /**
          * Human-readable template name shown in the library.

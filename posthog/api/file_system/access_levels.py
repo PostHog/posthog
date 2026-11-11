@@ -2,11 +2,12 @@ import logging
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import Any, Optional, cast
+from uuid import UUID
 
 from django.apps import apps
 from django.core.cache import cache
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import BigIntegerField, CharField, F, QuerySet, Value
+from django.db.models import BigIntegerField, CharField, F, IntegerField, Q, QuerySet, UUIDField, Value
 from django.db.models.functions import Cast
 
 from drf_spectacular.utils import extend_schema_field
@@ -19,6 +20,7 @@ from posthog.api.file_system.deletion import (
     is_pk_keyed_file_system_type,
 )
 from posthog.models import Team
+from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
 from posthog.scopes import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -91,10 +93,20 @@ def _set_cached_ref_pks(project_id: int, pk_by_type_ref: dict[tuple[str, str], s
         logger.warning("Failed writing file system ref->pk cache", exc_info=True)
 
 
+def file_system_resource(file_system_type: str) -> APIScopeObject:
+    return "hog_flow" if file_system_type == "message_template" else cast(APIScopeObject, file_system_type)
+
+
+RESOURCE_LEVEL_ONLY_TYPES = frozenset({"message_template"})
+
+
 def _is_access_controlled_type(file_system_type: str) -> bool:
     """File system types double as AccessControl resource names; only these types can resolve
     to an access level at all (folders, SQL views, hog functions etc. have no access controls)."""
-    return file_system_type in ACCESS_CONTROL_RESOURCES or file_system_type in RESOURCE_INHERITANCE_MAP
+    return (
+        file_system_resource(file_system_type) in ACCESS_CONTROL_RESOURCES
+        or file_system_type in RESOURCE_INHERITANCE_MAP
+    )
 
 
 def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> list[Any]:
@@ -114,6 +126,44 @@ def _coerce_refs_for_lookup(model: Any, lookup_field: str, refs: list[str]) -> l
         except (DjangoValidationError, ValueError, TypeError):
             continue
     return coerced
+
+
+def _canonical_ref(registration: ModelRegistration, ref: str) -> str:
+    model = apps.get_model(registration.app_label, registration.model_name)
+    coerced = _coerce_refs_for_lookup(model, registration.lookup_field, [ref])
+    return str(coerced[0]) if coerced else ref
+
+
+def canonical_file_system_ref(entry_type: str, ref: str) -> str:
+    registration = get_file_system_registration(entry_type)
+    return _canonical_ref(registration, ref) if registration else ref
+
+
+def file_system_ref_alternate_spellings(entry_type: str, ref: str) -> set[str]:
+    registration = get_file_system_registration(entry_type)
+    if registration is None:
+        return set()
+    field = apps.get_model(registration.app_label, registration.model_name)._meta.get_field(registration.lookup_field)
+    if isinstance(field, UUIDField):
+        try:
+            uuid_value = UUID(ref)
+        except ValueError:
+            return set()
+        bodies = {str(uuid_value), uuid_value.hex}
+        bodies |= {body.upper() for body in bodies}
+        wrapped = {
+            f"{prefix}{body}{suffix}" for body in bodies for prefix, suffix in (("", ""), ("{", "}"), ("urn:uuid:", ""))
+        }
+        return wrapped - {ref}
+    if isinstance(field, IntegerField):
+        try:
+            int_value = int(ref)
+        except ValueError:
+            return set()
+        signs = ("-",) if int_value < 0 else ("", "+")
+        padded = {f"{sign}{'0' * zeros}{abs(int_value)}" for sign in signs for zeros in range(4)}
+        return padded - {ref}
+    return set()
 
 
 def _ref_translation_queryset(
@@ -240,7 +290,7 @@ def bulk_file_system_access_levels(
         if not pk_keyed and not needs_creator:
             cached_pks = _get_cached_ref_pks(project_id, entry_type, refs)
             for ref, pk in cached_pks.items():
-                translated[(entry_type, ref, team_id)] = (pk, None)
+                translated[(entry_type, _canonical_ref(registration, ref), team_id)] = (pk, None)
             refs = [ref for ref in refs if ref not in cached_pks]
             if not refs:
                 continue
@@ -270,7 +320,7 @@ def bulk_file_system_access_levels(
     )
 
     for (entry_type, team_id), creator_by_provided_ref in entries_by_type_team.items():
-        resource = cast(APIScopeObject, entry_type)
+        resource = file_system_resource(entry_type)
 
         if not access_controls_by_team[team_id].has_project_access:
             # Denied the whole environment, so nothing in it resolves. Without this the object
@@ -280,22 +330,29 @@ def bulk_file_system_access_levels(
                 results[(entry_type, ref, team_id)] = None
             continue
 
-        objects: list[tuple[str, Optional[int]]] = []
-        ref_by_pk: dict[str, str] = {}
+        registration = registrations_by_type.get(entry_type)
+        creator_by_pk: dict[str, Optional[int]] = {}
+        refs_by_pk: dict[str, list[str]] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
-            row = translated.get((entry_type, ref, team_id))
+            lookup_ref = _canonical_ref(registration, ref) if registration else ref
+            row = translated.get((entry_type, lookup_ref, team_id))
             # Unresolved refs keep the ref as a pk stand-in: it matches no AccessControl rows,
             # so they resolve at resource level exactly like an existing object without object
             # rows, making guessed refs indistinguishable from real-but-ungranted ones
-            pk = row[0] if row else ref
-            ref_by_pk[pk] = ref
-            objects.append((pk, provided_creator if provided_creator is not None else (row[1] if row else None)))
+            pk = row[0] if row else lookup_ref
+            creator = provided_creator if provided_creator is not None else (row[1] if row else None)
+            if entry_type in RESOURCE_LEVEL_ONLY_TYPES:
+                creator = None
+            if creator_by_pk.get(pk) is None or creator == user_id:
+                creator_by_pk[pk] = creator
+            refs_by_pk.setdefault(pk, []).append(ref)
 
         # Resolved against the entry's own team - resolves from that team's in-memory access
         # control preload, no extra query beyond the one bulk fetch per distinct team
-        levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, objects)
+        levels = access_controls_by_team[team_id].bulk_object_access_levels(resource, list(creator_by_pk.items()))
         for pk, level in levels.items():
-            results[(entry_type, ref_by_pk[pk], team_id)] = level
+            for ref in refs_by_pk[pk]:
+                results[(entry_type, ref, team_id)] = level
 
     return results
 
@@ -337,8 +394,28 @@ def entries_missing_access_level(
         (entry_type, ref)
         for entry_type, ref, team_id in controlled
         if (level := levels.get((entry_type, ref, team_id))) is None
-        or not access_level_satisfied_for_resource(cast(APIScopeObject, entry_type), level, required_level)
+        or not access_level_satisfied_for_resource(file_system_resource(entry_type), level, required_level)
     ]
+
+
+def filter_workflow_files_by_access_level(
+    queryset: QuerySet, user_access_control: UserAccessControl, project_id: int
+) -> QuerySet:
+    rows = list(queryset.filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES).values_list("id", "type", "ref", "team_id"))
+    levels = bulk_file_system_access_levels(
+        [
+            FileSystemAccessEntry(entry_type=entry_type, ref=ref, created_by_id=None, team_id=team_id)
+            for _, entry_type, ref, team_id in rows
+        ],
+        user_access_control,
+        project_id,
+    )
+    allowed_ids = [
+        row_id
+        for row_id, entry_type, ref, team_id in rows
+        if levels.get((entry_type, ref, team_id)) not in (None, "none")
+    ]
+    return queryset.exclude(Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) & ~Q(pk__in=allowed_ids))
 
 
 def denied_short_id_refs(user_access_control: UserAccessControl, project_id: int) -> dict[tuple[str, int], list[str]]:

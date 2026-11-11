@@ -841,6 +841,8 @@ export interface UserBasicApi {
 }
 
 export interface MessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id: string
     /**
      * Human-readable template name shown in the library.
@@ -893,6 +895,8 @@ export interface PaginatedMessageTemplateListApi {
 }
 
 export interface PatchedMessageTemplateApi {
+    /** Project folder for the new email template. */
+    _create_in_folder?: string
     readonly id?: string
     /**
      * Human-readable template name shown in the library.
@@ -999,6 +1003,14 @@ export interface MakeTransactionalApi {
      * @nullable
      */
     from_integration_id?: number | null
+}
+
+export interface MessageTemplatePlacementApi {
+    /**
+     * Project tree path of the template's own file, such as 'Campaigns/Welcome'. Null when the template has no file.
+     * @nullable
+     */
+    path: string | null
 }
 
 /**
