@@ -465,6 +465,31 @@ describe('WorkflowsScene', () => {
             await waitFor(() => expect(router.values.searchParams.q).toEqual('in:Team-299'))
         })
 
+        it('lists a bounded number of folders in the Folders menu, and finds a far folder by typing', async () => {
+            const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
+            files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
+            renderScene('in:Billing')
+            await waitFor(() => expect(workflowFoldersLogic.values.folderPaths).toContain('Team-299'))
+            const menuItems = (): string[] =>
+                Array.from(document.querySelectorAll('[role="menuitem"]')).map((item) => item.textContent ?? '')
+            const toolbar = document.querySelector('[data-attr="workflows-folder-toolbar"]')!
+            fireEvent.click([...toolbar.querySelectorAll('button')].find((button) => button.textContent === 'Folders')!)
+
+            await waitFor(() => expect(document.body).toHaveTextContent('Type to narrow down 254 more folders'))
+            expect(menuItems().length).toBeLessThan(60)
+            expect(menuItems()).not.toContain('Team-299(0)')
+
+            fireEvent.change(document.querySelector('input[placeholder="Find a folder"]')!, {
+                target: { value: 'Team-299' },
+            })
+            await waitFor(() => expect(menuItems()).toContain('Team-299(0)'))
+            expect(document.body).not.toHaveTextContent('Type to narrow down')
+            fireEvent.click(
+                [...document.querySelectorAll('[role="menuitem"]')].find((item) => item.textContent === 'Team-299(0)')!
+            )
+            await waitFor(() => expect(router.values.searchParams.q).toEqual('in:Team-299'))
+        })
+
         it('shows no workflow as Unfiled until the project folders load', async () => {
             let releaseScan = (): void => {}
             const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
