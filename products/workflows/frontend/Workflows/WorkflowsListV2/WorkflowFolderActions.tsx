@@ -12,7 +12,8 @@ import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderActions({ path, count }: { path: string; count: number }): JSX.Element | null {
-    const { savedItems, folderPaths, takenFolderPaths, folderMutationDisabledReason } = useValues(workflowFoldersLogic)
+    const { savedItems, folderPaths, takenFolderPaths, folderMutationDisabledReason, fileMoveDisabledReason } =
+        useValues(workflowFoldersLogic)
     const { moveFileToFolder, renameFolder } = useActions(workflowFoldersLogic)
     const entry = savedItems.find((item) => item.type === 'folder' && item.path === path)
     if (path === 'Unfiled') {
@@ -34,7 +35,11 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
             {newSubfolderButton}
             <LemonMenu
                 items={[
-                    { label: 'Move to…', disabledReason: busyReason, onClick: () => moveFileToFolder(entry) },
+                    {
+                        label: 'Move to…',
+                        disabledReason: busyReason ?? fileMoveDisabledReason ?? undefined,
+                        onClick: () => moveFileToFolder(entry),
+                    },
                     {
                         label: 'Rename…',
                         disabledReason:

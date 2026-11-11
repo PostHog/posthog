@@ -77,6 +77,7 @@ export interface workflowFoldersLogicValues {
     currentFolder: string | null
     displayedValue: FacetSearchValue
     expandedFolders: string[]
+    fileMoveDisabledReason: string | null
     folderActionPending: boolean
     folderCounts: Record<string, number>
     folderCreationError: unknown
@@ -250,6 +251,7 @@ export interface workflowFoldersLogicMeta {
             pendingActions: ProjectTreeAction[],
             folderActionPending: boolean
         ) => (folder: string) => string | null
+        fileMoveDisabledReason: (pendingActions: ProjectTreeAction[], folderActionPending: boolean) => string | null
         folderDraftError: (
             folderDraft: WorkflowFolderDraft | null,
             takenFolderPaths: string[] | null,
@@ -686,6 +688,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         : null
                 },
         ],
+        // The shared Move to dialog lets a person pick any folder, so a file move waits while any folder move is pending.
+        fileMoveDisabledReason: [
+            (s) => [s.pendingActions, s.folderActionPending],
+            (pendingActions: ProjectTreeAction[], folderActionPending: boolean): string | null =>
+                folderActionPending
+                    ? 'A folder action is in progress'
+                    : pendingActions.some((action) => action.item.type === 'folder')
+                      ? 'Wait until the folder finishes moving'
+                      : null,
+        ],
         folderDraftError: [
             (s) => [s.folderDraft, s.takenFolderPaths, s.folderMutationDisabledReason],
             (
@@ -953,7 +965,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         moveSelectedFiles: () => {
-            moveToLogic.actions.openMoveToModal(values.selectedFiles)
+            if (!values.fileMoveDisabledReason) {
+                moveToLogic.actions.openMoveToModal(values.selectedFiles)
+            }
         },
         renameFolder: ({ folder, name }) => {
             const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
@@ -1016,6 +1030,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 const { newPath, isValidMove } = calculateMovePath(item, destination)
                 return isValidMove ? [{ item, newPath }] : []
             })
+            if (values.fileMoveDisabledReason) {
+                lemonToast.info(`${values.fileMoveDisabledReason}, then try again.`)
+                return
+            }
             if (moves.length) {
                 await projectTreeDataLogic.asyncActions.moveItems(moves, false, WORKFLOW_FILES_DRAG_SCOPE)
                 actions.clearSelectedFiles()
@@ -1140,7 +1158,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
         },
         moveFileToFolder: ({ entry }) => {
-            moveToLogic.actions.openMoveToModal([entry])
+            if (!values.fileMoveDisabledReason) {
+                moveToLogic.actions.openMoveToModal([entry])
+            }
         },
         [workflowsListV2Logic.actionTypes.setValue]: () => {
             actions.revealFolder(values.currentFolder)

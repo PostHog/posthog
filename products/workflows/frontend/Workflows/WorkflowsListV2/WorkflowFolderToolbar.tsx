@@ -36,7 +36,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
     const { templateTypeFilter } = useValues(workflowsListV2Logic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { startNewWorkflow } = useActions(newWorkflowLogic)
-    const { selectedFiles } = useValues(workflowFoldersLogic)
+    const { selectedFiles, fileMoveDisabledReason } = useValues(workflowFoldersLogic)
     const { moveSelectedFiles, clearSelectedFiles } = useActions(workflowFoldersLogic)
     const segments = splitPath(currentFolder ?? '')
     const count = folderRows.length + folderTemplates.length
@@ -48,7 +48,12 @@ export function WorkflowFolderToolbar(): JSX.Element {
                     data-attr="workflows-folder-bulk-move"
                 >
                     <span translate="no">{`${pluralize(selectedFiles.length, 'item')} selected`}</span>
-                    <LemonButton size="small" type="secondary" onClick={moveSelectedFiles}>
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        onClick={moveSelectedFiles}
+                        disabledReason={fileMoveDisabledReason ?? undefined}
+                    >
                         Move to…
                     </LemonButton>
                     <LemonButton size="small" onClick={clearSelectedFiles}>
