@@ -46,7 +46,7 @@ export function CatalogChecksSummary(props: CatalogChecksSummaryProps): JSX.Elem
     return (
         <Badge variant={variant} className="whitespace-nowrap tabular-nums">
             <Icon aria-hidden />
-            {`${counts.total - counts.failing}/${counts.total} passing`}
+            <span>{`${counts.total - counts.failing}/${counts.total} passing`}</span>
         </Badge>
     )
 }
