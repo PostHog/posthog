@@ -1028,9 +1028,17 @@ def _latest_checks(
 ) -> dict[uuid.UUID, tuple[PromptEngineCheck, ...]]:
     if not prompt_ids:
         return {}
-    rows = (
+    # Pick each prompt and engine's latest check first, so the mention regex only reads those answers.
+    latest_ids = (
         AEOCitationCheck.objects.for_team(team_id)
         .filter(prompt_id__in=prompt_ids)
+        .order_by("prompt_id", "engine", "-created_at")
+        .distinct("prompt_id", "engine")
+        .values("id")
+    )
+    rows = (
+        AEOCitationCheck.objects.for_team(team_id)
+        .filter(id__in=latest_ids)
         .annotate(
             # A check with no answer text makes the regex match NULL, so default it to not mentioned.
             mentioned=Coalesce(
@@ -1038,8 +1046,7 @@ def _latest_checks(
                 Value(False),
             )
         )
-        .order_by("prompt_id", "engine", "-created_at")
-        .distinct("prompt_id", "engine")
+        .order_by("prompt_id", "engine")
         .values(
             "prompt_id",
             "engine",
