@@ -179,10 +179,14 @@ export interface propertyDefinitionsTableLogicMeta {
         queryUsageParams: (showQueryUsage: boolean, filters: Filters) => Record<string, any>
         queryUsageSorting: (showQueryUsage: boolean, filters: Filters) => Sorting | null
         queryUsageFreshness: (
-            propertyDefinitions: PropertyDefinitionsPaginatedResponse
+            propertyDefinitions: PropertyDefinitionsTableResponse
         ) => PaginatedEnterprisePropertyDefinitionListApi['query_usage']
-        queryUsageCoverageDays: (queryUsageFreshness: any) => number | null
-        showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsPaginatedResponse) => boolean
+        queryUsageCoverageDays: (
+            queryUsageFreshness:
+                | import('~/generated/core/api.schemas').PaginatedEnterprisePropertyDefinitionListApiQueryUsage
+                | undefined
+        ) => number | null
+        showVerifiedFilter: (propertyDefinitions: PropertyDefinitionsTableResponse) => boolean
     }
 }
 
