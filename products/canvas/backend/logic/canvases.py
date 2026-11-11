@@ -81,6 +81,11 @@ def _listing(
     return queryset
 
 
+def editable_canvas_ids(viewer: CanvasViewer) -> set[str]:
+    """Ids of the canvases the viewer may edit."""
+    return {str(pk) for pk in authorized_canvases(viewer, CanvasAccess.EDIT).values_list("id", flat=True)}
+
+
 def list_canvases(
     viewer: CanvasViewer,
     *,

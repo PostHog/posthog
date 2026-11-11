@@ -964,6 +964,12 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
         published = client.post(f"{base}/publish/", {"project": self._project()}, format="json", **headers)
         assert published.status_code == expected, published.json()
 
+        if space == "private" and caller == "session":
+            reported = "editor" if expected == status.HTTP_200_OK else "viewer"
+            assert self.client.get(f"{base}/").json()["user_access_level"] == reported
+            listed = self.client.get(f"/api/projects/{self.team.id}/canvases/?channel={channel.id}").json()["results"]
+            assert {row["id"]: row["user_access_level"] for row in listed} == {str(canvas.id): reported}
+
         if expected == status.HTTP_200_OK:
             renamed = self.client.patch(f"{base}/", {"name": "Renamed"}, format="json")
             assert renamed.status_code == status.HTTP_403_FORBIDDEN, renamed.json()
