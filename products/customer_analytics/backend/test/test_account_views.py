@@ -83,6 +83,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ('<Automations nodeId="automations-one" span={6} />', "Automations"),
             ('<DotMatrix nodeId="matrix-one" span={6} />', "Dot matrix"),
             ('<AgentActivity nodeId="agents-one" config={{"weeks":"12"}} />', "Agent activity"),
+            ('<TopPages nodeId="pages-one" config={{"weeks":"4","productKey":"pa"}} />', "Top pages"),
         ]
     )
     def test_accepts_account_widget(self, component: str, expected_text: str) -> None:

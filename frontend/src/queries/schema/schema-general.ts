@@ -205,6 +205,7 @@ export enum NodeKind {
     AccountUsersQuery = 'AccountUsersQuery',
     AccountActivityMatrixQuery = 'AccountActivityMatrixQuery',
     AccountAgentActivityQuery = 'AccountAgentActivityQuery',
+    AccountTopPagesQuery = 'AccountTopPagesQuery',
     BookActivityMatrixQuery = 'BookActivityMatrixQuery',
     BookActivityPeopleQuery = 'BookActivityPeopleQuery',
     BookActivityFirstsQuery = 'BookActivityFirstsQuery',
@@ -307,6 +308,7 @@ export type AnyDataNode =
     | AccountsTableQuery
     | AccountActivityMatrixQuery
     | AccountAgentActivityQuery
+    | AccountTopPagesQuery
     | BookActivityMatrixQuery
     | BookActivityPeopleQuery
     | BookActivityFirstsQuery
@@ -448,6 +450,7 @@ export type QuerySchema =
     | AccountsTableQuery
     | AccountActivityMatrixQuery
     | AccountAgentActivityQuery
+    | AccountTopPagesQuery
     | BookActivityMatrixQuery
     | BookActivityPeopleQuery
     | BookActivityFirstsQuery
@@ -3659,6 +3662,45 @@ export interface AccountAgentActivityQuery extends DataNode<AccountAgentActivity
     accountId: string
     /** Weeks to cover, ending with the current week. Defaults to 8, at most 26. */
     weeks?: integer
+}
+
+export interface AccountTopPage {
+    /** The page path without its `/project/<id>` prefix, cut to 200 characters. */
+    path: string
+    /** The most recent page title, or empty when pageviews carry none. */
+    title: string
+    /** Product key, the same as `BookActivityMatrixProduct.key`. Empty when no product owns the path. */
+    product: string
+    views: integer
+    people: integer
+    activeDays: integer
+    lastViewed: string
+}
+
+export interface AccountTopPagesResult {
+    columns: AccountActivityMatrixColumn[]
+    /** Most viewed first. */
+    pages: AccountTopPage[]
+    products: BookActivityMatrixProduct[]
+    /** The page list reached its cap. */
+    truncated: boolean
+    emptyReason?: AccountActivityMatrixEmptyReason
+}
+
+export interface AccountTopPagesQueryResponse extends AnalyticsQueryResponseBase {
+    results: AccountTopPagesResult
+}
+
+export type CachedAccountTopPagesQueryResponse = CachedQueryResponse<AccountTopPagesQueryResponse>
+
+/** The pages one account viewed most in the app, such as its dashboards and insights. */
+export interface AccountTopPagesQuery extends DataNode<AccountTopPagesQueryResponse> {
+    kind: NodeKind.AccountTopPagesQuery
+    accountId: string
+    /** Weeks to cover, ending with the current week. Defaults to 8, at most 26. */
+    weeks?: integer
+    /** Limits the pages to one product key. */
+    productKey?: string
 }
 
 export type BookActivityInterval = 'day' | 'week' | 'month'
