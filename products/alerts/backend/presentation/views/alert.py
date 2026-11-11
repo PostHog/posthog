@@ -129,6 +129,7 @@ from products.alerts.backend.facade.evaluation import DelayedEvaluationUnavailab
 from products.alerts.backend.facade.platform import (
     close_moved_alert_firings,
     delete_alert_destinations_and_copy,
+    enable_native_insight_alert,
     follow_insight_alert,
     hand_over_new_alert,
     moved_alert_check_page,
@@ -2103,7 +2104,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
     def take_ownership(self, request, *args, **kwargs):
-        alert = self.get_object()
+        alert = self._alert_or_native()
         user = cast(User, request.user)
         try:
             assert_creator_can_run(user, alert.team, alert.insight)
@@ -2112,6 +2113,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # The scheduled checks run as the owner, so an AI alert needs the requester on the rollout.
         # An already enabled alert does not pass through the admission below, so it is checked here.
         _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config)
+        if alert.has_no_insight_row:
+            return Response(self.get_serializer(self._take_native_ownership(alert, user)).data)
         # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
         # the row, so the owner is saved first.
         with transaction.atomic():
@@ -2129,6 +2132,50 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.save()
         return Response(self.get_serializer(serializer.instance).data)
 
+    def _alert_watches(self, alert_id: uuid.UUID, insight_id: int) -> bool:
+        if AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id, insight_id=insight_id).exists():
+            return True
+        view = native_insight_alert_view(self.team_id, alert_id)
+        native = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
+        return native is not None and native.insight_id == insight_id
+
+    def _take_native_ownership(self, alert: AlertConfiguration, user: User) -> AlertConfiguration:
+        """`take_ownership` for an alert with no insight row: the platform stores its owner, and its
+        enable goes through the platform's admission, after the AI detector's."""
+        with transaction.atomic():
+            if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
+                raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
+            # Admission skips the cap for an alert that is already on, so it reads the alert as stored
+            # under the lock, not as this request first read it.
+            locked = native_insight_alert_view(alert.team_id, alert.id, lock=True)
+            reloaded = AlertConfiguration.from_platform_view(locked, team_id=alert.team_id) if locked else None
+            if reloaded is None:
+                raise Http404
+            alert = reloaded
+            assign_alert_owner(
+                team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
+            )
+            alert.created_by = user
+            # The same checks the row path's enable runs, against the insight as it is under the lock,
+            # so an insight edit that broke the alert's configuration refuses the enable.
+            alert.insight.refresh_from_db()
+            self.get_serializer(alert, data={"enabled": True}, partial=True).is_valid(raise_exception=True)
+            _admit_llm_alert_write(
+                self.get_serializer_context(),
+                detector_config=alert.detector_config,
+                enabled=True,
+                calculation_interval=alert.calculation_interval,
+                instance=alert,
+            )
+            try:
+                view = enable_native_insight_alert(team_id=alert.team_id, alert_id=alert.id)
+            except InvalidPlatformAlertEdit as error:
+                raise ValidationError({error.field_name: str(error)}) from error
+        enabled = AlertConfiguration.from_platform_view(view, team_id=alert.team_id) if view is not None else None
+        if enabled is None:
+            raise Http404
+        return enabled
+
     @extend_schema(
         request=None,
         responses={202: AlertTestDeliveryResponseSerializer},
@@ -2143,7 +2190,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         throttle_classes=[AlertTestDeliveryThrottle],
     )
     def test_delivery(self, request, *args, **kwargs):
-        alert = self.get_object()
+        alert = self._alert_or_native()
         destination_count = count_active_alert_destinations(
             team_id=alert.team_id,
             alert_id=str(alert.id),
@@ -2225,7 +2272,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="destinations", required_scopes=["alert:write"])
     def create_destination(self, request, *args, **kwargs):
-        alert = self.get_object()
+        alert = self._alert_or_native()
         serializer = AlertCreateDestinationSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
@@ -2253,7 +2300,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         required_scopes=["alert:write", "hog_function:write"],
     )
     def create_pagerduty_destination(self, request, *args, **kwargs):
-        alert = self.get_object()
+        alert = self._alert_or_native()
         serializer = AlertCreatePagerDutyDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         # Only the alerts platform sends the incident events these destinations listen on. An alert that
@@ -2334,7 +2381,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="destinations/delete", required_scopes=["alert:write"])
     def delete_destination(self, request, *args, **kwargs):
-        alert = self.get_object()
+        alert = self._alert_or_native()
         serializer = AlertDeleteDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
@@ -2401,7 +2448,9 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         date_from = serializer.validated_data.get("date_from")
         config = serializer.validated_data.get("config")
         alert_id = serializer.validated_data.get("alert")
-        if alert_id is not None and not AlertConfiguration.objects.filter(team_id=self.team_id, id=alert_id).exists():
+        # The alert's earlier checks go into the prompt, so it must watch the insight the caller was
+        # authorized for, not another one the caller may not view.
+        if alert_id is not None and not self._alert_watches(alert_id, insight.id):
             raise ValidationError({"alert": ["Alert not found."]})
 
         try:

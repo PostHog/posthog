@@ -585,6 +585,25 @@ def fill_missing_creators(
     return filled
 
 
+def assign_native_creator(
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, created_by_id: int
+) -> bool:
+    """Makes `created_by_id` the creator of a configuration whose source keeps no row, which its checks
+    run as. False when there is no such configuration. A copy's creator comes from its source's row."""
+    with transaction.atomic():
+        configuration = (
+            PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
+            .select_for_update()
+            .filter(id=configuration_id, source_kind__in=list(source_kinds), legacy_configuration_id__isnull=True)
+            .first()
+        )
+        if configuration is None:
+            return False
+        configuration.created_by_id = created_by_id
+        configuration.save(update_fields=["created_by", "updated_at"])
+    return True
+
+
 def _pages_by_id(
     configurations: QuerySet[PlatformAlertConfiguration], *fields: str, batch_size: int
 ) -> Iterator[list[tuple[Any, ...]]]:

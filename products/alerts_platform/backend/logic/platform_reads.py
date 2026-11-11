@@ -4,7 +4,7 @@ Separate from `platform_lifecycle`, which serves the source adapters. These serv
 outside the product, so they return views rather than rows and never change one.
 """
 
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from datetime import datetime
 from typing import Any
 from uuid import UUID
@@ -213,12 +213,19 @@ def count_configurations(
     native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
+    exclude_id: UUID | None = None,
+    source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row."""
+    the ones with no source row. With `source_config_contains`, only the ones whose `source_config` holds
+    that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
+    if exclude_id is not None:
+        configurations = configurations.exclude(id=exclude_id)
+    if source_config_contains:
+        configurations = configurations.filter(source_config__contains=source_config_contains)
     if native_only:
         configurations = configurations.filter(legacy_configuration_id__isnull=True)
     if enabled_only:

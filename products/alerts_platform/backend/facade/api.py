@@ -265,6 +265,8 @@ def count_configurations(
     native_only: bool = False,
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
+    exclude_id: UUID | None = None,
+    source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
     """How many alerts of a kind a team has on the platform. For a source's admission.
 
@@ -277,6 +279,8 @@ def count_configurations(
         native_only=native_only,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
+        exclude_id=exclude_id,
+        source_config_contains=source_config_contains,
     )
 
 
@@ -488,6 +492,16 @@ def update_owned_copy(
         cadence=cadence,
         rescheduled=rescheduled,
         at=at,
+    )
+
+
+def assign_native_creator(
+    *, team_id: int, source_kinds: Sequence[str], configuration_id: UUID, created_by_id: int
+) -> bool:
+    """Makes `created_by_id` the creator of a configuration whose source keeps no row, which its checks
+    run as. False when there is no such configuration."""
+    return platform_writes.assign_native_creator(
+        team_id=team_id, source_kinds=source_kinds, configuration_id=configuration_id, created_by_id=created_by_id
     )
 
 
