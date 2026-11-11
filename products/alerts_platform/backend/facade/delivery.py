@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     LateImageResult,
     LegacyEventEmitter,
     LegacyWebhookBody,
+    LiveHogFunctionLookup,
     SourceAlertCreator,
     SourceDescriber,
     SourceImageResolver,
@@ -35,6 +36,11 @@ if TYPE_CHECKING:
 
 def register_destination_resolver(resolver: DestinationResolver) -> None:
     destinations.register(resolver)
+
+
+def register_live_hog_function_lookup(lookup: LiveHogFunctionLookup) -> None:
+    """The product that owns HogFunctions says which still exist, so a destination row that copies one waits for it to go."""
+    destinations.register_live_hog_function_lookup(lookup)
 
 
 def register_source_recipients(source: SourceKind, lookup: SourceRecipients) -> None:

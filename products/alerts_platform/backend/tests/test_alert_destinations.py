@@ -105,13 +105,14 @@ class TestAlertDestinations(BaseTest):
         assert error.value.field == field
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
 
-    def test_an_alert_whose_product_holds_its_destinations_takes_none_here(self) -> None:
+    def test_an_alert_whose_product_keeps_hog_functions_takes_rows_beside_them(self) -> None:
         configuration = self._configuration(destinations_owner=PlatformAlertOwner.SOURCE)
 
-        with pytest.raises(AlertDestinationValidationError):
-            self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
+        self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
 
-        assert list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id) == ()
+        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id)] == [
+            WEBHOOK
+        ]
 
     @parameterized.expand(
         [
