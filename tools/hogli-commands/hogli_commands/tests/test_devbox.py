@@ -1765,6 +1765,13 @@ class TestDevboxWorktreeCommand:
         monkeypatch.setattr(devbox_hogland.shutil, "which", lambda name: f"/usr/bin/{name}")
         monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path / "hogland-ssh")
         monkeypatch.setattr(devbox_worktree, "ensure_hogland_sync_session", lambda *a, **kw: None)
+        box_events = box_home / "hogli-calls"
+
+        def flush_sync(selector: str) -> None:
+            with box_events.open("a") as events_file:
+                events_file.write("sync flushed\n")
+
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_flush", flush_sync)
         hogland_calls: list[list[str]] = []
         up_reply = '{"box": {"id": "box-new", "status": "running", "public_ip": "10.0.0.1", "guest_ssh_port": 22}}'
         real_run = subprocess.run
@@ -1792,8 +1799,8 @@ class TestDevboxWorktreeCommand:
         assert result.exit_code == expected_exit, result.output
         assert output_has in result.output
         assert hogland_calls == expected_hogland
-        hogli_calls = box_home / "hogli-calls"
-        assert (hogli_calls.read_text() if hogli_calls.exists() else "") == ("up -d -y\n" if app_started else "")
+        events = box_events.read_text() if box_events.exists() else ""
+        assert events == ("sync flushed\nup -d -y\n" if app_started else "")
 
 
 class TestWorkspaceRegion:

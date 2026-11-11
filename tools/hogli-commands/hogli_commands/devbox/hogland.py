@@ -147,25 +147,34 @@ def clone(source: str, target: str) -> None:
         )
 
 
-def start_app(name: str, enable: bool | None) -> bool:
-    marker = "~/.config/hogli/start-app"
+_START_APP_MARKER = "~/.config/hogli/start-app"
+
+
+def save_start_app(name: str, enable: bool | None) -> bool:
     steps = []
     if enable is True:
-        steps.append(f"mkdir -p ~/.config/hogli && touch {marker}")
+        steps.append(f"mkdir -p ~/.config/hogli && touch {_START_APP_MARKER}")
     elif enable is False:
-        steps.append(f"rm -f {marker}")
-    steps.append(f"if [ -f {marker} ]; then cd {REMOTE_REPO_PATH} && ./bin/hogli up -d -y && echo started; fi")
+        steps.append(f"rm -f {_START_APP_MARKER}")
+    steps.append(f"if [ -f {_START_APP_MARKER} ]; then echo enabled; fi")
+    result = _run_on_box(name, " && ".join(steps), "read the start-app setting")
+    return result is not None and result.stdout.strip() == "enabled"
+
+
+def start_app(name: str) -> bool:
+    return _run_on_box(name, f"cd {REMOTE_REPO_PATH} && ./bin/hogli up -d -y", "start the app") is not None
+
+
+def _run_on_box(name: str, script: str, action: str) -> subprocess.CompletedProcess[str] | None:
     try:
-        result = run_in_devbox(name, ["bash", "-lc", " && ".join(steps)], timeout=_UP_TIMEOUT_SECONDS)
+        result = run_in_devbox(name, ["bash", "-lc", script], timeout=_UP_TIMEOUT_SECONDS)
     except subprocess.TimeoutExpired:
-        click.echo(f"hogli: starting the app on '{name}' did not finish within {_UP_TIMEOUT_SECONDS}s.", err=True)
-        return False
+        click.echo(f"hogli: couldn't {action} on '{name}' within {_UP_TIMEOUT_SECONDS}s.", err=True)
+        return None
     if result.returncode != 0:
-        click.echo(
-            f"hogli: couldn't start the app on '{name}': {result.stderr.strip() or result.stdout.strip()}", err=True
-        )
-        return False
-    return result.stdout.strip().endswith("started")
+        click.echo(f"hogli: couldn't {action} on '{name}': {result.stderr.strip() or result.stdout.strip()}", err=True)
+        return None
+    return result
 
 
 def hibernate(name: str) -> None:

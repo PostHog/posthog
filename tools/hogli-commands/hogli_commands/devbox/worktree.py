@@ -642,7 +642,11 @@ def _hogland_worktree(
     if _prune_box_of_worktree_removed_during_setup(root, git_dir):
         return
     ensure_hogland_sync_session(name, root, verbose=verbose)
-    app_started = hogland.start_app(name, start_app if existing is None else None)
+    app_started = False
+    if hogland.save_start_app(name, start_app if existing is None else None):
+        click.echo("Waiting for the sync to catch up before starting the app...")
+        mutagen.sync_flush(mutagen.workspace_label_selector(name))
+        app_started = hogland.start_app(name)
     click.echo()
     click.echo(f"  SSH    hogland devbox ssh {name}")
     if app_started:
