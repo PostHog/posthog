@@ -35,8 +35,8 @@ const isMarked = (entry: ProcEntry): boolean =>
 const ENTRY_POINTS = ['bin/posthog-node', 'src/index.ts', 'dist/index.js']
 const NODE_LAUNCHERS = ['node', 'tsx']
 const SHELLS = ['sh', 'bash', 'dash', 'zsh']
-const LOADER_OPTIONS = ['-r', '--require', '--import', '--loader', '--experimental-loader']
-const SCRIPT_FILE = /\.[cm]?[jt]s$/
+const EVAL_OPTIONS = ['-e', '--eval', '-p', '--print']
+const SCRIPT_FILE = /\.[cm]?[jt]sx?$/
 
 const entryPointsOf = (nodejsDir: string): string[] => [
     path.join(path.dirname(nodejsDir), 'bin', 'posthog-node'),
@@ -46,10 +46,13 @@ const entryPointsOf = (nodejsDir: string): string[] => [
 const isTsx = (arg: string): boolean =>
     path.basename(arg) === 'tsx' || arg.endsWith(path.join('tsx', 'dist', 'cli.mjs'))
 
+const isOptionValue = (previous: string | undefined): boolean =>
+    previous !== undefined && previous.startsWith('-') && !previous.includes('=')
+
 const isForeignScript = (arg: string, previous: string | undefined): boolean =>
     !arg.startsWith('-') &&
     !isTsx(arg) &&
-    !LOADER_OPTIONS.includes(previous ?? '') &&
+    !isOptionValue(previous) &&
     (SCRIPT_FILE.test(arg) || arg.split('/').includes('bin'))
 
 function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
@@ -62,10 +65,12 @@ function launchesNode(entry: ProcEntry, nodejsDir: string): boolean {
         return true
     }
     const at = rest.findIndex(isEntryPoint)
+    const before = rest.slice(0, at)
     return (
-        (NODE_LAUNCHERS.includes(path.basename(program)) || isTsx(program)) &&
+        NODE_LAUNCHERS.includes(path.basename(program)) &&
         at !== -1 &&
-        !rest.slice(0, at).some((arg, index) => isForeignScript(arg, rest[index - 1]))
+        !before.some((arg) => EVAL_OPTIONS.includes(arg)) &&
+        !before.some((arg, index) => isForeignScript(arg, rest[index - 1]))
     )
 }
 
