@@ -1216,7 +1216,6 @@ rules:
                         |HogFunction
                         |Hook
                         |HostProxyDaily
-                        |InsightAgentRead
                         |InsightViewed
                         |Integration
                         |IntegrationRepositoryCacheEntry
