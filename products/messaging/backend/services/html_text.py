@@ -173,7 +173,6 @@ class _TextParser(HTMLParser):
         self.closing = ""
         self.script: list[str] = []
         self.script_escape = _ScriptEscape()
-        self.keeps_script_open = False
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         if tag in VOID_TAGS:
@@ -200,26 +199,18 @@ class _TextParser(HTMLParser):
             self.set_cdata_mode(tag, escapable=True)
 
     def parse_endtag(self, i: int) -> int:
-        end = super().parse_endtag(i)
-        if self.keeps_script_open:
-            self.keeps_script_open = False
-            end = i + len(SCRIPT_END_TAG_OPEN)
-            self.script.append(self.rawdata[i:end])
-        return end
-
-    def clear_cdata_mode(self) -> None:
-        if not self.keeps_script_open:
-            super().clear_cdata_mode()
-
-    def handle_endtag(self, tag: str) -> None:
         if self.reads_like_a_browser and self.cdata_elem == "script":
             escape = self.script_escape.after("".join(self.script))
             self.script = []
             if escape.double_escaped:
                 self.script_escape = escape
-                self.keeps_script_open = True
-                return
+                end = i + len(SCRIPT_END_TAG_OPEN)
+                self.script.append(self.rawdata[i:end])
+                return end
             self.script_escape = _ScriptEscape()
+        return super().parse_endtag(i)
+
+    def handle_endtag(self, tag: str) -> None:
         if tag in VOID_TAGS or not self.open_counts[tag]:
             return
         if self.reads_like_a_browser and tag != "template" and not self.open_counts_above_templates[-1][tag]:
