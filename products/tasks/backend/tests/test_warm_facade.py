@@ -206,7 +206,7 @@ class TestWarmTaskSandbox(APIBaseTest):
 
         assert response.status_code == 200, response.content
         assert mock_warm.call_args.kwargs["profile"].key == profile_key
-        assert response.json()["permission_mode_mutable"] is (profile_key == "user")
+        assert response.json()["permission_mode_mutable"] is (profile_key in ("user", "posthog_ai"))
 
     @patch("products.tasks.backend.presentation.views.api.TaskViewSet._warm_enabled", return_value=True)
     @patch("products.tasks.backend.facade.api.warm_task_sandbox")
@@ -1059,9 +1059,17 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert followup.status_code == 200, followup.content
         assert mock_signal.call_count == 2
 
-    @parameterized.expand([("plan", "default"), ("default", "plan")])
-    def test_targeted_warm_acknowledges_mode_before_delivering(self, previous: str, requested: str) -> None:
-        warm_task, run = self._warm_run(extra_state={"initial_permission_mode": previous})
+    @parameterized.expand(
+        [
+            (origin, previous, requested)
+            for origin in ("user_created", "posthog_ai")
+            for previous, requested in (("plan", "default"), ("default", "plan"))
+        ]
+    )
+    def test_targeted_warm_acknowledges_mode_before_delivering(
+        self, origin: str, previous: str, requested: str
+    ) -> None:
+        warm_task, run = self._warm_run(origin_product=origin, extra_state={"initial_permission_mode": previous})
         events: list[str] = []
 
         def acknowledge(*args: object, **kwargs: object) -> CommandResult:
@@ -1085,7 +1093,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             patch(f"{FACADE}.send_set_config_option", side_effect=acknowledge) as command,
             patch(f"{FACADE}.signal_task_run_user_message", side_effect=deliver),
         ):
-            result = self._create(warm_run_id=run.id, initial_permission_mode=requested)
+            result = self._create(origin_product=origin, warm_run_id=run.id, initial_permission_mode=requested)
 
         assert str(result.id) == str(warm_task.id)
         assert events == ["mode", "prompt"]
@@ -1193,7 +1201,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert result is False
         signal.assert_not_called()
 
-    def test_targeted_warm_never_falls_back_after_ambiguous_prompt_delivery(self) -> None:
+    @parameterized.expand([None, "11111111-1111-4111-8111-111111111111"])
+    def test_targeted_warm_never_falls_back_after_ambiguous_prompt_delivery(self, submission_id: str | None) -> None:
         warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})
         response = CommandResult(True, 200, {"result": {"configOptions": [{"id": "mode", "currentValue": "plan"}]}})
         with (
@@ -1205,14 +1214,34 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             ),
             self.assertRaises(RPCError),
         ):
-            self._create(warm_run_id=run.id, initial_permission_mode="plan")
+            self._create(warm_run_id=run.id, warm_submission_id=submission_id, initial_permission_mode="plan")
         assert Task.objects.filter(team=self.team).count() == 1
         run.refresh_from_db()
         assert run.state["warm_activation_started"] is True
         assert run.state["initial_permission_mode"] == "plan"
         with self.assertRaises(facade.WarmRunActivationUnavailable):
-            self._create(warm_run_id=run.id, initial_permission_mode="plan")
+            self._create(warm_run_id=run.id, warm_submission_id=submission_id, initial_permission_mode="plan")
         assert Task.objects.filter(team=self.team).count() == 1
+
+    def test_shared_warm_lease_falls_back_for_another_submission(self) -> None:
+        warm_task, run = self._warm_run(origin_product="posthog_ai", extra_state={"initial_permission_mode": "plan"})
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as signal:
+            first = self._create(
+                origin_product="posthog_ai",
+                warm_run_id=run.id,
+                warm_submission_id="11111111-1111-4111-8111-111111111111",
+                initial_permission_mode="plan",
+            )
+            second = self._create(
+                origin_product="posthog_ai",
+                warm_run_id=run.id,
+                warm_submission_id="22222222-2222-4222-8222-222222222222",
+                initial_permission_mode="plan",
+            )
+        assert str(first.id) == str(warm_task.id)
+        assert second.id != first.id
+        assert second.latest_run is None
+        assert signal.call_count == 1
 
     def test_create_retry_uses_original_run_when_a_newer_warm_exists(self) -> None:
         warm_task, run = self._warm_run(extra_state={"initial_permission_mode": "default"})

@@ -1351,6 +1351,12 @@ class TaskSourceRequestSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
+    warm_submission_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Identity of this submission when targeting a warm run. Keep it unchanged on retries; a different submission may fall back to a cold task if the warm run was already claimed.",
+    )
     warm_run_id = serializers.UUIDField(
         required=False,
         allow_null=True,
