@@ -13,6 +13,7 @@ from rest_framework.response import Response
 from posthog.api.file_system.access_levels import (
     FileSystemAccessLevelSerializerMixin,
     filter_workflow_files_by_access_level,
+    keep_workflow_files_in_scoped_teams,
 )
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -209,6 +210,7 @@ class FileSystemShortcutViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         queryset = self._scope_by_project_and_environment(queryset).filter(user=self.request.user)
         # A starred row hidden by its product stays hidden here too.
         queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        queryset = keep_workflow_files_in_scoped_teams(queryset, self.request.successful_authenticator)
         # Destroy keeps retired rows, so that a user can still remove a shortcut that no other action returns.
         if self.action != "destroy":
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)

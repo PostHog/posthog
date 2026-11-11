@@ -1838,6 +1838,34 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         self.template.refresh_from_db()
         assert self.template.deleted
 
+    def test_restoring_transactional_templates_reads_their_workflows_once_per_batch(self, mock_post, _flag):
+        self.client.force_login(self.user)
+
+        def workflow_reads_restoring(count: int) -> int:
+            templates = [
+                MessageTemplate.objects.create(
+                    team=self.team,
+                    name=f"Synthetic reset {count}-{index}",
+                    content={"email": {"subject": "Reset your password", "html": "<p>Reset</p>"}},
+                    type="email",
+                    created_by=self.user,
+                )
+                for index in range(count)
+            ]
+            for template in templates:
+                make_transactional(self.team.id, template.id, user_id=self.user.id, from_integration_id=None)
+            MessageTemplate.objects.filter(pk__in=[template.pk for template in templates]).update(deleted=True)
+            with CaptureQueriesContext(connection) as queries:
+                restored = self.client.post(
+                    f"/api/projects/{self.team.id}/file_system/undo_delete/",
+                    {"items": [{"type": "message_template", "ref": str(template.id)} for template in templates]},
+                    format="json",
+                )
+            assert restored.status_code == status.HTTP_200_OK, restored.content
+            return sum('FROM "posthog_hogflow"' in query["sql"] for query in queries.captured_queries)
+
+        assert workflow_reads_restoring(3) == workflow_reads_restoring(1)
+
     def test_restoring_a_template_whose_key_another_template_took_answers_409(self, mock_post, _flag):
         self.client.force_login(self.user)
         MessageTemplate.objects.filter(pk=self.template.pk).update(key="synthetic-reset", deleted=True)

@@ -1546,6 +1546,16 @@ class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
 
         assert {row[0] for row in response.results} == {"insight"}
 
+    def test_team_guard_stays_next_to_the_postgres_read(self):
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.file_system"), context, dialect="clickhouse"
+        )
+
+        assert f"WHERE team_id = {self.team.pk}) AS system__file_system" in query
+
 
 class TestSystemTablesInboxAccess(BaseTest):
     @parameterized.expand([("signal_usage:read", True), ("signal_scout:read", False)])

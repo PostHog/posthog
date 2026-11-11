@@ -348,8 +348,17 @@ class TestWorkflowFolders(APIBaseTest):
         stored = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{object_id}/")
         self.assertEqual(stored.status_code, object_status, stored.content)
 
-    @parameterized.expand([("delete",), ("move",)])
-    def test_a_key_scoped_to_one_environment_changes_only_its_own_template_files(self, operation: str) -> None:
+    @parameterized.expand(
+        [
+            ("list", "get", "file_system/?type=message_template", 200),
+            ("starred", "get", "file_system_shortcut/", 200),
+            ("delete", "delete", "file_system/{file_id}/", 404),
+            ("move", "post", "file_system/{file_id}/move/", 404),
+        ]
+    )
+    def test_a_key_scoped_to_one_environment_reaches_only_its_own_template_files(
+        self, _name: str, method: str, path: str, expected_status: int
+    ) -> None:
         sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
         template_id = self.client.post(
             f"/api/projects/{sibling_team.id}/messaging_templates/",
@@ -358,28 +367,28 @@ class TestWorkflowFolders(APIBaseTest):
         ).json()["id"]
         file = FileSystem.objects.get(team=sibling_team, type="message_template", ref=template_id)
         original_path = file.path
+        FileSystemShortcut.objects.create(
+            team=sibling_team, user=self.user, path="Sibling email", type="message_template", ref=template_id
+        )
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="Scoped key",
             user=self.user,
             secure_value=hash_key_value(key_value),
-            scopes=["file_system:read", "file_system:write", "hog_flow:write"],
+            scopes=["file_system:read", "file_system:write", "file_system_shortcut:read", "hog_flow:write"],
             scoped_teams=[self.team.id],
         )
         self.client.logout()
-        file_url = f"/api/projects/{self.team.id}/file_system/{file.id}/"
 
-        if operation == "delete":
-            response = self.client.delete(file_url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
-        else:
-            response = self.client.post(
-                f"{file_url}move/",
-                {"new_path": "Moved/Sibling email"},
-                format="json",
-                HTTP_AUTHORIZATION=f"Bearer {key_value}",
-            )
+        response = getattr(self.client, method)(
+            f"/api/projects/{self.team.id}/{path.format(file_id=file.id)}",
+            {"new_path": "Moved/Sibling email"} if method == "post" else None,
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key_value}",
+        )
 
-        self.assertEqual(response.status_code, 403, response.content)
+        self.assertEqual(response.status_code, expected_status, response.content)
+        self.assertNotIn(template_id, response.content.decode())
         file.refresh_from_db()
         self.assertEqual(file.path, original_path)
         self.client.force_login(self.user)

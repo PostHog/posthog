@@ -44,13 +44,14 @@ from posthog.api.file_system.access_levels import (
     file_system_ref_alternate_spellings,
     file_system_resource,
     filter_workflow_files_by_access_level,
+    keep_workflow_files_in_scoped_teams,
 )
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     delete_file_system_object,
     get_restorable_object,
     is_file_system_type_registered,
-    prepare_file_system_deletes,
+    prepare_file_system_objects,
     undo_delete as undo_delete_object,
 )
 from posthog.api.file_system.file_system_logging import log_api_file_system_view
@@ -91,7 +92,7 @@ from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
-from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
+from posthog.permissions import scopes_caller_lacks
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -510,6 +511,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         queryset = self._filter_by_product_visibility(queryset)
+        queryset = keep_workflow_files_in_scoped_teams(queryset, self.request.successful_authenticator)
         if not self.user_access_control:
             return queryset
         accessible_team_ids = self._accessible_team_ids
@@ -538,12 +540,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (type, ref, team_id) - team_id is each row's own team, since the tree can list rows from
         sibling environments and the check has to run against the object's real team.
         """
-        scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
-        if scoped_team_ids and any(
-            entry_type in WORKFLOW_FILE_SYSTEM_TYPES and team_id not in scoped_team_ids
-            for entry_type, _ref, team_id in objects
-        ):
-            raise PermissionDenied("This key can't change objects in other environments. Use a key scoped to them.")
         if not objects or not self.user_access_control:
             return
         denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
@@ -1212,7 +1208,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         for team_id, file_type, ref, _row_key in entries_by_group:
             if ref:
                 refs_by_type.setdefault((team_id, file_type), set()).add(ref)
-        prepare_file_system_deletes(self.request, refs_by_type)
+        prepare_file_system_objects(self.request, refs_by_type)
         any_surface_by_team = {team_id: _any_surface_q(team_id) for team_id in {key[0] for key in refs_by_type}}
         spellings_by_type = {
             key: _stored_spellings(key[0], key[1], refs, any_surface_by_team[key[0]])
@@ -1388,6 +1384,10 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         items = sorted(serializer.validated_data["items"], key=lambda item: (item["type"], item["ref"]))
         undo_results: list[dict[str, str]] = []
         self._ensure_token_can_write_workflow_objects([item["type"] for item in items])
+        refs_by_type: dict[tuple[int, str], set[str]] = {}
+        for item in items:
+            refs_by_type.setdefault((self.team.id, item["type"]), set()).add(item["ref"])
+        prepare_file_system_objects(request, refs_by_type)
 
         with transaction.atomic():
             for item in items:

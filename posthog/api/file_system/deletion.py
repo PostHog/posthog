@@ -161,8 +161,8 @@ def register_post_restore_hook(type_string: str, hook: PostRestoreHook) -> None:
     _POST_RESTORE_HOOKS[type_string] = hook
 
 
-# Runs before any pre-delete hook locks an object, so a type can load its checks' data in one query.
-def prepare_file_system_deletes(request: Any | None, refs_by_type: Mapping[tuple[int, str], Iterable[str]]) -> None:
+# Runs before any pre-delete or pre-restore hook locks an object, so a type can load its checks' data in one query.
+def prepare_file_system_objects(request: Any | None, refs_by_type: Mapping[tuple[int, str], Iterable[str]]) -> None:
     for (team_id, type_string), refs in sorted(refs_by_type.items()):
         hook = _PREPARE_DELETE_HOOKS.get(type_string)
         registration = _MODEL_REGISTRY.get(type_string)

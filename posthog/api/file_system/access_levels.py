@@ -21,6 +21,7 @@ from posthog.api.file_system.deletion import (
 )
 from posthog.models import Team
 from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+from posthog.permissions import get_authenticator_scoped_team_ids
 from posthog.scopes import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 
@@ -396,6 +397,13 @@ def entries_missing_access_level(
         if (level := levels.get((entry_type, ref, team_id))) is None
         or not access_level_satisfied_for_resource(file_system_resource(entry_type), level, required_level)
     ]
+
+
+def keep_workflow_files_in_scoped_teams(queryset: QuerySet, authenticator: Any) -> QuerySet:
+    scoped_team_ids = get_authenticator_scoped_team_ids(authenticator)
+    if not scoped_team_ids:
+        return queryset
+    return queryset.filter(~Q(type__in=WORKFLOW_FILE_SYSTEM_TYPES) | Q(team_id__in=scoped_team_ids))
 
 
 def filter_workflow_files_by_access_level(
