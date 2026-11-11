@@ -734,6 +734,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         "allow_staff": True,
     },
     {
+        # Redis TTL edits from PostHog Admin carry the staff reason, and the row lands on the acting
+        # staff user's current organization, which has no relation to the edited key.
+        "scope": "Admin",
+        "activities": ["ttl_updated", "ttl_removed"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
         # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
         # and wallet balance out of the org-scoped activity log endpoints.
         "scope": "AIGatewayCredit",
