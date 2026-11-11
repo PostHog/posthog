@@ -174,12 +174,16 @@ def exposed_when(history: FlagHistory, effect: ChangeEffect, count: int) -> str:
     return f"{change} came {after_start} after the start date, when {_units(count, history.counts_groups)} had been exposed."
 
 
+def count_only_after(changed_at: datetime, team_timezone: str) -> str:
+    start_at = suggested_start(changed_at, team_timezone)
+    return f"Move the start date to {start_at} so the results count only exposures after it."
+
+
 def leave_out(history: FlagHistory, effect: ChangeEffect, count: int) -> list[str]:
     """The next step for the few persons or groups exposed before the last change. Empty when there were none."""
     if count == 0:
         return []
-    start_at = suggested_start(effect.last.changed_at, history.team_timezone)
-    return [f"Move the start date to {start_at} so the results count only exposures after it."]
+    return [count_only_after(effect.last.changed_at, history.team_timezone)]
 
 
 def _units(count: int, counts_groups: bool) -> str:

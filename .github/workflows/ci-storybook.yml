@@ -33,7 +33,18 @@ env:
     NPM_CONFIG_AUDIT: 'false'
     NPM_CONFIG_FUND: 'false'
     # Shard counts — change here to resize the matrix. CHROMIUM_SHARDS also caps narrowed PR runs.
-    CHROMIUM_SHARDS: 28
+    #
+    # Chromium shards are sized from the timing manifest, not from a target wall. Each shard
+    # pays about a minute of fixed setup (checkout, pnpm restore and install, artifact
+    # download), then divides the story time left over by its shard count and two Jest workers.
+    # At 28 shards the median shard spent 5.9 of its 7.8 minutes in the test runner (with slowest
+    # shard around 9 minutes); at 40 the same story time spread over 40 shards puts the median
+    # shard wall near 6.4 minutes (test runner ~4.2 minutes, slowest shard 8.1 minutes). The shards run
+    # on GitHub-hosted runners, which are free for this public repository, so the extra shards
+    # cost queue slots rather than money.
+    #
+    # WEBKIT_SHARDS stays at 8: those shards run on 2-CPU Depot runners that bill per minute.
+    CHROMIUM_SHARDS: 40
     WEBKIT_SHARDS: 8
 
 jobs:
@@ -982,14 +993,19 @@ jobs:
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots and webkit-only breaks before they land on master.
+    # Story files the diff affects without changing them run too, warn only (see the script).
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
-        needs: [changes, build-storybook]
+        needs: [changes, build-storybook, select-stories]
         # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
         # which on a queue branch is the same set the PR's own run already verified.
+        # `!cancelled()` keeps the job running when select-stories is skipped (run-ci-frontend
+        # label) or fails. The affected list is then empty and only changed story files run.
         if: |
-            needs.changes.outputs.frontend == 'true'
+            !cancelled()
+            && needs.build-storybook.result == 'success'
+            && needs.changes.outputs.frontend == 'true'
             && github.event_name == 'pull_request'
             && needs.changes.outputs.merge_queue != 'true'
         timeout-minutes: 45
@@ -1081,6 +1097,7 @@ jobs:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json || '[]' }}
               # The merge base comes from the API because the depth-1 checkout cannot compute it.
               # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |

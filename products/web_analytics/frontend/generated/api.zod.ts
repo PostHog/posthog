@@ -10,6 +10,45 @@
 import * as zod from 'zod'
 
 /**
+ * Adds a brand to the project's brand catalog by domain, confirmed. Add the project's own site with kind 'own' before the first daily run: only own brands count as the project in citations and mentions, and the run skips a project without one. Returns 400 when the catalog already has the domain; update that brand instead.
+ * @summary Add an AEO brand
+ */
+export const aeoBrandsCreateBodyDomainMax = 253
+
+export const aeoBrandsCreateBodyNameMax = 200
+
+export const aeoBrandsCreateBodyAliasesItemMax = 200
+
+export const aeoBrandsCreateBodyAliasesMax = 20
+
+export const AeoBrandsCreateBody = /* @__PURE__ */ zod.object({
+    domain: zod
+        .string()
+        .max(aeoBrandsCreateBodyDomainMax)
+        .describe(
+            "The brand's domain or a URL on it, for example 'example.com'. Stored as its registrable domain, so citations on its subdomains count for the brand."
+        ),
+    name: zod
+        .string()
+        .max(aeoBrandsCreateBodyNameMax)
+        .optional()
+        .describe('Brand name as people say it. Guessed from the domain when empty.'),
+    kind: zod
+        .enum(['own', 'competitor', 'publisher', 'unknown'])
+        .describe('\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown')
+        .describe(
+            "What the brand is to the project: 'own' (the project's site, counted as us in citations), 'competitor', 'publisher' or 'unknown'.\n\n\* `own` - Own\n\* `competitor` - Competitor\n\* `publisher` - Publisher\n\* `unknown` - Unknown"
+        ),
+    aliases: zod
+        .array(zod.string().max(aeoBrandsCreateBodyAliasesItemMax).describe('One other name for the brand.'))
+        .max(aeoBrandsCreateBodyAliasesMax)
+        .optional()
+        .describe(
+            'Other names for the brand, used to find it in answer text. Names are trimmed, and repeated names are dropped.'
+        ),
+})
+
+/**
  * Renames, relabels, confirms or ignores a brand, or replaces its other names. The daily run keeps these edits; it only adds newly cited domains.
  * @summary Update an AEO brand
  */
