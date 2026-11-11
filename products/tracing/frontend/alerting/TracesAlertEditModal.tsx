@@ -11,7 +11,7 @@ import { TracesAlertFilterFields } from './TracesAlertFilterFields'
 import { tracesAlertFormLogic } from './tracesAlertFormLogic'
 import { tracesAlertsLogic } from './tracesAlertsLogic'
 import { TracesAlertTriggerFields } from './TracesAlertTriggerFields'
-import { alertDestinations } from './tracesAlertUtils'
+import { alertDestinations, errorText } from './tracesAlertUtils'
 
 interface TracesAlertEditModalProps {
     alert: PlatformAlertConfigurationApi | null
@@ -51,9 +51,9 @@ function TracesAlertEditModalContent({
                 </LemonModal.Header>
                 <LemonModal.Content>
                     <div className="max-w-2xl space-y-4">
-                        <TracesAlertFilterFields nameError={alertFormErrors.name} />
+                        <TracesAlertFilterFields nameError={errorText(alertFormErrors.name)} />
                         <LemonDivider />
-                        <TracesAlertTriggerFields thresholdError={alertFormErrors.threshold} />
+                        <TracesAlertTriggerFields thresholdError={errorText(alertFormErrors.threshold)} />
                         <LemonDivider />
                         <div className="space-y-2">
                             <h4 className="m-0">Destinations</h4>

@@ -1,5 +1,4 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
 
 import { mswDecorator } from '~/mocks/browser'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -8,8 +7,6 @@ import {
     PlatformAlertConfigurationApi,
     PlatformAlertDestinationApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
-
-import { userEvent } from 'storybook/test'
 
 import { TracesAlertsTab } from './TracesAlertsTab'
 
@@ -164,15 +161,13 @@ export const Empty: Story = {
 }
 
 export const CreateModal: Story = {
-    play: async ({ canvasElement }) => {
-        const button = await within(canvasElement).findByText('New alert')
-        await userEvent.click(button)
+    play: async ({ canvas, userEvent }) => {
+        await userEvent.click(await canvas.findByText('New alert'))
     },
 }
 
 export const EditModal: Story = {
-    play: async ({ canvasElement }) => {
-        const name = await within(canvasElement).findByText('Checkout error rate')
-        await userEvent.click(name)
+    play: async ({ canvas, userEvent }) => {
+        await userEvent.click(await canvas.findByText('Checkout error rate'))
     },
 }

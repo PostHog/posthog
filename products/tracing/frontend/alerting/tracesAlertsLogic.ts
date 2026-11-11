@@ -23,9 +23,9 @@ const ALERT_POLL_INTERVAL_MS = 30_000
 export interface tracesAlertsLogicValues {
     currentTeamId: number | null // teamLogic
     alerts: PlatformAlertConfigurationApi[]
-    alertsLoading: boolean
     alertsLoadFailed: boolean
     alertsLoaded: boolean
+    alertsLoading: boolean
     editingAlert: PlatformAlertConfigurationApi | null
     isCreateAlertModalOpen: boolean
     togglingAlertIds: Set<string>

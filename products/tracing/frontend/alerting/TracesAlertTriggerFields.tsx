@@ -16,6 +16,7 @@ import {
     OPERATOR_OPTIONS,
     PERCENTILE_OPTIONS,
     WINDOW_OPTIONS,
+    errorText,
     thresholdUnit,
 } from './tracesAlertUtils'
 
@@ -82,7 +83,7 @@ export function TracesAlertTriggerFields({ thresholdError }: { thresholdError?: 
             <LemonField.Pure
                 label="Check separately for"
                 help="A grouped alert fires and resolves for each group on its own. Changing this on a saved alert clears its current groups."
-                error={alertFormErrors.groupBy}
+                error={errorText(alertFormErrors.groupBy)}
             >
                 <LemonSelect
                     value={alertForm.groupBy}
@@ -96,7 +97,7 @@ export function TracesAlertTriggerFields({ thresholdError }: { thresholdError?: 
                 <LemonField.Pure
                     label="Reduce noise"
                     help="Require the condition on several checks before the alert fires. The alert resolves once the condition stops matching."
-                    error={alertFormErrors.datapointsToAlarm}
+                    error={errorText(alertFormErrors.datapointsToAlarm)}
                 >
                     <div className="flex items-center gap-2 flex-wrap">
                         <LemonInput

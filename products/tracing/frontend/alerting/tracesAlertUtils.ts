@@ -110,6 +110,11 @@ function groupByFromKeys(grouping: GroupingApi | undefined): TracesAlertGroupBy 
     return grouping.keys?.includes('name') ? 'service_and_operation' : 'service'
 }
 
+/** A saved threshold in the unit the form shows, which is a percentage for error rate. */
+function formThreshold(condition: TracesPlatformAlertConditionApi): number {
+    return condition.measure === MeasureEnumApi.ErrorRate ? round(condition.threshold * 100) : condition.threshold
+}
+
 /** The form's starting values: the saved alert when editing, otherwise the viewer's current filters. */
 export function buildFormDefaults(
     alert: PlatformAlertConfigurationApi | null,
@@ -128,12 +133,7 @@ export function buildFormDefaults(
         measure,
         percentile: (condition?.percentile ?? 95) as TracesAlertPercentile,
         thresholdOperator: condition?.threshold_operator ?? TracesAlertThresholdOperatorApi.Above,
-        threshold:
-            condition === undefined
-                ? null
-                : measure === MeasureEnumApi.ErrorRate
-                  ? round(condition.threshold * 100)
-                  : condition.threshold,
+        threshold: condition ? formThreshold(condition) : null,
         windowMinutes: condition?.window_minutes ?? WindowMinutesEnumApi.Number5,
         groupBy: groupByFromKeys(alert?.grouping),
         evaluationPeriods: alert?.evaluation_periods ?? 1,
@@ -149,6 +149,11 @@ function round(value: number): number {
 
 /** Only the fields that can be wrong, so the type fits kea-forms' per-field error map. */
 export type TracesAlertFormErrors = Partial<Record<'name' | 'threshold' | 'groupBy' | 'datapointsToAlarm', string>>
+
+/** kea-forms types an error as any of string, boolean or null; the fields here only ever hold a message. */
+export function errorText(error: unknown): string | undefined {
+    return typeof error === 'string' ? error : undefined
+}
 
 export function validateForm(form: TracesAlertFormType): TracesAlertFormErrors {
     const errors: TracesAlertFormErrors = {}

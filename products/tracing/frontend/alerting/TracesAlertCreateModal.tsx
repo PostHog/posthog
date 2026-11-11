@@ -19,6 +19,7 @@ import {
     NEW_ALERT_DESTINATIONS,
     describeTracesCondition,
     describeTracesScope,
+    errorText,
     toWritePayload,
 } from './tracesAlertUtils'
 
@@ -47,8 +48,12 @@ function TracesAlertCreateModalContent({
     const { touchAlertFormField } = useActions(tracesAlertFormLogic(formLogicProps))
     // Mounted here, not only in the notify step, so destinations added there survive moving between steps.
     const { pendingDestinations } = useValues(platformAlertDestinationsLogic(NEW_ALERT_DESTINATIONS))
-    const { name: nameError, threshold: thresholdError, groupBy: groupByError } = alertFormValidationErrors
-    const triggerCannotAdvanceReason = thresholdError ?? groupByError ?? alertFormValidationErrors.datapointsToAlarm
+    const nameError = errorText(alertFormValidationErrors.name)
+    const thresholdError = errorText(alertFormValidationErrors.threshold)
+    const triggerCannotAdvanceReason =
+        thresholdError ??
+        errorText(alertFormValidationErrors.groupBy) ??
+        errorText(alertFormValidationErrors.datapointsToAlarm)
     const payload = toWritePayload(alertForm)
 
     const steps: AlertWizardStep[] = [
