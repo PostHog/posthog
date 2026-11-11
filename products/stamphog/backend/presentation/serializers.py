@@ -866,9 +866,12 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
     """
 
     provider = serializers.CharField(
-        required=False, help_text="SCM provider this config talks to. Defaults to 'github'."
+        required=False,
+        help_text="SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it.",
     )
-    repository = serializers.CharField(help_text="Repository full name, e.g. 'PostHog/posthog'.")
+    repository = serializers.CharField(
+        help_text="Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it."
+    )
     enabled = serializers.BooleanField(
         required=False, help_text="Whether stamphog actively reviews pull requests for this repo."
     )

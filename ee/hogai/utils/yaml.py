@@ -33,7 +33,7 @@ def load_yaml_from_raw_llm_content(raw_content: str) -> dict | list:
         return content
     except OutputParserException:
         # Try to fix with OutputFixingParser
-        llm = ChatOpenAI(model="gpt-4.1-mini", temperature=0.1)
+        llm = ChatOpenAI(model="gpt-6-luna", reasoning_effort="low")
         fixing_parser = OutputFixingParser.from_llm(parser=yaml_parser, llm=llm, max_retries=1)
         # Allow to raise if the format is still not valid
         return fixing_parser.parse(raw_content)

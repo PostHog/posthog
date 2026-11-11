@@ -652,6 +652,8 @@ export const redirects: Record<
     '/views/new': urls.analyticsList(),
     // Analytics opens on View all; the bare path stays as the pane's prefix.
     [urls.analytics()]: urls.analyticsList(),
+    // Collections were called spaces; this keeps old links working.
+    '/analytics/spaces': urls.analyticsSpaces(),
     '/action/:id': ({ id }) => urls.action(id),
     '/actions': urls.actions(),
     '/activity': urls.activity(),
