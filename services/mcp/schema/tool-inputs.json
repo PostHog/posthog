@@ -652,6 +652,16 @@
             },
             "required": ["query"]
         },
+        "ExperimentHealthGetSchema": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "number",
+                    "description": "The ID of the experiment to check"
+                }
+            },
+            "required": ["id"]
+        },
         "ExperimentResultsGetSchema": {
             "type": "object",
             "properties": {
