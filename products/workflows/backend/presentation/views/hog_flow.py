@@ -652,21 +652,26 @@ def _is_condition_group(condition: Any) -> bool:
     return isinstance(condition, dict) and "type" in condition and "values" in condition
 
 
-def _builds_property(condition: Any) -> bool:
+VALUELESS_OPERATORS = ("is_set", "is_not_set")
+
+
+def _is_finished_condition(condition: Any) -> bool:
     try:
-        Property(**condition)
+        built = Property(**condition)
     except (PropertyValidationError, exceptions.ValidationError, TypeError):
         return False
-    return True
+    return built.value != [] or built.operator in VALUELESS_OPERATORS
 
 
-def _has_unbuildable_condition(conditions: Any) -> bool:
+def _has_unfinished_condition(conditions: Any) -> bool:
     if _is_condition_group(conditions):
         conditions = conditions["values"]
     if not isinstance(conditions, list):
         return False
     return any(
-        _has_unbuildable_condition(condition) if _is_condition_group(condition) else not _builds_property(condition)
+        _has_unfinished_condition(condition)
+        if _is_condition_group(condition)
+        else not _is_finished_condition(condition)
         for condition in conditions
     )
 
@@ -678,7 +683,7 @@ def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
             properties = json.loads(properties)
         except json.JSONDecodeError:
             properties = None
-    if _has_unbuildable_condition(properties):
+    if _has_unfinished_condition(properties):
         raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
