@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconBell, IconCheck } from '@posthog/icons'
 import { Button, Input, Text } from '@posthog/quill'
 
-import { hasConceptWaitlistSurvey } from './ConceptWaitlistCTA'
+import { hasConceptWaitlistSurvey, hasJoinedConceptWaitlist } from './ConceptWaitlistCTA'
 import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
 
 export interface QuillConceptWaitlistCTAProps {
@@ -33,8 +33,7 @@ export function QuillConceptWaitlistCTA({ feature }: QuillConceptWaitlistCTAProp
         )
     }
 
-    // `enabled` covers users who registered interest before the survey era, so do not ask them again.
-    if (!!conceptSurveySubmissions[flagKey] || enabled) {
+    if (hasJoinedConceptWaitlist(feature, conceptSurveySubmissions)) {
         // A live region, because the focused submit button unmounts on submit
         return (
             <Text size="xs" weight="medium" render={<span role="status" />} className="flex items-center gap-1">

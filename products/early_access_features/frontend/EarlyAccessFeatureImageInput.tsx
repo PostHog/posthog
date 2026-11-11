@@ -4,22 +4,22 @@ import { IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
-import { urls } from 'scenes/urls'
 
 export interface EarlyAccessFeatureImageInputProps {
+    id?: string
     value?: string
     onChange?: (value: string) => void
     onUploadingChange?: (uploading: boolean) => void
 }
 
 export function EarlyAccessFeatureImageInput({
+    id,
     value,
     onChange,
     onUploadingChange,
 }: EarlyAccessFeatureImageInputProps): JSX.Element {
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
-        // The upload API returns a path on this instance. The public API and posthog-js need a full URL.
-        onUpload: (url) => onChange?.(urls.absolute(url)),
+        onUpload: (url) => onChange?.(url),
         onError: (detail) => lemonToast.error(`Couldn't upload the image: ${detail}`),
     })
 
@@ -67,6 +67,7 @@ export function EarlyAccessFeatureImageInput({
                     }
                 />
                 <LemonInput
+                    id={id}
                     className="flex-1 min-w-60"
                     placeholder="Or paste an image URL"
                     value={value ?? ''}

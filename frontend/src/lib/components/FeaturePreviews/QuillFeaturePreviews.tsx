@@ -25,7 +25,6 @@ import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePrevi
 import { FEATURE_PREVIEW_WARNINGS } from './featurePreviewWarnings'
 import { QuillFeaturePreviewCard } from './QuillFeaturePreviewCard'
 import { QuillFeaturePreviewGroup } from './QuillFeaturePreviewGroup'
-import { QuillFeaturePreviewImageDialog } from './QuillFeaturePreviewImageDialog'
 
 const STAGE_GROUPS = [
     {
@@ -157,7 +156,6 @@ export function QuillFeaturePreviews({ features, failedToLoad, flagsHonored }: Q
                     )}
                 </>
             )}
-            <QuillFeaturePreviewImageDialog features={features} />
         </div>
     )
 }

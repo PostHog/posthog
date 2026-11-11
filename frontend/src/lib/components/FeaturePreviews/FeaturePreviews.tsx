@@ -62,20 +62,12 @@ export function FeaturePreviews(): JSX.Element {
             )}
             {failedToLoadFeaturePreviews && (
                 <LemonBanner type="warning" className="mb-2">
-                    <div className="flex flex-col gap-2">
-                        <span>
-                            We couldn't load our internal feature flags. This could be due to the presence of adblockers
-                            running in your browser or due to a network issue (e.g. slow wifi).
-                        </span>
-                        <span className="italic">
-                            Note: If you use feature flags for your app, you can avoid this issue for your users by
-                            using a{' '}
-                            <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
-                                reverse proxy
-                            </Link>
-                            .
-                        </span>
-                    </div>
+                    We couldn't load our internal feature flags. An ad blocker or a network issue can cause this. If you
+                    use feature flags in your own app, a{' '}
+                    <Link to="https://posthog.com/docs/advanced/proxy" target="_blank">
+                        reverse proxy
+                    </Link>{' '}
+                    prevents this for your users.
                 </LemonBanner>
             )}
             {rawEarlyAccessFeaturesLoading ? (

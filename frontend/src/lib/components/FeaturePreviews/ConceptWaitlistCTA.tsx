@@ -23,6 +23,15 @@ export const hasConceptWaitlistSurvey = (
     waitlistSurveysEnabled: boolean
 ): boolean => waitlistSurveysEnabled && !!feature.payload?.survey_id
 
+/**
+ * `enabled` covers users who registered interest before the survey era. The migration
+ * command moves them into the survey, so do not ask them again.
+ */
+export const hasJoinedConceptWaitlist = (
+    feature: EnrichedEarlyAccessFeature,
+    conceptSurveySubmissions: Record<string, boolean>
+): boolean => !!conceptSurveySubmissions[feature.flagKey] || feature.enabled
+
 export function ConceptWaitlistCTA({
     feature,
     size = 'small',
@@ -67,9 +76,7 @@ export function ConceptWaitlistCTA({
         )
     }
 
-    // `enabled` covers users who registered interest before the survey era. The migration
-    // command moves them into the survey, so do not ask them again.
-    if (!!conceptSurveySubmissions[flagKey] || enabled) {
+    if (hasJoinedConceptWaitlist(feature, conceptSurveySubmissions)) {
         // role="status" makes the confirmation a live region: the form (and its focused
         // button) unmounts on submit, so without it screen readers announce nothing.
         return (

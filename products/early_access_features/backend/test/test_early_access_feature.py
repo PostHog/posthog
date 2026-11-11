@@ -1030,7 +1030,7 @@ class TestEarlyAccessFeature(APIBaseTest):
         feature = EarlyAccessFeature.objects.get(id=response_data["id"])
         assert feature.payload == payload
 
-    def test_image_url_is_saved_on_create_and_update(self):
+    def test_image_url_is_saved_on_create_update_and_clear(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/early_access_feature/",
             data={
@@ -1051,6 +1051,15 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         feature = EarlyAccessFeature.objects.get(id=response.json()["id"])
         assert feature.image_url == "https://images.example.com/second.png"
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/",
+            data={"image_url": ""},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        feature.refresh_from_db()
+        assert feature.image_url == ""
 
     def test_can_create_early_access_feature_without_payload_defaults_to_empty_dict(self):
         response = self.client.post(
