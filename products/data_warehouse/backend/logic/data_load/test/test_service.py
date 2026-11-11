@@ -36,6 +36,7 @@ from products.data_warehouse.backend.logic.data_load.service import (
     get_discover_schemas_schedule,
     get_sync_schedule,
     is_cdc_extraction_schedule_paused,
+    missing_cdc_extraction_schedules,
     pause_cdc_extraction_schedule,
     pause_external_data_schedule,
     sync_cdc_extraction_schedule,
@@ -389,6 +390,22 @@ def test_cdc_schedule_paused_reports_the_schedule_state(paused: bool) -> None:
 def test_a_missing_schedule_reads_as_not_paused() -> None:
     with _temporal_with_schedule(describe_side=_not_found()):
         assert is_cdc_extraction_schedule_paused("01a0393e-a79f-0000-0361-2cabb703888f") is False
+
+
+def test_missing_cdc_extraction_schedules_checks_every_source_over_one_connection() -> None:
+    def _handle(schedule_id: str) -> MagicMock:
+        handle = MagicMock()
+        missing = schedule_id == _get_cdc_extraction_schedule_id("source-without-schedule")
+        handle.describe = AsyncMock(side_effect=_not_found() if missing else None)
+        return handle
+
+    client = MagicMock()
+    client.get_schedule_handle.side_effect = _handle
+    with patch(f"{SERVICE}.async_connect", AsyncMock(return_value=client)) as mock_connect:
+        missing = missing_cdc_extraction_schedules(["source-with-schedule", "source-without-schedule"])
+
+    assert missing == {"source-without-schedule"}
+    mock_connect.assert_awaited_once()
 
 
 # --- bulk_sync_cdc_extraction_schedules (upsert: update, else create+trigger) ---

@@ -684,6 +684,27 @@ async def is_cdc_extraction_schedule_paused(source_id: str) -> bool:
 
 
 @async_to_sync
+async def missing_cdc_extraction_schedules(source_ids: list[str]) -> set[str]:
+    """The ids of the sources whose CDC extraction schedule does not exist, checked over one connection.
+
+    A paused schedule exists. Recreating a missing one is the caller's job, as for
+    `cdc_extraction_schedule_exists`.
+    """
+    if not source_ids:
+        return set()
+
+    temporal = await async_connect()
+    semaphore = asyncio.Semaphore(_BULK_SCHEDULE_CONCURRENCY)
+
+    async def _is_missing(source_id: str) -> bool:
+        async with semaphore:
+            return not await a_schedule_exists(temporal, schedule_id=_get_cdc_extraction_schedule_id(source_id))
+
+    results = await asyncio.gather(*(_is_missing(source_id) for source_id in source_ids))
+    return {source_id for source_id, missing in zip(source_ids, results) if missing}
+
+
+@async_to_sync
 async def bulk_sync_cdc_extraction_schedules(
     source_intervals: list[tuple[ExternalDataSource, timedelta]],
 ) -> list[tuple[str, BaseException]]:

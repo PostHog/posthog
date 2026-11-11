@@ -1936,10 +1936,13 @@ def update_should_sync(
         if should_sync is True:
             sync_external_data_job_workflow(schema, create=True)
 
-    # The table's own schedule only loads changes. The source's extraction schedule reads them from
-    # the slot, and a run that found no syncing CDC table deleted it.
+    # A capture run that found no syncing CDC table deleted the source's extraction schedule.
     if should_sync is True and schema.sync_type == ExternalDataSchema.SyncType.CDC:
-        sync_cdc_extraction_schedule(schema.source)
+        try:
+            sync_cdc_extraction_schedule(schema.source)
+        except Exception:
+            # The table is already enabled, and the CDC sweeper recreates a missing schedule.
+            logger.exception("cdc_extraction_schedule_sync_failed", external_data_schema_id=str(schema.id))
 
     return schema
 

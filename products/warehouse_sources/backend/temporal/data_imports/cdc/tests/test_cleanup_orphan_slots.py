@@ -80,8 +80,8 @@ def _run(adapter, *, schedule_exists=True):
         ),
         patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
         patch(
-            "products.data_warehouse.backend.logic.data_load.service.cdc_extraction_schedule_exists",
-            return_value=schedule_exists,
+            "products.data_warehouse.backend.logic.data_load.service.missing_cdc_extraction_schedules",
+            side_effect=lambda source_ids: set() if schedule_exists else set(source_ids),
         ),
         # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
         patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
@@ -249,28 +249,38 @@ def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(
 
 
 @pytest.mark.parametrize(
-    "schedule_exists, existing_reason, restored, expected_reason",
+    "management, schedule_exists, existing_reason, restored, expected_reason",
     [
-        pytest.param(False, None, True, None, id="missing_schedule_is_restored_without_lag_blame"),
-        pytest.param(True, None, False, "critical_lag_self_managed", id="present_or_paused_schedule_is_left_alone"),
+        pytest.param("self_managed", False, None, True, None, id="missing_schedule_is_restored_without_lag_blame"),
+        pytest.param("posthog", False, None, True, None, id="missing_schedule_is_restored_without_a_slot_drop"),
         pytest.param(
-            False, "auto_dropped_critical_lag", False, "auto_dropped_critical_lag", id="repair_owns_the_schedule"
+            "self_managed", True, None, False, "critical_lag_self_managed", id="existing_schedule_is_left_alone"
+        ),
+        pytest.param(
+            "self_managed",
+            False,
+            "auto_dropped_critical_lag",
+            False,
+            "auto_dropped_critical_lag",
+            id="repair_owns_the_schedule",
         ),
     ],
 )
 def test_critical_lag_restores_a_missing_extraction_schedule(
-    team, schedule_exists, existing_reason, restored, expected_reason
+    team, management, schedule_exists, existing_reason, restored, expected_reason
 ):
-    source = _create_source(team, job_inputs=_cdc_job_inputs(management="self_managed"))
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management=management))
     schema = _create_cdc_schema(team, source)
     if existing_reason:
         schema.sync_type_config = {**schema.sync_type_config, "cdc_broken": {"reason": existing_reason}}
         schema.save()
 
+    adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
     with patch("products.data_warehouse.backend.logic.data_load.service.sync_cdc_extraction_schedule") as mock_sync:
-        _, _, mock_pause = _run(_mock_adapter(lag_bytes=5000 * 1024 * 1024), schedule_exists=schedule_exists)
+        _, _, mock_pause = _run(adapter, schedule_exists=schedule_exists)
 
     assert mock_sync.called is restored
+    adapter.drop_stream.assert_not_called()
     mock_pause.assert_not_called()
     schema.refresh_from_db()
     assert (schema.sync_type_config.get("cdc_broken") or {}).get("reason") == expected_reason

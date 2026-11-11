@@ -1630,26 +1630,35 @@ def validate_cdc_prerequisites_activity(inputs: ValidateCDCPrerequisitesInput) -
 # ---------------------------------------------------------------------------
 
 
-def restore_missing_extraction_schedule(source: ExternalDataSource) -> bool:
-    """Recreate the extraction schedule of a source that has active CDC tables but no schedule.
+def sources_missing_extraction_schedule() -> set[str]:
+    """The ids of the live sources that have syncing CDC tables but no extraction schedule.
 
     Without the schedule nothing reads the slot, while the tables' own load jobs keep succeeding,
-    so nothing else notices. Returns whether the schedule was recreated.
+    so nothing else notices.
     """
-    from products.data_warehouse.backend.facade.api import cdc_extraction_schedule_exists, sync_cdc_extraction_schedule
+    from products.data_warehouse.backend.facade.api import missing_cdc_extraction_schedules
 
-    has_active_tables = (
+    source_ids = (
         ExternalDataSchema.objects.filter(
-            team_id=source.team_id, source=source, sync_type=ExternalDataSchema.SyncType.CDC, should_sync=True
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            should_sync=True,
+            source__deleted=False,
+            source__source_type__in=cdc_supported_source_types(),
         )
         .exclude(deleted=True)
-        .exists()
+        .values_list("source_id", flat=True)
+        .distinct()
     )
+    return missing_cdc_extraction_schedules([str(source_id) for source_id in source_ids])
+
+
+def restore_missing_extraction_schedule(source: ExternalDataSource, missing_schedules: set[str]) -> bool:
+    """Recreate the extraction schedule of a source in `missing_schedules`. Returns whether it did."""
+    from products.data_warehouse.backend.facade.api import sync_cdc_extraction_schedule
+
     # A marker that waits for repair keeps the schedule paused on purpose. Capture would only fail
     # against the lost slot, so Repair CDC recreates the schedule instead.
-    if not has_active_tables or tables_wait_for_repair(source):
-        return False
-    if cdc_extraction_schedule_exists(str(source.id)):
+    if str(source.id) not in missing_schedules or tables_wait_for_repair(source):
         return False
     sync_cdc_extraction_schedule(source)
     return True
@@ -1686,6 +1695,14 @@ def cleanup_orphan_slots_activity() -> None:
     # loop, so heartbeat from a background thread rather than once per iteration — otherwise a
     # stalled source would starve heartbeats and Temporal would kill the whole sweep.
     with HeartbeaterSync(logger=log):
+        try:
+            missing_schedules = sources_missing_extraction_schedule()
+        except Exception:
+            # The lag checks below still run. Only the schedule restore waits for the next sweep.
+            log.exception("failed_to_find_missing_cdc_extraction_schedules")
+            metrics.get_sweeper_source_errors_metric().add(1)
+            missing_schedules = set()
+
         for source in sources:
             try:
                 adapter = get_cdc_adapter(source)
@@ -1771,7 +1788,7 @@ def cleanup_orphan_slots_activity() -> None:
 
             schedule_restored = False
             try:
-                schedule_restored = restore_missing_extraction_schedule(source)
+                schedule_restored = restore_missing_extraction_schedule(source, missing_schedules)
                 if schedule_restored:
                     source_log.warning("cdc_extraction_schedule_restored")
             except Exception:
@@ -1810,7 +1827,11 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
+                if schedule_restored:
+                    # The lag built up while nothing read the slot, so neither a drop nor a lag marker
+                    # fits. The run the restore started reads the backlog, and the next sweep judges it.
+                    source_log.info("slot_lag_critical_while_schedule_missing")
+                elif cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
                     source_log.warning("auto_dropping_slot_critical_lag")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:
@@ -1844,12 +1865,8 @@ def cleanup_orphan_slots_activity() -> None:
                     # and never drop — the lag may recover once they reduce load on the source.
                     # A marker with another reason stays. The lag marker allows Resume CDC and clears
                     # itself once the lag drops, which would lift a stop that only Repair CDC may lift.
-                    # A lag built up while the extraction schedule was missing is not the customer's
-                    # to fix. The next sweep judges the lag again once capture has run.
                     try:
-                        if schedule_restored:
-                            source_log.info("slot_lag_critical_while_schedule_missing")
-                        elif not broken_for_another_reason(source, SELF_MANAGED_LAG_REASON):
+                        if not broken_for_another_reason(source, SELF_MANAGED_LAG_REASON):
                             mark_cdc_broken(
                                 source,
                                 SELF_MANAGED_LAG_REASON,
