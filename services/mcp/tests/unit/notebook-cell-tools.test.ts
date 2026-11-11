@@ -602,7 +602,7 @@ describe('notebook cell tools', () => {
             expect(state.runBodies).toHaveLength(0)
         })
 
-        it('a run that reads an unrun cell names that cell and the tool that runs it', async () => {
+        it('retains an unrun-cell rejection as typed metadata without echoing it', async () => {
             const state = makeState(
                 [
                     '# Doc',
@@ -620,11 +620,10 @@ describe('notebook cell tools', () => {
                 (caught: unknown) => caught
             )
 
-            expect((error as Error).message).toContain(
-                'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
-            )
-            // The handler classifies by the API error in the cause chain, so the hint must keep it.
+            expect((error as Error).message).toContain('validation error')
+            expect((error as Error).message).not.toContain('events_df')
             expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
+            expect(findRecoverableApiError(error)).toMatchObject({ detail: state.runDispatchError })
         })
     })
 

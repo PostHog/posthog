@@ -142,6 +142,8 @@ export class McpSessionResetRequiredError extends Error {
 }
 
 export interface PostHogValidationErrorOptions {
+    /** Only code-controlled remediation belongs here; upstream details stay in `detail`. */
+    message?: string
     detail: string
     attr: string | undefined
     code: string | undefined
@@ -165,8 +167,7 @@ export class PostHogValidationError extends Error {
     public readonly method: string
 
     constructor(options: PostHogValidationErrorOptions) {
-        const attr = options.attr ? ` (field: ${options.attr})` : ''
-        super(`Validation error: ${options.detail}${attr}`)
+        super(options.message ?? 'PostHog API validation error. Check the request parameters and try again.')
         this.name = 'PostHogValidationError'
         this.detail = options.detail
         this.attr = options.attr
@@ -272,20 +273,20 @@ export class PostHogApiError extends Error {
     }
 }
 
-/** The request path without the upstream host. The host is not something an
- *  agent can act on, and reading one makes a 4xx look like an infrastructure
- *  fault; `client.ts` already logs the full URL server-side. */
-function requestPath(url: string): string {
+/** Diagnostic targets omit credentials and query values; never fall back to the raw URL. */
+export function formatSafeRequestTarget(url: string): string {
     try {
-        const parsed = new URL(url)
-        return `${parsed.pathname}${parsed.search}`
+        const parsed = new URL(url, 'https://diagnostic.invalid')
+        return parsed.protocol === 'http:' || parsed.protocol === 'https:'
+            ? parsed.pathname
+            : '[invalid request target]'
     } catch {
-        return url
+        return '[invalid request target]'
     }
 }
 
 function buildDefaultApiErrorMessage(options: PostHogApiErrorOptions): string {
-    return `Request failed:\nPath: ${options.method} ${requestPath(options.url)}\nStatus Code: ${options.status} (${options.statusText})\nError Message: ${options.body}`
+    return `Request failed:\nPath: ${options.method} ${formatSafeRequestTarget(options.url)}\nStatus Code: ${options.status}`
 }
 
 export interface PostHogRateLimitErrorOptions {
@@ -309,7 +310,7 @@ export class PostHogRateLimitError extends PostHogApiError {
             url: options.url,
             method: options.method,
             retryAfterSeconds: options.retryAfterSeconds,
-            message: `PostHog API rate limit exceeded (429) on ${options.method} ${options.url}.${retryHint}`,
+            message: `PostHog API rate limit exceeded (429) on ${options.method} ${formatSafeRequestTarget(options.url)}.${retryHint}`,
         })
         this.name = 'PostHogRateLimitError'
     }
@@ -348,12 +349,11 @@ export class PostHogTransportError extends Error {
     public readonly timedOut: boolean
 
     constructor(options: PostHogTransportErrorOptions) {
-        const reason = options.cause instanceof Error ? options.cause.message : String(options.cause)
         const advice = options.retryable
             ? 'The request applies nothing upstream, so it is safe to retry.'
             : 'The request may have been applied upstream, so check the state before you send it again.'
         super(
-            `Could not reach the PostHog API on ${options.method} ${requestPath(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}: ${reason}. ${advice}`
+            `Could not reach the PostHog API on ${options.method} ${formatSafeRequestTarget(options.url)} after ${options.attempts} attempt${options.attempts === 1 ? '' : 's'}. ${advice}`
         )
         this.name = 'PostHogTransportError'
         this.retryable = options.retryable
@@ -362,7 +362,6 @@ export class PostHogTransportError extends Error {
         this.attempts = options.attempts
         // A forwarded request nests the local transport error, so look through the cause chain.
         this.timedOut = hasTimeoutCause(options.cause)
-        ;(this as Error & { cause?: unknown }).cause = options.cause
     }
 }
 
@@ -402,7 +401,7 @@ export class PostHogPermissionError extends Error {
     constructor(options: PostHogPermissionErrorOptions) {
         const message = options.missingScope
             ? `Missing PostHog API scope: '${options.missingScope}'`
-            : `PostHog API permission denied: ${options.detail}`
+            : 'PostHog API permission denied'
         super(message)
         this.name = 'PostHogPermissionError'
         this.detail = options.detail
@@ -436,7 +435,8 @@ export function wrapError(message: string, cause: unknown): Error {
 const PERSONAL_API_KEY_DOCS_URL = 'https://posthog.com/docs/api#how-to-authenticate-with-the-posthog-api'
 
 export function formatPermissionErrorMessage(error: PostHogPermissionError): string {
-    const callTarget = error.method && error.url ? `${error.method} ${error.url}` : 'this MCP request'
+    const callTarget =
+        error.method && error.url ? `${error.method} ${formatSafeRequestTarget(error.url)}` : 'this MCP request'
     if (error.missingScope) {
         return [
             `Missing PostHog API scope: '${error.missingScope}'`,
@@ -452,7 +452,7 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
     // The backend sends this detail when a token restricted to some projects calls an organization endpoint.
     if (error.detail.includes('API keys with scoped projects are only supported on project-based endpoints')) {
         return [
-            `PostHog API permission denied: ${error.detail}`,
+            'PostHog API permission denied',
             '',
             `The request to ${callTarget} was rejected with HTTP 403. This is an organization endpoint, and your API key or OAuth token is limited to specific projects. More project access does not fix this.`,
             '',
@@ -463,7 +463,7 @@ export function formatPermissionErrorMessage(error: PostHogPermissionError): str
     }
 
     return [
-        `PostHog API permission denied: ${error.detail}`,
+        'PostHog API permission denied',
         '',
         `The request to ${callTarget} was rejected with HTTP 403. Verify that your API key, OAuth token, and user account have access to this project.`,
     ].join('\n')
