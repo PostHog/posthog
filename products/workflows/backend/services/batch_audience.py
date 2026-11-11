@@ -10,6 +10,9 @@ from rest_framework import exceptions
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -165,6 +168,7 @@ def get_batch_audience_person_ids_snapshot(
     with unevaluable_filters_as_validation_errors():
         cleaned_filter = replace_proxy_properties(team, filters)
         boundaries = _person_id_chunk_boundaries(team, _remaining_budget(settings, deadline))
+        database = Database.create_for(team=team, modifiers=create_default_modifiers_for_team(team), trigger="executor")
         # Keyed by dedupe group, first seen wins. The ranges run in ClickHouse's UUID order and each query
         # returns its rows in that order, so the first person seen for a group has the smallest id.
         audience: dict[str, str] = {}
@@ -183,6 +187,7 @@ def get_batch_audience_person_ids_snapshot(
                 workload=Workload.OFFLINE,
                 # The cohort limit context lets the explicit LIMIT above exceed the interactive row cap.
                 limit_context=LimitContext.COHORT_CALCULATION,
+                context=HogQLContext(team_id=team.pk, database=database),
             )
             for row in response.results or []:
                 person_id = str(row[0])
