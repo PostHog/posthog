@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { DndContext, MouseSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -644,6 +644,39 @@ describe('WorkflowsScene', () => {
             await waitFor(() => expect(moveRequests).toEqual([{ id: 'renewal', newPath: 'Billing/Renewal reminder' }]))
             act(() => router.actions.push(urls.workflows(), { q: 'in:Billing' }))
             await waitFor(() => expect(shownRowNames()).toContain('Renewal reminder'))
+        })
+
+        it('keeps a folder rename pending until the move lands, then renames from the new name', async () => {
+            holdMoves = true
+            await renderFolder('Billing', 'Welcome series')
+            await waitFor(() => expect(workflowFoldersLogic.values.takenFolderPaths).not.toBeNull())
+            const folderActions = (folder: string): HTMLElement => screen.getByLabelText(`Actions for folder ${folder}`)
+            const rename = async (from: string, to: string): Promise<void> => {
+                fireEvent.click(folderActions(from))
+                fireEvent.click(await screen.findByText('Rename…'))
+                fireEvent.change(await screen.findByDisplayValue(from), { target: { value: to } })
+                await waitFor(() => expect(submitButton()).not.toHaveAttribute('aria-disabled', 'true'))
+                fireEvent.click(submitButton())
+            }
+            const submitButton = (): HTMLElement => screen.getByText('Submit').closest('button') as HTMLElement
+
+            await rename('Cards', 'Payments')
+            await waitFor(() => expect(moveRequests).toHaveLength(1))
+            expect(screen.getByText('Rename Cards')).toBeInTheDocument()
+            expect(submitButton()).toHaveAttribute('aria-disabled', 'true')
+            expect(folderActions('Cards')).toHaveAttribute('aria-disabled', 'true')
+
+            act(() => releaseHeldMoves[0]())
+            await waitFor(() => expect(screen.queryByText('Rename Cards')).toBeNull())
+            holdMoves = false
+            await rename('Payments', 'Wallet')
+            await waitFor(() => expect(screen.queryByText('Rename Payments')).toBeNull())
+            expect(moveRequests).toEqual([
+                { id: 'cards', newPath: 'Billing/Payments' },
+                { id: 'cards', newPath: 'Billing/Wallet' },
+            ])
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing/Wallet' }))
+            await waitFor(() => expect(shownRowNames()).toEqual(['Renewal reminder']))
         })
 
         it('lists a subfolder in the open folder after naming it inline', async () => {
