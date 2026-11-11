@@ -1,0 +1,15 @@
+{
+  "exitCode": 1,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/event_definitions/typescript/?sdk=none",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  ],
+  "files": {}
+}

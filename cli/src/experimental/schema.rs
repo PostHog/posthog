@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use inquire::{Select, Text};
+use inquire::{InquireError, Select, Text};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -277,6 +277,8 @@ struct DefinitionsResponse {
     content: String,
     event_count: usize,
     schema_hash: String,
+    #[serde(default)]
+    sdk: Option<String>,
 }
 
 pub fn pull(
@@ -300,7 +302,7 @@ pub fn pull(
         sdk: match (language, sdk, saved) {
             (Language::TypeScript, Some(sdk), _) => Some(sdk),
             (Language::TypeScript, None, Some(saved)) => Some(saved.typescript_sdk()?),
-            (Language::TypeScript, None, None) => Some(select_typescript_sdk()),
+            (Language::TypeScript, None, None) => Some(select_typescript_sdk()?),
             _ => None,
         },
     };
@@ -328,7 +330,7 @@ pub fn pull(
     // Check if schema has changed for this language, and that it still wraps the same SDK
     if let Some(lang_config) = saved {
         let same_sdk = match module.sdk {
-            Some(sdk) => lang_config.typescript_sdk()? == sdk,
+            Some(sdk) => lang_config.typescript_sdk().ok() == Some(sdk),
             None => true,
         };
         if same_sdk && lang_config.schema_hash == response.schema_hash {
@@ -517,6 +519,13 @@ fn fetch_definitions(client: &PHClient, module: Module) -> Result<DefinitionsRes
         module.display_name()
     ))?;
 
+    // A PostHog that predates `sdk` ignores the query and sends the posthog-js module, without saying which SDK
+    if module.types_only() && json.sdk.as_deref() != Some(TypeScriptSdk::TypesOnly.as_str()) {
+        anyhow::bail!(
+            "This PostHog instance cannot generate TypeScript types without an SDK yet. Update PostHog, or pull without --sdk none"
+        );
+    }
+
     Ok(json)
 }
 
@@ -540,13 +549,14 @@ fn select_language() -> Result<Language> {
 }
 
 /// Without a terminal, the prompt fails and the module wraps posthog-js
-fn select_typescript_sdk() -> TypeScriptSdk {
+fn select_typescript_sdk() -> Result<TypeScriptSdk> {
     let options = vec![
         "posthog-js: wrap it so capture() checks your events",
         "Another SDK, such as posthog-react-native: only the event types",
     ];
     match Select::new("Which PostHog SDK does this app use?", options.clone()).prompt() {
-        Ok(selected) if selected == options[1] => TypeScriptSdk::TypesOnly,
-        _ => TypeScriptSdk::PosthogJs,
+        Ok(selected) if selected == options[1] => Ok(TypeScriptSdk::TypesOnly),
+        Ok(_) | Err(InquireError::NotTTY) => Ok(TypeScriptSdk::PosthogJs),
+        Err(err) => Err(err).context("Failed to select the TypeScript SDK"),
     }
 }

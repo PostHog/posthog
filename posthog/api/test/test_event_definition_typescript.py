@@ -115,10 +115,11 @@ class TestEventDefinitionTypeScriptGeneration(APIBaseTest):
 
         EventSchema.objects.create(event_definition=self.special_chars_event, property_group=special_property_group)
 
-    def _generate_typescript(self, query: str = "") -> str:
+    def _generate_typescript(self, query: str = "", sdk: str = "posthog-js") -> str:
         """Generate TypeScript definitions by calling the actual API endpoint"""
         response = self.client.get(f"/api/projects/{self.project.id}/event_definitions/typescript/{query}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["sdk"], sdk)
         return response.json()["content"]
 
     def _strip_dynamic_timestamp(self, content: str) -> str:
@@ -296,7 +297,7 @@ posthog.capture("a'a\\\\'b\\"c>?>%}}%%>c<[[?${{%}}cake'", {
             self.snapshot.assert_match(self._strip_dynamic_timestamp(ts_content))
 
     def test_typescript_types_only_has_no_sdk_dependency(self):
-        ts_content = self._generate_typescript("?sdk=none")
+        ts_content = self._generate_typescript("?sdk=none", sdk="none")
 
         self.assertNotRegex(ts_content, r"(?m)^import ")
         self.assertNotIn("posthog-js", ts_content)

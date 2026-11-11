@@ -432,6 +432,11 @@ class GeneratedDefinitionsSerializer(serializers.Serializer):
         help_text="A hash of the event schemas and generator version. It changes when the module would change."
     )
     generator_version = serializers.CharField(help_text="The version of the generator that wrote the module.")
+    sdk = serializers.ChoiceField(
+        choices=TypeScriptSDK.choices,
+        required=False,
+        help_text="TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.",
+    )
 
 
 class EventDefinitionViewSet(
@@ -1217,9 +1222,9 @@ class EventDefinitionViewSet(
     def typescript_definitions(self, *args, **kwargs):
         query = TypeScriptDefinitionsQuerySerializer(data=self.request.query_params)
         query.is_valid(raise_exception=True)
-        if query.validated_data["sdk"] == TypeScriptSDK.NONE:
-            return self._generate_definitions(TypeScriptTypesGenerator())
-        return self._generate_definitions(TypeScriptGenerator())
+        sdk = query.validated_data["sdk"]
+        generator = TypeScriptTypesGenerator() if sdk == TypeScriptSDK.NONE else TypeScriptGenerator()
+        return self._generate_definitions(generator, extra={"sdk": sdk})
 
     @extend_schema(responses={200: GeneratedDefinitionsSerializer})
     @action(detail=False, methods=["GET"], url_path="golang", required_scopes=["event_definition:read"])
@@ -1231,7 +1236,9 @@ class EventDefinitionViewSet(
     def python_definitions(self, *args, **kwargs):
         return self._generate_definitions(PythonGenerator())
 
-    def _generate_definitions(self, generator: EventDefinitionGenerator) -> response.Response:
+    def _generate_definitions(
+        self, generator: EventDefinitionGenerator, extra: dict[str, str] | None = None
+    ) -> response.Response:
         event_definitions, schema_map = generator.fetch_event_definitions_and_schemas(self.project_id)
 
         schema_hash = generator.calculate_schema_hash(event_definitions, schema_map)
@@ -1250,6 +1257,7 @@ class EventDefinitionViewSet(
                 "event_count": len(event_definitions),
                 "schema_hash": schema_hash,
                 "generator_version": generator.generator_version(),
+                **(extra or {}),
             }
         )
 

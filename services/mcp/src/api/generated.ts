@@ -53242,6 +53242,18 @@ export namespace Schemas {
       trace_id: string;
     }
 
+    /**
+     * * `posthog-js` - posthog-js
+     * * `none` - None
+     */
+    export type TypeScriptSDKEnum = typeof TypeScriptSDKEnum[keyof typeof TypeScriptSDKEnum];
+
+
+    export const TypeScriptSDKEnum = {
+      PosthogJs: 'posthog-js',
+      None: 'none',
+    } as const;
+
     export interface GeneratedDefinitions {
       /** The generated module, ready to write to a file. */
       content: string;
@@ -53251,6 +53263,11 @@ export namespace Schemas {
       schema_hash: string;
       /** The version of the generator that wrote the module. */
       generator_version: string;
+      /** TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.
+       *
+       * * `posthog-js` - posthog-js
+       * * `none` - None */
+      sdk?: TypeScriptSDKEnum;
     }
 
     /**

@@ -470,10 +470,11 @@ const schema = (
     name: string,
     language: string,
     args: { rust: string[]; hog: string[] },
-    files: () => Files = () => ({})
+    files: () => Files = () => ({}),
+    server: Scenario = 'fresh'
 ): ParityScenario => ({
     name: `schema-pull-${name}`,
-    server: 'fresh',
+    server,
     files,
     rust: ['exp', 'schema', 'pull', '--language', language, ...args.rust],
     hog: ['schema', 'pull', '--language', language, ...args.hog],
@@ -488,6 +489,13 @@ SCENARIOS.push(
         rust: ['--sdk', 'none', '-o', 'src/lib/'],
         hog: ['--sdk', 'none', '--file', 'src/lib/'],
     }),
+    schema(
+        'typescript-sdk-none-old-server',
+        'typescript',
+        { rust: ['--sdk', 'none'], hog: ['--sdk', 'none'] },
+        undefined,
+        'no-sdk'
+    ),
     // No --sdk: the saved entry decides, so a later pull keeps the types-only module.
     schema('typescript-sdk-none-saved', 'typescript', { rust: [], hog: [] }, () => ({
         'posthog.json': JSON.stringify({

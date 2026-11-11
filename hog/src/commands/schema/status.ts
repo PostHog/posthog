@@ -7,7 +7,7 @@ import { configRoot, fetchDefinitions, isLanguage, moduleInfo } from './shared'
 
 interface LanguageStatus {
     language: string
-    sdk?: TypeScriptSdk
+    sdk: TypeScriptSdk | undefined
     file: string
     // `outdated` means the event definitions changed since the module was generated.
     status: 'up_to_date' | 'outdated' | 'missing' | 'unknown_language'
@@ -29,7 +29,7 @@ export default defineCommand({
             const file = absolutePath(root, saved.output_path)
             const base = {
                 language,
-                ...(saved.sdk ? { sdk: saved.sdk } : {}),
+                sdk: saved.sdk,
                 file: saved.output_path,
                 eventCount: saved.event_count ?? null,
                 updatedAt: saved.updated_at ?? null,

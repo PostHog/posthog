@@ -1,8 +1,9 @@
 import { join } from 'node:path'
 import { z } from 'zod'
 
-import type { LoadedConfig, TypeScriptSdk } from '@/core/config'
+import { TYPESCRIPT_SDKS, type LoadedConfig, type TypeScriptSdk } from '@/core/config'
 import type { Context } from '@/core/context'
+import { HogError } from '@/core/errors'
 import { absolutePath } from '@/core/paths'
 
 export const LANGUAGES = ['typescript', 'golang', 'python'] as const
@@ -64,17 +65,33 @@ export function isLanguage(value: string): value is Language {
     return (LANGUAGES as readonly string[]).includes(value)
 }
 
-const Definitions = z.object({ content: z.string(), event_count: z.number(), schema_hash: z.string() })
+const Definitions = z.object({
+    content: z.string(),
+    event_count: z.number(),
+    schema_hash: z.string(),
+    sdk: z.enum(TYPESCRIPT_SDKS).optional(),
+})
 
 export type Definitions = z.infer<typeof Definitions>
 
-export function fetchDefinitions(
+export async function fetchDefinitions(
     ctx: Context,
     language: Language,
     sdk: TypeScriptSdk | undefined
 ): Promise<Definitions> {
-    const query = language === 'typescript' && sdk === 'none' ? '?sdk=none' : ''
-    return ctx.posthog().then((api) => api.get(`event_definitions/${language}/${query}`, Definitions))
+    const typesOnly = language === 'typescript' && sdk === 'none'
+    const query = new URLSearchParams(typesOnly ? { sdk: 'none' } : {})
+    const path = query.size > 0 ? `event_definitions/${language}/?${query}` : `event_definitions/${language}/`
+    const definitions = await (await ctx.posthog()).get(path, Definitions)
+    // A PostHog that predates `sdk` ignores the query and sends the posthog-js module, without saying which SDK.
+    if (typesOnly && definitions.sdk !== 'none') {
+        throw new HogError(
+            'sdk_unsupported',
+            'This PostHog instance cannot generate TypeScript types without an SDK yet.',
+            'Update PostHog, or pull without --sdk none.'
+        )
+    }
+    return definitions
 }
 
 // posthog.json stores paths relative to its own folder. A new file goes in the working folder.

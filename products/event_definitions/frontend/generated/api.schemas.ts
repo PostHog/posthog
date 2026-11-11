@@ -334,6 +334,17 @@ export interface EventDefinitionBulkUpdateVerifiedResponseApi {
     skipped: BulkUpdateTagsUUIDErrorApi[]
 }
 
+/**
+ * * `posthog-js` - posthog-js
+ * * `none` - None
+ */
+export type TypeScriptSDKEnumApi = (typeof TypeScriptSDKEnumApi)[keyof typeof TypeScriptSDKEnumApi]
+
+export const TypeScriptSDKEnumApi = {
+    PosthogJs: 'posthog-js',
+    None: 'none',
+} as const
+
 export interface GeneratedDefinitionsApi {
     /** The generated module, ready to write to a file. */
     content: string
@@ -343,6 +354,11 @@ export interface GeneratedDefinitionsApi {
     schema_hash: string
     /** The version of the generator that wrote the module. */
     generator_version: string
+    /** TypeScript only: the SDK the module wraps. Clients check it to detect a PostHog that ignores `sdk`.
+     *
+     * * `posthog-js` - posthog-js
+     * * `none` - None */
+    sdk?: TypeScriptSDKEnumApi
 }
 
 /**

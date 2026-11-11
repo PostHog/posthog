@@ -19,7 +19,7 @@ import {
 
 interface PulledLanguage {
     language: Language
-    sdk?: TypeScriptSdk
+    sdk: TypeScriptSdk | undefined
     file: string
     status: 'written' | 'would_write' | 'unchanged'
     eventCount: number
@@ -136,7 +136,7 @@ export default defineCommand({
                 await ctx.runtime.writeFile(file, definitions.content)
                 entries[language] = {
                     output_path: outputPath,
-                    ...(sdk ? { sdk } : {}),
+                    sdk,
                     schema_hash: definitions.schema_hash,
                     updated_at: new Date(ctx.runtime.now()).toISOString(),
                     event_count: definitions.event_count,
@@ -144,7 +144,7 @@ export default defineCommand({
             }
             pulled.push({
                 language,
-                ...(sdk ? { sdk } : {}),
+                sdk,
                 file: outputPath,
                 status: unchanged ? 'unchanged' : options.dryRun ? 'would_write' : 'written',
                 eventCount: definitions.event_count,

@@ -9,7 +9,7 @@ const definitions = (content: string) => (url: string) =>
     url.endsWith('/event_definitions/typescript/')
         ? { status: 200, body: { content, event_count: 3, schema_hash: 'hash-new' } }
         : url.endsWith('/event_definitions/typescript/?sdk=none')
-          ? { status: 200, body: { content, event_count: 3, schema_hash: 'hash-types' } }
+          ? { status: 200, body: { content, event_count: 3, schema_hash: 'hash-types', sdk: 'none' } }
           : { status: 404, body: { detail: 'Not found.' } }
 
 // The file posthog-cli 0.18 writes, plus a section hog owns.
