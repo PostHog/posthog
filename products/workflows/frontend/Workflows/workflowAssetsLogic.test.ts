@@ -86,7 +86,8 @@ describe('workflowAssetsLogic', () => {
     })
 
     it('searches once the person stops typing', async () => {
-        // A key built in an earlier test registers its listeners twice, which defeats the debounce.
+        // A logic key that an earlier test already built registers its listeners twice after initKeaTests,
+        // so both keystrokes would send a request. A fresh id keeps one listener.
         const logic = await loaded({ id: 'wf-search' })
         received = []
 
