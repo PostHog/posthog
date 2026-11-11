@@ -3,7 +3,6 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-import time_machine
 from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
@@ -44,7 +43,6 @@ from products.replay_vision.backend.scanner_draft import (
     _events_for_goal,
     _existing_scanners,
     _ExistingScanner,
-    _FilterOffers,
     _finalize,
     _generate,
     _goal_entity_matches,
@@ -57,9 +55,6 @@ from products.replay_vision.backend.scanner_draft import (
     _MatchedExperiment,
     _MatchedSurvey,
     _measured_events,
-    _merged_recordings_query,
-    _page_filter_regex,
-    _pages_only,
     _run_concurrently,
     _solve_budget,
     _start_in_background,
@@ -1883,26 +1878,6 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
         assert draft.estimated_monthly_observations == 0
 
-    def test_the_fallback_keeps_the_filters_the_person_set(self):
-        # A refine merges the drafted events into a filter that can hold a hand-set duration. Dropping it
-        # while falling back to the pages would widen the scan past what the person asked for.
-        duration = {"type": "recording", "key": "duration", "value": 30, "operator": "gt"}
-        page = {"type": "recording", "key": "visited_page", "value": ["^/billing"], "operator": "regex"}
-        query = {
-            "kind": "RecordingsQuery",
-            "filter_test_accounts": False,
-            "date_from": "-30d",
-            "properties": [duration, page],
-            "events": [{"id": "billing_limit_set", "type": "events"}],
-        }
-
-        assert _pages_only(query) == {
-            "kind": "RecordingsQuery",
-            "filter_test_accounts": False,
-            "date_from": "-30d",
-            "properties": [duration, page],
-        }
-
     _CHOSEN = {
         "kind": "RecordingsQuery",
         "properties": [{"type": "recording", "key": "visited_page", "value": "/billing", "operator": "icontains"}],
@@ -2248,7 +2223,6 @@ class TestRefineScannerDraft(_VisionAPITestCase):
         *,
         current: CurrentDraft | None = None,
         estimate_error=False,
-        pages: tuple[str, ...] = ("/billing",),
         **kwargs,
     ):
         estimate = (
@@ -2260,10 +2234,7 @@ class TestRefineScannerDraft(_VisionAPITestCase):
             )
         )
         with (
-            patch(
-                f"{_MODULE}.fetch_visited_paths",
-                return_value=tuple(VisitedPath(pathname=page, sessions=10) for page in pages),
-            ),
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
             patch(f"{_MODULE}.has_recent_matching_recording", return_value=True),
             patch(_GENERATE_PATH, return_value=generated) as generate,
             estimate as estimated,
@@ -2352,199 +2323,120 @@ class TestRefineScannerDraft(_VisionAPITestCase):
         assert refinement.draft.query == chosen
         assert "query" not in refinement.changed_fields
 
-    def test_a_recordings_change_keeps_the_filters_the_model_cannot_express(self):
+    @parameterized.expand([("ai_made", False), ("edited_by_hand", True)])
+    def test_a_recordings_change_replaces_only_ai_made_recordings(self, _name, recordings_edited):
+        # Edited recordings hold hand-picked pages, events, cohorts and filters the model cannot tell apart from
+        # its own, so a refine must keep them whole rather than rebuild them from its output.
         duration = {"type": "recording", "key": "duration", "value": 30, "operator": "gt"}
-        current = self._current(
-            query={
-                "kind": "RecordingsQuery",
-                "filter_test_accounts": False,
-                "date_from": "-30d",
-                "properties": [
-                    duration,
-                    {"type": "recording", "key": "visited_page", "value": ["^/pricing"], "operator": "regex"},
-                ],
-            }
-        )
+        current = self._current(query={"kind": "RecordingsQuery", "properties": [duration]})
 
-        refinement, _, _ = self._refine(
+        refinement, generate, _ = self._refine(
             _draft(revise_recordings=True, filter_pages=["/billing"], sampling_mode="balanced"),
             current=current,
             instruction="only watch the billing page",
+            recordings_edited=recordings_edited,
         )
 
         query = refinement.draft.query
-        assert query["properties"][0] == duration
-        assert [p["key"] for p in query["properties"]] == ["duration", "visited_page"]
-        assert query["properties"][1]["value"] != ["^/pricing"]
-        assert (query["filter_test_accounts"], query["date_from"]) == (False, "-30d")
-        assert "query" in refinement.changed_fields
+        assert query is not None
+        if recordings_edited:
+            assert query == current.query
+            assert "query" not in refinement.changed_fields
+            assert refinement.could_not[0].startswith("You changed the recordings yourself")
+            assert "locked" in generate.call_args.kwargs["user_content"]
+        else:
+            assert [p["key"] for p in query["properties"]] == ["visited_page"]
+            assert "query" in refinement.changed_fields
+            assert refinement.could_not == []
 
-    def test_any_of_the_events_keeps_the_filters_the_person_set_required(self):
-        # The operand covers the whole query, so OR would make the kept country filter optional and admit
-        # sessions from every country.
-        country = {"type": "person", "key": "$geoip_country_code", "value": ["US"], "operator": "exact"}
-        events = ["billing_upgraded", "billing_downgraded"]
-
-        drafted = _finalize(
-            _draft(filter_events=events, filter_events_match="any"),
-            allowed_pages=[],
-            allowed_events=events,
-            team_id=1,
-            kept_filters=True,
-        )
-        merged = _merged_recordings_query(
-            {"kind": "RecordingsQuery", "properties": [country]}, drafted.query, _FilterOffers()
-        )
-
-        assert drafted.events_narrowed_for_kept_filters is True
-        assert merged is not None
-        assert "operand" not in merged
-        assert merged["properties"] == [country]
-        assert [e["id"] for e in merged["events"]] == ["billing_upgraded"]
-
-    def test_any_of_the_events_stays_when_the_events_are_the_whole_filter(self):
-        drafted = {
-            "kind": "RecordingsQuery",
-            "operand": "OR",
-            "events": [{"id": "billing_upgraded", "type": "events"}, {"id": "billing_downgraded", "type": "events"}],
-        }
-
-        merged = _merged_recordings_query(
-            {"kind": "RecordingsQuery", "filter_test_accounts": False}, drafted, _FilterOffers()
-        )
-
-        assert merged is not None
-        assert merged["operand"] == "OR"
-        assert len(merged["events"]) == 2
-        assert merged["filter_test_accounts"] is False
-
-    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-    def test_a_refine_says_when_any_of_the_events_cannot_stay(self):
-        for name in ("billing_upgraded", "billing_downgraded"):
-            EventDefinition.objects.create(team=self.team, name=name, last_seen_at=timezone.now())
-        country = {"type": "person", "key": "$geoip_country_code", "value": ["US"], "operator": "exact"}
-
-        with patch(
-            f"{_MODULE}._measured_events",
-            side_effect=lambda team, names: [_CandidateEvent(name=n, sessions=100) for n in names],
-        ):
-            refinement, _, _ = self._refine(
-                _draft(
-                    revise_recordings=True,
-                    filter_events=["billing_upgraded", "billing_downgraded"],
-                    filter_events_match="any",
-                ),
-                current=self._current(query={"kind": "RecordingsQuery", "properties": [country]}),
-                instruction="watch people who upgrade or downgrade billing",
-            )
-
-        assert refinement.draft.query is not None
-        assert "operand" not in refinement.draft.query
-        assert refinement.could_not[0].startswith("Your other recording filters still apply")
-
-    def test_a_rename_keeps_the_hand_written_categories(self):
-        # More categories than a new draft may have, and not slug-shaped: the new-draft limits would cap and
-        # slugify them, so a refine that only renames must keep them as written.
-        tags = [f"Step {n} of checkout" for n in range(1, 16)]
+    @parameterized.expand(
+        [
+            (
+                "hand_written_categories",
+                "classifier",
+                {"tags": [f"Step {n} of checkout" for n in range(1, 16)], "multi_label": False},
+                {"tags": ["step_1"]},
+            ),
+            ("fractional_scale", "scorer", {"scale": {"min": 0.5, "max": 5.5}}, {"scale_min": 0, "scale_max": 10}),
+        ]
+    )
+    def test_a_change_to_something_else_keeps_the_categories_and_scale(
+        self, _name, scanner_type, settings, model_settings
+    ):
+        # The new-draft limits would cap and slugify the categories, or reset the scale, on any refine.
         current = self._current(
-            scanner_type="classifier",
-            scanner_config={
-                "prompt": "Which checkout step did the user give up on?",
-                "tags": tags,
-                "multi_label": False,
-            },
+            scanner_type=scanner_type, scanner_config={"prompt": "Where did the user give up?", **settings}
         )
 
         refinement, _, _ = self._refine(
             _draft(
-                scanner_type="classifier",
-                name="Checkout drop-off step",
+                scanner_type=scanner_type,
+                name="Checkout drop-off",
                 description=current.description,
-                prompt="Which checkout step did the user give up on?",
-                tags=tags,
+                prompt="Where did the user give up?",
                 sampling_mode="balanced",
+                **model_settings,
             ),
             current=current,
-            instruction="rename it to Checkout drop-off step",
+            instruction="rename it to Checkout drop-off",
         )
 
-        assert refinement.draft.scanner_config["tags"] == tags
+        assert refinement.draft.scanner_config == current.scanner_config
         assert refinement.changed_fields == ["name"]
 
-    def test_a_category_change_replaces_the_categories(self):
+    @parameterized.expand(
+        [
+            (
+                "a_16th_category",
+                "classifier",
+                {"tags": [f"Step {n} of checkout" for n in range(1, 16)], "multi_label": False},
+                {"tags": [*(f"Step {n} of checkout" for n in range(1, 16)), "Invoice"]},
+                {"tags": [*(f"Step {n} of checkout" for n in range(1, 16)), "Invoice"], "multi_label": False},
+                None,
+            ),
+            (
+                "a_label_on_a_wide_scale",
+                "scorer",
+                {"scale": {"min": 0, "max": 1000}},
+                {"scale_min": 0, "scale_max": 1000, "scale_label": "Frustration"},
+                {"scale": {"min": 0, "max": 1000, "label": "Frustration"}},
+                None,
+            ),
+            (
+                "an_invalid_scale",
+                "scorer",
+                {"scale": {"min": 0, "max": 1000}},
+                {"scale_min": 5, "scale_max": 5},
+                {"scale": {"min": 0, "max": 1000}},
+                "Couldn't change the categories or scale.",
+            ),
+        ]
+    )
+    def test_a_change_to_the_categories_or_scale_uses_the_scanner_limits(
+        self, _name, scanner_type, settings, model_settings, expected, note
+    ):
         current = self._current(
-            scanner_type="classifier",
-            scanner_config={
-                "prompt": "Which billing step?",
-                "tags": ["Plan picker", "Payment form"],
-                "multi_label": False,
-            },
+            scanner_type=scanner_type, scanner_config={"prompt": "Where did the user give up?", **settings}
         )
 
         refinement, _, _ = self._refine(
             _draft(
-                scanner_type="classifier", prompt="Which billing step?", tags=["plan_picker", "payment_form", "invoice"]
+                scanner_type=scanner_type,
+                description=current.description,
+                prompt="Where did the user give up?",
+                revise_type_settings=True,
+                multi_label=False,
+                **model_settings,
             ),
             current=current,
-            instruction="add an invoice category",
+            instruction="change the categories",
         )
 
-        assert refinement.draft.scanner_config["tags"] == ["plan_picker", "payment_form", "invoice"]
-        assert "type_config" in refinement.changed_fields
-
-    @time_machine.travel("2026-06-01T12:00:00Z", tick=False)
-    def test_a_recordings_change_keeps_the_filters_the_person_picked(self):
-        # The model was not offered the cohort, the page or the event the person picked, so it could not copy
-        # them. Dropping them would widen the scan without saying so.
-        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
-        cohort = Cohort.objects.create(team=self.team, name="Enterprise admins")
-        picked_cohort = {"type": "cohort", "key": "id", "value": cohort.id, "operator": "in"}
-        picked_page = {"type": "recording", "key": "visited_page", "value": ["^/pricing"], "operator": "regex"}
-        picked_event = {"id": "checkout_started", "name": "checkout_started", "type": "events", "order": 0}
-        current = self._current(
-            query={"kind": "RecordingsQuery", "properties": [picked_cohort, picked_page], "events": [picked_event]}
-        )
-
-        with patch(
-            f"{_MODULE}._measured_events",
-            side_effect=lambda team, names: [_CandidateEvent(name=n, sessions=100) for n in names],
-        ):
-            refinement, _, _ = self._refine(
-                _draft(revise_recordings=True, filter_events=["billing_limit_set"]),
-                current=current,
-                instruction="only sessions where the billing limit was set",
-            )
-
-        query = refinement.draft.query
-        assert query is not None
-        assert picked_cohort in query["properties"]
-        pages = next(p for p in query["properties"] if p.get("key") == "visited_page")
-        assert "^/pricing" in pages["value"]
-        assert [e["id"] for e in query["events"]] == ["billing_limit_set", "checkout_started"]
-
-    def test_a_page_the_instruction_names_can_still_be_removed(self):
-        pricing = _page_filter_regex("/pricing")
-        billing = _page_filter_regex("/billing")
-        current = self._current(
-            query={
-                "kind": "RecordingsQuery",
-                "properties": [
-                    {"type": "recording", "key": "visited_page", "value": [billing, pricing], "operator": "regex"}
-                ],
-            }
-        )
-
-        refinement, _, _ = self._refine(
-            _draft(revise_recordings=True, filter_pages=["/billing"]),
-            current=current,
-            instruction="stop watching /pricing",
-            pages=("/billing", "/pricing"),
-        )
-
-        query = refinement.draft.query
-        assert query is not None
-        pages = next(p for p in query["properties"] if p.get("key") == "visited_page")
-        assert pages["value"] == [billing]
+        assert refinement.draft.scanner_config == {"prompt": "Where did the user give up?", **expected}
+        if note:
+            assert refinement.could_not[0].startswith(note)
+        else:
+            assert "type_config" in refinement.changed_fields
 
     @parameterized.expand([("solved", False, "comprehensive", 1.0), ("costing_failed", True, "balanced", 0.5)])
     def test_a_named_budget_becomes_the_cap_and_solves_the_dials_again(

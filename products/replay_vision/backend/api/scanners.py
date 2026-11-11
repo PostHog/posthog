@@ -2309,6 +2309,11 @@ class RefineScannerDraftRequestSerializer(DraftScannerRequestSerializer):
     current = RefineScannerDraftCurrentSerializer(
         help_text="The draft as the person sees it on review. Every field the instruction does not touch is kept."
     )
+    recordings_edited = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Whether the person changed the drafted recordings themselves. Then the refine keeps them as they are.",
+    )
     refinement_index = serializers.IntegerField(
         min_value=1,
         max_value=1000,
@@ -3716,6 +3721,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 "instruction_length": len(validated["instruction"]),
                 "refinement_index": validated["refinement_index"],
                 "chip": validated["chip"],
+                "recordings_edited": validated["recordings_edited"],
             }
             monthly_credit_budget = self._refine_budget(validated)
             allowed_scopes = self._draft_allowed_scopes(request, validated)
@@ -3743,6 +3749,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                     experiment_id=experiment_id,
                     experiment_variants=scope.experiment_variants if scope else None,
                     chosen_query=scope.query if scope else None,
+                    recordings_edited=validated["recordings_edited"],
                 )
         except (ValidationError, DraftError) as error:
             if isinstance(error, ValidationError):

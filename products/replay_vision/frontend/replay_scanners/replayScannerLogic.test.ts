@@ -2340,6 +2340,35 @@ describe('replayScannerLogic', () => {
             expect(logic.values.refinementCount).toEqual(2)
         })
 
+        it('a resumed draft still tells the refine the person edited the recordings', async () => {
+            logic.actions.setScannerValues({
+                query: { kind: NodeKind.RecordingsQuery, filter_test_accounts: true, date_from: '-14d' },
+            })
+
+            await expectLogic(logic, () => logic.actions.loadScanner()).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'only the billing page' })
+            ).toFinishAllListeners()
+
+            const [[{ request }]] = refineSpy.mock.calls as unknown as [{ request: Request }][]
+            expect(await request.json()).toMatchObject({ recordings_edited: true })
+        })
+
+        it('recordings a refine rewrote count as AI-made again', async () => {
+            refineSpy.mockReturnValue([
+                200,
+                refined({ query: { kind: 'RecordingsQuery', filter_test_accounts: false }, changed_fields: ['query'] }),
+            ])
+
+            await expectLogic(logic, () =>
+                logic.actions.refineScannerDraft({ instruction: 'include internal users' })
+            ).toFinishAllListeners()
+
+            const [[{ request }]] = refineSpy.mock.calls as unknown as [{ request: Request }][]
+            expect(await request.json()).toMatchObject({ recordings_edited: false })
+            expect(logic.values.recordingsEdited).toBe(false)
+        })
+
         it('a refine that clears the filter clears it in the form', async () => {
             logic.actions.setScannerValues({
                 query: {

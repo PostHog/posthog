@@ -3010,6 +3010,8 @@ export interface RefineScannerDraftRequestApi {
     instruction: string
     /** The draft as the person sees it on review. Every field the instruction does not touch is kept. */
     current: RefineScannerDraftCurrentApi
+    /** Whether the person changed the drafted recordings themselves. Then the refine keeps them as they are. */
+    recordings_edited?: boolean
     /**
      * Which refine of this draft this is, starting at 1. Echoed back for telemetry.
      * @minimum 1

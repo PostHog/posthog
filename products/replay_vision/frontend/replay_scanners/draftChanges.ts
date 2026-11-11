@@ -5,6 +5,7 @@ import type {
     RefineScannerDraftCurrentApi,
     RefineScannerDraftResponseApi,
 } from '../generated/api.schemas'
+import { type ScannerExperimentScope, scannerExperimentScope } from './experimentTargeting'
 import type { ScannerConfig, ScannerFormValues } from './types'
 
 /** The parts of a draft, as the refine endpoint reports them changed. */
@@ -37,6 +38,21 @@ export function draftChanges(drafted: ScannerFormValues, saved: ScannerFormValue
             (drafted.credit_limit ?? null) !== (saved.credit_limit ?? null),
     }
     return (Object.keys(changed) as DraftChangedField[]).filter((field) => changed[field])
+}
+
+/** The recordings a draft watches: its filter and the experiment it is scoped to. */
+export interface DraftRecordings {
+    query: ScannerFormValues['query'] | null
+    experiment: ScannerExperimentScope | null
+}
+
+export function draftRecordings(scanner: ScannerFormValues): DraftRecordings {
+    return { query: scanner.query ?? null, experiment: scannerExperimentScope(scanner) }
+}
+
+/** Whether the person changed the recordings the AI drafted. Unknown counts as changed, so a refine never replaces them. */
+export function recordingsEdited(drafted: DraftRecordings | null, scanner: ScannerFormValues): boolean {
+    return !drafted || !objectsEqual(drafted, draftRecordings(scanner))
 }
 
 /** Whether the form's credit limit is on, read the way the editor reads it: a limit without the toggle counts as on. */

@@ -1456,6 +1456,7 @@ export const visionScannersDraftRefineCreateBodyCurrentOneSamplingRateMax = 1
 export const visionScannersDraftRefineCreateBodyCurrentOneCreditLimitMax = 2147483647
 
 export const visionScannersDraftRefineCreateBodyCurrentOneFreeOnlyDefault = false
+export const visionScannersDraftRefineCreateBodyRecordingsEditedDefault = false
 export const visionScannersDraftRefineCreateBodyRefinementIndexDefault = 1
 export const visionScannersDraftRefineCreateBodyRefinementIndexMax = 1000
 
@@ -1570,6 +1571,12 @@ export const VisionScannersDraftRefineCreateBody = /* @__PURE__ */ zod
             })
             .describe("The draft the person is reviewing, in the create body's shape, including their own edits.")
             .describe('The draft as the person sees it on review. Every field the instruction does not touch is kept.'),
+        recordings_edited: zod
+            .boolean()
+            .default(visionScannersDraftRefineCreateBodyRecordingsEditedDefault)
+            .describe(
+                'Whether the person changed the drafted recordings themselves. Then the refine keeps them as they are.'
+            ),
         refinement_index: zod
             .number()
             .min(1)

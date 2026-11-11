@@ -1941,8 +1941,11 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
             resp = self.client.post(f"{self.scanners_url}draft/refine/", data=body or self._body(), format="json")
         return resp, refine, report
 
-    def test_draft_refine_returns_the_revised_draft_and_what_changed(self) -> None:
-        resp, refine, report = self._post()
+    @parameterized.expand([("left_out", {}, False), ("edited", {"recordings_edited": True}, True)])
+    def test_draft_refine_returns_the_revised_draft_and_what_changed(
+        self, _name: str, overrides: dict[str, Any], recordings_edited: bool
+    ) -> None:
+        resp, refine, report = self._post(self._body(**overrides))
 
         assert resp.status_code == status.HTTP_200_OK, resp.json()
         data = resp.json()
@@ -1956,6 +1959,9 @@ class TestScannerDraftRefineEndpoint(_VisionAPITestCase):
         assert properties["changed_fields"] == ["scanner_type", "type_config"]
         assert properties["chip"] == "yes_no_check"
         assert properties["instruction_length"] == len(self._INSTRUCTION)
+        # The refine keeps hand-edited recordings, so the flag has to reach it and the event.
+        assert refine.call_args.kwargs["recordings_edited"] is recordings_edited
+        assert properties["recordings_edited"] is recordings_edited
         # The instruction is customer text; only its length may ride along.
         assert self._INSTRUCTION not in str(properties)
 
