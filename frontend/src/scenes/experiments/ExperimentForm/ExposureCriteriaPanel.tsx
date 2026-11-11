@@ -18,6 +18,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { ChartDisplayCategory, type Experiment, type FeatureFlagBasicType } from '~/types'
 
+import { DefaultExposureEventNote } from 'products/experiments/frontend/components/DefaultExposureEventNote'
 import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
 import { isLaunched } from 'products/experiments/frontend/experimentStatus'
@@ -71,10 +72,12 @@ type ExposureCriteriaPanelProps = {
 function InclusionActionFilter({
     experiment,
     groupTypeIndex,
+    defaultExposureEvent,
     onChange,
 }: {
     experiment: Experiment
     groupTypeIndex: number | null | undefined
+    defaultExposureEvent: string
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
@@ -100,6 +103,10 @@ function InclusionActionFilter({
                 showNumericalPropsOnly={false}
                 {...commonActionFilterProps}
                 actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <DefaultExposureEventNote
+                config={experiment.exposure_criteria?.exposure_config}
+                defaultExposureEvent={defaultExposureEvent}
             />
             <NegatedEventFilterNote
                 config={experiment.exposure_criteria?.exposure_config}
@@ -237,6 +244,7 @@ function ExposureCriteriaFields({
                     <InclusionActionFilter
                         experiment={experiment}
                         groupTypeIndex={groupTypeIndex}
+                        defaultExposureEvent={defaultExposureEvent}
                         onChange={onChange}
                     />
                 </div>
@@ -467,6 +475,7 @@ export function ExposureCriteriaPanel({
                         <InclusionActionFilter
                             experiment={experiment}
                             groupTypeIndex={groupTypeIndex}
+                            defaultExposureEvent={defaultExposureEvent}
                             onChange={onChange}
                         />
                     )}

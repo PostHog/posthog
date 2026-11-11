@@ -5,7 +5,7 @@ import { parseJsonOrUndefined } from '@/core/json'
 import { escapeControls } from '@/core/output'
 import { PersonalAPIKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
+import { CI_CREDENTIALS_HINT, DEFAULT_HOST, posthogFile } from '@/posthog/credentials'
 import { parseHost } from '@/posthog/host'
 import { parseProjectId } from '@/posthog/ids'
 import { saveLogin } from '@/posthog/login/flow'
@@ -32,6 +32,7 @@ const LegacyCredentials = z.object({ token: z.unknown(), env_id: z.unknown(), ho
 export default defineCommand({
     description: 'Move the personal API key posthog-cli saved into hog',
     writes: true,
+    refusesCI: { reason: 'moves a login saved on this machine', hint: CI_CREDENTIALS_HINT },
     notes: [
         'Reads ~/.posthog/credentials.json, the file `posthog-cli login` writes, and saves its key the way `hog auth login` saves one.',
         'hog never reads that file otherwise, and leaves it as it is.',
