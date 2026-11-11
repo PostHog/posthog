@@ -19,7 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemList, fileSystemUnfiledRetrieve } from '~/generated/core/api'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import type { FolderState } from '~/layout/panel-layout/ProjectTree/types'
+import type { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import { parentPath, splitPath, joinPath, isPathUnder, reparentPath } from '~/layout/panel-layout/ProjectTree/utils'
 import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
@@ -39,6 +39,7 @@ export type WorkflowFolderFileRow = { id: string; name: string; path: string } &
 export interface workflowFoldersLogicValues {
     folderStates: Record<string, FolderState> // projectTreeDataLogic
     folders: Record<string, FileSystemEntry[]> // projectTreeDataLogic
+    pendingActions: ProjectTreeAction[] // projectTreeDataLogic
     savedItems: FileSystemEntry[] // projectTreeDataLogic
     currentTeamId: number | null // teamLogic
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
@@ -66,6 +67,7 @@ export interface workflowFoldersLogicValues {
     folderJumpPaths: string[]
     folderJumpSearch: string
     folderMatchesText: MatchesText<WorkflowFolderFileRow>
+    folderMutationDisabledReason: (folder: string) => string | null
     folderPaths: string[]
     folderRows: WorkflowListRow[]
     folderScanFailed: boolean
@@ -122,6 +124,13 @@ export interface workflowFoldersLogicActions {
     openFolder: (folder: string | null) => {
         folder: string | null
     }
+    renameFolder: (
+        folder: string,
+        name: string
+    ) => {
+        folder: string
+        name: string
+    }
     restoreFileIndex: () => {
         value: true
     }
@@ -153,6 +162,7 @@ export interface workflowFoldersLogicActions {
 export interface workflowFoldersLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         browserLoadFailed: (folderScanFailed: boolean) => boolean
+        folderMutationDisabledReason: (pendingActions: ProjectTreeAction[]) => (folder: string) => string | null
         folderJumpPaths: (folderPaths: string[], folderJumpSearch: string) => string[]
         otherProductFileCount: (
             savedItems: FileSystemEntry[],
@@ -246,6 +256,8 @@ export type workflowFoldersLogicType = MakeLogicType<
 const WORKFLOW_FILE_TYPES = ['hog_flow', 'message_template']
 
 const MAX_INDEX_LOADS = 3
+
+const WORKFLOW_FOLDERS_TREE_KEY = 'workflow-files'
 
 // A stalled request would leave the folders loading with no way to retry, so each one fails after this long.
 export const FOLDER_REQUEST_TIMEOUT_MS = 10_000
@@ -402,7 +414,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 'serverSearchStatus',
             ],
             projectTreeDataLogic,
-            ['savedItems', 'folders', 'folderStates'],
+            ['savedItems', 'folders', 'folderStates', 'pendingActions'],
             teamLogic,
             // Same id the shared project tree sends, so the unfiled backfill runs for the open environment.
             ['currentTeamId'],
@@ -416,6 +428,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         setExpandedFolders: (folders: string[]) => ({ folders }),
         setFolderSidebarCollapsed: (collapsed: boolean) => ({ collapsed }),
         openFolder: (folder: string | null) => ({ folder }),
+        renameFolder: (folder: string, name: string) => ({ folder, name }),
         revealFolder: (folder: string | null) => ({ folder }),
         selectTreeFolder: (folder: string | null, expanded: boolean) => ({ folder, expanded }),
     }),
@@ -517,6 +530,21 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     })),
     selectors({
         browserLoadFailed: [(s) => [s.folderScanFailed], (folderScanFailed: boolean): boolean => folderScanFailed],
+        // The shared tree applies a folder move only once its request lands, so a second change queued before then
+        // starts from the old path and leaves cached subfolders under a name the folder no longer has.
+        folderMutationDisabledReason: [
+            (s) => [s.pendingActions],
+            (pendingActions: ProjectTreeAction[]) =>
+                (folder: string): string | null => {
+                    const related = (path: string | undefined): boolean =>
+                        !!path && !!folder && (isPathUnder(path, folder) || isPathUnder(folder, path))
+                    return pendingActions.some(
+                        (action) => action.item.type === 'folder' && (related(action.path) || related(action.newPath))
+                    )
+                        ? 'Wait until this folder finishes moving'
+                        : null
+                },
+        ],
         folderJumpPaths: [
             (s) => [s.folderPaths, s.folderJumpSearch],
             (paths: string[], search: string): string[] =>
@@ -901,6 +929,17 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         (filter) => filter.facet !== 'in' || filter.negated || filter === newest
                     ),
                 })
+            }
+        },
+        renameFolder: ({ folder, name }) => {
+            const entry = values.savedItems.find((item) => item.type === 'folder' && item.path === folder)
+            if (entry && !values.folderMutationDisabledReason(folder)) {
+                projectTreeDataLogic.actions.moveItem(
+                    entry,
+                    joinPath([...splitPath(parentPath(folder)), name.trim()]),
+                    false,
+                    WORKFLOW_FOLDERS_TREE_KEY
+                )
             }
         },
         openFolder: ({ folder }) => {
