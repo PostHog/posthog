@@ -271,7 +271,7 @@ def count_configurations(
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
-    source_config_equals: Mapping[str, str] | None = None,
+    source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
     """How many alerts of a kind a team has on the platform. For a source's admission.
 
@@ -285,7 +285,7 @@ def count_configurations(
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
         exclude_id=exclude_id,
-        source_config_equals=source_config_equals,
+        source_config_contains=source_config_contains,
     )
 
 

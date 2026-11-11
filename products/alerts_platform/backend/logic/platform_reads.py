@@ -244,18 +244,18 @@ def count_configurations(
     enabled_only: bool = False,
     check_interval_minutes: int | None = None,
     exclude_id: UUID | None = None,
-    source_config_equals: Mapping[str, str] | None = None,
+    source_config_contains: Mapping[str, Any] | None = None,
 ) -> int:
     """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
-    the ones with no source row. `source_config_equals` maps a dotted path in `source_config` to the value
-    it must hold."""
+    the ones with no source row. With `source_config_contains`, only the ones whose `source_config` holds
+    that object."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
     if exclude_id is not None:
         configurations = configurations.exclude(id=exclude_id)
-    for path, value in (source_config_equals or {}).items():
-        configurations = configurations.filter(**{f"source_config__{path.replace('.', '__')}": value})
+    if source_config_contains:
+        configurations = configurations.filter(source_config__contains=source_config_contains)
     if native_only:
         configurations = configurations.filter(legacy_configuration_id__isnull=True)
     if enabled_only:
