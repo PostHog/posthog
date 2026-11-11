@@ -30,17 +30,34 @@ const shownRowNames = (): string[] =>
 
 describe('WorkflowsScene', () => {
     let listRequests: string[]
+    let answeredSearches: string[]
     let workflows: HogFlowListSummaryApi[]
+
+    // The list shows its local matches at once and greys out until the debounced server search answers.
+    const waitForSearch = (text: string): Promise<void> =>
+        waitFor(() => {
+            expect(answeredSearches).toContain(text)
+            expect(document.querySelector('[data-attr="workflows-list-v2"] .LemonTable--loading')).toBeNull()
+        })
 
     beforeEach(() => {
         listRequests = []
+        answeredSearches = []
         workflows = FIXTURE_WORKFLOWS
         localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/summaries/': ({ request }) => {
                     listRequests.push(request.url)
-                    return [200, paginated(workflows)]
+                    const search = new URL(request.url).searchParams.get('search')
+                    if (search === null) {
+                        return [200, paginated(workflows)]
+                    }
+                    answeredSearches.push(search)
+                    const matches = workflows.filter((workflow) =>
+                        `${workflow.name}\n${workflow.description}`.toLowerCase().includes(search.toLowerCase())
+                    )
+                    return [200, paginated(matches)]
                 },
                 '/api/projects/:team_id/hog_flows/metrics/global/': ({ request }) => {
                     listRequests.push(request.url)
@@ -148,7 +165,10 @@ describe('WorkflowsScene', () => {
 
         // 125 rows match, so a kept page would still show matches 101 and up.
         act(() => workflowsListV2Logic.actions.setValue({ filters: [], text: 'odd' }))
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
+        await waitForSearch('odd')
+        expect(shownRowNames()[0]).toEqual('Flow 001 odd')
+        expect(shownRowNames()).toHaveLength(100)
+        expect(shownRowNames().every((name) => name.endsWith('odd'))).toBe(true)
     })
 
     it('keeps the sort order when a filter changes', async () => {
@@ -171,7 +191,8 @@ describe('WorkflowsScene', () => {
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 5 odd'))
 
         act(() => workflowsListV2Logic.actions.setValue({ filters: [], text: 'odd' }))
-        await waitFor(() => expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd']))
+        await waitForSearch('odd')
+        expect(shownRowNames()).toEqual(['Flow 5 odd', 'Flow 3 odd', 'Flow 1 odd'])
     })
 
     it.each([
