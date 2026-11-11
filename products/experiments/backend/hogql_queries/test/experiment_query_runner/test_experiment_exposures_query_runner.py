@@ -134,6 +134,32 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         self.assertIn("not found", str(ctx.exception))
 
+    @parameterized.expand(
+        [
+            ("ten_year_window", "2015-01-01T00:00:00+00:00", "2025-01-01T00:00:00+00:00", False),
+            ("start_in_year_one", "0001-01-01T00:00:00+00:00", "2024-01-31T00:00:00+00:00", True),
+            ("end_in_year_9999", "2024-01-01T00:00:00+00:00", "9999-12-31T00:00:00+00:00", True),
+        ]
+    )
+    def test_window_too_long_is_a_validation_error(
+        self, _name: str, start_date: str, end_date: str, rejected: bool
+    ) -> None:
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=self.experiment.id,
+            experiment_name=self.experiment.name,
+            feature_flag=model_to_dict(self.feature_flag),
+            start_date=start_date,
+            end_date=end_date,
+            exposure_criteria=None,
+        )
+
+        if rejected:
+            with self.assertRaises(ValidationError):
+                ExperimentExposuresQueryRunner(team=self.team, query=query)
+        else:
+            ExperimentExposuresQueryRunner(team=self.team, query=query)
+
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
         # Exposure events are captured under the flag's original key.

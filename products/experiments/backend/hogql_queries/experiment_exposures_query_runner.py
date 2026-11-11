@@ -38,7 +38,7 @@ from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_querie
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import MAX_DATE_BUCKETS, QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.utils import get_safe_cache, safe_cache_set
@@ -193,6 +193,14 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
 
         self.date_range = self._get_date_range()
+        # _fill_date_gaps builds one row per day and variant, so a crafted window would allocate millions of rows.
+        if self.date_range.date_from and self.date_range.date_to:
+            window_days = (
+                datetime.fromisoformat(self.date_range.date_to).date()
+                - datetime.fromisoformat(self.date_range.date_from).date()
+            ).days + 1
+            if window_days * max(len(self.variants), 1) > MAX_DATE_BUCKETS:
+                raise ValidationError("This date range is too long to show daily exposures. Choose a shorter range.")
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
