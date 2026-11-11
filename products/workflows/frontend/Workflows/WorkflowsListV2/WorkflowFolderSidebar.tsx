@@ -31,7 +31,7 @@ export function WorkflowFolderSidebar(): JSX.Element {
     return (
         <nav
             aria-label="Project files"
-            className="hidden @min-[48rem]/main-content:flex flex-col border rounded p-1 @min-[48rem]/main-content:w-52 @min-[64rem]/main-content:w-60 shrink-0 self-stretch bg-surface-primary"
+            className="hidden @min-[48rem]/main-content:flex flex-col border rounded p-1 @min-[48rem]/main-content:w-52 @min-[64rem]/main-content:w-60 shrink-0 self-stretch bg-surface-primary sticky top-[var(--scene-title-section-height,50px)] max-h-[calc(100vh-10rem)]"
         >
             <div className="flex items-center justify-between gap-1 pl-2">
                 <span className="text-xs font-semibold text-secondary">Folders</span>
@@ -44,7 +44,9 @@ export function WorkflowFolderSidebar(): JSX.Element {
                     data-attr="workflows-folder-sidebar-collapse"
                 />
             </div>
-            <WorkflowFolderTree />
+            <div className="flex flex-col flex-1 min-h-0">
+                <WorkflowFolderTree />
+            </div>
         </nav>
     )
 }

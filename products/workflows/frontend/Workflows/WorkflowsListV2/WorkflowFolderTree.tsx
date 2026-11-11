@@ -65,7 +65,7 @@ export function WorkflowFolderTree(): JSX.Element {
                 </span>
             )}
             defaultNodeIcon={<IconFolder />}
-            disableScroll
+            virtualized
             enableDragAndDrop
             dragAndDropScope={WORKFLOW_FILES_DRAG_SCOPE}
             isItemDraggable={() => false}

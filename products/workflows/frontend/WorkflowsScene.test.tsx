@@ -497,6 +497,32 @@ describe('WorkflowsScene', () => {
             })
         })
 
+        it('mounts only the sidebar folders in view, and opens a far folder after scrolling to it', async () => {
+            const teams = Array.from({ length: 300 }, (_, index) => `Team-${String(index).padStart(3, '0')}`)
+            files = [...files, ...teams.map((path) => ({ id: path, path, type: 'folder' }))]
+            await renderFolder('Billing', 'Welcome series')
+            const tree = (): HTMLElement => document.querySelector<HTMLElement>('nav [role="tree"]')!
+            const treeItems = (): string[] =>
+                Array.from(tree().querySelectorAll('[aria-label^="tree item: "]')).map(
+                    (item) => item.getAttribute('aria-label') ?? ''
+                )
+            await waitFor(() => expect(treeItems()).toContain('tree item: Team-000'))
+            expect(treeItems().length).toBeLessThan(60)
+            expect(treeItems()).not.toContain('tree item: Team-299')
+
+            const viewport = tree().querySelector<HTMLElement>('.ScrollableShadows__inner')!
+            Object.defineProperty(viewport, 'clientHeight', { value: 300, configurable: true })
+            Object.defineProperty(viewport, 'scrollTop', { value: 0, writable: true, configurable: true })
+            act(() => {
+                viewport.scrollTop = 31 * 300
+                viewport.dispatchEvent(new Event('scroll'))
+            })
+            await waitFor(() => expect(treeItems()).toContain('tree item: Team-299'))
+            expect(treeItems()).not.toContain('tree item: Team-000')
+            fireEvent.click(tree().querySelector('[aria-label="tree item: Team-299"]')!)
+            await waitFor(() => expect(router.values.searchParams.q).toEqual('in:Team-299'))
+        })
+
         it('shows no workflow as Unfiled until the project folders load', async () => {
             let releaseScan = (): void => {}
             const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
