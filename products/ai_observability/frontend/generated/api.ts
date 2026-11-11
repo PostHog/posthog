@@ -20,6 +20,7 @@ import type {
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesNodesDatasetItemRetrieveParams,
+    AiObservabilityTracesNodesParserTestCreateParams,
     AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -176,6 +177,8 @@ import type {
     TraceFeedbackApi,
     TraceNodeDatasetItemApi,
     TraceNodeDetailApi,
+    TraceNodeParserTestApi,
+    TraceNodeParserTestRequestApi,
     TraceNodeRawApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
@@ -920,6 +923,49 @@ export const aiObservabilityTracesNodesDatasetItemRetrieve = async (
         {
             ...options,
             method: 'GET',
+        }
+    )
+}
+
+export const getAiObservabilityTracesNodesParserTestCreateUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesParserTestCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/parser_test/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/parser_test/`
+}
+
+/**
+ * Tests a custom parser recipe against one node without saving it: the node's input and output as they would render with the parser saved, and whether it parses every side that the project's saved parsers leave unparsed.
+ */
+export const aiObservabilityTracesNodesParserTestCreate = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    traceNodeParserTestRequestApi: TraceNodeParserTestRequestApi,
+    params?: AiObservabilityTracesNodesParserTestCreateParams,
+    options?: RequestInit
+): Promise<TraceNodeParserTestApi> => {
+    return apiMutator<TraceNodeParserTestApi>(
+        getAiObservabilityTracesNodesParserTestCreateUrl(projectId, id, nodeId, params),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(traceNodeParserTestRequestApi),
         }
     )
 }
