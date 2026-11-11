@@ -42,6 +42,8 @@ interface AccountViewComponentBase {
     ConfigEditor?: (props: AccountViewTileConfigEditorProps) => JSX.Element
     onConfigSaved?: (config: AccountViewTileConfig) => void
     tileInsetClassName?: string
+    tileContentClassName?: string
+    remountOnConfigReload?: boolean
 }
 
 export interface AccountSystemTabDefinition extends AccountViewComponentBase {
@@ -126,6 +128,8 @@ export const ACCOUNT_VIEW_COMPONENTS: AccountViewComponentDefinition[] = [
                 {...getTileLogicProps(props)}
             />
         ),
+        tileContentClassName: '',
+        remountOnConfigReload: false,
     },
     {
         kind: 'notes',

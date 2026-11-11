@@ -185,7 +185,10 @@ describe('accountDotMatrixTileLogic', () => {
         logic.unmount()
     })
 
-    it('persists each instance independently and restores its saved config on remount', async () => {
+    it.each([
+        ['one', 'account-2'],
+        ['two', 'account-1'],
+    ])('isolates tile %s on %s and restores saved config on remount', async (instanceId, accountId) => {
         const saveFirst = jest.fn()
         const saveSecond = jest.fn()
         const first = accountDotMatrixTileLogic({
@@ -194,22 +197,24 @@ describe('accountDotMatrixTileLogic', () => {
             onConfigChange: saveFirst,
         })
         const second = accountDotMatrixTileLogic({
-            instanceId: 'two',
-            accountId: 'account-1',
+            instanceId,
+            accountId,
             onConfigChange: saveSecond,
         })
         first.mount()
         second.mount()
         first.actions.setSelectedSeries(['metric-replay'])
         second.actions.setMode('count')
+        expect(first.values.config.mode).toBe('dots')
+        expect(second.values.selectedSeries).toEqual([])
         expect(saveFirst).not.toHaveBeenCalled()
         expect(first.values.selectedSeries).toEqual(['metric-replay'])
         expect(saveSecond).toHaveBeenLastCalledWith({ mode: 'count', weeks: 8, selectedSeries: [] })
         const saved = second.values.config
         second.unmount()
         const restored = accountDotMatrixTileLogic({
-            instanceId: 'two',
-            accountId: 'account-1',
+            instanceId,
+            accountId,
             initialConfig: { ...saved },
         })
         restored.mount()

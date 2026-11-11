@@ -226,7 +226,7 @@ function confirmDiscard(dirty: boolean, discard: () => void): void {
 export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicType> =
     kea<accountDotMatrixTileLogicType>([
         props({} as AccountDotMatrixTileLogicProps),
-        key(({ instanceId }) => instanceId),
+        key(({ accountId, instanceId }) => `${accountId}:${instanceId}`),
         path((key) => ['products', 'customer_analytics', 'accountDotMatrixTileLogic', key]),
         connect(() => ({ values: [teamLogic, ['currentTeamId', 'customerAnalyticsConfig', 'weekStartDay']] })),
         actions({

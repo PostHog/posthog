@@ -2,7 +2,10 @@ import { useValues } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { listAvailableAccountViewComponents } from '../../components/Accounts/accountViewComponents'
+import {
+    getAccountViewComponentByKind,
+    listAvailableAccountViewComponents,
+} from '../../components/Accounts/accountViewComponents'
 import type { AccountViewApi } from '../../generated/api.schemas'
 import { parseAccountViewContent } from './accountViewDocument'
 import { accountViewsLogic } from './accountViewsLogic'
@@ -39,10 +42,8 @@ export function AccountViewRenderer({ view, accountId, externalId, projectId }: 
     return (
         <div className="@container/account-view grid grid-cols-12 gap-3 py-3" data-attr="account-view-content">
             {components.map((component) => {
-                // A failed save remounts tiles to reset them. Dot matrix tiles restore from their props
-                // instead, because a remount would throw away an unsaved query.
                 const instanceId =
-                    component.kind === 'dot_matrix'
+                    getAccountViewComponentByKind(component.kind)?.remountOnConfigReload === false
                         ? component.nodeId
                         : `${component.nodeId}:${tileConfigReloads[view.id] ?? 0}`
                 return (
