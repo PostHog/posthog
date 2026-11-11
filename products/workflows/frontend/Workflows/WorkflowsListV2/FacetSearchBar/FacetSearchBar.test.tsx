@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import { useState } from 'react'
 
 import { initKeaTests } from '~/test/init'
@@ -92,6 +91,16 @@ function press(key: string, init: KeyboardEventInit = {}): boolean {
         changeInput(field.value.slice(0, caret - 1) + field.value.slice(caret), caret - 1)
     }
     return notPrevented
+}
+
+/** Presses an element as a browser does: an unprevented mousedown moves the focus before the click. */
+function pressPointer(element: Element): void {
+    if (fireEvent.mouseDown(element)) {
+        const focusable = element.closest<HTMLElement>('a[href], button, input, select, textarea, [tabindex]')
+        act(() => (focusable ? focusable.focus() : (document.activeElement as HTMLElement | null)?.blur()))
+    }
+    fireEvent.mouseUp(element)
+    fireEvent.click(element)
 }
 
 describe('FacetSearchBar', () => {
@@ -258,11 +267,10 @@ describe('FacetSearchBar', () => {
         expect(shown('query')).toEqual('')
     })
 
-    it('keeps focus in the input and the popover open when the popover chrome is pressed', async () => {
-        const user = userEvent.setup()
+    it('keeps focus in the input and the popover open when the popover chrome is pressed', () => {
         setup()
-        await user.click(input())
-        await user.click(document.querySelector('[data-attr="facet-search-bar-hints"]')!)
+        clickInput()
+        pressPointer(document.querySelector('[data-attr="facet-search-bar-hints"]')!)
         expect(input()).toHaveFocus()
         expect(listbox()).not.toBeNull()
     })
