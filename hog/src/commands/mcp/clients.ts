@@ -369,9 +369,19 @@ function findServer(jsonc: Jsonc, client: McpClient, file: McpFile, text: string
     return jsonServerEntry(serversAt(config, [serversKey]), file.scope)
 }
 
+// A URL can carry credentials in its user info or query, so the error shows only where it points.
+function displayUrl(raw: string): string {
+    try {
+        const { origin, pathname } = new URL(raw)
+        return `${origin}${pathname}`
+    } catch {
+        return 'a URL hog cannot read'
+    }
+}
+
 function foreignServer(path: string, entry: ServerEntry): HogError {
     const file = escapeControls(path)
-    const url = entry.url !== undefined && !isPostHogUrl(entry.url) ? entry.url : undefined
+    const url = entry.url !== undefined && !isPostHogUrl(entry.url) ? displayUrl(entry.url) : undefined
     const problem =
         url !== undefined
             ? `points at ${escapeControls(url)}, not PostHog's MCP server.`

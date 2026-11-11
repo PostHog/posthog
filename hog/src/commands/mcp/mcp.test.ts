@@ -207,6 +207,14 @@ describe('hog mcp add', () => {
             FOREIGN_URL,
         ],
         [
+            'a URL with credentials in it',
+            'cursor',
+            `${HOME}/.cursor/mcp.json`,
+            '{"mcpServers": {"posthog": {"url": "https://user:example-secret@mcp.example.com/mcp?token=example-token"}}}',
+            'linux',
+            'https://mcp.example.com/mcp',
+        ],
+        [
             "a host that starts with PostHog's",
             'cursor',
             `${HOME}/.cursor/mcp.json`,
@@ -292,6 +300,8 @@ describe('hog mcp add', () => {
             if (url !== null) {
                 expect(result.error().message).toContain(`points at ${url},`)
             }
+            expect(result.stderr + result.stdout).not.toContain('example-secret')
+            expect(result.stderr + result.stdout).not.toContain('example-token')
             expect(result.files[path]).toBe(before)
         }
     )
