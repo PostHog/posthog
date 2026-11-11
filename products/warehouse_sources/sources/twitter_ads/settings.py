@@ -35,7 +35,6 @@ CONVERSION_METRICS = (
     "conversion_landing_page_views",
     "conversion_subscriptions",
 )
-# X reports each conversion as an object keyed by attribution type. "metric" is the attributed total.
 CONVERSION_ATTRIBUTIONS = ("metric", "post_view", "post_engagement", "assisted")
 
 
@@ -43,8 +42,7 @@ def conversion_column(metric: str, attribution: str) -> str:
     return metric if attribution == "metric" else f"{metric}_{attribution}"
 
 
-# X keeps processing billing for up to 14 days after a day ends, so incremental syncs re-read a
-# trailing window that covers it.
+# Re-read X's 14-day billing window on every incremental sync.
 LOOKBACK_SECONDS = 15 * 24 * 60 * 60
 # The synchronous stats endpoint we use rejects dates further back than this with a 400;
 # X's docs say onboarding backfills should use the (unimplemented) async analytics endpoint instead.
