@@ -19,7 +19,7 @@ import { urls } from 'scenes/urls'
 import { ResourceTagFilter } from '../components/ResourceTagFilter'
 import { defaultCompositeExpression } from './compositeFormulaDefaults'
 import { compositeInputsLogic } from './compositeInputsLogic'
-import { buildCompositionFromDraft, type ScoreDefinitionDraft } from './scoreDefinitionModalUtils'
+import { buildCompositionFromDraft, buildConfigFromDraft, type ScoreDefinitionDraft } from './scoreDefinitionModalUtils'
 
 export interface CompositeScorerFormProps {
     draft: ScoreDefinitionDraft
@@ -53,7 +53,12 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
         )
     const suggested = defaultCompositeExpression(draft)
     const checked =
-        validation?.fingerprint === JSON.stringify({ kind: draft.kind, composition: buildCompositionFromDraft(draft) })
+        validation?.fingerprint ===
+        JSON.stringify({
+            kind: draft.kind,
+            composition: buildCompositionFromDraft(draft),
+            config: buildConfigFromDraft(draft),
+        })
             ? validation
             : null
 
@@ -174,7 +179,11 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                                 type="warning"
                                 action={{
                                     children: `Use version ${latest.version}`,
-                                    disabledReason: disabled ? 'Saving scorer' : undefined,
+                                    disabledReason: disabled
+                                        ? 'Saving scorer'
+                                        : latest.config === undefined
+                                          ? 'Load this version before using it'
+                                          : undefined,
                                     'data-attr': 'aio-composite-upgrade-input',
                                     onClick: () =>
                                         updateInput(index, {
@@ -203,6 +212,7 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                                 className="w-48 max-w-full"
                                 value={search}
                                 onChange={setSearch}
+                                onPressEnter={(event) => event.preventDefault()}
                                 placeholder="Search scorers"
                                 disabled={disabled}
                                 aria-label="Search input scorers"
@@ -286,12 +296,12 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                 {!draft.expressionIsCustom && draft.inputs.length > 0 && (
                     <p className="text-sm text-muted mb-0">
                         {suggested === null
-                            ? 'Set passing rules on the inputs, or write your own formula.'
+                            ? 'No default fits these scoring rules and formula limits. Write a formula, or adjust the inputs and output rules.'
                             : draft.kind === 'numeric'
                               ? 'Averages numeric values. Passing Boolean and categorical inputs count as 1; failing inputs count as 0.'
                               : draft.kind === 'boolean'
                                 ? `${draft.booleanPassing === 'false' ? 'False' : 'True'} when every input passes its rule.`
-                                : 'Returns the first passing category when all inputs pass; otherwise the first failing category.'}
+                                : 'Returns passing categories when all inputs pass; otherwise includes a failing category.'}
                     </p>
                 )}
                 <div className="flex flex-wrap items-center gap-2">
@@ -324,7 +334,8 @@ export function CompositeScorerForm({ draft, disabled, setDraftField }: Composit
                 </div>
                 {checked && (
                     <LemonBanner type={checked.error ? 'error' : 'success'}>
-                        {checked.error || 'Formula syntax and output type are valid.'}
+                        {checked.error ||
+                            'Formula and output configuration are valid. Values are checked when results arrive.'}
                     </LemonBanner>
                 )}
             </div>

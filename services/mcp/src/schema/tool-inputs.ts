@@ -313,6 +313,8 @@ export const ScoreDefinitionConfigSchema = z
         'Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode + optional passing_rule.categories), numeric (min/max/step + optional passing_rule), or boolean (true_label/false_label + optional true_is_failure). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch.'
     )
 
+export const OptionalScoreDefinitionConfigSchema = ScoreDefinitionConfigSchema.optional()
+
 const OfflineExperimentUploadBody = AiObservabilityOfflineExperimentsUploadCreateBody().shape
 const OfflineExperimentUploadItem = OfflineExperimentUploadBody.items.unwrap().element
 const OfflineExperimentUploadResult = OfflineExperimentUploadBody.results.element

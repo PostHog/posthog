@@ -427,14 +427,17 @@ The example averages a Boolean input and a categorical predicate into a numeric 
 Replace these placeholder UUIDs with exact input versions in the same environment.
 Input values retain their raw meaning: `number(True)` is 1 and `number(False)` is 0, irrespective of the input's passing rule.
 Categorical inputs are lists of category keys; use membership tests such as `"good" in relevance`.
-Categorical outputs must contain distinct keys. Duplicate keys produce `composite_formula_error` and are excluded from category rates.
+Categorical outputs must contain distinct keys. Literal output keys and selection counts are checked when saving. Values that depend on input results are checked during ingestion; invalid results produce `composite_formula_error` and are excluded from category rates.
 A categorical formula can return a key or list of keys, such as `"good" if correct else "bad"`.
+Arithmetic operations round to 12 significant digits before further operations or comparisons, so floating-point residue does not turn an average of `0.7` values into a failure at a `>= 0.7` threshold.
+Numeric composites use minimum and maximum bounds but do not accept a manual-scoring increment (`step`). Existing composite versions with an increment ignore it during calculation.
 
 Request calculation independently for each item by uploading `item_id`, `scorer_version_id`, and `calculate: true`, without a value or result metadata.
 `calculate` is only for composite scorers. For reported scorers, omit it or set it to false and supply the result.
 All pinned inputs must already exist for that item or be included anywhere in the same HTTP request.
 Missing inputs reject the whole request. Non-success input statuses propagate in this precedence: `error`, `skipped`, `not_applicable`.
 An input error uses `composite_input_error`. Arithmetic errors or results outside the output configuration use `composite_formula_error`; valid reported results in the batch are still saved.
+Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
 
 The server computes once during ingestion and saves the result with `input_result_ids` in composition input order.
 Exact retries return the stored acknowledgment, including after closure or reference-access changes. New requests require access to every input and an uploading experiment.
@@ -447,7 +450,7 @@ Computed outcomes do not add uploaded-result billing usage; reported inputs are 
 
 Formulas support arithmetic (`+`, `-`, `*`, `/`), comparisons, membership, Boolean `and`/`or`/`not`, conditional expressions, and `number`, `min`, `max`, and `abs`.
 Boolean-to-number conversion is explicit. Every configured alias must appear in the expression.
-Limits are 16 reported inputs, 1,024 expression characters, 128 syntax nodes, and 16 levels of expression nesting.
+Line breaks are allowed within a formula. Limits are 16 reported inputs, 1,024 expression characters, 512 syntax nodes, and 16 levels of expression nesting. The node limit accommodates generated formulas with categorical passing rules, including the parser's operator and context nodes; length and nesting limits still apply.
 The interpreter supports no arbitrary code, attribute access, indexing, loops, or I/O. Nested composites are not supported.
 
 The scorer editor shows dependent composites before source changes. Input rows show pinned and latest versions with an explicit update action.
@@ -458,11 +461,11 @@ New source versions never update composites automatically.
 
 The editor starts new composites with a formula that follows their output type: an average for numeric outputs, all inputs passing for Boolean outputs, or a passing/failing category for categorical outputs.
 Boolean and categorical inputs use their pinned version's passing rule; numeric inputs use their raw value in averages and their passing threshold in all-pass formulas.
-When a required passing rule is missing, the user must write the formula or configure that rule.
+Categorical defaults respect the minimum selection count. When required passing categories or rules are missing, or the generated expression would exceed the length limit, the user must write a formula or adjust the scoring rules.
 Automatic formulas follow input changes until the user edits the expression. Manual expressions, including an empty expression, are preserved until the user chooses **Use default formula**.
 Input scorer selection supports search and tag filters, and version lists load automatically.
-**Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind` and `composition`.
-This read-scoped operation checks formula syntax, input access and output type without creating a scorer or version. Runtime values and output bounds remain checked when results are calculated.
+**Validate formula** calls `POST /api/projects/{team_id}/llm_analytics/score_definitions/validate_composition/` with `kind`, `composition`, and `config`.
+This read-scoped operation checks formula syntax, input access, output type, and literal categorical outputs without creating a scorer or version. API callers may omit `config` to check syntax and types only. Runtime values and output bounds remain checked when results are calculated.
 The MCP tool `llma-score-definition-validate` exposes the same validation with `llm_analytics:read` scope.
 It is gated by `ai-observability-composite-validation`. Enable this flag only after the backend validation route is deployed in every target environment; MCP and Django deploy independently.
 MCP preserves omission of `calculate` on reported uploads so they remain compatible with the previous backend during rollout.

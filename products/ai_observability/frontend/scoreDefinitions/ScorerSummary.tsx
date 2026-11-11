@@ -43,7 +43,9 @@ export function ScorerSummary({
                             ? `${draft.numericMin || 'No minimum'} to ${draft.numericMax || 'no maximum'}`
                             : 'Any number'}
                     </div>
-                    {draft.numericStep && <div className="text-sm text-muted">{`Increment: ${draft.numericStep}`}</div>}
+                    {draft.calculation === 'reported' && draft.numericStep && (
+                        <div className="text-sm text-muted">{`Increment: ${draft.numericStep}`}</div>
+                    )}
                     {draft.numericPassingEnabled && draft.numericPassingThreshold ? (
                         <LemonTag
                             type="success"

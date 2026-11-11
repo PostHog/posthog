@@ -12,6 +12,7 @@ import type { ScoreDefinitionVersionApi } from '../generated/api.schemas'
 import type { PaginatedScoreDefinitionListApi } from '../generated/api.schemas'
 import {
     buildCompositionFromDraft,
+    buildConfigFromDraft,
     getApiErrorDetail,
     getCurrentProjectId,
     type ScoreDefinitionDraft,
@@ -261,7 +262,11 @@ export const compositeInputsLogic = kea<compositeInputsLogicType>([
             null as { fingerprint: string; error: string | null } | null,
             {
                 validateFormula: async ({ draft }) => {
-                    const body = { kind: draft.kind, composition: buildCompositionFromDraft(draft)! }
+                    const body = {
+                        kind: draft.kind,
+                        composition: buildCompositionFromDraft(draft)!,
+                        config: buildConfigFromDraft(draft),
+                    }
                     const fingerprint = JSON.stringify(body)
                     posthog.capture('llma composite formula validation started', {
                         kind: draft.kind,

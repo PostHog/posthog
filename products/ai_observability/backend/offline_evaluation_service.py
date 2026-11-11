@@ -7,7 +7,7 @@ from dataclasses import (
 )
 from datetime import datetime, timedelta
 from itertools import batched
-from typing import TYPE_CHECKING, Literal, NoReturn
+from typing import TYPE_CHECKING, Literal, NoReturn, cast
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -86,6 +86,8 @@ class ResultReceipt:
     scorer_version_id: UUID
     accepted_at: datetime
     created: bool
+    status: ResultStatus
+    error_code: str | None
 
 
 @frozen
@@ -464,9 +466,12 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         boolean_value = submission.value if isinstance(submission.value, bool) else None
         categorical_values = submission.value if isinstance(submission.value, list) else None
         if submission.status == "ok":
+            config = version.config
+            if version.definition.calculation == ScoreDefinition.Calculation.COMPOSITE:
+                config = {key: value for key, value in config.items() if key != "step"}
             errors = validate_score_value(
                 version.definition.kind,
-                version.config,
+                config,
                 numeric_value=numeric_value,
                 boolean_value=boolean_value,
                 categorical_values=categorical_values,
@@ -704,6 +709,8 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     scorer_version_id=row.scorer_version_id,
                     accepted_at=row.accepted_at,
                     created=row.id in new_result_ids,
+                    status=cast(ResultStatus, row.status),
+                    error_code=row.error_code,
                 )
                 for row in (
                     results[ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)]

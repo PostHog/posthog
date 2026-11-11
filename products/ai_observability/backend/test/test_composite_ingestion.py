@@ -127,15 +127,36 @@ class TestCompositeIngestion(TestCase):
             composition={"expression": expression, "inputs": self.version.composition["inputs"]},
             created_by=None,
         )
-        self.ingestion.upload(
+        submission = UploadSubmission(
+            items=[self.item], results=[self.source_result, replace(self.request, scorer_version_id=self.version.id)]
+        )
+        receipt = self.ingestion.upload(self.experiment.id, submission)
+        self.assertEqual(receipt.results[1].status, "error")
+        self.assertEqual(receipt.results[1].error_code, "composite_formula_error")
+        retry = self.ingestion.upload(self.experiment.id, submission)
+        self.assertEqual(retry.results[1].status, "error")
+        self.assertEqual(retry.results[1].error_code, "composite_formula_error")
+        self.assertFalse(retry.results[1].created)
+        self.assertEqual(self.result().error_code, "composite_formula_error")
+        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
+
+    def test_composite_ignores_legacy_manual_increment(self) -> None:
+        assert self.version.composition is not None
+        self.version = self.composite.create_new_version(
+            config={"min": 0, "max": 1, "step": 0.5},
+            composition={"expression": "number(correct) / 3", "inputs": self.version.composition["inputs"]},
+            created_by=None,
+        )
+        receipt = self.ingestion.upload(
             self.experiment.id,
             UploadSubmission(
                 items=[self.item],
                 results=[self.source_result, replace(self.request, scorer_version_id=self.version.id)],
             ),
         )
-        self.assertEqual(self.result().error_code, "composite_formula_error")
-        self.assertEqual(OfflineEvaluationResult.objects.for_team(self.team.id).count(), 2)
+        self.assertEqual(receipt.results[1].status, "ok")
+        self.assertIsNone(receipt.results[1].error_code)
+        self.assertEqual(self.result().numeric_value, 0.333333333333)
 
     def test_rejects_supplied_composite_value_and_calculate_for_reported_scorer(self) -> None:
         for result in (

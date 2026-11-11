@@ -231,10 +231,13 @@ def _score_definition_version_page(
 class CompositeValidationSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=ScoreDefinition.Kind.choices, help_text="Expected formula output kind.")
     composition = CompositeConfigSerializer(help_text="Formula and pinned input versions to validate without saving.")
+    config = ScoreDefinitionConfigField(
+        required=False, help_text="Output configuration to check literal categories and composite scoring rules."
+    )
 
 
 class CompositeValidationResponseSerializer(serializers.Serializer):
-    valid = serializers.BooleanField(help_text="Whether the syntax, input references, and output type are valid.")
+    valid = serializers.BooleanField(help_text="Whether the formula and any supplied output configuration are valid.")
 
 
 class ScoreDefinitionCreateSerializer(ResourceTagsWriteSerializer):
@@ -484,6 +487,7 @@ class ScoreDefinitionViewSet(
             composition=composition,
             calculation=definition_data["calculation"],
             kind=definition_data["kind"],
+            config=config,
             team_id=self.team_id,
             user_access_control=self.user_access_control,
         )
@@ -551,6 +555,7 @@ class ScoreDefinitionViewSet(
             composition=composition,
             calculation=definition.calculation,
             kind=definition.kind,
+            config=validated_data["config"],
             team_id=self.team_id,
             user_access_control=self.user_access_control,
         )
@@ -642,6 +647,7 @@ class ScoreDefinitionViewSet(
             composition=request.validated_data["composition"],
             calculation=ScoreDefinition.Calculation.COMPOSITE,
             kind=request.validated_data["kind"],
+            config=request.validated_data.get("config"),
             team_id=self.team_id,
             user_access_control=self.user_access_control,
         )

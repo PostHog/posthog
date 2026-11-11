@@ -2531,7 +2531,7 @@ export const LlmAnalyticsScoreDefinitionsCreateBody = /* @__PURE__ */ zod.object
                     .string()
                     .max(llmAnalyticsScoreDefinitionsCreateBodyCompositionOneExpressionMax)
                     .describe(
-                        'Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.'
+                        'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
                     ),
                 inputs: zod
                     .array(
@@ -2729,7 +2729,7 @@ export const LlmAnalyticsScoreDefinitionsNewVersionCreateBody = /* @__PURE__ */ 
                     .string()
                     .max(llmAnalyticsScoreDefinitionsNewVersionCreateBodyCompositionOneExpressionMax)
                     .describe(
-                        'Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.'
+                        'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
                     ),
                 inputs: zod
                     .array(
@@ -2884,6 +2884,11 @@ export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositio
 export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneInputsItemAliasRegExp = new RegExp(
     '^[a-z][a-z0-9_]{0,31}$'
 )
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemKeyMax = 128
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemLabelMax = 256
+
+export const llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax = 128
 
 export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = /* @__PURE__ */ zod.object({
     kind: zod
@@ -2898,7 +2903,7 @@ export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = /* @__P
                 .string()
                 .max(llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyCompositionOneExpressionMax)
                 .describe(
-                    'Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.'
+                    'Formula using the declared input aliases. Supports +, -, \*, \/, comparisons, and\/or\/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 \* precision + recall) \/ 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.'
                 ),
             inputs: zod
                 .array(
@@ -2922,6 +2927,112 @@ export const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody = /* @__P
                 ),
         })
         .describe('Formula and pinned input versions to validate without saving.'),
+    config: zod
+        .union([
+            zod.object({
+                options: zod
+                    .array(
+                        zod.object({
+                            key: zod
+                                .string()
+                                .max(
+                                    llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemKeyMax
+                                )
+                                .describe(
+                                    'Stable option key. Use lowercase letters, numbers, underscores, or hyphens.'
+                                ),
+                            label: zod
+                                .string()
+                                .max(
+                                    llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOneOptionsItemLabelMax
+                                )
+                                .describe('Human-readable option label.'),
+                        })
+                    )
+                    .describe('Ordered categorical options available to the scorer.'),
+                selection_mode: zod
+                    .enum(['single', 'multiple'])
+                    .describe('\* `single` - single\n\* `multiple` - multiple')
+                    .optional()
+                    .describe(
+                        'Whether reviewers can select one option or multiple options. Defaults to `single`.\n\n\* `single` - single\n\* `multiple` - multiple'
+                    ),
+                min_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional minimum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                max_selections: zod
+                    .number()
+                    .min(1)
+                    .nullish()
+                    .describe(
+                        'Optional maximum number of options that can be selected when `selection_mode` is `multiple`.'
+                    ),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            categories: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(
+                                            llmAnalyticsScoreDefinitionsValidateCompositionCreateBodyConfigOneOnePassingRuleOneCategoriesItemMax
+                                        )
+                                )
+                                .describe(
+                                    'Passing category keys. Every returned category must be included. An empty list makes all accepted offline results fail.'
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing categories. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                min: zod.number().nullish().describe('Optional inclusive minimum score.'),
+                max: zod.number().nullish().describe('Optional inclusive maximum score.'),
+                step: zod
+                    .number()
+                    .nullish()
+                    .describe('Optional increment step for numeric input, for example 1 or 0.5.'),
+                passing_rule: zod
+                    .union([
+                        zod.object({
+                            operator: zod
+                                .enum(['gte', 'lte'])
+                                .describe('\* `gte` - At or above\n\* `lte` - At or below')
+                                .describe(
+                                    'Pass at or above (gte), or at or below (lte), the threshold.\n\n\* `gte` - At or above\n\* `lte` - At or below'
+                                ),
+                            threshold: zod
+                                .number()
+                                .describe('Finite passing threshold within any configured score bounds.'),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        'Optional passing rule. Omit or set null for neutral scores. Each scorer version keeps its own rule.'
+                    ),
+            }),
+            zod.object({
+                true_is_failure: zod
+                    .boolean()
+                    .nullish()
+                    .describe(
+                        'Whether true means failure. False, omitted, or null means true passes in offline evaluations.'
+                    ),
+                true_label: zod.string().optional().describe('Optional label for a true value.'),
+                false_label: zod.string().optional().describe('Optional label for a false value.'),
+            }),
+        ])
+        .optional()
+        .describe('Output configuration to check literal categories and composite scoring rules.'),
 })
 
 /**

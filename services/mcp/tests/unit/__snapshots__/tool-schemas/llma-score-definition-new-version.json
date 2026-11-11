@@ -11,7 +11,7 @@
                 {
                     "properties": {
                         "expression": {
-                            "description": "Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.",
+                            "description": "Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use \"good\" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; \"good\" if correct else \"bad\". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.",
                             "maxLength": 1024,
                             "type": "string"
                         },

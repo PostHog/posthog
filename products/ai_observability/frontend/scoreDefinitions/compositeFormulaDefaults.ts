@@ -24,7 +24,15 @@ function passingExpression(input: ScoreDefinitionDraft['inputs'][number]): strin
         : positive
 }
 
-export function defaultCompositeExpression(draft: ScoreDefinitionDraft): string | null {
+function sumExpression(terms: string[]): string {
+    if (terms.length === 1) {
+        return terms[0]
+    }
+    const middle = Math.floor(terms.length / 2)
+    return `(${sumExpression(terms.slice(0, middle))} + ${sumExpression(terms.slice(middle))})`
+}
+
+function buildDefaultExpression(draft: ScoreDefinitionDraft): string | null {
     if (!draft.inputs.length) {
         return ''
     }
@@ -40,7 +48,7 @@ export function defaultCompositeExpression(draft: ScoreDefinitionDraft): string 
             ? null
             : terms.length === 1
               ? terms[0]
-              : `(${terms.join(' + ')}) / ${terms.length}`
+              : `${sumExpression(terms as string[])} / ${terms.length}`
     }
     const conditions = draft.inputs.map(passingExpression)
     if (conditions.some((condition) => condition === null)) {
@@ -52,9 +60,21 @@ export function defaultCompositeExpression(draft: ScoreDefinitionDraft): string 
     }
     const keys = draft.options.map(getScoreDefinitionOptionKey).filter(Boolean)
     const passing = draft.categoricalPassingEnabled ? draft.categoricalPassingCategories : keys.slice(0, 1)
-    const pass = keys.find((key) => passing.includes(key))
-    const fail = keys.find((key) => !passing.includes(key))
-    return pass && fail ? `${JSON.stringify(pass)} if ${condition} else ${JSON.stringify(fail)}` : null
+    const count = draft.selectionMode === 'multiple' ? Math.max(1, Number(draft.categoricalMinSelections) || 1) : 1
+    const pass = keys.filter((key) => passing.includes(key)).slice(0, count)
+    const failingKey = keys.find((key) => !passing.includes(key))
+    const fail = failingKey ? [failingKey, ...keys.filter((key) => key !== failingKey)].slice(0, count) : []
+    if (pass.length !== count || fail.length !== count) {
+        return null
+    }
+    const output = (categories: string[]): string =>
+        JSON.stringify(draft.selectionMode === 'multiple' ? categories : categories[0])
+    return `${output(pass)} if ${condition} else ${output(fail)}`
+}
+
+export function defaultCompositeExpression(draft: ScoreDefinitionDraft): string | null {
+    const expression = buildDefaultExpression(draft)
+    return expression && expression.length > 1024 ? null : expression
 }
 
 export function updateScorerDraft(

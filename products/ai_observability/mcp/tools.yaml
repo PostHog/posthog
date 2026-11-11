@@ -1224,7 +1224,8 @@ tools:
             item/scorer version. Existing items can be referenced without repeating their declaration or payload. Item
             payloads allow 1 MiB and result payloads 256 KiB; use small batches through MCP and the API for bulk
             uploads. Correct validation errors before retrying; never generate new IDs merely to retry an uncertain
-            response.
+            response. Each result receipt includes status and error_code, including calculation failures. HTTP success
+            means the upload was accepted; inspect each result's status to check whether its calculation succeeded.
         param_overrides:
             items:
                 input_schema: OfflineExperimentUploadItemsSchema
@@ -1627,8 +1628,9 @@ tools:
             archived) and at version 1. `calculation` defaults to `reported`. For an offline composite scorer, set
             `calculation: composite` and provide `composition` with an expression and 1–16 inputs, each with an alias
             and exact `scorer_version_id` from a reported scorer. Both kind and calculation are immutable. Composite
-            inputs cannot themselves be composites. Use `llma-score-definition-validate` to check the formula before
-            saving. To calculate an item result, use `llma-offline-experiment-upload` with `calculate: true`.
+            inputs cannot themselves be composites. When available, use `llma-score-definition-validate` to check
+            the formula before saving. To calculate an item result, use `llma-offline-experiment-upload` with
+            `calculate: true`. Numeric composites do not accept `step`.
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema
@@ -1682,8 +1684,8 @@ tools:
             returns 409 if another writer already advanced the scorer. Optional `name` and `description` updates are
             saved atomically with the version. For a composite scorer, also provide the full `composition`, even when
             only the output rules change. Its formula and input version UUIDs are pinned to the new version; updating a
-            source scorer never updates dependent composites automatically. Validate the proposed composition with
-            `llma-score-definition-validate` before saving.
+            source scorer never updates dependent composites automatically. When available, validate the proposed
+            composition with `llma-score-definition-validate` before saving. Numeric composites do not accept `step`.
         param_overrides:
             config:
                 input_schema: ScoreDefinitionConfigSchema
@@ -1721,6 +1723,10 @@ tools:
             `safe and correct`, and `"good" if correct else "bad"`. Returns {valid: true} or a validation error for
             invalid syntax, inaccessible inputs, or an incompatible output type. Does not calculate item results or
             check runtime values against output bounds; those are checked during upload with `calculate: true`.
+            Include `config` to validate literal output categories and selection counts before saving.
+        param_overrides:
+            config:
+                input_schema: OptionalScoreDefinitionConfigSchema
         feature_flag: ai-observability-composite-validation
         feature_flag_behavior: enable
     llma-score-definition-version-get:

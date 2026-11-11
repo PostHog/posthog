@@ -10,7 +10,12 @@ import {
     llmAnalyticsScoreDefinitionsValidateCompositionCreate,
 } from '../generated/api'
 import { compositeInputsLogic } from './compositeInputsLogic'
-import { buildCompositionFromDraft, createDraft, type ScoreDefinitionDraft } from './scoreDefinitionModalUtils'
+import {
+    buildCompositionFromDraft,
+    buildConfigFromDraft,
+    createDraft,
+    type ScoreDefinitionDraft,
+} from './scoreDefinitionModalUtils'
 
 jest.mock('../generated/api', () => ({
     llmAnalyticsScoreDefinitionsList: jest.fn(),
@@ -88,7 +93,11 @@ describe('composite input selection', () => {
                 },
             ],
         }
-        const body = { kind: draft.kind, composition: buildCompositionFromDraft(draft) }
+        const body = {
+            kind: draft.kind,
+            composition: buildCompositionFromDraft(draft),
+            config: buildConfigFromDraft(draft),
+        }
         validate.mockResolvedValue({ valid: true })
         await expectLogic(logic, () => logic.actions.validateFormula(draft)).toFinishAllListeners()
         expect(validate).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), body)

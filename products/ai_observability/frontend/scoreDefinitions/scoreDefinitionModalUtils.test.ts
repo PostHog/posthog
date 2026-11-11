@@ -25,6 +25,12 @@ const definition: ScoreDefinitionApi = {
 }
 
 describe('scorer form configuration', () => {
+    it('keeps manual increments out of composite configurations', () => {
+        const draft = { ...createDraft('create'), kind: 'numeric' as const, numericStep: '0.5' }
+        expect(buildConfigFromDraft(draft)).toMatchObject({ step: 0.5 })
+        expect(buildConfigFromDraft({ ...draft, calculation: 'composite' })).not.toHaveProperty('step')
+    })
+
     it.each<{ kind: ScoreDefinitionApi['kind']; config: ScoreDefinitionConfigApi; expected: string }>([
         { kind: 'boolean', config: { true_is_failure: true }, expected: '(not quality)' },
         {

@@ -6,6 +6,7 @@ import * as orvalSchemas from '@/generated/ai_observability/api'
 import {
     OfflineExperimentUploadItemsSchema,
     OfflineExperimentUploadResultsSchema,
+    OptionalScoreDefinitionConfigSchema,
     PromptListInputSchema,
     ScoreDefinitionConfigSchema,
 } from '@/schema/tool-inputs'
@@ -2875,7 +2876,9 @@ const llmaScoreDefinitionUpdate = (): ToolBase<
 const LlmaScoreDefinitionValidateSchema = () => {
     const LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody =
         orvalSchemas.LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody()
-    return LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody
+    return LlmAnalyticsScoreDefinitionsValidateCompositionCreateBody.extend({
+        config: OptionalScoreDefinitionConfigSchema,
+    })
 }
 
 const llmaScoreDefinitionValidate = (): ToolBase<
@@ -2892,6 +2895,9 @@ const llmaScoreDefinitionValidate = (): ToolBase<
         }
         if (params.composition !== undefined) {
             body['composition'] = params.composition
+        }
+        if (params.config !== undefined) {
+            body['config'] = params.config
         }
         const result = await context.api.request<Schemas.CompositeValidationResponse>({
             method: 'POST',

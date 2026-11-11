@@ -236,7 +236,7 @@ export function buildConfigFromDraft(draft: ScoreDefinitionDraft): ScoreDefiniti
         if (maximum !== null) {
             numericConfig.max = maximum
         }
-        if (step !== null) {
+        if (step !== null && draft.calculation === 'reported') {
             numericConfig.step = step
         }
         if (draft.numericPassingEnabled) {
@@ -348,7 +348,10 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
     }
 
     if (draft.kind === 'numeric') {
-        const numericValues = [draft.numericMin, draft.numericMax, draft.numericStep]
+        const numericValues = [draft.numericMin, draft.numericMax]
+        if (draft.calculation === 'reported') {
+            numericValues.push(draft.numericStep)
+        }
         if (numericValues.some((value) => value.trim() && Number.isNaN(parseOptionalNumber(value)))) {
             return 'Numeric bounds must be valid numbers.'
         }
@@ -359,7 +362,7 @@ export function validateDraft(mode: ScoreDefinitionModalMode, draft: ScoreDefini
             return 'Numeric max must be greater than or equal to min.'
         }
         const step = parseOptionalNumber(draft.numericStep)
-        if (step !== null && step <= 0) {
+        if (draft.calculation === 'reported' && step !== null && step <= 0) {
             return 'Set the increment to a number greater than zero.'
         }
         if (draft.numericPassingEnabled) {

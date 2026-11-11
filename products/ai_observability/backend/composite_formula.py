@@ -9,9 +9,11 @@ from typing import cast
 
 from posthog.dataclasses import frozen
 
+from products.ai_observability.backend.score_validation import validate_score_value
+
 MAX_COMPOSITE_INPUTS = 16
 MAX_FORMULA_LENGTH = 1024
-MAX_FORMULA_NODES = 128
+MAX_FORMULA_NODES = 512
 MAX_FORMULA_DEPTH = 16
 
 type FormulaValue = float | bool | str | list[str]
@@ -39,8 +41,8 @@ class CompositeFormula:
         if not 1 <= len(inputs) <= MAX_COMPOSITE_INPUTS:
             raise CompositeFormulaError(f"Select 1 to {MAX_COMPOSITE_INPUTS} inputs.")
         try:
-            tree = ast.parse(expression, mode="eval").body
-        except (SyntaxError, RecursionError, ValueError) as error:
+            tree = ast.parse(f"({expression}\n)", mode="eval").body
+        except (SyntaxError, RecursionError, ValueError, MemoryError) as error:
             raise CompositeFormulaError("The formula is not a valid expression.") from error
         if sum(1 for _ in ast.walk(tree)) > MAX_FORMULA_NODES:
             raise CompositeFormulaError("The formula has too many operations.")
@@ -52,6 +54,27 @@ class CompositeFormula:
         if used != inputs.keys():
             raise CompositeFormulaError("Every selected input must appear in the formula.")
         return formula
+
+    def validate_output(self, kind: str, config: dict[str, object]) -> None:
+        if kind != "categorical":
+            return
+
+        def validate(node: ast.expr) -> None:
+            if isinstance(node, ast.IfExp):
+                validate(node.body)
+                validate(node.orelse)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                check([node.value])
+            elif isinstance(node, ast.List):
+                if all(isinstance(item, ast.Constant) for item in node.elts):
+                    check([cast(str, cast(ast.Constant, item).value) for item in node.elts])
+
+        def check(values: list[str]) -> None:
+            errors = validate_score_value("categorical", config, categorical_values=values)
+            if errors:
+                raise CompositeFormulaError(next(iter(errors.values())))
+
+        validate(self.tree)
 
     def _infer(self, node: ast.expr, inputs: Mapping[str, str], depth: int) -> FormulaType:
         if depth > MAX_FORMULA_DEPTH:
@@ -156,7 +179,7 @@ class CompositeFormula:
                 value = operations[type(op)](cast(float, evaluate(left)), cast(float, evaluate(right)))
                 if not math.isfinite(value):
                     raise CompositeFormulaError("The formula produced a non-finite number.")
-                return value
+                return float(f"{value:.12g}")
             case ast.UnaryOp(op=ast.Not(), operand=operand):
                 return not evaluate(operand)
             case ast.UnaryOp(op=op, operand=operand):

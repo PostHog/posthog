@@ -51,6 +51,7 @@ export function ScorerDependents({ definitionId, count }: { definitionId: string
                                         className="w-40 max-w-full text-xs"
                                         value={search}
                                         onChange={setSearch}
+                                        onPressEnter={(event) => event.preventDefault()}
                                         placeholder="Search scores"
                                         aria-label="Search dependent composite scores"
                                         data-attr="aio-scorer-dependent-search"

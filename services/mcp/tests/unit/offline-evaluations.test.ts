@@ -91,23 +91,27 @@ describe('offline evaluation MCP tools', () => {
         ).toBe(false)
     })
 
-    it('validates a composite formula through the registered tool without saving a scorer', async () => {
-        const { context, request } = createContext({ valid: true })
-        const tool = await getTool(context, 'llma-score-definition-validate')
-        const body = {
-            kind: 'boolean',
-            composition: { expression: 'correct', inputs: [{ alias: 'correct', scorer_version_id: versionId }] },
+    it.each([undefined, { true_label: 'Correct' }])(
+        'validates a composite formula with config %j without saving a scorer',
+        async (config) => {
+            const { context, request } = createContext({ valid: true })
+            const tool = await getTool(context, 'llma-score-definition-validate')
+            const body = {
+                kind: 'boolean',
+                composition: { expression: 'correct', inputs: [{ alias: 'correct', scorer_version_id: versionId }] },
+                ...(config ? { config } : {}),
+            }
+
+            const result = await tool.handler(context, tool.schema.parse(body))
+
+            expect(result).toMatchObject({ valid: true })
+            expect(request).toHaveBeenCalledExactlyOnceWith({
+                method: 'POST',
+                path: '/api/projects/17/llm_analytics/score_definitions/validate_composition/',
+                body,
+            })
         }
-
-        const result = await tool.handler(context, tool.schema.parse(body))
-
-        expect(result).toMatchObject({ valid: true })
-        expect(request).toHaveBeenCalledExactlyOnceWith({
-            method: 'POST',
-            path: '/api/projects/17/llm_analytics/score_definitions/validate_composition/',
-            body,
-        })
-    })
+    )
 
     it.each([
         ['llma-offline-experiment-item-payload-get', 'item_id', 'items'],

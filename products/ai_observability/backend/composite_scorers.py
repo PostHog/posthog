@@ -57,7 +57,14 @@ class CompositeInputSerializer(serializers.Serializer):
 class CompositeConfigSerializer(serializers.Serializer):
     expression = serializers.CharField(
         max_length=MAX_FORMULA_LENGTH,
-        help_text="Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.",
+        help_text=(
+            "Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, "
+            "conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: "
+            "number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are "
+            'lists of keys: use "good" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; '
+            '"good" if correct else "bad". Every input alias must appear. Line breaks are allowed. '
+            "Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers."
+        ),
     )
     inputs: serializers.ListSerializer = serializers.ListSerializer(
         child=CompositeInputSerializer(),
@@ -90,6 +97,7 @@ class CompositeScorers:
         composition: dict[str, Any] | None,
         calculation: str,
         kind: str,
+        config: dict[str, Any] | None = None,
         team_id: int,
         user_access_control: UserAccessControl | None,
     ) -> None:
@@ -99,6 +107,8 @@ class CompositeScorers:
             return
         if composition is None:
             raise serializers.ValidationError({"composition": "Provide a formula and its input scorer versions."})
+        if kind == "numeric" and config is not None and config.get("step") is not None:
+            raise serializers.ValidationError({"config": "Increments apply only to reported scorers."})
         definitions = ScoreDefinition.objects.filter(team_id=team_id, calculation=ScoreDefinition.Calculation.REPORTED)
         if user_access_control is not None:
             definitions = user_access_control.filter_queryset_by_access_level(
@@ -119,10 +129,12 @@ class CompositeScorers:
                 }
             )
         try:
-            CompositeFormula.parse(
+            formula = CompositeFormula.parse(
                 composition["expression"],
                 {item["alias"]: versions[item["scorer_version_id"]].definition.kind for item in composition["inputs"]},
                 kind,
             )
+            if config is not None:
+                formula.validate_output(kind, config)
         except CompositeFormulaError as error:
             raise serializers.ValidationError({"composition": str(error)}) from error

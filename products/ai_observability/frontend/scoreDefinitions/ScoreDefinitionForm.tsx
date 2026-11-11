@@ -160,29 +160,37 @@ export function ScoreDefinitionForm({
 
                     {draft.kind === 'numeric' && (
                         <>
-                            <div className="grid gap-4 @min-[36rem]/scorer-form:grid-cols-3">
+                            <div
+                                className={`grid gap-4 ${draft.calculation === 'reported' ? '@min-[36rem]/scorer-form:grid-cols-3' : '@min-[30rem]/scorer-form:grid-cols-2'}`}
+                            >
                                 {(
                                     [
                                         ['numericMin', 'Minimum (optional)'],
                                         ['numericMax', 'Maximum (optional)'],
                                         ['numericStep', 'Increment (optional)'],
                                     ] as const
-                                ).map(([field, label]) => (
-                                    <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
-                                        <LemonInput
-                                            id={`${id}-${field}`}
-                                            type="number"
-                                            value={getNumericInputValue(draft[field])}
-                                            onChange={(value) => setDraftField(field, formatNumericInputValue(value))}
-                                            disabled={disabled}
-                                            placeholder="Not set"
-                                            step="any"
-                                        />
-                                    </LemonField.Pure>
-                                ))}
+                                )
+                                    .filter(([field]) => field !== 'numericStep' || draft.calculation === 'reported')
+                                    .map(([field, label]) => (
+                                        <LemonField.Pure key={field} label={label} htmlFor={`${id}-${field}`}>
+                                            <LemonInput
+                                                id={`${id}-${field}`}
+                                                type="number"
+                                                value={getNumericInputValue(draft[field])}
+                                                onChange={(value) =>
+                                                    setDraftField(field, formatNumericInputValue(value))
+                                                }
+                                                disabled={disabled}
+                                                placeholder="Not set"
+                                                step="any"
+                                            />
+                                        </LemonField.Pure>
+                                    ))}
                             </div>
                             <p className="text-sm text-muted mb-0">
-                                Bounds are inclusive. The increment guides manual scoring, for example 1 or 0.5.
+                                Bounds are inclusive.
+                                {draft.calculation === 'reported' &&
+                                    ' The increment guides manual scoring, for example 1 or 0.5.'}
                             </p>
                         </>
                     )}

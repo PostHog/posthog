@@ -142,6 +142,7 @@ class TestOfflineExperimentsAPI(APIBaseTest):
                 {"options": [{"key": "accept", "label": "Accept"}, {"key": "reject", "label": "Reject"}]},
                 '"accept" if safe and quality >= 0.8 and "good" in relevance else "reject"',
             ),
+            ("numeric", {}, 'quality * number(safe and "good" in relevance) / 0'),
         ]
         for kind, config, expression in composite_configs:
             response = self.client.post(
@@ -173,7 +174,11 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         upload_url = self._endpoint(str(experiment["id"]), "upload")
         response = self.client.post(upload_url, body, format="json")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)
-        source_ids = {result["id"] for result in response.data["results"][3:]}
+        source_ids = {result["id"] for result in response.data["results"][len(composites) :]}
+        self.assertEqual(
+            [(row["status"], row["error_code"]) for row in response.data["results"]],
+            [("ok", None)] * 3 + [("error", "composite_formula_error")] + [("ok", None)] * 3,
+        )
         self.assertEqual(
             list(OfflineEvaluationUsageLedger.objects.for_team(self.team.id).values_list("quantity", flat=True)), [3]
         )
@@ -185,6 +190,12 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             [result["id"] for result in replay.data["results"]], [result["id"] for result in response.data["results"]]
         )
         self.assertTrue(all(not result["created"] for result in replay.data["results"]))
+        self.assertEqual(replay.data["results"][3]["status"], "error")
+        self.assertEqual(replay.data["results"][3]["error_code"], "composite_formula_error")
+        if auth_kind != "session":
+            self.assertEqual(
+                self.client.get(self._endpoint(str(experiment["id"]), f"items/{item_id}/results")).status_code, 403
+            )
         self._authenticate("personal_key", ["evaluation:read", "llm_analytics:read"])
         read = self.client.get(self._endpoint(str(experiment["id"]), f"items/{item_id}/results"))
         self.assertEqual(read.status_code, status.HTTP_200_OK, read.data)
@@ -194,13 +205,13 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             if result["scorer"]["calculation"] == "composite"
         }
         self.assertEqual(set(derived), set(composites))
-        for version_id, value in zip(composites, [0.9, True, ["accept"]]):
+        for version_id, value in zip(composites, [0.9, True, ["accept"], None]):
             self.assertEqual(derived[version_id]["value"], value)
             self.assertEqual(set(derived[version_id]["input_result_ids"]), source_ids)
             self.assertEqual(len(derived[version_id]["scorer"]["composition"]["inputs"]), 3)
         summaries = self.client.get(self._endpoint(str(experiment["id"]), "scorer_summaries"))
         self.assertEqual(summaries.status_code, status.HTTP_200_OK, summaries.data)
-        self.assertEqual(len(summaries.data["results"]), 6)
+        self.assertEqual(len(summaries.data["results"]), 7)
 
     @parameterized.expand([("session", False), ("personal_key", False), ("project_key", False), ("session", True)])
     @patch("products.ai_observability.backend.api.offline_experiments.report_user_action")

@@ -111,6 +111,85 @@ class TestCompositeScorers(APIBaseTest):
         self.payload["composition"]["expression"] = 'number("good" in correct)'
         self.create_composite()
 
+    @parameterized.expand(
+        [
+            (
+                "unknown_category",
+                "categorical",
+                {"options": [{"key": "good", "label": "Good"}, {"key": "bad", "label": "Bad"}]},
+                '"graet" if correct else "bad"',
+            ),
+            (
+                "selection_count",
+                "categorical",
+                {
+                    "options": [{"key": "good", "label": "Good"}, {"key": "bad", "label": "Bad"}],
+                    "selection_mode": "multiple",
+                    "min_selections": 2,
+                },
+                '"good" if correct else "bad"',
+            ),
+            ("increment", "numeric", {"step": 0.5}, "number(correct)"),
+            ("parser_limit", "numeric", {}, "(x," * 199),
+        ]
+    )
+    def test_invalid_output_and_parser_limits_are_rejected_on_all_write_paths(
+        self, _name: str, kind: str, config: dict[str, Any], expression: str
+    ) -> None:
+        self.payload["kind"] = kind
+        self.payload["config"] = {"options": [{"key": "good", "label": "Good"}]} if kind == "categorical" else {}
+        self.payload["composition"]["expression"] = (
+            '"good" if correct else "good"' if kind == "categorical" else "number(correct)"
+        )
+        composite = self.create_composite()
+        self.payload["config"] = config
+        self.payload["composition"]["expression"] = expression
+        for endpoint in (
+            self.endpoint,
+            f"{self.endpoint}validate_composition/",
+            f"{self.endpoint}{composite['id']}/new_version/",
+        ):
+            response = self.client.post(endpoint, self.payload, format="json")
+            self.assertEqual(response.status_code, 400, response.data)
+
+    def test_historical_version_access_is_checked_independently_of_current_version(self) -> None:
+        composite = self.create_composite()
+        visible_source = ScoreDefinition.objects.create(team=self.team, name="Visible input", kind="boolean")
+        visible_version = visible_source.create_new_version(config={}, created_by=self.user)
+        current = ScoreDefinition.objects.get(id=composite["id"]).create_new_version(
+            config={},
+            composition={
+                "expression": "number(visible)",
+                "inputs": [{"alias": "visible", "scorer_version_id": str(visible_version.id)}],
+            },
+            created_by=self.user,
+        )
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        member = User.objects.create_and_join(self.organization, "history-viewer@example.com", "test-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="member"
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(self.source.id),
+            organization_member=membership,
+            access_level="none",
+        )
+        self.client.force_login(member)
+        detail = f"{self.endpoint}{composite['id']}/"
+        self.assertEqual(self.client.get(detail).status_code, 200)
+        versions = self.client.get(f"{detail}versions/")
+        self.assertEqual(versions.status_code, 200, versions.data)
+        self.assertEqual([row["id"] for row in versions.data["results"]], [str(current.id)])
+        self.assertEqual(versions.data["count"], 1)
+        self.assertEqual(self.client.get(f"{detail}versions/{current.id}/").status_code, 200)
+        self.assertEqual(self.client.get(f"{detail}versions/{composite['current_version_id']}/").status_code, 404)
+
     def test_rejects_nested_and_foreign_inputs(self) -> None:
         composite = self.create_composite()
         foreign = ScoreDefinition.objects.create(

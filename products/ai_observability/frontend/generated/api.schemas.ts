@@ -837,7 +837,7 @@ export interface CompositeInputApi {
 
 export interface CompositeConfigApi {
     /**
-     * Bounded arithmetic or Boolean expression. Use number(boolean), category membership, and conditional expressions for conversions.
+     * Formula using the declared input aliases. Supports +, -, *, /, comparisons, and/or/not, conditional expressions, and number(), min(), max(), abs(). Boolean inputs are raw values: number(True) is 1 and number(False) is 0, regardless of passing rules. Categorical inputs are lists of keys: use "good" in relevance. Examples: (2 * precision + recall) / 3; safe and correct; "good" if correct else "bad". Every input alias must appear. Line breaks are allowed. Arithmetic results use 12 significant digits. Up to 1,024 characters and 16 input scorers.
      * @maxLength 1024
      */
     expression: string
@@ -1437,6 +1437,18 @@ export interface ResultReceiptApi {
     item_id: string
     /** Pinned scorer version used by this result. */
     scorer_version_id: string
+    /** Stored result status, including calculation failures.
+     *
+     * * `ok` - OK
+     * * `error` - Error
+     * * `skipped` - Skipped
+     * * `not_applicable` - Not applicable */
+    status: OfflineEvaluationResultStatusEnumApi
+    /**
+     * Error code for a failed result, otherwise null.
+     * @nullable
+     */
+    error_code: string | null
 }
 
 export interface UploadReceiptApi {
@@ -4962,10 +4974,12 @@ export interface CompositeValidationApi {
     kind: ScoreDefinitionKindEnumApi
     /** Formula and pinned input versions to validate without saving. */
     composition: CompositeConfigApi
+    /** Output configuration to check literal categories and composite scoring rules. */
+    config?: ScoreDefinitionConfigApi
 }
 
 export interface CompositeValidationResponseApi {
-    /** Whether the syntax, input references, and output type are valid. */
+    /** Whether the formula and any supplied output configuration are valid. */
     valid: boolean
 }
 

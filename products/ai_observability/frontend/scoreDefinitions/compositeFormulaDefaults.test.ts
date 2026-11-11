@@ -1,4 +1,5 @@
 import { defaultCompositeExpression, updateScorerDraft } from './compositeFormulaDefaults'
+import defaults from './compositeFormulaDefaults.fixtures.json'
 import { createDraft, type ScoreDefinitionDraft } from './scoreDefinitionModalUtils'
 
 const safe: ScoreDefinitionDraft['inputs'][number] = {
@@ -26,6 +27,35 @@ const base: ScoreDefinitionDraft = {
 }
 
 describe('composite formula defaults', () => {
+    it.each(defaults)('$name stays compatible with the server parser fixtures', (example) => {
+        expect(
+            defaultCompositeExpression({
+                ...base,
+                kind: example.kind as ScoreDefinitionDraft['kind'],
+                inputs: Array.from({ length: example.count }, (_, index) => ({
+                    ...safe,
+                    alias: `s${index}`,
+                    kind: example.inputKind as ScoreDefinitionDraft['kind'],
+                    config: example.inputConfig,
+                })),
+            })
+        ).toBe(example.expression)
+    })
+
+    it('honors the minimum selections for categorical defaults', () => {
+        const draft: ScoreDefinitionDraft = {
+            ...base,
+            kind: 'categorical',
+            selectionMode: 'multiple',
+            categoricalMinSelections: '2',
+            categoricalPassingEnabled: true,
+            categoricalPassingCategories: ['good', 'clear'],
+            options: ['good', 'clear', 'bad'].map((key) => ({ key, label: key })),
+        }
+        expect(defaultCompositeExpression(draft)).toBe('["good","clear"] if (safe) else ["bad","good"]')
+        expect(defaultCompositeExpression({ ...draft, categoricalPassingCategories: ['good'] })).toBeNull()
+    })
+
     it.each([
         ['boolean', '(safe) and (accuracy >= 0.8)'],
         ['numeric', '(number(safe) + accuracy) / 2'],
@@ -60,6 +90,23 @@ describe('composite formula defaults', () => {
 
     it('does not invent a passing threshold for an unconfigured numeric input', () => {
         expect(defaultCompositeExpression({ ...base, inputs: [{ ...accurate, config: {} }] })).toBeNull()
+    })
+
+    it('does not generate a formula longer than the editor and server accept', () => {
+        expect(
+            defaultCompositeExpression({
+                ...base,
+                inputs: Array.from({ length: 16 }, (_, index) => ({
+                    ...safe,
+                    alias: `s${index}`,
+                    kind: 'categorical',
+                    config: {
+                        options: [{ key: 'a'.repeat(128), label: 'Passing' }],
+                        passing_rule: { categories: ['a'.repeat(128)] },
+                    },
+                })),
+            })
+        ).toBeNull()
     })
 
     it('returns false for an all-pass result when the composite uses false as passing', () => {

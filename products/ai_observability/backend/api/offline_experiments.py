@@ -40,7 +40,7 @@ from products.ai_observability.backend.api.offline_experiment_serializers import
     UploadSubmissionSerializer,
 )
 from products.ai_observability.backend.api.resource_tags import ResourceTagNamesField
-from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment
+from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_service import (
     ExperimentReceipt,
     OfflineEvaluationConflict,
@@ -86,6 +86,11 @@ class ItemReceiptSerializer(serializers.Serializer):
 class ResultReceiptSerializer(ItemReceiptSerializer):
     item_id = serializers.UUIDField(help_text="Item this result evaluates.")
     scorer_version_id = serializers.UUIDField(help_text="Pinned scorer version used by this result.")
+    status = serializers.ChoiceField(
+        choices=OfflineEvaluationResult.Status.choices,
+        help_text="Stored result status, including calculation failures.",
+    )
+    error_code = serializers.CharField(allow_null=True, help_text="Error code for a failed result, otherwise null.")
 
 
 class UploadReceiptSerializer(serializers.Serializer):
