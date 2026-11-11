@@ -1136,8 +1136,12 @@ describe('workflowFoldersLogic', () => {
         logic.actions.renameFolder('Billing', 'Accounts')
         logic.actions.renameFolder('Billing/Cards', 'Debit')
         await logic.asyncActions.createFolder('Weekly', 'Billing/Cards')
+        await logic.asyncActions.dropFile('project/direct', 'project://Billing/Cards')
         expect(
             await screen.findByText("Couldn't create the folder. Wait until this folder finishes moving.")
+        ).toBeInTheDocument()
+        expect(
+            await screen.findByText("Couldn't move the file. Wait until this folder finishes moving.")
         ).toBeInTheDocument()
         releaseMove()
         await waitFor(() => expect(logic.values.folderMutationDisabledReason('Invoices')).toBeNull())

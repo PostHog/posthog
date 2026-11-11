@@ -1152,6 +1152,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             ) {
                 return
             }
+            const movingReason = values.folderMutationDisabledReason(drop.folder)
+            if (movingReason) {
+                lemonToast.error(`Couldn't move the file. ${movingReason}.`)
+                return
+            }
             const items = values.selectedFiles.some((item) => item.id === drop.item.id)
                 ? values.selectedFiles
                 : [drop.item]
