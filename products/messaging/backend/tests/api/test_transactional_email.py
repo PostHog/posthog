@@ -1123,7 +1123,11 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
         assert retry.json()["replayed"] is replayed
-        assert [warning["setup_url"] for warning in retry.json()["warnings"]] == [self._setup_url(None)]
+        (warning,) = retry.json()["warnings"]
+        assert (warning["code"], warning["setup_url"]) == ("sandbox_sender", self._setup_url(None))
+        assert "before this project verified its sending domain" in warning["message"]
+        assert "own verified sender" in warning["agent_action"]
+        assert warning["setup_url"] not in warning["agent_action"]
         (sandbox,) = self._sandbox_senders()
         assert [email["from"] for email in cdp.emails()] == [{"integrationId": sandbox.id}]
 

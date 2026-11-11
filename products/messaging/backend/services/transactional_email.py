@@ -566,7 +566,7 @@ def send_code_email(
         hog_flow_id,
         {**payload, "send": sandbox_send},
         send_accepted_transactional_email,
-        sandbox_warning=_sandbox_sender_warning(team.id),
+        sandbox_warning=_sandbox_send_before_verification_warning(team.id),
     )
 
 
@@ -769,6 +769,19 @@ def _sandbox_sender_warning(team_id: int) -> SendWarning:
         message=SANDBOX_SENDER_WARNING,
         setup_url=setup.setup_url,
         agent_action=agent_action,
+    )
+
+
+def _sandbox_send_before_verification_warning(team_id: int) -> SendWarning:
+    return SendWarning(
+        code=SendWarningCode.SANDBOX_SENDER,
+        message="This email went out from PostHog's sandbox sender before this project verified its sending domain.",
+        setup_url=sending_domain_setup(team_id).setup_url,
+        agent_action=(
+            "Tell the user this email went out from PostHog's sandbox sender before their sending domain was "
+            "verified. New emails from this project go out from their own verified sender, so there is nothing to "
+            "set up."
+        ),
     )
 
 
