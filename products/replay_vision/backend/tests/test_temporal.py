@@ -2962,14 +2962,22 @@ async def test_folded_apply_scanner_workflow_runs_two_activities_around_the_mode
 _APPLY_STEPS = "products.replay_vision.backend.temporal.activities.observation_steps"
 
 
+def _inline_sync_to_async(fn: Any) -> Any:
+    # Runs the sync step on the test's own thread, so these database-free tests never reach Django connections.
+    async def run(*args: Any, **kwargs: Any) -> Any:
+        return fn(*args, **kwargs)
+
+    return run
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "failing_step, expect_error",
     [
         # The network capture is a side input, so the scan runs without it.
-        ("fetch_session_network_activity", False),
-        ("fetch_session_events_activity", True),
-        ("resolve_experiment_variant_activity", True),
+        ("fetch_session_network", False),
+        ("fetch_session_events", True),
+        ("resolve_experiment_variant", True),
     ],
 )
 async def test_prepare_observation_activity_only_absorbs_a_network_failure(
@@ -2979,20 +2987,22 @@ async def test_prepare_observation_activity_only_absorbs_a_network_failure(
     async_steps = {
         name: AsyncMock()
         for name in (
-            "fetch_session_events_activity",
-            "fetch_session_network_activity",
-            "ensure_session_asset_activity",
-            "resolve_experiment_variant_activity",
+            "fetch_session_events",
+            "fetch_session_network",
+            "ensure_session_asset",
+            "resolve_experiment_variant",
         )
     }
-    async_steps["ensure_session_asset_activity"].return_value = EnsureSessionAssetOutput(asset_id=42)
-    async_steps["resolve_experiment_variant_activity"].return_value = ResolveExperimentVariantOutput(
+    async_steps["ensure_session_asset"].return_value = EnsureSessionAssetOutput(asset_id=42)
+    async_steps["resolve_experiment_variant"].return_value = ResolveExperimentVariantOutput(
         applicable=True, experiment_variant="test"
     )
     async_steps[failing_step].side_effect = IneligibleSessionError("unexposed", kind=IneligibleSessionKind.NOT_EXPOSED)
     mark_running = MagicMock()
     with ExitStack() as stack:
-        stack.enter_context(patch(f"{_APPLY_STEPS}.mark_observation_running_activity", mark_running))
+        stack.enter_context(patch(f"{_APPLY_STEPS}.mark_observation_running", mark_running))
+        stack.enter_context(patch(f"{_APPLY_STEPS}.database_sync_to_async", _inline_sync_to_async))
+        stack.enter_context(patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"))
         for name, mock in async_steps.items():
             stack.enter_context(patch(f"{_APPLY_STEPS}.{name}", mock))
         call = prepare_observation_activity(
@@ -3010,8 +3020,9 @@ async def test_prepare_observation_activity_only_absorbs_a_network_failure(
     assert output.experiment_resolution.experiment_variant == "test"
 
 
+@pytest.mark.asyncio
 @pytest.mark.parametrize("fail", ["mark_succeeded", "event"])
-def test_finalize_observation_activity_only_raises_when_the_result_write_fails(fail: str) -> None:
+async def test_finalize_observation_activity_only_raises_when_the_result_write_fails(fail: str) -> None:
     calls: list[str] = []
     mark_succeeded = MagicMock(side_effect=lambda _: calls.append("mark_succeeded"))
     if fail == "mark_succeeded":
@@ -3036,24 +3047,25 @@ def test_finalize_observation_activity_only_raises_when_the_result_write_fails(f
         gemini_file_name="files/x",
     )
     with (
-        patch(f"{_APPLY_STEPS}.mark_observation_succeeded_activity", mark_succeeded),
-        patch(f"{_APPLY_STEPS}.emit_observation_event_activity", emit_event),
-        patch(f"{_APPLY_STEPS}.embed_observation_activity", AsyncMock()),
-        patch(f"{_APPLY_STEPS}.cleanup_gemini_file_activity", cleanup),
-        patch(f"{_APPLY_STEPS}.time.sleep"),
-        # The sync activity wrapper probes Django connections, which this database-free test must not touch.
+        patch(f"{_APPLY_STEPS}.mark_observation_succeeded", mark_succeeded),
+        patch(f"{_APPLY_STEPS}.emit_observation_event", emit_event),
+        patch(f"{_APPLY_STEPS}.embed_observation", AsyncMock()),
+        patch(f"{_APPLY_STEPS}.cleanup_gemini_file", cleanup),
+        patch(f"{_APPLY_STEPS}.database_sync_to_async", _inline_sync_to_async),
+        patch(f"{_APPLY_STEPS}.asyncio.sleep", AsyncMock()),
         patch("products.replay_vision.backend.temporal.decorators.close_stale_db_connections"),
     ):
         if fail == "mark_succeeded":
             with pytest.raises(RuntimeError, match="db down"):
-                finalize_observation_activity(inputs)
+                await finalize_observation_activity(inputs)
             # A retry of the activity must not repeat delivery, so nothing runs after a failed write.
             assert calls == []
             return
-        finalize_observation_activity(inputs)
+        await finalize_observation_activity(inputs)
 
     # The result is saved before any delivery step, and a failed delivery step neither raises nor skips the cleanup.
-    assert calls == ["mark_succeeded", "event", "event", "event", "cleanup"]
+    assert calls[0] == "mark_succeeded"
+    assert sorted(calls[1:]) == ["cleanup", "event", "event", "event"]
 
 
 @pytest.mark.asyncio

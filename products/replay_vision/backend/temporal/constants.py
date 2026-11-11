@@ -177,11 +177,11 @@ CREATE_OBSERVATION_TIMEOUT = dt.timedelta(seconds=30)
 
 CHECK_SCANNER_BUDGET_TIMEOUT = dt.timedelta(seconds=30)
 
-# The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
 # Covers signal emission (up to 2 minutes), the result write and the delivery steps after it.
 FINALIZE_OBSERVATION_TIMEOUT = dt.timedelta(minutes=5)
 FINALIZE_OBSERVATION_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=12)
 
+# The candidate query budgets its ClickHouse time from its own start, so the gates before it get extra time.
 SWEEP_SCANNER_TICK_TIMEOUT = (
     FIND_SCANNER_CANDIDATES_TIMEOUT + CHECK_SCANNER_BUDGET_TIMEOUT + COUNT_IN_FLIGHT_APPLIES_TIMEOUT
 )
