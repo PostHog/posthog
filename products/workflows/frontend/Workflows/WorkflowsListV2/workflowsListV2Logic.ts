@@ -106,7 +106,8 @@ function nextOffsetOf(page: PaginatedHogFlowListSummaryListApi): number | null {
  * page. Rows are keyed by id, because that row shifts later offsets and repeats one.
  */
 async function loadAllPages(
-    fetchPage: (offset: number | undefined) => Promise<PaginatedHogFlowListSummaryListApi>
+    fetchPage: (offset: number | undefined) => Promise<PaginatedHogFlowListSummaryListApi>,
+    onPartialRows?: (rowsSoFar: HogFlowListSummaryApi[]) => void
 ): Promise<HogFlowListSummaryApi[]> {
     const byId = new Map<string, HogFlowListSummaryApi>()
     let offset = 0
@@ -124,9 +125,16 @@ async function loadAllPages(
                 `Loading stopped after ${byId.size} workflows because the server kept sending the same page. Try again.`
             )
         }
+        onPartialRows?.([...byId.values()])
         offset = nextOffset
         page = await fetchPage(offset)
     }
+}
+
+/** Rows from `next` win, and rows only `previous` has stay. */
+function mergeRows(previous: HogFlowListSummaryApi[] | null, next: HogFlowListSummaryApi[]): HogFlowListSummaryApi[] {
+    const nextIds = new Set(next.map((row) => row.id))
+    return [...(previous ?? []).filter((row) => !nextIds.has(row.id)), ...next]
 }
 
 function loadErrorDetailOf(error: string, errorObject: unknown): string {
@@ -204,9 +212,11 @@ export interface workflowsListV2LogicValues {
     filteredRows: WorkflowListRow[]
     hasHealthFilter: boolean
     isUnfilteredAutomationView: boolean
+    listComplete: boolean
     listLoaded: boolean
     loadErrorDetail: string | null
     loadFailed: boolean
+    loadingMoreWorkflows: boolean
     matchesText: MatchesText<WorkflowListRow>
     metrics: WorkflowStatsRowApi[] | null
     metricsLoaded: boolean
@@ -325,6 +335,9 @@ export interface workflowsListV2LogicActions {
     setValue: (value: FacetSearchValue) => {
         value: FacetSearchValue
     }
+    showLoadedWorkflows: (workflows: HogFlowListSummaryApi[]) => {
+        workflows: HogFlowListSummaryApi[]
+    }
     toggleColumn: (column: OptionalColumn) => {
         column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type'
     }
@@ -342,6 +355,7 @@ export interface workflowsListV2LogicMeta {
         templateTypeFilter: (value: FacetSearchValue) => WorkflowTemplateTypeFilter
         rows: (workflows: HogFlowListSummaryApi[] | null, metrics: WorkflowStatsRowApi[] | null) => WorkflowListRow[]
         listLoaded: (workflows: HogFlowListSummaryApi[] | null) => boolean
+        loadingMoreWorkflows: (listLoaded: boolean, listComplete: boolean, workflowsLoading: boolean) => boolean
         facets: (rows: WorkflowListRow[], user: UserType | null) => FacetDefinition<WorkflowListRow>[]
         matchesText: (serverSearch: ServerSearchResult | null) => MatchesText<WorkflowListRow>
         serverSearchStatus: (value: FacetSearchValue, serverSearch: ServerSearchResult | null) => ServerSearchStatus
@@ -373,6 +387,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         /** Reloads the rows, the metrics and the server search, for workflows created or run outside this list. */
         refreshWorkflows: true,
         loadMetrics: true,
+        showLoadedWorkflows: (workflows: HogFlowListSummaryApi[]) => ({ workflows }),
         setValue: (value: FacetSearchValue) => ({ value }),
         clearFilters: true,
         toggleColumn: (column: OptionalColumn) => ({ column }),
@@ -386,7 +401,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         restoreWorkflow: (row: WorkflowListRow) => ({ row }),
         deleteWorkflow: (row: WorkflowListRow) => ({ row }),
     }),
-    loaders(({ values, cache }) => ({
+    loaders(({ actions, values, cache }) => ({
         workflows: [
             null as HogFlowListSummaryApi[] | null,
             {
@@ -399,22 +414,32 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                     const changes: RowChange[] = []
                     cache.rowChangesDuringLoad = changes
                     try {
-                        const workflows = await loadAllPages((offset) => {
-                            // Stops paging once a newer load starts or the list closes.
-                            breakpoint()
-                            return withTimeout(
-                                (deadline) => {
-                                    deadline.addEventListener('abort', () => loadAbort.abort(), { once: true })
-                                    return hogFlowsSummariesList(
-                                        teamId,
-                                        { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset },
-                                        { signal: loadAbort.signal }
-                                    )
-                                },
-                                SUMMARY_REQUEST_TIMEOUT_MS,
-                                'Workflows took too long to load. Check your connection and try again.'
-                            )
-                        })
+                        const workflows = await loadAllPages(
+                            (offset) => {
+                                // Stops paging once a newer load starts or the list closes.
+                                breakpoint()
+                                return withTimeout(
+                                    (deadline) => {
+                                        deadline.addEventListener('abort', () => loadAbort.abort(), { once: true })
+                                        return hogFlowsSummariesList(
+                                            teamId,
+                                            { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset },
+                                            { signal: loadAbort.signal }
+                                        )
+                                    },
+                                    SUMMARY_REQUEST_TIMEOUT_MS,
+                                    'Workflows took too long to load. Check your connection and try again.'
+                                )
+                            },
+                            (rowsSoFar) => {
+                                breakpoint()
+                                // Shown rows the new scan has not reached yet stay, so a refresh or a retry
+                                // after a failed page does not drop rows until the scan ends.
+                                actions.showLoadedWorkflows(
+                                    changes.reduce(applyRowChange, mergeRows(values.workflows, rowsSoFar))
+                                )
+                            }
+                        )
                         breakpoint()
                         return changes.reduce(applyRowChange, workflows)
                     } catch (error) {
@@ -538,7 +563,15 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 },
             },
         ],
+        /** False while pages remain or after a page failed, so counts and empty states are not final yet. */
+        listComplete: [
+            false,
+            {
+                loadWorkflowsSuccess: () => true,
+            },
+        ],
         workflows: {
+            showLoadedWorkflows: (_, { workflows }) => workflows,
             patchWorkflow: (state, { id, patch }) => state && applyRowChange(state, { id, patch }),
             removeWorkflow: (state, { id }) => state && applyRowChange(state, { id, removed: true }),
         },
@@ -576,6 +609,11 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 workflows ? buildWorkflowListRows(workflows, metrics) : [],
         ],
         listLoaded: [(s) => [s.workflows], (workflows: HogFlowListSummaryApi[] | null): boolean => workflows !== null],
+        loadingMoreWorkflows: [
+            (s) => [s.listLoaded, s.listComplete, s.workflowsLoading],
+            (listLoaded: boolean, listComplete: boolean, workflowsLoading: boolean): boolean =>
+                listLoaded && !listComplete && workflowsLoading,
+        ],
         facets: [
             (s) => [s.rows, s.user],
             (rows: WorkflowListRow[], user: UserType | null): FacetDefinition<WorkflowListRow>[] =>
@@ -681,7 +719,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 cache.rowChangesDuringLoad?.push({ id, removed: true })
             },
             loadWorkflowsFailure: () => {
-                if (values.listLoaded) {
+                // A partial list shows the load error with a retry instead.
+                if (values.listComplete) {
                     lemonToast.error("Couldn't refresh workflows. Showing the list from before.")
                 }
             },

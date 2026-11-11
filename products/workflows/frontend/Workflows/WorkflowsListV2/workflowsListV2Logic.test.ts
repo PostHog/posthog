@@ -1,7 +1,9 @@
 import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
+import { act, render, screen } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import { createElement } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -77,6 +79,8 @@ describe('workflowsListV2Logic', () => {
             },
         })
         initKeaTests()
+        lemonToast.dismiss()
+        render(createElement(jest.requireActual('react-toastify').ToastContainer))
     })
 
     afterEach(() => {
@@ -229,6 +233,70 @@ describe('workflowsListV2Logic', () => {
         expect(router.values.searchParams).toEqual({ q: 'status:draft', text: 'invoice' })
         expect(logic.values.serverSearchStatus).toEqual('done')
         expect(shownIds(logic)).toEqual(['wf-sync'])
+    })
+
+    it('shows each page as it arrives, keeps the rows when a later page fails, and loads the rest on retry', async () => {
+        type HeldPage = { offset: string; answer: (status: number, body: unknown) => void }
+        const held: HeldPage[] = []
+        let markHeld: () => void = () => {}
+        const nextHeld = async (): Promise<HeldPage> => {
+            if (!held.length) {
+                await new Promise<void>((resolve) => (markHeld = resolve))
+            }
+            return held.shift()!
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new Promise((resolve) => {
+                        held.push({
+                            offset: new URL(request.url).searchParams.get('offset') ?? '0',
+                            answer: (status, body) => resolve([status, body]),
+                        })
+                        markHeld()
+                    }),
+            },
+        })
+        const pageOf = (offset: number): unknown =>
+            paginated(
+                [buildWorkflowRow({ id: `wf-at-${offset}` })],
+                offset < 1000 ? `http://localhost/api/projects/997/hog_flows/summaries/?offset=${offset + 500}` : null
+            )
+        const shownSorted = (): string[] => logic.values.rows.map((row) => row.id).sort()
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+
+        ;(await nextHeld()).answer(200, pageOf(0))
+        const second = await nextHeld()
+        expect(shownSorted()).toEqual(['wf-at-0'])
+        expect(logic.values).toMatchObject({ listComplete: false, loadingMoreWorkflows: true })
+        second.answer(200, pageOf(500))
+        const third = await nextHeld()
+        expect(third.offset).toEqual('1000')
+        third.answer(500, { detail: 'Boom' })
+        await act(async () => {
+            await expectLogic(logic).toDispatchActions(['loadWorkflowsFailure'])
+        })
+        expect(screen.queryByText(/Showing the list from before/)).toBeNull()
+        expect(shownSorted()).toEqual(['wf-at-0', 'wf-at-500'])
+        expect(logic.values).toMatchObject({
+            listComplete: false,
+            loadingMoreWorkflows: false,
+            loadFailed: true,
+            loadErrorDetail: 'Boom',
+        })
+
+        logic.actions.loadWorkflows()
+        ;(await nextHeld()).answer(200, pageOf(0))
+        const retriedSecond = await nextHeld()
+        expect(shownSorted()).toEqual(['wf-at-0', 'wf-at-500'])
+        expect(logic.values).toMatchObject({ loadFailed: false, loadingMoreWorkflows: true })
+        retriedSecond.answer(200, pageOf(500))
+        ;(await nextHeld()).answer(200, pageOf(1000))
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        expect(shownSorted()).toEqual(['wf-at-0', 'wf-at-1000', 'wf-at-500'])
+        expect(logic.values).toMatchObject({ listComplete: true, loadingMoreWorkflows: false })
     })
 
     it('stops at a next link that does not move forward and shows the load error', async () => {
