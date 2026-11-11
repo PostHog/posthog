@@ -3,7 +3,6 @@ import json
 import shlex
 import logging
 import builtins
-from collections import Counter
 from collections.abc import Iterable
 from functools import cached_property
 from typing import Any, Optional, cast
@@ -15,6 +14,7 @@ from django.db import connection, transaction
 from django.db.models import (
     Case,
     CharField,
+    Count,
     Exists,
     F,
     Func,
@@ -1653,9 +1653,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def folder_counts(self, request: Request, **kwargs: object) -> Response:
-        files = self.get_queryset().exclude(type="folder").exclude(shortcut=True)
-        counts = Counter(join_path(split_path(path)[:-1]) for path in files.values_list("path", flat=True).iterator())
-        return Response({"results": [{"folder": folder, "count": count} for folder, count in sorted(counts.items())]})
+        files = self.get_queryset().exclude(type="folder").exclude(shortcut=True).order_by()
+        # Whole segments up to the last unescaped separator, read from the start so `\\/` and `\/` split as split_path does.
+        parents = Func(F("path"), Value(r"^(?:(?:\\.|[^/\\])*/)*"), function="substring", output_field=CharField())
+        folder = Func(parents, Value("/$"), Value(""), function="regexp_replace", output_field=CharField())
+        counts = (
+            files.annotate(folder=folder).values("folder").annotate(count=Count("id")).values_list("folder", "count")
+        )
+        return Response({"results": [{"folder": folder_path, "count": count} for folder_path, count in sorted(counts)]})
 
     @action(methods=["POST"], detail=True)
     def count(self, request: Request, *args: Any, **kwargs: Any) -> Response:
