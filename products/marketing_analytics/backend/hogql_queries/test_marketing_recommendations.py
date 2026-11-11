@@ -37,12 +37,14 @@ def _campaign(**overrides: object) -> CampaignStats:
     return CampaignStats(**values)
 
 
-def _term(term: str, campaign_id: str, cost: float, conversions: float, clicks: float = 10) -> SearchTermStats:
+def _term(
+    term: str, campaign_id: str, cost: float, conversions: float, clicks: float = 10, impressions: float = 100
+) -> SearchTermStats:
     return SearchTermStats(
         term=term,
         campaign_id=campaign_id,
         clicks=clicks,
-        impressions=100,
+        impressions=impressions,
         cost=cost,
         conversions=conversions,
         status="NONE",
@@ -349,6 +351,24 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         rules = {rec.rule for rec in recs if rec.subject == "funnel analysis"} & {"content_gap", "striking_distance"}
         assert rules == expected
+
+    def test_content_gap_impact_is_the_ad_spend_a_top_3_page_replaces(self) -> None:
+        terms = (
+            _term("funnel analysis", "c1", cost=300, conversions=5, clicks=60, impressions=200),
+            _term("cohort analysis", "c1", cost=300, conversions=5, clicks=60, impressions=1000),
+            _term("session replay", "c1", cost=400, conversions=0),
+        )
+
+        gaps = {
+            rec.subject: (rec.impact, rec.impactDirection, rec.impactType)
+            for rec in recommend(_inputs((_campaign(),), terms))
+            if rec.rule == "content_gap"
+        }
+
+        assert gaps == {
+            "funnel analysis": (150, "gain", "estimated"),
+            "cohort analysis": (300, "gain", "estimated"),
+        }
 
     @parameterized.expand(
         [
