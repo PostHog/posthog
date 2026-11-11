@@ -1,8 +1,11 @@
 from django.db import transaction
 
+import structlog
 from celery import shared_task
 
 from ..facade import api
+
+logger = structlog.get_logger(__name__)
 
 OWNERSHIP_DELAY = 60
 
@@ -13,8 +16,11 @@ def create_release_for_new_flag(flag_id: int, team_id: int) -> None:
 
 
 def _dispatch_if_adopted(flag_id: int, team_id: int) -> None:
-    if api.project_uses_releases(team_id):
-        create_release_for_new_flag.apply_async((flag_id, team_id), countdown=OWNERSHIP_DELAY)
+    try:
+        if api.project_uses_releases(team_id):
+            create_release_for_new_flag.apply_async((flag_id, team_id), countdown=OWNERSHIP_DELAY)
+    except Exception:
+        logger.exception("release_new_flag_dispatch_failed", flag_id=flag_id, team_id=team_id)
 
 
 def queue_release_for_new_flag(flag_id: int, team_id: int) -> None:

@@ -355,6 +355,19 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_a_failed_release_dispatch_does_not_fail_the_flag_save(self) -> None:
+        self.client.post(self._url("import_all/"))
+        with (
+            patch(
+                "products.release.backend.tasks.tasks.create_release_for_new_flag.apply_async",
+                side_effect=ConnectionError("broker down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            flag_id = self._flag("quiet-theme")
+
+        assert flag_id
+
     def test_a_deleted_automatic_release_stays_deleted_when_its_flag_returns(self) -> None:
         self.client.post(self._url("import_all/"))
         with patch(FLAG_PATCH, return_value=True), self.captureOnCommitCallbacks(execute=True):
