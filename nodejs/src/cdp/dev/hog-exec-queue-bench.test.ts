@@ -6,7 +6,7 @@ describe('hog render queue benchmark', () => {
     const CEILING_MS = 1000
     const leaf = ['_H', 1, 32, 'x']
 
-    it('drops 50,000 queued renders under the ceiling once their shared deadline passes', async () => {
+    it('queues and drops 50,000 renders that share a deadline under the ceiling', async () => {
         const threshold = getEventLoopYieldThresholdMs()
         configureEventLoopYield(0)
         jest.useFakeTimers({
@@ -29,16 +29,19 @@ describe('hog render queue benchmark', () => {
                 await nextTurn()
             }
             const deadline = new AbortController()
+            const queuedAt = process.hrtime.bigint()
             const queued = Array.from({ length: 50_000 }, () => execHog(leaf, undefined, deadline.signal))
+            const queueMs = Number(process.hrtime.bigint() - queuedAt) / 1_000_000
             await nextTurn()
 
-            const started = process.hrtime.bigint()
+            const abortedAt = process.hrtime.bigint()
             deadline.abort(new DOMException('The deadline passed', 'TimeoutError'))
-            const elapsedMs = Number(process.hrtime.bigint() - started) / 1_000_000
+            const abortMs = Number(process.hrtime.bigint() - abortedAt) / 1_000_000
             const outcomes = await Promise.all(queued)
 
             expect(outcomes.every((outcome) => outcome.error?.name === 'TimeoutError')).toBe(true)
-            expect(elapsedMs).toBeLessThan(CEILING_MS)
+            expect(queueMs).toBeLessThan(CEILING_MS)
+            expect(abortMs).toBeLessThan(CEILING_MS)
             for (let turn = 0; first === undefined && turn < 1000; turn++) {
                 jest.runOnlyPendingTimers()
                 await nextTurn()

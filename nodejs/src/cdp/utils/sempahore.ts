@@ -1,5 +1,17 @@
+interface Waiter {
+    resolve: () => void
+    reject: (reason: unknown) => void
+    signal?: AbortSignal
+}
+
+interface SignalWaiters {
+    waiters: Set<Waiter>
+    onAbort: () => void
+}
+
 export class Semaphore {
-    private waiting = new Set<() => void>()
+    private waiting = new Set<Waiter>()
+    private waitingBySignal = new Map<AbortSignal, SignalWaiters>()
 
     constructor(private permits: number) {}
 
@@ -10,17 +22,45 @@ export class Semaphore {
         }
         signal?.throwIfAborted()
         return new Promise<void>((resolve, reject) => {
-            const onAbort = (): void => {
-                this.waiting.delete(grant)
-                reject(signal!.reason)
+            const waiter = { resolve, reject, signal }
+            this.waiting.add(waiter)
+            if (signal) {
+                this.watch(signal, waiter)
             }
-            const grant = (): void => {
-                signal?.removeEventListener('abort', onAbort)
-                resolve()
-            }
-            signal?.addEventListener('abort', onAbort, { once: true })
-            this.waiting.add(grant)
         })
+    }
+
+    private watch(signal: AbortSignal, waiter: Waiter): void {
+        let group = this.waitingBySignal.get(signal)
+        if (!group) {
+            const waiters = new Set<Waiter>()
+            const onAbort = (): void => {
+                this.waitingBySignal.delete(signal)
+                for (const aborted of waiters) {
+                    this.waiting.delete(aborted)
+                    aborted.reject(signal.reason)
+                }
+            }
+            group = { waiters, onAbort }
+            this.waitingBySignal.set(signal, group)
+            signal.addEventListener('abort', onAbort, { once: true })
+        }
+        group.waiters.add(waiter)
+    }
+
+    private unwatch(waiter: Waiter): void {
+        if (!waiter.signal) {
+            return
+        }
+        const group = this.waitingBySignal.get(waiter.signal)
+        if (!group) {
+            return
+        }
+        group.waiters.delete(waiter)
+        if (group.waiters.size === 0) {
+            waiter.signal.removeEventListener('abort', group.onAbort)
+            this.waitingBySignal.delete(waiter.signal)
+        }
     }
 
     private release(): void {
@@ -30,7 +70,8 @@ export class Semaphore {
             return
         }
         this.waiting.delete(next.value)
-        next.value()
+        this.unwatch(next.value)
+        next.value.resolve()
     }
 
     async run<T>(func: () => Promise<T>, signal?: AbortSignal): Promise<T> {
