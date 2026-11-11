@@ -5976,6 +5976,10 @@ export namespace Schemas {
          */
         updated_at: string | null;
     };
+    /**
+     * * `history_over_limit` - History over limit
+     */
+    export type CohortRealtimeUnavailableReasonEnum = "history_over_limit";
     export type CohortRealtimeReadiness = {
         /**
          * Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
@@ -5997,6 +6001,16 @@ export namespace Schemas {
          * The build preparing the cohort. Null unless the state is `building` or `rebuilding`.
          */
         build: CohortHistoryBuild | null;
+        /**
+         * A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+         *
+         * * `history_over_limit` - History over limit
+         */
+        reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
+        /**
+         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         */
+        history_limit_days: number | null;
     };
     export type SearchMatchTypeEnum = "exact" | "similar";
     export type Cohort = {
@@ -6897,7 +6911,7 @@ export namespace Schemas {
     };
     export type MetricsTableWidgetConfig = Partial<{
         dateRange: WidgetDateRange | null;
-        groupBy: string | null;
+        groupBy: string | Array<string> | null;
         columns: Array<MetricsTableColumn>;
         interval: ("minute" | "minute_5" | "minute_15" | "hour" | "day") | null;
         orderByColumn: number;
@@ -10359,6 +10373,7 @@ export namespace Schemas {
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
      * * `flag_shared` - Flag Shared
+     * * `stale_experiment` - Stale Experiment
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -10386,7 +10401,8 @@ export namespace Schemas {
         | "new_flag_no_traffic"
         | "early_significance"
         | "metrics_not_matured"
-        | "flag_shared";
+        | "flag_shared"
+        | "stale_experiment";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10405,6 +10421,8 @@ export namespace Schemas {
      * * `add_secondary_metric` - Add Secondary Metric
      * * `edit_exposure_criteria` - Edit Exposure Criteria
      * * `edit_release_conditions` - Edit Release Conditions
+     * * `end_experiment` - End Experiment
+     * * `freeze_exposure` - Freeze Exposure
      */
     export type ExperimentHealthFindingActionKindEnum =
         | "open_feature_flag"
@@ -10414,7 +10432,9 @@ export namespace Schemas {
         | "add_primary_metric"
         | "add_secondary_metric"
         | "edit_exposure_criteria"
-        | "edit_release_conditions";
+        | "edit_release_conditions"
+        | "end_experiment"
+        | "freeze_exposure";
     /**
      * * `flag_state` - Flag State
      * * `flag_shared` - Flag Shared
@@ -10434,6 +10454,7 @@ export namespace Schemas {
      * * `exposure_filters` - Exposure Filters
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `stale_experiment` - Stale Experiment
      * * `zero_exposures` - Zero Exposures
      * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
      * * `srm` - Srm
@@ -10460,6 +10481,7 @@ export namespace Schemas {
         | "exposure_filters"
         | "early_significance"
         | "metrics_not_matured"
+        | "stale_experiment"
         | "zero_exposures"
         | "test_account_filter_removes_exposures"
         | "srm"
@@ -10496,6 +10518,7 @@ export namespace Schemas {
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
          * * `flag_shared` - Flag Shared
+         * * `stale_experiment` - Stale Experiment
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10555,6 +10578,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
@@ -10736,6 +10760,7 @@ export namespace Schemas {
          * * `exposure_filters` - Exposure Filters
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `stale_experiment` - Stale Experiment
          * * `zero_exposures` - Zero Exposures
          * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
          * * `srm` - Srm
@@ -13589,13 +13614,15 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum =
         | "delegated"
         | "later"
         | "other"
         | "provisioned"
-        | "connector";
+        | "connector"
+        | "device_login";
     /**
      * * `1` - member
      * * `8` - administrator
@@ -19264,6 +19291,7 @@ export namespace Endpoints {
                 excluded_properties: string;
                 excluded_tags: string;
                 has_evaluation_contexts: "false" | "true";
+                ids: string;
                 key: string;
                 limit: number;
                 offset: number;

@@ -785,6 +785,10 @@ export const ExperimentsListQueryParams = () => zod.object({
             'JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.'
         ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
+    feature_flag_ids: zod
+        .string()
+        .optional()
+        .describe('Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod
