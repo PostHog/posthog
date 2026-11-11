@@ -113,19 +113,28 @@ describe('hogFunctionBackfillsLogic', () => {
     })
 
     it('sends one enable request when trying again is pressed twice', async () => {
+        let enableRequests = 0
         mockApi.get.mockResolvedValue(makeHogFunction())
-        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+        mockApi.enableBackfills.mockImplementation(jest.requireActual('lib/api').default.hogFunctions.enableBackfills)
+        useMocks({
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/hog_functions/${MOCK_HOG_FUNCTION_ID}/enable_backfills/`]: () => {
+                    enableRequests += 1
+                    return [403, { detail: 'Backfilling Workflows is not enabled for this team.' }]
+                },
+            },
+        })
 
         logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ enableBackfillsFailed: true })
 
         await expectLogic(logic, () => {
             logic.actions.enableHogFunctionBackfills()
             logic.actions.enableHogFunctionBackfills()
         }).toFinishAllListeners()
 
-        expect(mockApi.enableBackfills).toHaveBeenCalledTimes(2)
+        expect(enableRequests).toBe(2)
     })
 
     it('opens backfills when an enable that reported failure went through on the server', async () => {
