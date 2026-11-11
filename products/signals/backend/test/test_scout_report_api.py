@@ -257,10 +257,8 @@ class TestScoutReportAPI(APIBaseTest):
             assert json.loads(selection.content)["research_context"]["mode"] == ("code" if code_access else "data_only")
         embed_mock.assert_called_once()
 
-    @parameterized.expand([(False, False, False), (True, False, False), (True, True, False), (False, False, True)])
-    def test_emit_report_retry_returns_the_first_report(
-        self, first_report: bool, close_gate: bool, first_event_lost: bool
-    ) -> None:
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_emit_report_retry_returns_the_first_report(self, first_report: bool, close_gate: bool) -> None:
         # The failure this exists for: the caller times out at a proxy, the server keeps working, and
         # the scout resends. The resend reads its report back instead of doubling it, judge unpaid.
         run = _make_run(self.team, skill_name="signals-scout-first-report" if first_report else "signals-scout-general")
@@ -272,11 +270,6 @@ class TestScoutReportAPI(APIBaseTest):
             recorded_internal_events() as (sent, _),
         ):
             first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
-            if first_event_lost:
-                SignalReport.objects.filter(id=first["report_id"]).update(
-                    ready_event_emitted_at=None, ready_event_delivered_at=None, ready_event_source_products=None
-                )
-                sent.clear()
             if close_gate:
                 SignalSourceConfig.objects.filter(team=self.team, source_product="signals_scout").update(enabled=False)
             with patch(CAPTURE_PATH) as capture:
@@ -292,6 +285,26 @@ class TestScoutReportAPI(APIBaseTest):
         assert autostart.call_args.kwargs["implementation_spend_kind"] == "scout_triggered_implementation"
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["outcome"] == "idempotent_replay"
+        assert [event["report_id"] for event in inbox_report_ready_events(sent)] == [first["report_id"]]
+
+    def test_emit_report_retry_sends_the_ready_event_the_first_emit_lost(self) -> None:
+        run = _make_run(self.team)
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            recorded_internal_events() as (sent, _),
+        ):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+            SignalReport.objects.filter(id=first["report_id"]).update(
+                ready_event_emitted_at=None, ready_event_delivered_at=None, ready_event_source_products=None
+            )
+            sent.clear()
+            retry = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        assert retry["report_id"] == first["report_id"]
+        assert retry["idempotent_replay"] is True
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        assert SignalReport.objects.get(id=first["report_id"]).ready_event_delivered_at is not None
         assert [event["report_id"] for event in inbox_report_ready_events(sent)] == [first["report_id"]]
 
     def test_emit_report_key_covers_a_retry_that_rewords_the_report(self) -> None:
