@@ -57,7 +57,7 @@ export function WorkflowFolderTree(): JSX.Element {
                 </span>
             )}
             defaultNodeIcon={<IconFolder />}
-            disableScroll
+            virtualized
         />
     )
 }
