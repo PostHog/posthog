@@ -47,7 +47,7 @@ from social_django.models import UserSocialAuth
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
-from posthog.schema import UserUIConfiguration
+from posthog.schema import SessionReplayListConfiguration, UserUIConfiguration
 
 from posthog.after_response import run_after_response
 from posthog.api.email_verification import email_verification_code_verifier
@@ -109,6 +109,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -732,6 +733,9 @@ class UserSerializer(serializers.ModelSerializer):
             return None
         try:
             UserUIConfiguration.model_validate(value)
+            # The check above coerces "false" to a boolean, but the raw JSON is what gets stored.
+            if value.get("session_replay") is not None:
+                SessionReplayListConfiguration.model_validate(value["session_replay"], strict=True)
         except pydantic.ValidationError as e:
             errors = "; ".join(
                 f"{'.'.join(str(part) for part in error['loc']) or 'root'}: {error['msg']}" for error in e.errors()
@@ -902,6 +906,11 @@ class UserSerializer(serializers.ModelSerializer):
 
         with tracer.start_as_current_span("user_serializer.default_fields"):
             data = super().to_representation(instance)
+
+        request = self.context.get("request")
+        if request is not None and data.get("team") is not None:
+            if str(data["team"]["organization"]) in get_ip_blocked_organization_ids(request):
+                data["team"] = None
 
         # Backfill shortcut_position default for frontend if null
         with tracer.start_as_current_span("user_serializer.shortcut_position_backfill"):

@@ -17,7 +17,7 @@ from posthog.dataclasses import frozen
 from posthog.llm.gateway_internal_client import (
     AIGatewayNotConfigured,
     ReportedSpendResponse,
-    get_usage_report,
+    get_usage_report_rows,
     report_spend,
 )
 from posthog.models.project_secret_api_key import find_project_secret_api_key
@@ -203,6 +203,8 @@ def wallet_team_id() -> int:
     mint_key = settings.SANDBOX_AI_GATEWAY_MINT_KEY
     record = find_project_secret_api_key(mint_key) if mint_key else None
     if record is None:
+        observe_compute_settlement("deployment_error")
+        logger.error("compute_settlement.wallet_unresolved")
         raise ComputeSettlementDeploymentError("SANDBOX_AI_GATEWAY_MINT_KEY does not resolve to a wallet team")
     return record.team_id
 
@@ -362,6 +364,9 @@ def settle_task_run_compute(task_run_id: UUID | str, team_id: int) -> list[Settl
         return []
     run_uuid = task_run_id if isinstance(task_run_id, UUID) else UUID(task_run_id)
     sessions = _unsettled(SandboxSession.objects.for_team(team_id).filter(task_run_id=run_uuid, ended_at__isnull=False))
+    since = _settle_since()
+    if since is not None:
+        sessions = sessions.filter(ended_at__gte=since)
     return [settle_sandbox_session(session) for session in sessions]
 
 
@@ -561,13 +566,14 @@ def _deltas(
 
 
 def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: int) -> ComputeReconciliation:
-    rows = get_usage_report(
+    rows = get_usage_report_rows(
         {
             "team_id": str(wallet_team),
             "group_by": "obo,charge_kind",
             "charge_kind": "compute",
             "from": since.isoformat(),
             "to": until.isoformat(),
+            "limit": "1000",
         }
     )
     gateway_compute = _report_column(rows, "compute_usd")

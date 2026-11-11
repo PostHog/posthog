@@ -2028,15 +2028,22 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("external_url", "https://example.com/page"),
+            ("external_url", "https://example.com/page", None),
             (
                 "screenshot_api_url",
                 "https://us.posthog.com/api/environments/1/heatmap_screenshots/42/content/?width=1400",
+                "screenshot",
             ),
         ]
     )
-    def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
+    def test_accepts_valid_heatmap_url(self, _name: str, url: str, heatmap_type: str | None) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        export_context: dict[str, str] = {"heatmap_url": url}
+        if heatmap_type:
+            export_context["heatmap_type"] = heatmap_type
         with (
+            self.settings(SITE_URL="https://us.posthog.com"),
             mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
@@ -2044,10 +2051,38 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
                 f"/api/projects/{self.team.id}/exports",
                 {
                     "export_format": "image/png",
-                    "export_context": {"heatmap_url": url},
+                    "export_context": export_context,
                 },
+                format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("other_domain", ["https://example.com"]),
+            ("no_authorized_urls", []),
+        ]
+    )
+    def test_rejects_heatmap_url_outside_authorized_urls(self, _name: str, app_urls: list[str]) -> None:
+        self.team.app_urls = app_urls
+        self.team.save()
+        with (
+            mock_anti_ssrf_dns_lookup(),
+            patch(
+                "products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"
+            ) as mock_start_export,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "image/png",
+                    "export_context": {"heatmap_url": "https://example.org/page", "heatmap_type": "click"},
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authorized URLs" in str(response.json())
+        mock_start_export.assert_not_called()
 
     @parameterized.expand(
         [

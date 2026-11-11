@@ -109,6 +109,8 @@ __all__ = [
     "write_table_level_description",
     "denied_table_ids",
     "pending_source_ids_for_tables",
+    "registered_history_table_for",
+    "copy_access_rules_to_history_table",
     "tables_awaiting_first_sync",
     "all_queryable_tables",
     "all_queryable_table_columns",
@@ -972,3 +974,60 @@ def list_column_statistics(team_id: int) -> list[contracts.ColumnStatistics]:
         )
         for table_id, column_name, null_fraction, min_value, max_value in qs
     ]
+
+
+def _history_table_ref(
+    history_table: _DataWarehouseTable, user_access_control: "UserAccessControl"
+) -> contracts.HistoryTableRef:
+    # Imported here to keep HogQL off the `django.setup()` import path.
+    from posthog.hogql.database.database import get_data_warehouse_table_name
+
+    return contracts.HistoryTableRef(
+        id=history_table.id,
+        name=get_data_warehouse_table_name(history_table.external_data_source, history_table.name),
+        user_can_manage_access=user_access_control.check_can_modify_access_levels_for_object(history_table),
+    )
+
+
+def _live_table(team_id: int, table_id: UUID) -> _DataWarehouseTable | None:
+    return _DataWarehouseTable.objects.filter(team_id=team_id, id=table_id, deleted=False).first()
+
+
+def _registered_history_table(table: _DataWarehouseTable | None) -> _DataWarehouseTable | None:
+    # Imported here to keep the history-table modules off the `django.setup()` import path.
+    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import registered_history_table
+
+    return registered_history_table(table) if table is not None else None
+
+
+def registered_history_table_for(
+    *, team_id: int, table_id: UUID, user_access_control: "UserAccessControl"
+) -> contracts.HistoryTableRef | None:
+    """The table's registered history table, or None when it has none or the caller can't view it."""
+    history_table = _registered_history_table(_live_table(team_id, table_id))
+    if history_table is None or not user_access_control.check_access_level_for_object(
+        history_table, required_level="viewer"
+    ):
+        return None
+    return _history_table_ref(history_table, user_access_control)
+
+
+def copy_access_rules_to_history_table(
+    *, team_id: int, table_id: UUID, user_id: int, user_access_control: "UserAccessControl"
+) -> contracts.HistoryTableRef:
+    """Replace the access rules of the table's history table with the table's own rules.
+
+    Raises `NoHistoryTableError` when the table has none, `HistoryAccessRulesNotAllowedError` when the user
+    can't manage access to both tables, and the access control facade's `InvalidObjectAccessControlError`
+    at the cap on objects with rules.
+    """
+    from posthog.models import User
+
+    from products.warehouse_sources.backend.temporal.data_imports.history_access_rules import copy_access_rules_now
+
+    table = _live_table(team_id, table_id)
+    history_table = _registered_history_table(table)
+    if table is None or history_table is None:
+        raise contracts.NoHistoryTableError("This table has no history table.")
+    copy_access_rules_now(User.objects.get(id=user_id), table, history_table)
+    return _history_table_ref(history_table, user_access_control)

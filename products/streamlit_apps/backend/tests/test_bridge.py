@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import HogQLQueryResponse
 
+from posthog.models import Organization, Team
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 
 from products.streamlit_apps.backend.logic.bridge import execute_bridge_query
@@ -85,12 +86,33 @@ class TestStreamlitBridgeView(_StreamlitAppsFlagMixin, APIBaseTest):
         assert response.status_code == expected_status
         assert expected_error in response.json()["error"]
 
-    @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
+    @parameterized.expand(
+        [
+            ("203.0.113.7", False, True, 200),
+            ("198.51.100.7", False, True, 403),
+            ("203.0.113.7", True, True, 200),
+            ("198.51.100.7", True, True, 403),
+            ("198.51.100.7", True, False, 200),
+        ]
+    )
     @patch("products.streamlit_apps.backend.presentation.bridge_views.execute_bridge_query")
-    def test_bridge_enforces_organization_ip_policy(self, ip: str, expected_status: int, mock_execute: Mock) -> None:
+    def test_bridge_enforces_organization_ip_policy(
+        self, ip: str, select_other: bool, restrict_token_org: bool, expected_status: int, mock_execute: Mock
+    ) -> None:
         token = self._streamlit_token()
-        self.client.logout()
-        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        policy_organization = self.organization
+        if select_other:
+            other = Organization.objects.create(name="Other example organization")
+            other_team = Team.objects.create(organization=other)
+            self.user.join(organization=other)
+            self.user.current_organization = other
+            self.user.current_team = other_team
+            self.user.save()
+            if not restrict_token_org:
+                policy_organization = other
+        else:
+            self.client.logout()
+        OrganizationIPRestrictions.objects.create(organization=policy_organization, ip_restrictions=["203.0.113.0/24"])
         mock_execute.return_value = {"results": [[1]]}
 
         response = self.client.post(

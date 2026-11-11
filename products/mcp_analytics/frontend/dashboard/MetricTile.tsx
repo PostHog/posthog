@@ -18,6 +18,7 @@ import { formatBucketLabel } from 'lib/utils/timeBuckets'
 import { IntervalType } from '~/types'
 
 import { CardError } from './Card'
+import { SKELETON_COLOR, SKELETON_TRACK_COLOR } from './ChartSkeleton'
 
 export interface MetricTileProps {
     label: string
@@ -68,8 +69,7 @@ export function MetricTile({
     className,
 }: MetricTileProps): JSX.Element {
     const hasSparkline = data != null && data.length > 0
-    const showsMetric = !loading && !failed
-    const flush = showsMetric ? hasSparkline : sparklineHeight != null
+    const flush = sparklineHeight != null || (!loading && !failed && hasSparkline)
     // A stable identity per interval, so `Metric`'s memoized context does not rebuild every render.
     const formatLabel = useMemo(() => (label: string) => formatBucketLabel(label, interval), [interval])
     return (
@@ -115,11 +115,17 @@ export function MetricTile({
                     <MetricValue className="mt-2" />
                     <MetricSubtitle className="mt-1" />
                     <MetricSparkline className="mt-3 -mx-3" />
+                    {/* An empty range draws no sparkline; keep its space so the tile matches its placeholder. */}
+                    {!hasSparkline && sparklineHeight != null ? (
+                        <div aria-hidden className="mt-3" style={{ height: sparklineHeight }} />
+                    ) : null}
                 </Metric>
             )}
         </Card>
     )
 }
+
+const SPARKLINE_PATH = 'M0,72 C12,64 22,68 34,56 S56,50 66,44 S86,34 100,30'
 
 // Mirrors the line boxes of the loaded tile's header, value, subtitle and sparkline, so the tile
 // keeps its height when the data arrives.
@@ -135,7 +141,24 @@ function MetricTileSkeleton({ sparklineHeight }: { sparklineHeight?: number }): 
             <div className="mt-1 flex h-5 items-center">
                 <Skeleton className="h-3 w-20" />
             </div>
-            {sparklineHeight != null ? <Skeleton className="mt-3" style={{ height: sparklineHeight }} /> : null}
+            {sparklineHeight != null ? (
+                <svg
+                    className="-mx-3 mt-3 w-[calc(100%+1.5rem)] animate-pulse"
+                    style={{ height: sparklineHeight }}
+                    viewBox="0 0 100 100"
+                    preserveAspectRatio="none"
+                    aria-hidden
+                >
+                    <path d={`${SPARKLINE_PATH} L100,100 L0,100 Z`} fill={SKELETON_TRACK_COLOR} />
+                    <path
+                        d={SPARKLINE_PATH}
+                        fill="none"
+                        stroke={SKELETON_COLOR}
+                        strokeWidth={2}
+                        vectorEffect="non-scaling-stroke"
+                    />
+                </svg>
+            ) : null}
         </div>
     )
 }

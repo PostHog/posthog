@@ -59,6 +59,7 @@ from posthog.api.tagged_item import (
     BulkUpdateTagsUUIDResponseSerializer,
     TaggedItemViewSetMixin,
 )
+from posthog.api.utils import MAX_LISTED_IDS, parse_id_list
 from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
@@ -68,6 +69,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
+from posthog.models.property.property import Property, PropertyValidationError
 from posthog.paging import Page, PageRequest
 from posthog.permissions import (
     AccessControlPermission,
@@ -77,9 +79,11 @@ from posthog.permissions import (
 )
 from posthog.ph_client import feature_enabled_or_false
 from posthog.plugins.plugin_server_api import (
+    WORKFLOWS_MANUAL_RUN_JWT_PURPOSE,
     cancel_hog_flow_batch_job,
     cancel_hog_flow_invocations,
     create_hog_flow_invocation_test,
+    create_hog_flow_manual_invocation,
     create_hog_flow_scheduled_invocation,
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
@@ -642,7 +646,54 @@ BATCH_FLAG_CONDITION_REJECTION = (
 )
 
 
-def reject_flag_conditions_in_audience(team: Team, filters: dict) -> None:
+INCOMPLETE_AUDIENCE_CONDITION = "An audience filter is incomplete. Finish it or remove it."
+
+
+def _is_condition_group(condition: Any) -> bool:
+    return isinstance(condition, dict) and "type" in condition and "values" in condition
+
+
+VALUELESS_OPERATORS = ("is_set", "is_not_set")
+
+
+def _is_finished_condition(condition: Any) -> bool:
+    try:
+        Property(**condition)
+    except (PropertyValidationError, exceptions.ValidationError, TypeError):
+        return False
+    if condition.get("type") == "cohort" and not str(condition.get("value")).isdigit():
+        return False
+    return (
+        condition.get("value") != []
+        or condition.get("operator") in VALUELESS_OPERATORS
+        or condition.get("type") == "hogql"
+    )
+
+
+def _has_unfinished_condition(conditions: Any) -> bool:
+    if _is_condition_group(conditions):
+        if not isinstance(conditions["values"], list):
+            return True
+        conditions = conditions["values"]
+    if not isinstance(conditions, list):
+        return False
+    return any(
+        _has_unfinished_condition(condition)
+        if _is_condition_group(condition)
+        else not _is_finished_condition(condition)
+        for condition in conditions
+    )
+
+
+def reject_unusable_audience_conditions(team: Team, filters: dict) -> None:
+    properties = (filters or {}).get("properties")
+    if isinstance(properties, str) and properties.strip():
+        try:
+            properties = json.loads(properties)
+        except json.JSONDecodeError:
+            properties = None
+    if _has_unfinished_condition(properties):
+        raise exceptions.ValidationError(INCOMPLETE_AUDIENCE_CONDITION)
     # Cohorts are expanded so a flag condition nested inside one is still caught.
     property_groups = expand_cohort_properties(parse_property_group_data((filters or {}).get("properties")), team)
     if any(prop.type == "flag" for prop in property_groups.flat):
@@ -1045,6 +1096,19 @@ def _reject_empty_required_lists(input_schema: list[dict] | None, inputs: dict) 
         value = item.get("value") if isinstance(item, dict) else None
         if not isinstance(value, list) or not value:
             raise serializers.ValidationError({"inputs": {schema["key"]: {"input": "This field is required."}}})
+
+
+_WEEKDAYS = {"monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"}
+
+
+def _reject_unmatchable_time_window_days(day: Any) -> None:
+    if day in ("any", "weekday", "weekend"):
+        return
+    if isinstance(day, list) and day and all(isinstance(name, str) and name in _WEEKDAYS for name in day):
+        return
+    raise serializers.ValidationError(
+        {"config": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name."}
+    )
 
 
 def _should_validate_strictly(context: dict, is_draft: Optional[bool]) -> bool:
@@ -2141,6 +2205,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                             )
                         parse_account_audience_filters(filters)
                     else:
+                        stored_filters = (self.context.get("stored_batch_audience_filters") or {}).get(data.get("id"))
+                        if filters != stored_filters:
+                            reject_unusable_audience_conditions(self.context["get_team"](), filters)
                         self._reject_behavioral_cohorts_in_audience(filters, allow_realtime=True)
             elif data.get("config", {}).get("type") == "api":
                 # A transactional email's trigger: the authenticated send endpoint runs the workflow once
@@ -2488,6 +2555,12 @@ class HogFlowActionSerializer(serializers.Serializer):
         if data.get("type") == "delay":
             self._validate_delay(data, strict)
 
+        if strict and data.get("type") == "wait_until_time_window":
+            day = (data.get("config") or {}).get("day")
+            stored_days = self.context.get("stored_time_window_days") or {}
+            if data.get("id") not in stored_days or stored_days[data.get("id")] != day:
+                _reject_unmatchable_time_window_days(day)
+
         return data
 
     def _validate_delay(self, data: dict, strict: bool) -> None:
@@ -2719,6 +2792,13 @@ class SendCalendarQuerySerializer(serializers.Serializer):
             "days after start."
         )
     )
+    ids = serializers.CharField(
+        required=False,
+        help_text=f"Comma-separated workflow IDs, at most {MAX_LISTED_IDS}. Only these workflows are returned.",
+    )
+
+    def validate_ids(self, value: str) -> list[uuid_mod.UUID]:
+        return parse_id_list(value, name="ids", parse=uuid_mod.UUID) or []
 
     def validate(self, data: dict) -> dict:
         if data["end"] <= data["start"]:
@@ -3592,6 +3672,12 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_condition"
         }
 
+        self.context["stored_time_window_days"] = {
+            action["id"]: (action.get("config") or {}).get("day")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict) and action.get("id") and action.get("type") == "wait_until_time_window"
+        }
+
         # Durations the flow already stores, so the cap check refuses new over-cap values only.
         self.context["stored_durations"] = _stored_durations(instance)
 
@@ -3622,6 +3708,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
         self.context["stored_static_cohort_ids"] = static_cohort_ids(instance.actions if instance else None)
         self.context["stored_opt_out_category_ids"] = opt_out_category_ids(instance.actions if instance else None)
+
+        self.context["stored_batch_audience_filters"] = {
+            action["id"]: (action.get("config") or {}).get("filters")
+            for action in ((instance.actions if instance and instance.status == HogFlowState.ACTIVE else None) or [])
+            if isinstance(action, dict)
+            and action.get("id")
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "batch"
+        }
 
         self.context["stored_cohort_triggers"] = {
             action["id"]: {
@@ -5438,6 +5533,7 @@ class HogFlowViewSet(
             team_id=self.team_id,
             start=request.validated_query_data["start"],
             end=request.validated_query_data["end"],
+            workflow_ids=request.validated_query_data.get("ids"),
             # Service credentials are synthetic users that UserAccessControl cannot evaluate.
             user_access_control=None if is_service_auth(request) else self.user_access_control,
         )
@@ -6944,7 +7040,7 @@ class HogFlowViewSet(
                 ).data
             )
 
-        reject_flag_conditions_in_audience(self.team, filters)
+        reject_unusable_audience_conditions(self.team, filters)
 
         size = get_audience_size(
             team_id=self.team_id,
@@ -7714,12 +7810,13 @@ class HogFlowViewSet(
     @action(detail=True, methods=["POST"])
     def run(self, request: Request, *args, **kwargs) -> Response:
         """
-        Fire a schedule-triggered workflow immediately, outside its regular schedule.
+        Run a workflow with a `schedule` or `manual` trigger now, once.
 
-        Restricted to the `schedule` trigger type: `batch`/`webhook`/etc. triggers have their own
-        dedicated entry points (`batch_jobs`, the public webhook URL) with trigger-specific
-        guardrails this endpoint doesn't replicate. Requires the workflow to be active, same gate
-        the scheduler itself applies in `internal_process_due_schedules`.
+        A schedule-triggered workflow runs outside its regular schedule. A manually triggered
+        workflow runs for the calling user, as the trigger button in the editor does. Other
+        triggers have their own entry points (`batch_jobs`, the public webhook URL) with
+        trigger-specific guardrails this endpoint doesn't replicate. Requires the workflow to be
+        active, same gate the scheduler itself applies in `internal_process_due_schedules`.
 
         Send an `Idempotency-Key` header to dedupe retries (a double-click, or a client retry
         after a timed-out request): a repeat with the same key returns the first call's result
@@ -7731,9 +7828,22 @@ class HogFlowViewSet(
             raise exceptions.ValidationError("Workflow must be active to run. Enable it first.")
 
         trigger_type = hog_flow.trigger_type
-        if trigger_type != "schedule":
+        if trigger_type not in ("schedule", "manual"):
             raise exceptions.ValidationError(
-                f"Only workflows with a 'schedule' trigger can be run this way (this one has '{trigger_type}')."
+                f"Only workflows with a 'schedule' or 'manual' trigger can be run this way (this one has '{trigger_type}')."
+            )
+        # A manual run's event belongs to the user who started it, so a caller without an email
+        # (a service credential) has no person to run it for.
+        user_email = getattr(request.user, "email", None)
+        if trigger_type == "manual" and not user_email:
+            raise exceptions.ValidationError("A manual trigger runs for a user. Call this endpoint as a user.")
+        if trigger_type == "manual" and not WORKFLOWS_MANUAL_RUN_JWT_PURPOSE.enabled():
+            return Response(
+                {
+                    "detail": "Manual triggers are not set up on this PostHog instance. "
+                    "An admin needs to set WORKFLOWS_CANCEL_JWT_SECRET on the web and plugin servers."
+                },
+                status=503,
             )
 
         serializer = HogFlowRunRequestSerializer(data=request.data)
@@ -7762,9 +7872,17 @@ class HogFlowViewSet(
                 return Response(HogFlowRunResponseSerializer(cached_result).data)
 
         try:
-            response = create_hog_flow_scheduled_invocation(
-                team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
-            )
+            if trigger_type == "manual":
+                response = create_hog_flow_manual_invocation(
+                    team_id=self.team_id,
+                    hog_flow_id=str(hog_flow.id),
+                    user_id=cast(str, user_email),
+                    variables=variables,
+                )
+            else:
+                response = create_hog_flow_scheduled_invocation(
+                    team_id=self.team_id, hog_flow_id=str(hog_flow.id), variables=variables
+                )
         except requests.exceptions.ReadTimeout:
             # CDP already had the request when the timeout fired, so it may already have
             # queued the invocation — unlike a connection failure below, nothing here rules
@@ -7787,14 +7905,39 @@ class HogFlowViewSet(
         if response.status_code != 200:
             if cache_key:
                 cache.delete(cache_key)
+            if trigger_type == "manual":
+                return _manual_run_refusal(response)
             return Response({"detail": response.text}, status=response.status_code)
 
         result = response.json()
         if cache_key:
             cache.set(cache_key, result, timeout=HOG_FLOW_RUN_IDEMPOTENCY_TTL_SECONDS)
 
-        self._report_workflow_action("hog_flow_run_now", hog_flow, {})
+        self._report_workflow_action("hog_flow_run_now", hog_flow, {"trigger_type": trigger_type})
         return Response(HogFlowRunResponseSerializer(result).data)
+
+
+def _manual_run_refusal(response: requests.Response) -> Response:
+    """Turn CDP's refusal of a manual run into a message for the editor's toast."""
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    detail = body.get("error") if isinstance(body, dict) and isinstance(body.get("error"), str) else response.text
+    if response.status_code == 429:
+        return Response(
+            {"detail": "This workflow was disabled after too many failed or slow runs. Check its logs."}, status=429
+        )
+    # A 401 or 403 here is a fault between Django and CDP, not the user's. Passed through, the
+    # frontend would read it as an expired session.
+    if response.status_code in (401, 403):
+        return Response(
+            {"detail": "The workflow engine refused the call. Try again, and contact support if it keeps happening."},
+            status=502,
+        )
+    if response.status_code >= 500:
+        return Response({"detail": detail}, status=502)
+    return Response({"detail": detail}, status=response.status_code)
 
 
 class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, viewsets.ModelViewSet):
@@ -7829,7 +7972,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         group_type_index = request.data.get("group_type_index", None)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             result = get_audience_size(
                 team_id=team.id,
                 filters=filters,
@@ -7878,7 +8021,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             return Response({"error": f"Unsupported dedupe_key: {dedupe_key}"}, status=400)
 
         try:
-            reject_flag_conditions_in_audience(team, filters)
+            reject_unusable_audience_conditions(team, filters)
             page = get_audience_person_page(
                 team_id=team.id,
                 filters=filters,

@@ -17,7 +17,6 @@ import { urls } from 'scenes/urls'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { Definition, EventDefinition, PropertyDefinition } from '~/types'
 
 import type {
@@ -67,9 +66,6 @@ export interface definitionEditLogicActions {
     setLocalPropertyDefinition: (definition: PropertyDefinition) => {
         definition: PropertyDefinition
     } // propertyDefinitionsTableLogic
-    loadTags: () => {
-        value: true
-    } // tagsModel
     resetEditDefinition: (values?: Definition) => {
         values?: Definition
     }
@@ -237,8 +233,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             ['setLocalPropertyDefinition'],
             eventDefinitionsTableLogic,
             ['setLocalEventDefinition'],
-            tagsModel,
-            ['loadTags'],
             primaryEventPropertiesModel,
             ['refreshLoadedPrimaryProperties'],
         ],
@@ -305,7 +299,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         actions.setLocalPropertyDefinition(definition)
                     }
                     actions.setDefinition(definition)
-                    actions.loadTags() // reload tags in case new tags are being saved
                     if (values.isEvent) {
                         actions.refreshLoadedPrimaryProperties()
                     }

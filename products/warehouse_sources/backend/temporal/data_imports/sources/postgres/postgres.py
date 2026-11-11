@@ -408,6 +408,15 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # fresh reconnect recovers once the backend is reachable again. Match the stable phrase and
     # exclude the volatile upstream ip:port.
     "failed to connect to upstream",
+    # The twin of "authentication did not complete within" above for a Neon compute that's still
+    # mid-wake when the proxy gives up on it: "ERROR:  The endpoint is taking longer than expected
+    # to become active. Please wait a moment and try again." — Neon's own message explicitly asks
+    # for a retry. With sslmode=prefer (require_ssl off), this failed SSL attempt makes libpq fall
+    # back to a second, unencrypted one, which Neon separately refuses ("connection is insecure
+    # (try using `sslmode=require`)") — a second line appended to the same message, so matching this
+    # substring alone still classifies the whole thing. Same transient wake class as the other Neon
+    # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
+    "taking longer than expected to become active",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a

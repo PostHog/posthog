@@ -8,6 +8,7 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
+import { checkObservationsByCheck } from './reportCheckObservations'
 import {
     buildReportCheckRows,
     latestCheckExplanations,
@@ -49,6 +50,7 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
 
     const rows = buildReportCheckRows(reportChecks, latestCheckExplanations(reportArtefacts ?? []), report.status)
     const { visible, hidden } = splitReportCheckRows(rows)
+    const observations = checkObservationsByCheck(reportArtefacts ?? [])
 
     return (
         <DetailSection
@@ -66,6 +68,9 @@ export function ReportChecksSection({ report }: { report: SignalReport }): JSX.E
                     <ReportCheckRow
                         key={row.check.id}
                         row={row}
+                        reportId={report.id}
+                        monitoringStartedAt={report.monitoring_started_at}
+                        observations={observations.get(row.check.id)}
                         cancelling={cancellingCheckIds.includes(row.check.id)}
                         onCancel={cancelReportCheck}
                         onSuggestMetric={() => openReportCheckMetricSuggestion(report, row.check)}
