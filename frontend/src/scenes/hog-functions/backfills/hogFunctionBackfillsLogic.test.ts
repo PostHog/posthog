@@ -31,6 +31,11 @@ jest.mock('lib/api', () => {
     }
 })
 
+jest.mock('products/cdp/frontend/generated/api', () => ({
+    ...jest.requireActual('products/cdp/frontend/generated/api'),
+    hogFunctionsRetrieve: (_projectId: string, id: string) => jest.requireMock('lib/api').default.hogFunctions.get(id),
+}))
+
 jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn().mockResolvedValue(null),
 }))
