@@ -143,6 +143,10 @@ export default defineCommand({
     },
     options: OPTIONS,
     writes: true,
+    refusesCI: {
+        reason: 'sets up a folder with a person',
+        hint: 'Run `hog setup` on your machine and commit what it writes. To let a CI job use hog, run `hog ci setup` on your machine.',
+    },
     scopes: ['project:read', 'query:read'],
     notes: [
         '`hog setup` shows the current step and what `hog setup next` will do, and changes nothing.',

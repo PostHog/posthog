@@ -469,6 +469,12 @@ class TestTransactionalEmail(APIBaseTest):
             ("connection_error", requests.ConnectionError(), "connection_error", None),
             ("cdp_api_error", MagicMock(status_code=500, json=dict), "5xx", None),
             (
+                "intake_unavailable",
+                MagicMock(status_code=503, json=lambda: {"error": "intake_unavailable"}),
+                "5xx",
+                "intake_unavailable",
+            ),
+            (
                 "workflow_not_found",
                 MagicMock(status_code=404, json=lambda: {"error": "Workflow not found"}),
                 "4xx",
