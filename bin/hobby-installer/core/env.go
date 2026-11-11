@@ -9,9 +9,11 @@ import (
 	"time"
 )
 
-// Service-to-service secrets that each get their own random value, so a leak from one
-// container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY.
-var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"}
+// Secrets that each get their own random value per install. For the service-to-service ones, a
+// leak from one container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY.
+// OBJECT_STORAGE_SECRET replaces the object storage secret every install used to share; see
+// docs/internal/hobby-minio-removal.md. Keep this list in step with bin/upgrade-hobby.
+var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET", "OBJECT_STORAGE_SECRET"}
 
 type EnvConfig struct {
 	PosthogSecret        string

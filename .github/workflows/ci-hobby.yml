@@ -138,6 +138,7 @@ jobs:
                   sparse-checkout: |
                       bin/helpers/render-hobby-compose.sh
                       bin/test/test_render_hobby_compose.py
+                      docker-compose.hobby.yml
                   sparse-checkout-cone-mode: false
             - name: Install envsubst
               run: sudo apt-get update && sudo apt-get install -y gettext-base

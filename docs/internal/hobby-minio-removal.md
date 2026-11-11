@@ -86,3 +86,11 @@ Dev and CI register an `anonymous` SeaweedFS identity with Admin rights, so unsi
 Hobby does not, because Caddy proxies `/posthog/*` straight to `objectstorage`.
 An anonymous identity there makes every object readable and writable from the internet.
 Only the `posthog` identity is registered, so SeaweedFS rejects unsigned requests and the presigned URLs Django hands out keep working.
+
+For the same reason, the `posthog` identity's secret is per install.
+It used to be `object_storage_root_password` on every install, so anyone could sign requests to any install's storage.
+Now it is `OBJECT_STORAGE_SECRET` in `.env`, a random hex value written by `bin/deploy-hobby` or the hobby installer.
+`bin/upgrade-hobby` adds one to older installs.
+On restart, `objectstorage` registers the same access key with the new secret, which replaces the old one, and stored objects stay readable.
+Without the key, everything falls back to the old secret, as before.
+Use hex only: the value goes through `weed shell`, which splits on spaces.
