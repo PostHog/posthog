@@ -593,15 +593,19 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
-        ['MCP-only PR', pullRequest(), 'false', '2', 2, 'success', false],
-        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', '2', 2, 'success', false],
-        ['Rust CLI change', pullRequest(), 'true', '2', 2, 'success', true],
-        ['missing filter output', pullRequest(), '', '', 2, 'success', true],
-        ['incomplete file list', pullRequest(), 'false', '1', 2, 'success', true],
-        ['API file cap', pullRequest(), 'false', '3000', 3000, 'success', true],
-        ['failed detector', pullRequest(), '', '', 2, 'failure', true],
-        ['merge queue', mergeQueue(), 'true', '2', 2, 'success', false],
-    ] as const)('CLI Rust checks retain coverage (%s)', (name, github, rust, count, changedFiles, outcome, runs) => {
+        ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
+        ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
+        ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],
+        ['missing filter output', pullRequest(), '', '', '', 2, 'success', true],
+        ['missing unmatched output', pullRequest(), 'false', '', '2', 2, 'success', true],
+        ['newline input with rename', pullRequest(), 'false', 'true', '3', 3, 'success', true],
+        ['newline rename source', pullRequest(), 'false', 'true', '2', 2, 'success', true],
+        ['newline rename destination', pullRequest(), 'false', 'true', '2', 2, 'success', true],
+        ['incomplete file list', pullRequest(), 'false', 'false', '1', 2, 'success', true],
+        ['API file cap', pullRequest(), 'false', 'false', '3000', 3000, 'success', true],
+        ['failed detector', pullRequest(), '', '', '', 2, 'failure', true],
+        ['merge queue', mergeQueue(), 'true', 'false', '2', 2, 'success', false],
+    ] as const)('CLI Rust checks retain coverage (%s)', (name, github, rust, unmatched, count, changedFiles, outcome, runs) => {
         const event = github.event as Record<string, JsonValue>
         const plan = planWorkflow(workflow('ci-cli.yml'), {
             name,
@@ -609,7 +613,7 @@ describe('CI workflow run plans', () => {
                 ...github,
                 event: { ...event, pull_request: { ...(event.pull_request as object), changed_files: changedFiles } },
             },
-            steps: { changes: { filter: { outcome, outputs: { rust, all_count: count } } } },
+            steps: { changes: { filter: { outcome, outputs: { rust, unmatched_paths: unmatched, all_count: count } } } },
         })
         expect(plan.errors).toEqual([])
         for (const job of ['tests', 'clippy', 'format']) {

@@ -35,7 +35,7 @@ jobs:
             contents: read
             pull-requests: read
         outputs:
-            rust: ${{ steps.filter.outputs.rust != 'false' || steps.filter.outputs.all_count == '' || steps.filter.outputs.all_count < github.event.pull_request.changed_files || steps.filter.outputs.all_count >= 3000 }}
+            rust: ${{ steps.filter.outputs.rust != 'false' || steps.filter.outputs.unmatched_paths != 'false' || steps.filter.outputs.all_count == '' || steps.filter.outputs.all_count < github.event.pull_request.changed_files || steps.filter.outputs.all_count >= 3000 }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -47,6 +47,8 @@ jobs:
                   filters: |
                       all:
                           - '**'
+                      unmatched_paths:
+                          - '!**'
                       rust:
                           - 'cli/**'
                           - 'rust/cymbal/tests/static/native/**'
