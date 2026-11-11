@@ -5,11 +5,30 @@ import { PagePerformanceCardHeader } from 'scenes/web-analytics/PagePerformanceC
 
 const KPI_CARDS = 5
 
-const TileSkeleton = ({ title, bodyClassName }: { title: string; bodyClassName: string }): JSX.Element => (
-    <PagePerformanceCard className="min-w-0">
-        <PagePerformanceCardHeader title={title} />
-        <div className="p-3">
-            <LemonSkeleton className={bodyClassName} />
+const TileSkeleton = ({
+    title,
+    bodyClassName,
+    skeletonClassName = 'h-full w-full',
+    withInsightButton = false,
+    withFooter = false,
+}: {
+    title: string
+    bodyClassName: string
+    skeletonClassName?: string
+    withInsightButton?: boolean
+    withFooter?: boolean
+}): JSX.Element => (
+    <PagePerformanceCard
+        className="min-w-0"
+        footer={withFooter ? <LemonSkeleton className="h-4 w-64 max-w-full" /> : undefined}
+    >
+        <PagePerformanceCardHeader
+            title={title}
+            // The loaded query tiles put a small "Open as insight" LemonButton here, which sets the header height.
+            actions={withInsightButton ? <LemonSkeleton className="h-[2.0625rem] w-[2.0625rem]" /> : undefined}
+        />
+        <div className={bodyClassName}>
+            <LemonSkeleton className={skeletonClassName} />
         </div>
     </PagePerformanceCard>
 )
@@ -26,17 +45,24 @@ export const ContentAutopilotPromptsOverviewSkeleton = (): JSX.Element => (
         </div>
         <div className="grid grid-cols-2 @3xl/prompts-overview:grid-cols-3 @7xl/prompts-overview:grid-cols-5 gap-3">
             {Array.from({ length: KPI_CARDS }, (_, index) => (
-                <LemonCard key={index} hoverEffect={false} className="p-3 flex flex-col gap-2 min-w-0">
-                    <LemonSkeleton className="h-3 w-24" />
-                    <LemonSkeleton className="h-7 w-16" />
+                <LemonCard key={index} hoverEffect={false} className="p-3 flex flex-col gap-1 min-w-0">
+                    <LemonSkeleton className="h-4 w-24" />
+                    <LemonSkeleton className="h-8 w-16" />
+                    <LemonSkeleton className="h-4 w-20" />
                 </LemonCard>
             ))}
         </div>
-        <TileSkeleton title="Cited as a source over time" bodyClassName="h-64 w-full" />
+        <TileSkeleton title="Cited as a source over time" bodyClassName="h-72 p-2" withInsightButton withFooter />
         <div className="grid grid-cols-1 @3xl/prompts-overview:grid-cols-2 gap-4">
-            <TileSkeleton title="Mentions by topic" bodyClassName="h-48 w-full" />
-            <TileSkeleton title="Sites the engines cite most" bodyClassName="h-48 w-full" />
+            <TileSkeleton title="Mentions by topic" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
+            <TileSkeleton
+                title="Sites the engines cite most"
+                bodyClassName="p-3"
+                skeletonClassName="h-48 w-full"
+                withInsightButton
+                withFooter
+            />
         </div>
-        <TileSkeleton title="What the engines searched for" bodyClassName="h-48 w-full" />
+        <TileSkeleton title="What the engines searched for" bodyClassName="p-3" skeletonClassName="h-48 w-full" />
     </section>
 )
