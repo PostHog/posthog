@@ -141,6 +141,19 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     return logic.lock_insight_for_evaluation(team_id=team_id, insight_id=insight_id)
 
 
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    """Store metadata a backfill computed from ``query_at_read``, without holding a lock while it computed.
+
+    Writes only while the insight still lacks current metadata and its query is still ``query_at_read``,
+    so a save that landed after the backfill read the insight wins. Returns whether the write happened.
+    """
+    return logic.store_backfilled_query_metadata(
+        insight_id=insight_id, query_at_read=query_at_read, query_metadata=query_metadata
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None = None, user_id: int | None = None) -> None:
     """Mark an insight as viewed now, moving the timestamp if this viewer already has a row.
 
