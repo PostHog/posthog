@@ -859,10 +859,9 @@ def load_run_footer(
 def _thread_cost(run: "TaskRunDTO") -> Decimal | None:
     """What the thread's task spent on models so far, or `None` when unknown.
 
-    Prefers the cost the task's agents reported for their runs, which is the per-run number the
-    web chat shows, summed over the task's runs and current when the turn ends. Falls back to the task usage that PostHog
-    Desktop shows, which sums the task's `$ai_generation` events. Those events arrive with a short
-    delay and the usage is cached for a minute, so the newest requests can be missing there.
+    Prefers the cost the task's agents reported, which is current when the turn ends. Falls back to
+    the task's `$ai_generation` sum, which arrives with a delay and is cached for a minute, so the
+    newest requests can be missing from it.
     """
     from products.tasks.backend.facade.billing import get_task_reported_token_cost, get_task_usage  # noqa: PLC0415
 

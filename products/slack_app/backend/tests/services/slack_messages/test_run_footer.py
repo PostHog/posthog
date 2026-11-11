@@ -159,15 +159,22 @@ class TestLoadRunFooter(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("the_agents_reported_cost", Decimal("2.75"), Decimal("2.75")),
-            ("the_gateway_sum_when_no_cost_was_reported", None, Decimal("0.4")),
+            ("the_agents_reported_cost", Decimal("2.75"), Decimal("2.75"), False),
+            ("the_gateway_sum_when_no_cost_was_reported", None, Decimal("0.4"), True),
         ]
     )
     @patch("products.tasks.backend.facade.billing.get_task_usage")
     @patch("products.tasks.backend.facade.billing.get_task_reported_token_cost")
     @patch("products.tasks.backend.facade.api.get_task_run")
     def test_thread_cost_reads(
-        self, _name: str, reported: Decimal | None, expected: Decimal, mock_get_run, mock_reported, mock_usage
+        self,
+        _name: str,
+        reported: Decimal | None,
+        expected: Decimal,
+        reads_gateway_sum: bool,
+        mock_get_run,
+        mock_reported,
+        mock_usage,
     ) -> None:
         mock_get_run.return_value = SimpleNamespace(
             id=uuid4(), task_id=uuid4(), team_id=1, state={}, created_by_id=None, task_created_at=datetime(2026, 8, 1)
@@ -178,6 +185,7 @@ class TestLoadRunFooter(SimpleTestCase):
         footer = load_run_footer("run-1", integration_id=None, include_thread_cost=True)
 
         assert footer.thread_cost_usd == expected
+        assert mock_usage.called is reads_gateway_sum
 
     @patch("products.tasks.backend.facade.api.get_task_run", side_effect=RuntimeError("db down"))
     def test_a_failure_to_describe_the_run_costs_the_footer_not_the_answer(self, _mock_get_run) -> None:
