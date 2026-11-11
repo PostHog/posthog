@@ -6,7 +6,7 @@ answered in full. Anything less leaves the key for a person to link, who can run
 
 import re
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import PurePosixPath
 from typing import Literal
@@ -223,8 +223,10 @@ def detect_code_email_source(team_id: int, key_id: UUID, *, attempt: int) -> Sou
     return detection
 
 
-def find_source_candidates(team: Team, key: str) -> CodeEmailSourceCandidates:
-    """Search the team's GitHub installations for a key while a person waits, one candidate per file.
+def find_source_candidates(
+    team: Team, key: str, *, readable: Callable[[IntegrationRecord], bool]
+) -> CodeEmailSourceCandidates:
+    """Search the team's GitHub installations that ``readable`` lets the person see for a key, one candidate per file.
 
     Files with a send call come first. A search that runs out of time returns what it read, marked incomplete.
     Raises ``CodeEmailSourceKeyUnsearchable`` for a key GitHub can't search, and
@@ -232,7 +234,9 @@ def find_source_candidates(team: Team, key: str) -> CodeEmailSourceCandidates:
     """
     if not is_searchable_literal(key):
         raise CodeEmailSourceKeyUnsearchable()
-    integrations = IntegrationManager.github.oauth.list(team.id)
+    integrations = [
+        integration for integration in IntegrationManager.github.oauth.list(team.id) if readable(integration)
+    ]
     if not integrations:
         return CodeEmailSourceCandidates(candidates=(), complete=True)
     searches = _search_installations(

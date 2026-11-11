@@ -1,4 +1,4 @@
-from collections.abc import Collection
+from collections.abc import Callable, Collection
 from dataclasses import asdict
 from typing import Any
 from uuid import UUID
@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.integrations import IntegrationRecord
 from posthog.models.tag import tagify
 
 from products.messaging.backend.facade.code_emails import (
@@ -240,7 +241,7 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         except (CodeManagedEmailNotFound, WorkflowNotFound):
             raise exceptions.NotFound()
         try:
-            found = find_source_candidates(self.team, email.key)
+            found = find_source_candidates(self.team, email.key, readable=self._readable_integration())
         except CodeEmailSourceKeyUnsearchable:
             raise exceptions.ValidationError("GitHub can't search for this key.")
         except CodeEmailSourceSearchUnavailable as error:
@@ -250,6 +251,22 @@ class TransactionalCodeEmailViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 else "Couldn't search GitHub. Try again in a minute."
             )
         return Response(CodeEmailSourceCandidatesSerializer(asdict(found)).data)
+
+    def _readable_integration(self) -> Callable[[IntegrationRecord], bool]:
+        # The rule the integrations list applies, so the search reads no repository the person can't see there.
+        access = self.user_access_control.list_access_filter("integration")
+        user_id = self.request.user.id
+        if access is None:
+            return lambda _integration: True
+
+        def readable(integration: IntegrationRecord) -> bool:
+            if integration.created_by_id == user_id:
+                return True
+            if access.only_allowed:
+                return str(integration.id) in access.allowed_ids
+            return str(integration.id) not in access.blocked_ids
+
+        return readable
 
     def _require_workflow_editor(self, email: CodeManagedEmail) -> None:
         try:

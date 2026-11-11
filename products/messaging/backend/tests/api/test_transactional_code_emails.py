@@ -274,6 +274,39 @@ class TestTransactionalCodeEmails(APIBaseTest):
             "complete": False,
         }
 
+    def test_searches_only_the_github_installations_the_member_may_view(self, _post, _flag):
+        email = self._code_email("welcome")
+        self._limit_to_members_with_access()
+        viewable = Integration.objects.create(team=self.team, kind="github", integration_id="viewable", config={})
+        hidden = Integration.objects.create(team=self.team, kind="github", integration_id="hidden", config={})
+        create_access_control(
+            team_id=self.team.id, resource="integration", resource_id=str(hidden.id), access_level="none"
+        )
+
+        def find(search: Any, literal: str, *, deadline: float | None = None) -> ExactCodeSearchResult:
+            return ExactCodeSearchResult(
+                matches=[
+                    ExactCodeMatch(
+                        repository=f"acme/{search.github.integration.integration_id}",
+                        path="src/mailer.ts",
+                        lines=(MatchedLine(number=2, text="  template_key: 'welcome',", context="send({"),),
+                    )
+                ],
+                complete=True,
+            )
+
+        with patch(
+            "products.messaging.backend.services.code_email_source.GitHubExactCodeSearch.find",
+            autospec=True,
+            side_effect=find,
+        ):
+            response = self.client.get(self._url(f"{email.id}/source_candidates/"))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [candidate["repository"] for candidate in response.json()["candidates"]] == [
+            f"acme/{viewable.integration_id}"
+        ]
+
     def test_lists_what_answered_when_another_installation_is_busy(self, _post, _flag):
         email = self._code_email("welcome")
         found = ExactCodeMatch(
