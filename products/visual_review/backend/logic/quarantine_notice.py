@@ -35,8 +35,14 @@ _MAX_IDENTIFIER_CHARS = 160
 
 
 def build_message(repo: Repo, entry: QuarantinedIdentifier, actor: str, source_path: str) -> SlackMessage:
-    by = f"{actor} (using an AI agent)" if entry.source == ActorType.AGENT else actor
-    lead = f"*{escape_slack_mrkdwn(by)}* quarantined a story owned by you. Please check."
+    if entry.source == ActorType.AUTO:
+        lead = (
+            "*Visual review* quarantined a story owned by you automatically, "
+            "because the same code rendered it two ways. Please check."
+        )
+    else:
+        by = f"{actor} (using an AI agent)" if entry.source == ActorType.AGENT else actor
+        lead = f"*{escape_slack_mrkdwn(by)}* quarantined a story owned by you. Please check."
     # The story without its theme: one notice covers every theme variant quarantined with it.
     story = escape_slack_mrkdwn(clip_text(story_index.split_theme(entry.identifier).rest, _MAX_IDENTIFIER_CHARS))
     facts = quarantine_facts(entry, {entry.created_by_id or 0: actor}, timezone.now())

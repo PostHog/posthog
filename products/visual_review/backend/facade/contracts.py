@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
-from .enums import QuarantineLiftState, ShiftBandKind
+from .enums import AutoQuarantineMode, QuarantineLiftState, ShiftBandKind
 
 # Classification thresholds, applied by `diffing.classify_compare_result`:
 #
@@ -489,6 +489,7 @@ class UpdateRepoRequestInput:
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
     debt_digest_enabled: bool | None = None
+    auto_quarantine_mode: AutoQuarantineMode | None = None
 
 
 @dataclass(frozen=True)
@@ -499,6 +500,7 @@ class UpdateRepoInput:
     baseline_file_paths: dict[str, str] | None = None
     enable_pr_comments: bool | None = None
     debt_digest_enabled: bool | None = None
+    auto_quarantine_mode: AutoQuarantineMode | None = None
 
 
 @dataclass(frozen=True)
@@ -539,6 +541,7 @@ class Repo:
     baseline_file_paths: dict[str, str]
     enable_pr_comments: bool
     debt_digest_enabled: bool
+    auto_quarantine_mode: AutoQuarantineMode
     created_at: datetime
 
 
@@ -689,6 +692,25 @@ FLAKINESS_EXPIRY_SOON_DAYS = 7
 # Latest expiry an agent's quarantine gets, and the one it gets when the call names
 # none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
 AGENT_QUARANTINE_MAX_DAYS = 30
+
+# Expiry of an automatic quarantine. Short enough that a story does not stay hidden for long, because
+# automatic release is planned to lift a story that renders clean again, and the weekly debt digest
+# reminds the owning team in the week before the expiry.
+AUTO_QUARANTINE_DAYS = 14
+
+# How far back an automatic quarantine looks for runs that complete a flake proof. The runs of a
+# proof must be close in time, because the further apart two trees are, the more code differs between
+# them that a proof does not account for.
+AUTO_QUARANTINE_PROOF_WINDOW_HOURS = 24
+
+# Automatic quarantines per repo in 24 hours, past which the next proof is logged and not applied.
+# Many new flakes at once mean the capture harness regressed, and quarantining them would hide that.
+# A backtest week with a harness regression produced 23 proofs in 8 days, a normal week fewer than 5.
+AUTO_QUARANTINE_DAILY_LIMIT = 10
+
+# Stories evaluated per finishing run, so that a storm of failures cannot stall run completion on
+# GitHub requests.
+AUTO_QUARANTINE_MAX_STORIES_PER_RUN = 25
 
 # Safety cap on rows returned by the flakiness endpoint. The population is
 # already narrow (only identifiers carrying variants or a quarantine), so this

@@ -23,7 +23,11 @@ export function QuarantineCell({ entry }: { entry: FlakinessEntryApi }): JSX.Ele
         <div className="text-xs max-w-48">
             <div>{entry.quarantine.reason || 'No reason given'}</div>
             <div className="text-[11px] text-muted mt-0.5">
-                {author ? `${author.first_name || author.email} · ` : ''}
+                {author
+                    ? `${author.first_name || author.email} · `
+                    : entry.quarantine.source === 'auto'
+                      ? 'Quarantined automatically · '
+                      : ''}
                 <span className={expiry.isOverdue ? 'text-danger font-semibold' : 'font-semibold'}>{expiry.label}</span>
             </div>
         </div>

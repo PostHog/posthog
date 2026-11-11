@@ -246,6 +246,12 @@ function QuarantineBanner({
                             <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
                         </>
                     )}
+                    {!quarantineEntry.created_by && quarantineEntry.source === 'auto' && (
+                        <>
+                            <span aria-hidden>·</span>
+                            <span>Quarantined automatically</span>
+                        </>
+                    )}
                 </div>
                 {sourceRun && (
                     <div className="text-xs text-muted flex flex-wrap items-center gap-x-2 gap-y-0.5">

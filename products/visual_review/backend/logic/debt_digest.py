@@ -72,7 +72,7 @@ from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import human_list, pluralize
 
 from ..facade.contracts import FLAKINESS_EXPIRY_SOON_DAYS, TOLERATION_PILEUP_WINDOW_DAYS
-from ..facade.enums import RunType
+from ..facade.enums import ActorType, RunType
 from ..models import QuarantinedIdentifier, Repo, Run
 from . import app_urls, quarantine, run_queries, story_index, team_channels, toleration
 from .team_channels import SlackMessage
@@ -312,7 +312,12 @@ def _expiry_word(expires_at: datetime | None, now: datetime) -> str:
     return _month_day(expires_at.date())
 
 
+AUTOMATIC_AUTHOR = "visual review automatically"
+
+
 def _author_name(entry: QuarantinedIdentifier, authors: dict[int, str]) -> str:
+    if entry.source == ActorType.AUTO and entry.created_by_id is None:
+        return AUTOMATIC_AUTHOR
     return escape_slack_mrkdwn(authors.get(entry.created_by_id or 0, "someone"))
 
 

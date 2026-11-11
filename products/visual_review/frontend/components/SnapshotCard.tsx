@@ -55,6 +55,8 @@ function buildQuarantineTooltip(quarantine: BaselineQuarantineSummaryApi): JSX.E
     if (quarantine.created_by) {
         const name = quarantine.created_by.first_name || quarantine.created_by.email
         lines.push(`By ${name} · ${dayjs(quarantine.created_at).fromNow()}`)
+    } else if (quarantine.source === 'auto') {
+        lines.push(`Quarantined automatically · ${dayjs(quarantine.created_at).fromNow()}`)
     }
     if (quarantine.source_run) {
         const prNumber = sourceRunPrNumber(quarantine.source_run)
@@ -250,7 +252,9 @@ export function SnapshotCard({
                         <span className="truncate">
                             {quarantine.created_by
                                 ? `by ${quarantine.created_by.first_name || quarantine.created_by.email}`
-                                : 'quarantined'}
+                                : quarantine.source === 'auto'
+                                  ? 'quarantined automatically'
+                                  : 'quarantined'}
                         </span>
                         {quarantine.source_run && (
                             <span className="font-mono shrink-0" title={`From run ${quarantine.source_run.commit_sha}`}>

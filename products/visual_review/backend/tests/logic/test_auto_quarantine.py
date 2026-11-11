@@ -1,0 +1,275 @@
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+import pytest
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
+
+from products.visual_review.backend.db import WRITER_DB
+from products.visual_review.backend.facade.contracts import AUTO_QUARANTINE_DAILY_LIMIT, AUTO_QUARANTINE_DAYS
+from products.visual_review.backend.facade.enums import (
+    ActorType,
+    AutoQuarantineMode,
+    RunPurpose,
+    RunStatus,
+    RunType,
+    SnapshotResult,
+)
+from products.visual_review.backend.logic import auto_quarantine, repos, runs
+from products.visual_review.backend.logic.auto_quarantine import (
+    FlakeProof,
+    Observation,
+    ProofKind,
+    TrustedRun,
+    find_flake_proof,
+)
+from products.visual_review.backend.logic.github_api import MergeQueueBatch
+from products.visual_review.backend.models import QuarantinedIdentifier, Repo, Run, RunSnapshot
+from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
+
+_T0 = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
+_BASE = "base"
+
+
+def _trusted(sha: str, hour: int, on_default_branch: bool) -> TrustedRun:
+    return TrustedRun(
+        id=uuid4(), commit_sha=sha, created_at=_T0 + timedelta(hours=hour), on_default_branch=on_default_branch
+    )
+
+
+# m1 and m2 are default-branch commits, m2 holds m1. Each queue run is a test branch on m1 unless named.
+_M1 = _trusted("m1", 0, True)
+_M2 = _trusted("m2", 2, True)
+_Q1 = _trusted("q1", 1, False)
+_Q2 = _trusted("q2", 3, False)
+_Q2_OFF_OTHER_BASE = _trusted("q2-other-base", 3, False)
+_Q3 = _trusted("q3", 4, False)
+_Q4 = _trusted("q4", 5, False)
+_Q_EARLY = _trusted("q-early", -1, False)
+_Q_UNKNOWN = _trusted("q-unknown", 3, False)
+
+_ANCESTRY = {("m1", "m2"), ("m1", "q1"), ("m1", "q2"), ("m1", "q3"), ("m1", "q4"), ("m1", "q-early")}
+_BATCHES = {
+    "q1": MergeQueueBatch(base_sha="m1", pull_request_heads=frozenset({"p1"})),
+    "q2": MergeQueueBatch(base_sha="m1", pull_request_heads=frozenset({"p1", "p2"})),
+    "q2-other-base": MergeQueueBatch(base_sha="m0", pull_request_heads=frozenset({"p1", "p2"})),
+    "q3": MergeQueueBatch(base_sha="m1", pull_request_heads=frozenset({"p3"})),
+    "q4": MergeQueueBatch(base_sha="m1", pull_request_heads=frozenset({"p4"})),
+    "q-early": MergeQueueBatch(base_sha="m1", pull_request_heads=frozenset({"p5"})),
+}
+
+
+class _FakeHistory:
+    def commit_contains(self, ancestor_sha: str, head_sha: str) -> bool:
+        return ancestor_sha == head_sha or (ancestor_sha, head_sha) in _ANCESTRY
+
+    def batch(self, run: TrustedRun) -> MergeQueueBatch | None:
+        return _BATCHES.get(run.commit_sha)
+
+
+def _failing(run: TrustedRun, **overrides) -> Observation:
+    fields = {"result": SnapshotResult.CHANGED, "review_state": "", "baseline_hash": _BASE, "is_quarantined": False}
+    return Observation(run=run, **{**fields, **overrides})
+
+
+def _clean(run: TrustedRun, **overrides) -> Observation:
+    fields = {"result": SnapshotResult.UNCHANGED, "review_state": "", "baseline_hash": _BASE, "is_quarantined": False}
+    return Observation(run=run, **{**fields, **overrides})
+
+
+class TestFindFlakeProof:
+    @pytest.mark.parametrize(
+        "_name,observations,expected",
+        [
+            ("superset_master_in_master", [_failing(_M1), _clean(_M2)], ProofKind.SUPERSET),
+            ("superset_master_in_queue", [_failing(_M1), _clean(_Q2)], ProofKind.SUPERSET),
+            ("superset_queue_in_queue", [_failing(_Q1), _clean(_Q2)], ProofKind.SUPERSET),
+            ("disjoint_queue_runs", [_failing(_Q1), _failing(_Q3), _clean(_Q4)], ProofKind.DISJOINT),
+            ("disjoint_master_and_queue", [_failing(_Q1), _failing(_M2), _clean(_Q4)], ProofKind.DISJOINT),
+            # A pull request in the batch broke the story, and the queue was right to fail.
+            ("refuses_a_queue_run_in_master", [_failing(_Q1), _clean(_M2)], None),
+            ("refuses_a_master_commit_not_held", [_failing(_Q1), _clean(_Q2_OFF_OTHER_BASE)], None),
+            ("refuses_an_unknown_batch", [_failing(_Q1), _clean(_Q_UNKNOWN)], None),
+            ("refuses_a_clean_run_before_both", [_failing(_Q3), _failing(_Q4), _clean(_Q_EARLY)], None),
+            ("refuses_failures_sharing_a_pr", [_failing(_Q1), _failing(_Q2), _clean(_Q4)], None),
+            ("refuses_disjoint_with_unknown_batch", [_failing(_Q1), _failing(_Q_UNKNOWN), _clean(_Q4)], None),
+            ("refuses_new", [_failing(_M1, result=SnapshotResult.NEW), _clean(_M2)], None),
+            ("refuses_removed", [_failing(_M1, result=SnapshotResult.REMOVED), _clean(_M2)], None),
+            # The batch carried its own baseline for the story.
+            ("refuses_another_baseline", [_failing(_Q1, baseline_hash="pr-edit"), _clean(_Q2)], None),
+            ("refuses_a_clean_run_on_another_baseline", [_failing(_M1), _clean(_M2, baseline_hash="old")], None),
+            ("refuses_a_quarantined_failure", [_failing(_M1, is_quarantined=True), _clean(_M2)], None),
+            ("refuses_a_quarantined_clean_run", [_failing(_M1), _clean(_M2, is_quarantined=True)], None),
+            ("refuses_an_approved_change", [_failing(_M1, review_state="approved"), _clean(_M2)], None),
+        ],
+    )
+    def test_proof(self, _name: str, observations: list[Observation], expected: ProofKind | None) -> None:
+        proof = find_flake_proof(observations, _BASE, _FakeHistory())
+
+        assert (proof.kind if proof else None) == expected
+
+    def test_the_reason_names_both_runs_of_a_superset_proof(self) -> None:
+        proof = FlakeProof(
+            kind=ProofKind.SUPERSET,
+            failing_runs=(_trusted("a" * 40, 0, True),),
+            clean_run=_trusted("b" * 40, 1, False),
+        )
+
+        assert (
+            auto_quarantine.proof_reason(proof)
+            == "Flake proven: changed in aaaaaaa and unchanged in bbbbbbb, which contains it"
+        )
+
+
+_IDENTIFIER = "scenes-app-button--primary--light"
+_FAILING_SHA = "a" * 40
+_CLEAN_SHA = "b" * 40
+_GITHUB = "products.visual_review.backend.logic.github_api"
+
+
+def _master_run(repo: Repo, sha: str, status: RunStatus, hours_ago: int, result: SnapshotResult) -> Run:
+    run = Run.objects.create(
+        team_id=repo.team_id,
+        repo=repo,
+        run_type=RunType.STORYBOOK,
+        branch="master",
+        commit_sha=sha,
+        status=status,
+        purpose=RunPurpose.OBSERVE,
+        completed_at=timezone.now() if status == RunStatus.COMPLETED else None,
+    )
+    # A completed run points at itself as superseded, so the next run on the branch has its slot.
+    superseded_by = run if status == RunStatus.COMPLETED else None
+    Run.objects.filter(id=run.id).update(
+        created_at=timezone.now() - timedelta(hours=hours_ago), superseded_by=superseded_by
+    )
+    RunSnapshot.objects.create(
+        team_id=repo.team_id, run=run, identifier=_IDENTIFIER, result=result, baseline_hash=_BASE
+    )
+    return Run.objects.get(id=run.id)
+
+
+@pytest.fixture
+def repo(team) -> Repo:
+    repo = repos.create_repo(team_id=team.id, repo_external_id=88001, repo_full_name="org/auto-quarantine")
+    repo.auto_quarantine_mode = AutoQuarantineMode.ON
+    repo.save()
+    return repo
+
+
+@pytest.fixture
+def capture():
+    with patch("products.visual_review.backend.logic.auto_quarantine.ph_scoped_capture") as scoped:
+        capture = MagicMock()
+        scoped.return_value.__enter__.return_value = capture
+        yield capture
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestQuarantineProvenFlakes:
+    @pytest.fixture
+    def github(self):
+        with (
+            patch(f"{_GITHUB}.default_branch_name", return_value="master") as default_branch_name,
+            patch(f"{_GITHUB}.commit_contains", side_effect=lambda repo, a, b: (a, b) == (_FAILING_SHA, _CLEAN_SHA)),
+            patch(f"{_GITHUB}.merge_queue_batch", return_value=None),
+        ):
+            yield default_branch_name
+
+    def _superset_proof(self, repo: Repo) -> tuple[Run, Run]:
+        failing = _master_run(repo, _FAILING_SHA, RunStatus.COMPLETED, 2, SnapshotResult.CHANGED)
+        finishing = _master_run(repo, _CLEAN_SHA, RunStatus.PROCESSING, 0, SnapshotResult.UNCHANGED)
+        return failing, finishing
+
+    def _auto_rows(self, repo: Repo):
+        return QuarantinedIdentifier.objects.using(WRITER_DB).filter(repo=repo, source=ActorType.AUTO)
+
+    @pytest.mark.parametrize(
+        "mode,expected_rows,expected_applied",
+        [
+            (AutoQuarantineMode.OFF, 0, None),
+            (AutoQuarantineMode.PREVIEW, 0, False),
+            (AutoQuarantineMode.ON, 1, True),
+        ],
+    )
+    def test_the_mode_decides_what_a_proof_does(self, repo, github, capture, mode, expected_rows, expected_applied):
+        repo.auto_quarantine_mode = mode
+        repo.save()
+        failing, finishing = self._superset_proof(repo)
+
+        auto_quarantine.quarantine_proven_flakes(finishing)
+
+        rows = list(self._auto_rows(repo))
+        assert len(rows) == expected_rows
+        if mode == AutoQuarantineMode.OFF:
+            assert github.call_count == 0
+            assert capture.call_count == 0
+            return
+        properties = capture.call_args.kwargs["properties"]
+        assert (properties["applied"], properties["proof_kind"], properties["capped"]) == (
+            expected_applied,
+            "superset",
+            False,
+        )
+        if rows:
+            assert (rows[0].source_run_id, rows[0].created_by_id) == (failing.id, None)
+            expected_expiry = timezone.now() + timedelta(days=AUTO_QUARANTINE_DAYS)
+            assert abs(rows[0].expires_at - expected_expiry) < timedelta(minutes=1)
+
+    def test_the_daily_limit_stops_more_automatic_quarantines(self, repo, github, capture):
+        for index in range(AUTO_QUARANTINE_DAILY_LIMIT):
+            QuarantinedIdentifier.objects.create(
+                team_id=repo.team_id,
+                repo=repo,
+                identifier=f"other--{index}",
+                run_type=RunType.STORYBOOK,
+                reason="earlier proof",
+                source=ActorType.AUTO,
+                expires_at=timezone.now() + timedelta(days=1),
+            )
+        _failing, finishing = self._superset_proof(repo)
+
+        auto_quarantine.quarantine_proven_flakes(finishing)
+
+        assert not self._auto_rows(repo).filter(identifier=_IDENTIFIER).exists()
+        assert capture.call_args.kwargs["properties"]["capped"] is True
+
+    def test_an_identifier_already_quarantined_is_left_alone(self, repo, github, capture):
+        QuarantinedIdentifier.objects.create(
+            team_id=repo.team_id, repo=repo, identifier=_IDENTIFIER, run_type=RunType.STORYBOOK, reason="by hand"
+        )
+        _failing, finishing = self._superset_proof(repo)
+
+        auto_quarantine.quarantine_proven_flakes(finishing)
+
+        assert not self._auto_rows(repo).exists()
+        assert capture.call_count == 0
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestFinishProcessingQuarantinesProvenFlakes:
+    @pytest.mark.parametrize("hook_fails,expected_changed_count", [(False, 0), (True, 1)])
+    def test_a_proof_the_finishing_run_completes_passes_that_run(
+        self, repo, capture, hook_fails, expected_changed_count
+    ):
+        # Two default-branch failures with a clean run between them: a disjoint proof that the
+        # finishing run completes with its own failure.
+        _master_run(repo, "c" * 40, RunStatus.COMPLETED, 3, SnapshotResult.CHANGED)
+        _master_run(repo, "d" * 40, RunStatus.COMPLETED, 2, SnapshotResult.UNCHANGED)
+        finishing = _master_run(repo, "e" * 40, RunStatus.PROCESSING, 0, SnapshotResult.CHANGED)
+        hook = patch(
+            "products.visual_review.backend.logic.auto_quarantine.quarantine_proven_flakes",
+            side_effect=RuntimeError("GitHub down"),
+        )
+        with (
+            patch(f"{_GITHUB}.default_branch_name", return_value="master"),
+            patch(f"{_GITHUB}.commit_contains", return_value=False),
+        ):
+            if hook_fails:
+                with hook:
+                    updated = runs.finish_processing(finishing.id)
+            else:
+                updated = runs.finish_processing(finishing.id)
+
+        assert (updated.status, updated.changed_count) == (RunStatus.COMPLETED, expected_changed_count)

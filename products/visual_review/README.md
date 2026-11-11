@@ -125,6 +125,45 @@ It works for Storybook runs only, and it is best effort: a story no team owns, a
 The task expires after 15 minutes in the queue, so a backed-up queue drops the notice instead of posting it late.
 The notice does not replace the weekly digest's expiry reminder: the digest lists a dated quarantine in the week before it runs out, and never lists one with no expiry.
 
+### Automatic quarantine
+
+A flaky story fails the gate of merge queue runs, and every pull request in the batch is kicked out until somebody quarantines it.
+Visual review can quarantine such a story itself, once trusted runs prove that it is flaky.
+
+A trusted run is a full run on the default branch without a pull request, or a full run on a merge queue branch (`trunk-merge/`).
+The default branch comes from GitHub, not from the branch name.
+When a trusted run finishes, the backend looks at the trusted runs of the same run type from the last `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
+
+A flake is proven when the same code renders a story both ways against the same baseline:
+
+- **Superset proof.** The story changed in run A and was unchanged in run B, and B's tree holds all of A's tree.
+  A default-branch run holds an earlier default-branch commit by ancestry.
+  A merge queue run holds another when its batch holds every pull request of the other batch and the other batch's base commit.
+  A default-branch run never holds a merge queue run, because a squash merge writes new commits.
+- **Disjoint proof.** The story changed in two runs that share no pull request, and was unchanged in a run created after the earlier of the two.
+
+The batch of a merge queue run comes from GitHub: Trunk writes one `Merging <head sha> into trunk-temp/...` commit per pull request, and the compare against the default branch names the base commit.
+A batch GitHub cannot read proves nothing.
+
+Guards:
+
+- Only `changed` counts. `new` and `removed` are problems of the baseline file.
+- The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means a pull request in the batch edited it, and the failure belongs to that pull request.
+- An approved, tolerated, or quarantined result is no evidence either way.
+- At most `AUTO_QUARANTINE_MAX_STORIES_PER_RUN` stories are checked per finishing run.
+- At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed.
+
+The check runs before the finishing run is counted, so when that run completes a proof, it passes.
+An error in the check is logged and never fails the run.
+
+`auto_quarantine_mode` on the repository decides what a proof does:
+
+- `off`, the default: nothing is checked.
+- `preview`: each proof is logged and sent as a `vr_flake_proven` event, and nothing changes.
+- `on`: the story is quarantined for `AUTO_QUARANTINE_DAYS` with `source=auto`, the newest failing run as its source run, a reason that names the proof and its commits, and a notice to the owning team.
+
+Set it through the repo API (`PATCH /api/projects/:team_id/visual_review/repos/:id/`), the `visual-review-repos-partial-update` MCP tool, or Django admin.
+
 ## The flow
 
 ### Single-command flow (`vr submit`)

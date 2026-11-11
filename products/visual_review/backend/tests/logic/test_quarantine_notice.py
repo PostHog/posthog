@@ -7,7 +7,7 @@ from posthog.ownership.paths import UNOWNED_TEAM, PathOwnership
 from posthog.slack.channels import SlackChannel
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.enums import RunType
+from products.visual_review.backend.facade.enums import ActorType, RunType
 from products.visual_review.backend.logic import quarantine, quarantine_notice, repos, story_index
 from products.visual_review.backend.models import QuarantinedIdentifier
 from products.visual_review.backend.tasks.tasks import QUARANTINE_NOTICE_EXPIRY_SECONDS
@@ -48,27 +48,38 @@ class TestSendQuarantineNotice:
             post.channel_map = channel_map
             yield post
 
-    def _quarantine(self, repo, user, identifier: str = _IDENTIFIER) -> QuarantinedIdentifier:
+    def _quarantine(
+        self, repo, user, identifier: str = _IDENTIFIER, source: ActorType = ActorType.HUMAN
+    ) -> QuarantinedIdentifier:
         return quarantine.quarantine_identifier(
             repo_id=repo.id,
             identifier=identifier,
             run_type=RunType.STORYBOOK,
             reason="Animation <!channel> timing",
-            user_id=user.id,
+            user_id=None if source == ActorType.AUTO else user.id,
             team_id=repo.team_id,
+            source=source,
         )
 
-    def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post):
-        entry = self._quarantine(repo, user)
+    @pytest.mark.parametrize("source", [ActorType.HUMAN, ActorType.AUTO])
+    def test_posts_to_the_owning_team_naming_who_quarantined(self, repo, team, user, post, source):
+        entry = self._quarantine(repo, user, source=source)
 
         assert quarantine_notice.send_quarantine_notice(entry.id, team.id) is True
-        second = self._quarantine(repo, user, identifier="scenes-app-button--primary--dark")
+        second = self._quarantine(repo, user, identifier="scenes-app-button--primary--dark", source=source)
         assert quarantine_notice.send_quarantine_notice(second.id, team.id) is True
 
         assert post.channel_map.call_count == 1
         _, channel_id, blocks, text = post.call_args.args
         assert channel_id == "C1"
-        assert text.startswith(f"*{user.first_name or user.email}* quarantined a story owned by you. Please check.")
+        if source == ActorType.AUTO:
+            assert text.startswith(
+                "*Visual review* quarantined a story owned by you automatically, "
+                "because the same code rendered it two ways. Please check."
+            )
+            assert "opened by visual review automatically" in blocks[1]["text"]["text"]
+        else:
+            assert text.startswith(f"*{user.first_name or user.email}* quarantined a story owned by you. Please check.")
         assert "*scenes-app-button--primary* storybook" in blocks[1]["text"]["text"]
         assert "<!channel>" not in str(blocks)
         assert blocks[2]["elements"] == [

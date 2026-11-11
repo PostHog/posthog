@@ -272,6 +272,7 @@ def _to_repo(repo) -> contracts.Repo:
         baseline_file_paths=repo.baseline_file_paths,
         enable_pr_comments=repo.enable_pr_comments,
         debt_digest_enabled=repo.debt_digest_enabled,
+        auto_quarantine_mode=repo.auto_quarantine_mode,
         created_at=repo.created_at,
     )
 

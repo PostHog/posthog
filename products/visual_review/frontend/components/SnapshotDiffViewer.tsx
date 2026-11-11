@@ -346,6 +346,12 @@ export function SnapshotDiffViewer({
                                     <ProfilePicture user={quarantineEntry.created_by} size="xs" showName />
                                 </>
                             )}
+                            {!quarantineEntry.created_by && quarantineEntry.source === 'auto' && (
+                                <>
+                                    <span>·</span>
+                                    <span>Quarantined automatically</span>
+                                </>
+                            )}
                         </div>
                     )}
 

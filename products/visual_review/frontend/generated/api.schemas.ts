@@ -7,6 +7,19 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `off` - off
+ * * `preview` - preview
+ * * `on` - on
+ */
+export type AutoQuarantineModeEnumApi = (typeof AutoQuarantineModeEnumApi)[keyof typeof AutoQuarantineModeEnumApi]
+
+export const AutoQuarantineModeEnumApi = {
+    Off: 'off',
+    Preview: 'preview',
+    On: 'on',
+} as const
+
 export type RepoApiBaselineFilePaths = { [key: string]: string }
 
 export interface RepoApi {
@@ -17,6 +30,7 @@ export interface RepoApi {
     baseline_file_paths: RepoApiBaselineFilePaths
     enable_pr_comments: boolean
     debt_digest_enabled: boolean
+    auto_quarantine_mode: AutoQuarantineModeEnumApi
     created_at: string
 }
 
@@ -53,6 +67,12 @@ export interface PatchedUpdateRepoRequestInputApi {
      * @nullable
      */
     debt_digest_enabled?: boolean | null
+    /** Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky. `off` (the default) does nothing. `preview` logs each proof and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team.
+     *
+     * * `off` - off
+     * * `preview` - preview
+     * * `on` - on */
+    auto_quarantine_mode?: AutoQuarantineModeEnumApi | null
 }
 
 export interface UserBasicInfoApi {
