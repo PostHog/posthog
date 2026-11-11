@@ -752,9 +752,15 @@ class TestDeliverEvaluation(APIBaseTest):
 
             assert recipients._recipients == {SourceKind.LOGS: first}
 
-    @parameterized.expand([("with_the_sources_access_rule", True), ("without_an_access_rule", False)])
+    @parameterized.expand(
+        [
+            ("with_the_sources_access_rule", True, True, ["<user id>", "renamed@example.com"]),
+            ("without_an_access_rule", False, True, []),
+            ("before_the_rows_hold_subscribers", True, False, ["legacy@example.com"]),
+        ]
+    )
     def test_email_and_in_app_rows_reach_each_user_who_can_still_see_the_alert_at_their_current_address(
-        self, _name: str, source_has_rule: bool
+        self, _name: str, source_has_rule: bool, has_rows: bool, expected: list[str]
     ) -> None:
         configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             id=CONFIGURATION_ID,
@@ -769,7 +775,9 @@ class TestDeliverEvaluation(APIBaseTest):
         create_alert_destinations(
             team_id=self.team.id,
             configuration_id=configuration.id,
-            destinations=(
+            destinations=()
+            if not has_rows
+            else (
                 NewAlertDestination(
                     data={"type": DestinationType.EMAIL, "email_user_ids": user_ids},
                     event_kinds=(AlertEventKind.FIRING,),
@@ -782,6 +790,10 @@ class TestDeliverEvaluation(APIBaseTest):
         )
         self.user.email = "renamed@example.com"
         self.user.save()
+        # The group a source builds from its own subscriptions, which the rows replace once they name them.
+        legacy_subscribers = _group(
+            cast(AlertDestinationData, {"type": DestinationType.EMAIL, "email_addresses": ["legacy@example.com"]})
+        )
 
         def source_access(*, team_id: int, configuration_id: UUID, user_ids: list[int]) -> list[int]:
             return [user_id for user_id in user_ids if user_id != denied.id]
@@ -789,12 +801,12 @@ class TestDeliverEvaluation(APIBaseTest):
         with patch.dict(subscribers._access, {SourceKind.LOGS: source_access} if source_has_rule else {}, clear=True):
             self._run(
                 _announcement(_transition(AlertEventKind.FIRING)),
-                {},
+                {FIRING_EVENT: [legacy_subscribers]},
                 transports={DestinationType.EMAIL: EmailingTransport, DestinationType.IN_APP: NotifyingTransport},
             )
 
-        assert sorted(channel for channel, _ in RecordingTransport.sends) == (
-            [str(self.user.id), "renamed@example.com"] if source_has_rule else []
+        assert sorted(channel for channel, _ in RecordingTransport.sends) == sorted(
+            str(self.user.id) if channel == "<user id>" else channel for channel in expected
         )
 
 

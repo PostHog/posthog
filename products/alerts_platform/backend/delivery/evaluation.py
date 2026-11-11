@@ -51,6 +51,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NO_LATE_IMAGE,
     AlertDeliveryRequest,
     AlertDestinationData,
+    AlertDestinationGroup,
     AlertEventKind,
     AnnouncedTransition,
     DeliveryPath,
@@ -625,6 +626,8 @@ class _PlatformDestinations:
     owns_destinations: bool
     # Rows that copy a HogFunction that still exists. The HogFunction sends for them.
     copies: frozenset[str]
+    # Whether the rows name the alert's subscribers, so the source's own subscriber groups are not sent too.
+    holds_subscribers: bool
     # The addresses the source's own settings name, read once per delivery.
     recipients: tuple[str, ...]
     kind_by_event_id: dict[str, AlertEventKind]
@@ -650,6 +653,7 @@ def _platform_destinations(request: AlertDeliveryRequest) -> _PlatformDestinatio
         destinations=_with_subscribers_resolved(request, destinations),
         owns_destinations=owns_destinations,
         copies=frozenset() if owns_destinations else _copies_of_live_hog_functions(request.team_id, destinations),
+        holds_subscribers=any(_names_users(destination.data) for destination in destinations),
         # Recipients read messages only, so a delivery that only moves an incident skips the lookup.
         recipients=recipients.addresses(
             request.source, team_id=request.team_id, configuration_id=UUID(request.configuration_id)
@@ -691,6 +695,17 @@ def _with_subscribers_resolved(
     return tuple(resolved)
 
 
+def _names_users(data: AlertDestinationData) -> bool:
+    return data["type"] == DestinationType.IN_APP or (
+        data["type"] == DestinationType.EMAIL and "email_user_ids" in data
+    )
+
+
+def _is_subscriber_group(group: AlertDestinationGroup) -> bool:
+    """A group the source adds for its own subscribers rather than a HogFunction a person configured."""
+    return not group.hog_function_ids and group.data["type"] in _SUBSCRIBER_TYPES
+
+
 def _copies_of_live_hog_functions(team_id: int, destinations: tuple[StoredAlertDestination, ...]) -> frozenset[str]:
     """Read apart from the alert's destination lookup, which misses a HogFunction whose alert filter a
     person removed, while that function still hears every emitted event. A disabled HogFunction
@@ -719,6 +734,10 @@ def _destinations(
     HogFunctions it copies. The HogFunctions send until they are deleted, and the row is skipped.
     Native delivery already sends a stock HogFunction group, and a HogFunction that runs its own
     code hears every event the source emits, which no row can stop.
+
+    Subscribers move the other way: once the rows name them, the source's own subscriber groups
+    are left out. Both are decided from the rows this delivery read, so a backfill that lands in
+    between cannot leave a subscriber out of both.
     """
     rows = _platform_subscribers(event_id, platform_destinations)
     if platform_destinations.owns_destinations:
@@ -736,7 +755,7 @@ def _destinations(
                 receives_emitted_events=group.receives_emitted_events,
             )
             for group in groups
-            if group.fully_enabled
+            if group.fully_enabled and not (platform_destinations.holds_subscribers and _is_subscriber_group(group))
         ),
         *(row for row in rows if row.id not in platform_destinations.copies),
     ]
