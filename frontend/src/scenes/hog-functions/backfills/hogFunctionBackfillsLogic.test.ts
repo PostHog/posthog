@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import { createElement } from 'react'
 import { ToastContainer } from 'react-toastify'
 
@@ -8,6 +8,7 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 import { HogFunctionType } from '~/types'
 
+import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
 import { hogFunctionBackfillsLogic } from './hogFunctionBackfillsLogic'
 
 // Mock only the hogFunctions namespace on the default api export — replacing the module
@@ -105,6 +106,21 @@ describe('hogFunctionBackfillsLogic', () => {
         logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners().toMatchValues({ isReady: true, enableBackfillsFailed: false })
+    })
+
+    it('keeps unsaved configuration edits when enabling fails', async () => {
+        mockApi.get.mockResolvedValue(makeHogFunction())
+        mockApi.enableBackfills.mockRejectedValue(new Error('Network error'))
+        const configurationLogic = hogFunctionConfigurationLogic({ id: MOCK_HOG_FUNCTION_ID })
+        configurationLogic.mount()
+        await expectLogic(configurationLogic).toFinishAllListeners()
+        configurationLogic.actions.setConfigurationValues({ name: 'Edited destination' })
+
+        logic = hogFunctionBackfillsLogic({ id: MOCK_HOG_FUNCTION_ID })
+        logic.mount()
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ enableBackfillsFailed: true, configuration: partial({ name: 'Edited destination' }) })
     })
 
     it('does not call enableHogFunctionBackfills when batch_export_id is already set', async () => {

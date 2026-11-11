@@ -116,8 +116,11 @@ export const hogFunctionBackfillsLogic = kea<hogFunctionBackfillsLogicType>([
                 lemonToast.success('Backfills enabled for this destination.')
             } catch {
                 actions.enableHogFunctionBackfillsFailure()
-                actions.loadHogFunction()
                 lemonToast.error('Failed to enable backfills for this destination.')
+                const hogFunction = await api.hogFunctions.get(props.id).catch(() => null)
+                if (hogFunction?.batch_export_id) {
+                    actions.loadHogFunction()
+                }
             } finally {
                 actions.setLoading(false)
             }
