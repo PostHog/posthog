@@ -17,6 +17,7 @@ import { OVERVIEW_DAYS, contentAutopilotPromptsOverviewLogic } from './contentAu
 import { ContentAutopilotPromptsSearchTable } from './ContentAutopilotPromptsSearchTable'
 import { ContentAutopilotPromptsTopicTable } from './ContentAutopilotPromptsTopicTable'
 import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { ContentAutopilotVisibilityDashboardButton } from './ContentAutopilotVisibilityDashboardButton'
 import { POSITION_DESCRIPTION } from './promptReport'
 import { promptSourcesContext } from './promptReportColumns'
 import { brandedAnswersNote, engineLabel, segmentPrompts } from './utils'
@@ -55,7 +56,10 @@ export const ContentAutopilotPromptsOverview = (): JSX.Element => {
                     number is compared with the {OVERVIEW_DAYS} days before.
                 </p>
             </div>
-            <ContentAutopilotBrandedSegmentControl tab="overview" />
+            <div className="flex flex-wrap items-center gap-2">
+                <ContentAutopilotBrandedSegmentControl tab="overview" />
+                <ContentAutopilotVisibilityDashboardButton />
+            </div>
         </div>
     )
     if (!hasChecks && overview.branded_answers + overview.non_branded_answers > 0) {
