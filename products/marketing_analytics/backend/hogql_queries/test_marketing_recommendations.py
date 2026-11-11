@@ -5,7 +5,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    PER_RULE_LIMIT,
     SEARCH_CONSOLE_PERFORMANCE_URL,
+    Ad,
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
@@ -16,6 +18,8 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     brands_from_site_urls,
     recommend,
 )
+
+COPY = ("Product analytics for teams", "Understand your users")
 
 
 def _campaign(**overrides: object) -> CampaignStats:
@@ -501,6 +505,111 @@ class TestMarketingRecommendations(SimpleTestCase):
             if step.copyValue
         ] == expected_copy
         assert all(step.linkText and step.linkText in step.text for step in recs[0].steps or [] if step.url)
+
+    @parameterized.expand(
+        [
+            (
+                "unrelated_to_copy_and_keyword",
+                COPY,
+                10,
+                "analytics",
+                ["crm for dentist", "analytics pricing"],
+                'None of the main words in this search appear in the ads that showed on it or in the keyword "analytics".',
+            ),
+            (
+                "unrelated_to_copy_without_keyword_data",
+                COPY,
+                10,
+                None,
+                ["crm for dentist", "analytics pricing"],
+                "None of the main words in this search appear in the ads that showed on it.",
+            ),
+            ("ad_table_not_synced", (), 10, "analytics", ["analytics pricing", "crm for dentist"], None),
+            ("too_few_clicks", COPY, 3, "analytics", ["analytics pricing", "crm for dentist"], None),
+            (
+                "copy_mentions_the_plural",
+                ("CRM for dentists",),
+                10,
+                None,
+                ["analytics pricing", "crm for dentist"],
+                None,
+            ),
+            ("keyword_mentions_it", COPY, 10, "dental crm", ["analytics pricing", "crm for dentist"], None),
+            (
+                "keyword_insertion_without_keyword_data",
+                ("{KeyWord:Product analytics}",),
+                10,
+                None,
+                ["analytics pricing", "crm for dentist"],
+                None,
+            ),
+            (
+                "another_ad_group_that_showed_mentions_it",
+                COPY,
+                10,
+                None,
+                ["analytics pricing", "crm for dentist"],
+                None,
+                ("CRM for dentists",),
+            ),
+        ]
+    )
+    def test_spend_without_conversions_ranks_searches_unrelated_to_the_ads_first(
+        self,
+        _name: str,
+        copy: tuple[str, ...],
+        clicks: float,
+        keyword: str | None,
+        expected_order: list[str],
+        expected_reason_end: str | None,
+        other_group_copy: tuple[str, ...] | None = None,
+    ) -> None:
+        terms = (
+            replace(_term("crm for dentist", "c1", cost=240, conversions=0, clicks=clicks), ad_group_ids=("ag1",)),
+            replace(_term("crm for dentist", "c2", cost=10, conversions=0, clicks=0), ad_group_ids=("ag2",)),
+            replace(_term("analytics pricing", "c1", cost=400, conversions=0), ad_group_ids=("ag1",)),
+            replace(_term("product analytics", "c1", cost=350, conversions=10), ad_group_ids=("ag1",)),
+        )
+        keywords = (
+            (TermKeywordStats(term="crm for dentist", keyword=keyword, match_type="BROAD", cost=250),)
+            if keyword
+            else ()
+        )
+        ads = (Ad(ad_group_id="ag1", texts=copy), Ad(ad_group_id="ag2", texts=other_group_copy or copy)) if copy else ()
+
+        recs = [
+            rec
+            for rec in recommend(replace(_inputs((_campaign(),), terms, term_keywords=keywords), ads=ads))
+            if rec.rule == "spend_without_conversions"
+        ]
+
+        assert [rec.subject for rec in recs] == expected_order
+        unrelated = next(rec for rec in recs if rec.subject == "crm for dentist")
+        if expected_reason_end:
+            assert unrelated.reason.endswith(f"with no conversions. {expected_reason_end}")
+        else:
+            assert unrelated.reason.endswith("with no conversions")
+
+    def test_unrelated_searches_go_first_only_among_the_costliest_wasted_searches(self) -> None:
+        unrelated = tuple(
+            replace(_term(f"dentist {i}", "c1", cost=210 + i, conversions=0), ad_group_ids=("ag1",))
+            for i in range(PER_RULE_LIMIT)
+        )
+        terms = (
+            *unrelated,
+            replace(_term("analytics pricing", "c1", cost=3000, conversions=0), ad_group_ids=("ag1",)),
+            replace(_term("product analytics", "c1", cost=350, conversions=10), ad_group_ids=("ag1",)),
+        )
+        ads = (Ad(ad_group_id="ag1", texts=COPY),)
+
+        recs = [
+            rec.subject
+            for rec in recommend(replace(_inputs((_campaign(),), terms), ads=ads))
+            if rec.rule == "spend_without_conversions"
+        ]
+
+        assert len(recs) == PER_RULE_LIMIT
+        assert recs[-1] == "analytics pricing"
 
     @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
     def test_spend_without_conversions_skips_campaigns_that_do_not_serve(

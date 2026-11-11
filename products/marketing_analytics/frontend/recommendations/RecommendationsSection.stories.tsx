@@ -108,6 +108,15 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
     }),
     recommendation({
         rule: 'spend_without_conversions',
+        subject: 'spreadsheet templates',
+        campaign: 'Search - Generic',
+        action: 'Add it as a negative, or change the keyword "dashboard software" from broad to exact match',
+        reason: 'Spent $380 (2.5x the campaign\'s non-brand CPA) on 95 clicks with no conversions. None of the main words in this search appear in the ads that showed on it or in the keyword "dashboard software".',
+        impact: 380,
+        cpa: cpa(null, 150, 'campaign'),
+    }),
+    recommendation({
+        rule: 'spend_without_conversions',
         subject: 'free analytics template',
         campaign: 'Search - Generic',
         action: 'Add it as a negative, or change the keyword "analytics template" from broad to exact match',
@@ -134,15 +143,6 @@ const RESULTS: MarketingAnalyticsRecommendation[] = [
                 linkText: 'Keywords',
             },
         ],
-    }),
-    recommendation({
-        rule: 'spend_without_conversions',
-        subject: 'dashboard software jobs',
-        campaign: 'Search - Generic',
-        action: 'Add it as a negative, or change the keyword "dashboard software" from phrase to exact match',
-        reason: "Spent $380 (2.5x the campaign's non-brand CPA) on 95 clicks with no conversions",
-        impact: 380,
-        cpa: cpa(null, 150, 'campaign'),
     }),
     recommendation({
         rule: 'brand_overlap',
@@ -357,7 +357,7 @@ const SOURCES_WITH_GAPS = [
         'GoogleAds',
         'example',
         ['campaign', 'campaign_stats', 'customer', 'search_term_stats'],
-        ['search_term_keyword_stats', 'campaign_impression_share_stats']
+        ['search_term_keyword_stats', 'ad', 'campaign_impression_share_stats']
     ),
     SOURCES[1],
 ]

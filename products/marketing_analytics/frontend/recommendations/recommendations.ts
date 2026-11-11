@@ -188,6 +188,11 @@ const DATA_GAP_TABLES: Omit<RecommendationDataGap, 'sourceId' | 'sourceName'>[] 
         rules: ['spend_without_conversions'],
     },
     {
+        table: 'ad',
+        purpose: 'see which search terms that waste spend have nothing to do with your ad copy.',
+        rules: ['spend_without_conversions'],
+    },
+    {
         table: 'campaign_impression_share_stats',
         purpose: 'tell budget limits from ad rank limits.',
         rules: ['budget_constrained', 'scale_campaign'],
@@ -226,6 +231,7 @@ export function recommendationsSource(source: ExternalDataSource): MarketingAnal
             searchTermTable: syncedTable(source, 'search_term_stats'),
             searchTermKeywordTable: syncedTable(source, 'search_term_keyword_stats'),
             performanceMaxSearchTermTable: syncedTable(source, 'performance_max_search_term_stats'),
+            adTable: syncedTable(source, 'ad'),
         }
     }
     if (source.source_type === 'GoogleSearchConsole') {

@@ -39290,6 +39290,10 @@
         "MarketingAnalyticsRecommendationsSource": {
             "additionalProperties": false,
             "properties": {
+                "adTable": {
+                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "type": "string"
+                },
                 "campaignConversionActionTable": {
                     "description": "Google Ads daily campaign conversions split by conversion action.",
                     "type": "string"

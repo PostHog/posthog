@@ -7117,6 +7117,10 @@ class MarketingAnalyticsRecommendationsSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    adTable: str | None = Field(
+        default=None,
+        description="Google Ads ad table, used to read the ad copy of each ad group.",
+    )
     campaignConversionActionTable: str | None = Field(
         default=None,
         description="Google Ads daily campaign conversions split by conversion action.",
