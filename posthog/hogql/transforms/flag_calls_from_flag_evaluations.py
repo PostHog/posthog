@@ -328,7 +328,7 @@ def _resolve_with_swaps(
             if view_name is None:
                 context.flag_called_union_spans.update(union.literal_spans)
             if swapper.swapped:
-                context.flag_call_reads.add("flag_evaluations")
+                context.flag_calls_read.add("flag_evaluations")
             return FlagCallSwap(source=rewritten, resolved=swapped)
     if only_in_flag_evaluations:
         # events gets no new flag calls, so the original query would return only calls from before the move.

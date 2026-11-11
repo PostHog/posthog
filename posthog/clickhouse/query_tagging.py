@@ -411,6 +411,9 @@ def is_known_product_tag(value: str) -> bool:
     return value in _PRODUCT_TAG_VALUES
 
 
+FlagCallsRead = Literal["flag_evaluations", "union"]
+
+
 class QueryTags(BaseModel):
     team_id: Optional[int] = None
     user_id: Optional[int] = None
@@ -579,7 +582,7 @@ class QueryTags(BaseModel):
 
     # The HogQL rewrites that moved this query's flag calls to `posthog.flag_evaluations`: "flag_evaluations" for a
     # scan that reads that table instead of `events`, and "union" for a scan that reads both tables with UNION ALL.
-    flag_calls_read: Optional[list[str]] = None
+    flag_calls_read: Optional[list[FlagCallsRead]] = None
 
     trend_volume_type: Optional[str] = None
 

@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from posthog.hogql.transforms.property_types import PropertySwapper
 
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
+    from posthog.clickhouse.query_tagging import FlagCallsRead
     from posthog.models import Team, User
     from posthog.scopes import APIScopeObject
 
@@ -188,7 +189,7 @@ class HogQLContext:
     flag_called_union_spans: set[tuple[int, int]] = field(default_factory=set)
     # How this query reads flag calls from `posthog.flag_evaluations`: "flag_evaluations" when a scan moved to that
     # table, and "union" when a scan reads `posthog.events_with_flag_calls`. `read_tags` reports it to ClickHouse.
-    flag_call_reads: set[str] = field(default_factory=set)
+    flag_calls_read: set["FlagCallsRead"] = field(default_factory=set)
 
     # Backend-only opt-in for transforms/events_read_in_order.py. The prefix is slower when the range is short or
     # the filter is selective, so set it only for a query shape that was measured to be faster with it.
@@ -264,7 +265,7 @@ class HogQLContext:
         self.referenced_saved_query_ids.clear()
         self.referenced_warehouse_table_ids.clear()
         self.directly_read_ids.clear()
-        self.flag_call_reads.clear()
+        self.flag_calls_read.clear()
 
     def read_tags(self) -> dict[str, list[str] | None]:
         reads_warehouse_object = bool(self.referenced_saved_query_ids or self.referenced_warehouse_table_ids)
@@ -272,7 +273,7 @@ class HogQLContext:
             "saved_query_ids": sorted(self.referenced_saved_query_ids) or None,
             "warehouse_table_ids": sorted(self.referenced_warehouse_table_ids) or None,
             "directly_read_ids": (sorted(self.directly_read_ids) or None) if reads_warehouse_object else None,
-            "flag_calls_read": sorted(self.flag_call_reads) or None,
+            "flag_calls_read": sorted(self.flag_calls_read) or None,
         }
 
     @contextmanager

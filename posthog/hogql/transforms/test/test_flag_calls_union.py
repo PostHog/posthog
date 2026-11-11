@@ -1667,6 +1667,12 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ),
             ("inline_cohort", ONLY, "SELECT id FROM persons WHERE id IN COHORT {cohort}", ["union"]),
             ("no_flag_calls", ONLY, "SELECT count() FROM events WHERE event = '$pageview'", None),
+            (
+                "declined_union",
+                READ,
+                f"SELECT properties.a.b, properties.a___b FROM events WHERE {MIXED}",
+                None,
+            ),
         ]
     )
     def test_log_comment_names_the_rewrites_that_read_flag_calls(
