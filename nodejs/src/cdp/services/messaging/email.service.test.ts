@@ -1427,6 +1427,44 @@ describe('EmailService', () => {
                 TRANSACTIONAL_EMAIL_EVENT,
                 { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
             ],
+            [
+                'a transactional email from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_id: '0190e3a1-aaaa-7000-8000-00000000abcd',
+                },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome_v2' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                {
+                    ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/),
+                    ph_email_status: 'true',
+                    ph_template_key: 'welcome_v2',
+                },
+            ],
+            [
+                'a code send by a key longer than an SES tag allows',
+                { template_key: 'k'.repeat(257) },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a transactional email whose template id SES would reject',
+                { template_uuid: 'not a tag value' },
+                TRANSACTIONAL_EMAIL_EVENT,
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/), ph_email_status: 'true' },
+            ],
+            [
+                'a workflow email made from a template',
+                { template_uuid: '0190e3a1-aaaa-7000-8000-00000000abcd' },
+                '$pageview',
+                { ph_id: expect.stringMatching(/^[A-Za-z0-9_-]+$/) },
+            ],
         ])('should send an email if verified, for %s', async (_name, extraMetadata, triggerEvent, expectedTags) => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional', ...extraMetadata }
             invocation.state.globals.event.event = triggerEvent
