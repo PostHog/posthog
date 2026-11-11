@@ -27,51 +27,51 @@ use common_types::TeamId;
 /// `/flags` path against stack overflow from an adversarially deep filter tree.
 const MAX_COHORT_FILTER_DEPTH: usize = 64;
 
-/// Cohorts already warned about by `record_malformed_cohort_filter` or
-/// `record_unknown_cohort_membership`, so a persistently failing cohort on the hot
-/// `/flags` path logs its identifying context once per process lifetime instead of
-/// flooding logs on every request.
-static WARNED_MALFORMED_COHORTS: Lazy<Mutex<HashSet<(TeamId, CohortId)>>> =
+/// Cohorts already warned about by `warn_once`, keyed by the failure, so a persistently
+/// failing cohort on the hot `/flags` path logs each kind of failure once per process
+/// lifetime instead of flooding logs on every request.
+static WARNED_FAILING_COHORTS: Lazy<Mutex<HashSet<CohortFailureKey>>> =
     Lazy::new(|| Mutex::new(HashSet::new()));
+
+type CohortFailureKey = (TeamId, CohortId, &'static str);
+
+/// Logs `message` at `warn` the first time `failure` happens for a cohort. The failure
+/// counters are unlabeled (cardinality), so this log is the only place the cohort and
+/// team ids are recorded.
+fn warn_once(cohort_id: CohortId, team_id: TeamId, failure: &'static str, message: &str) {
+    let mut warned = WARNED_FAILING_COHORTS.lock().unwrap();
+    if warned.insert((team_id, cohort_id, failure)) {
+        tracing::warn!(cohort_id, team_id, "{message}");
+    }
+}
 
 /// Logs and counts a cohort whose filters failed dependency extraction or evaluation
 /// with `CohortFiltersParsingError` (malformed leaf, excessive nesting, or other
 /// structural error surfaced by `traverse_group`/`evaluate_group`).
-///
-/// The counter is unlabeled (cardinality), so this log is the only place the cohort
-/// and team ids are recorded; it's deduped per cohort so it stays visible at `warn`
-/// without flooding logs when the same cohort keeps failing.
-fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &str) {
+fn record_malformed_cohort_filter(cohort_id: CohortId, team_id: TeamId, phase: &'static str) {
     common_metrics::inc(COHORT_MALFORMED_FILTER_COUNTER, &[], 1);
-
-    let mut warned = WARNED_MALFORMED_COHORTS.lock().unwrap();
-    if warned.insert((team_id, cohort_id)) {
-        tracing::warn!(
-            cohort_id,
-            team_id,
-            "Cohort filters contain a malformed or unparsable leaf; failing {phase}"
-        );
-    }
+    warn_once(
+        cohort_id,
+        team_id,
+        phase,
+        &format!("Cohort filters contain a malformed or unparsable leaf; failing {phase}"),
+    );
 }
 
 /// Logs and counts a requested cohort whose membership stayed unknown because an
 /// unsupported group, possibly inside a referenced cohort, was not decided by a sibling.
-/// The log is deduped per cohort for the same reason as `record_malformed_cohort_filter`.
 fn record_unknown_cohort_membership(cohort_id: CohortId, team_id: TeamId) {
     common_metrics::inc(COHORT_UNKNOWN_MEMBERSHIP_COUNTER, &[], 1);
-
-    let mut warned = WARNED_MALFORMED_COHORTS.lock().unwrap();
-    if warned.insert((team_id, cohort_id)) {
-        tracing::warn!(
-            cohort_id,
-            team_id,
-            "Cohort membership is unknown because of an unsupported group, possibly in a referenced cohort; failing evaluation"
-        );
-    }
+    warn_once(
+        cohort_id,
+        team_id,
+        "unknown membership",
+        "Cohort membership is unknown because of an unsupported group, possibly in a referenced cohort; failing evaluation",
+    );
 }
 
 /// Cohorts already warned about by `record_stamp_policy_divergence`, deduped as
-/// `WARNED_MALFORMED_COHORTS` above is. An `RwLock` because divergence is common rather
+/// `WARNED_FAILING_COHORTS` above is. An `RwLock` because divergence is common rather
 /// than exceptional, so past the first warn every request takes only the read side.
 static WARNED_DIVERGENT_COHORTS: Lazy<RwLock<HashSet<(TeamId, CohortId)>>> =
     Lazy::new(|| RwLock::new(HashSet::new()));
