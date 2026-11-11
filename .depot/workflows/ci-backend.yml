@@ -321,6 +321,11 @@ jobs:
                         # backend:mcp-surface task). Add a manifest here only with that wiring.
                         - products/feature_flags/mcp/tools.yaml
                         - products/tasks/mcp/tools.yaml
+                        # The message normalizer tests read the case file shared with the frontend and the
+                        # frontend's copies of the bundled recipes. Both are turbo inputs of ai_observability's
+                        # backend:test, in products/ai_observability/turbo.json.
+                        - 'products/ai_observability/shared/**'
+                        - 'packages/llm-normalizer/src/normalizer/recipe/default_recipes/**'
                         - 'products/canvas/packages/canvas_builder/**'
                         - bin/build-schema-latest-versions.py
                         - bin/check_uv_python_compatibility.py
@@ -596,10 +601,8 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'products/*/mcp/prompts/**/*.md'
                         - 'services/mcp/schema/tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-all.json'
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'

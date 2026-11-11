@@ -5533,6 +5533,7 @@ const api = {
             data: Partial<DataWarehouseSavedQuery> & {
                 types?: string[][]
                 edited_history_id?: string
+                acknowledge_breaking_changes?: boolean
             }
         ): Promise<DataWarehouseSavedQuery> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).update({ data })

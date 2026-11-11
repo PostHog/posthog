@@ -8,7 +8,7 @@ import httpx
 
 from .check import run_merge_check
 from .judge import judge_client
-from .sources import GitHubReader, LandedChange, PersonalTokenGitHub, read_github
+from .sources import GitHubReader, LandedChange, PersonalTokenGitHub, landed_change, read_closed_pull_requests
 
 MAX_RECENT_MERGES = 100
 
@@ -24,7 +24,11 @@ def replay_command(arguments: argparse.Namespace) -> int:
             else read_merges(arguments.merges)
         )
         for merge in merges:
-            change = LandedChange(repository=arguments.repository, after=merge["commit_sha"])
+            change = LandedChange(
+                repository=arguments.repository,
+                after=merge["commit_sha"],
+                pull_request_number=merge["pull_request_number"],
+            )
             with judge_client(merge["commit_sha"]) as anthropic_client:
                 report = run_merge_check(
                     change,
@@ -42,17 +46,20 @@ def replay_command(arguments: argparse.Namespace) -> int:
 
 
 def read_merges(merges_path: Path) -> list[dict]:
-    return [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
+    merges = [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
+    if any("pull_request_number" not in merge for merge in merges):
+        raise SystemExit(f"every row of {merges_path} needs commit_sha and pull_request_number")
+    return merges
 
 
 def recent_merges(github: GitHubReader, repository: str, count: int) -> list[dict]:
-    response = read_github(
-        github,
-        f"/repos/{repository}/commits",
-        endpoint="/repos/{owner}/{repo}/commits",
-        params={"per_page": count},
-    )
-    return [{"commit_sha": commit["sha"]} for commit in response.json()]
+    closed_pull_requests = read_closed_pull_requests(github, repository, page=1, per_page=count)
+    changes = (landed_change(repository, pull_request) for pull_request in closed_pull_requests)
+    return [
+        {"commit_sha": change.after, "pull_request_number": change.pull_request_number}
+        for change in changes
+        if change is not None
+    ]
 
 
 def recent_merge_count(value: str) -> int:
@@ -69,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     merge_source = replay.add_mutually_exclusive_group(required=True)
     merge_source.add_argument("merges", type=Path, nargs="?")
     merge_source.add_argument(
-        "--recent", type=recent_merge_count, help="replay the last N merges to the repository's default branch"
+        "--recent", type=recent_merge_count, help="replay the merged pull requests among the last N closed ones"
     )
     replay.add_argument("--repository", default="PostHog/posthog", help="owner/name of the merged repository")
     replay.set_defaults(handler=replay_command)

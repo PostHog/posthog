@@ -695,24 +695,11 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+# Retired product. The app keeps its models and migration history (other apps' squash
+# migrations depend on it) until a later migration drops its tables.
 path = "products.mcp_registry"
-depends_on = [
-    "posthog",
-    # Facade-only (enforced by mcp_registry's [[interfaces]] block): the measured-server
-    # aggregation reads new-SDK $mcp_tool_call grouping rules through mcp_analytics' facade.
-    "products.mcp_analytics",
-]
+depends_on = ["posthog"]
 layer = "modules"
-
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-    "backend\\.routes.*",
-]
-from = [
-    "products.mcp_registry",
-]
 
 [[modules]]
 path = "products.mcp_store"
