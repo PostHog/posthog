@@ -32,6 +32,7 @@ import { CatalogDataQualitySection } from './dataQuality/CatalogDataQualitySecti
 import { CatalogMetricsSection } from './metrics/CatalogMetricsSection'
 import { CatalogRelationshipsSection } from './relationships/CatalogRelationshipsSection'
 import { relationshipsLogic } from './relationshipsLogic'
+import { CatalogSuggestionsSection } from './suggestions/CatalogSuggestionsSection'
 import { CatalogTablesSection } from './tables/CatalogTablesSection'
 import { WarehouseAccessGate } from './WarehouseAccessGate'
 
@@ -41,6 +42,7 @@ const OVERFLOW_BREAKPOINTS: { showTab: string; hideMoreButton: string }[] = [
     { showTab: 'hidden @lg:flex', hideMoreButton: '@lg:hidden' },
     { showTab: 'hidden @xl:flex', hideMoreButton: '@xl:hidden' },
     { showTab: 'hidden @2xl:flex', hideMoreButton: '@2xl:hidden' },
+    { showTab: 'hidden @3xl:flex', hideMoreButton: '@3xl:hidden' },
 ]
 
 const SECTION_LABELS: Record<DataCatalogTab, string> = {
@@ -52,9 +54,10 @@ const SECTION_LABELS: Record<DataCatalogTab, string> = {
     'data-quality': 'Data quality',
     certifications: 'Certifications',
     usage: 'Usage',
+    suggestions: 'Suggestions',
 }
 
-const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage']
+const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'data-quality', 'usage', 'suggestions']
 
 const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
@@ -64,6 +67,7 @@ const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     relationships: CatalogRelationshipsSection,
     'data-quality': CatalogDataQualitySection,
     usage: CatalogUsageSection,
+    suggestions: CatalogSuggestionsSection,
 }
 
 function SceneActions(): JSX.Element {

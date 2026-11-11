@@ -373,11 +373,18 @@ export function notNowCondition(kind: string): string {
     return NOT_NOW_CONDITIONS[kind] ?? 'Suggested again if the case for it grows a lot.'
 }
 
-export function certificationSummaryText(suggestions: WarehouseSuggestionApi[]): string {
-    const certify = suggestions.filter((suggestion) => suggestion.kind === 'certify').length
-    const deprecate = suggestions.filter((suggestion) => suggestion.kind === 'deprecate').length
-    return [certify > 0 ? `${certify} to certify` : null, deprecate > 0 ? `${deprecate} to mark deprecated` : null]
-        .filter(Boolean)
+const KIND_COUNT_LABELS: Record<string, string> = {
+    materialize: 'to materialize',
+    unmaterialize: 'to stop materializing',
+    certify: 'to certify',
+    deprecate: 'to mark deprecated',
+}
+
+export function suggestionCountsText(suggestions: WarehouseSuggestionApi[]): string {
+    return Object.entries(KIND_COUNT_LABELS)
+        .map(([kind, label]) => [suggestions.filter((suggestion) => suggestion.kind === kind).length, label] as const)
+        .filter(([count]) => count > 0)
+        .map(([count, label]) => `${count} ${label}`)
         .join(' · ')
 }
 
@@ -481,6 +488,11 @@ export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; descripti
     unmaterialize: {
         title: 'Stop materializing',
         description: 'These views cost more to refresh than to run on each read.',
+    },
+    certify: {
+        title: 'Certify',
+        description: 'People read these often. Certify them so others know they can trust them.',
+        showsSaving: false,
     },
     deprecate: {
         title: 'Mark deprecated',

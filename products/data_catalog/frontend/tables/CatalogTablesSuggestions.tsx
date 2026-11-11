@@ -1,34 +1,28 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { urls } from 'scenes/urls'
 
-import { modelsOverviewLogic } from 'products/data_modeling/frontend/modelsOverviewLogic'
-import { SuggestedCertificationsTable } from 'products/warehouse_suggestions/frontend/components/SuggestedCertificationsTable'
-import { SuggestedModelsStrip } from 'products/warehouse_suggestions/frontend/components/SuggestedModelsStrip'
+import { QuillSuggestionsBanner } from 'products/warehouse_suggestions/frontend/components/QuillSuggestionsBanner'
+import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
 
-import { certificationsLogic } from '../certificationsLogic'
+import { catalogSuggestionsLogicProps } from '../suggestions/catalogSuggestionsLogicProps'
+
+function ActiveSuggestionsBanner(): JSX.Element | null {
+    const { stripState } = useValues(warehouseSuggestionsLogic)
+    return stripState === 'active' ? <QuillSuggestionsBanner reviewTo={urls.dataCatalog('suggestions')} /> : null
+}
 
 export function CatalogTablesSuggestions(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    const { loadNodes, loadDataWarehouseSavedQueries } = useActions(modelsOverviewLogic)
-    const { loadCertifications } = useActions(certificationsLogic)
-    const { loadDatabase } = useActions(databaseTableListLogic)
 
     if (!featureFlags[FEATURE_FLAGS.WAREHOUSE_SUGGESTIONS]) {
         return null
     }
-    const reloadRows = (): void => {
-        loadDatabase({ force: true })
-        loadNodes()
-        loadDataWarehouseSavedQueries()
-        loadCertifications()
-    }
     return (
-        <>
-            <SuggestedModelsStrip placement="tables_tab" onAccepted={reloadRows} />
-            <SuggestedCertificationsTable onAccepted={reloadRows} />
-        </>
+        <BindLogic logic={warehouseSuggestionsLogic} props={catalogSuggestionsLogicProps('tables_tab')}>
+            <ActiveSuggestionsBanner />
+        </BindLogic>
     )
 }

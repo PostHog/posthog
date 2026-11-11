@@ -197,10 +197,10 @@ describe('warehouseSuggestionsLogic', () => {
     }
 
     async function mountLogic(
-        surface: SuggestionSurface = 'models',
+        surface: SuggestionSurface | null = 'models',
         onViewAccepted?: (suggestion: WarehouseSuggestionApi) => void
     ): Promise<void> {
-        logic = warehouseSuggestionsLogic({ surface, onViewAccepted })
+        logic = warehouseSuggestionsLogic({ surface: surface ?? undefined, onViewAccepted })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadSuggestionsSuccess', 'loadStatusSuccess'])
     }
@@ -534,7 +534,7 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.incrementalCheck?.key_candidates).toEqual(['day'])
     })
 
-    it.each<[SuggestionSurface, WarehouseSuggestionApi[], string[]]>([
+    it.each<[SuggestionSurface | null, WarehouseSuggestionApi[], string[]]>([
         [
             'models',
             [
@@ -547,12 +547,13 @@ describe('warehouseSuggestionsLogic', () => {
         ],
         ['models', [DEPRECATE, unmaterialize('scan-led', 0, 0)], ['scan-led', DEPRECATE.id]],
         ['catalog', [certification('old', 'deprecate'), certification('used', 'certify')], ['used', 'old']],
+        [null, [certification('used', 'certify'), materialize('time-big', 2400)], ['time-big', 'used']],
     ])('orders %s suggestions by kind, then by what they are worth', async (surface, results, expectedOrder) => {
         mockList.mockResolvedValue(page(results))
 
         await mountLogic(surface)
 
-        expect(mockList).toHaveBeenCalledWith(expect.any(String), { status: 'proposed', surface })
+        expect(mockList).toHaveBeenCalledWith(expect.any(String), { status: 'proposed', surface: surface ?? undefined })
         expect(logic.values.surfaceSuggestions.map((suggestion) => suggestion.id)).toEqual(expectedOrder)
     })
 
@@ -622,6 +623,24 @@ describe('warehouseSuggestionsLogic', () => {
             jest.advanceTimersByTime(ROW_LEAVE_MS)
 
             expect(logic.values.listedSuggestions.map((suggestion) => suggestion.id)).toEqual(['b'])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('drops an accepted view deprecation from the banner count and the list together on the all-kinds instance', async () => {
+        jest.useFakeTimers()
+        try {
+            mockList.mockResolvedValue(page([DEPRECATE, materialize('a', 1800)]))
+            mockAccept.mockResolvedValue({ ...DEPRECATE, status: 'accepted' })
+            await mountLogic(null)
+
+            logic.actions.acceptSuggestion(DEPRECATE.id)
+            await expectLogic(logic).toDispatchActions(['suggestionAccepted'])
+            jest.advanceTimersByTime(ROW_LEAVE_MS)
+
+            expect([logic.values.unusedViewCount, logic.values.surfaceSuggestions.length]).toEqual([0, 1])
+            expect(logic.values.suggestionGroups.map((group) => group.kind)).toEqual(['materialize'])
         } finally {
             jest.useRealTimers()
         }
