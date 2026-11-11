@@ -38,7 +38,8 @@ from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_querie
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import MAX_DATE_BUCKETS, QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.timestamp_utils import UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
 from posthog.utils import get_safe_cache, safe_cache_set
@@ -193,14 +194,6 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             )
 
         self.date_range = self._get_date_range()
-        # _fill_date_gaps builds one row per day and variant, so a crafted window would allocate millions of rows.
-        if self.date_range.date_from and self.date_range.date_to:
-            window_days = (
-                datetime.fromisoformat(self.date_range.date_to).date()
-                - datetime.fromisoformat(self.date_range.date_from).date()
-            ).days + 1
-            if window_days * max(len(self.variants), 1) > MAX_DATE_BUCKETS:
-                raise ValidationError("This date range is too long to show daily exposures. Choose a shorter range.")
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
@@ -628,8 +621,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         if not date_range.date_from:
             return []
 
-        start_date = datetime.fromisoformat(date_range.date_from).date()
-        end_date = datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date()
+        # The query window comes from the request, so a crafted start_date or end_date could make this loop allocate
+        # millions of rows. No event is older than the floor, and tomorrow in UTC covers today in every timezone.
+        start_date = max(
+            datetime.fromisoformat(date_range.date_from).date(), UNFILTERED_EARLIEST_TIMESTAMP_FLOOR.date()
+        )
+        end_date = min(
+            datetime.fromisoformat(date_range.date_to).date() if date_range.date_to else datetime.now().date(),
+            datetime.now(UTC).date() + timedelta(days=1),
+        )
 
         result_dict = {}
         variants = set(self.variants)

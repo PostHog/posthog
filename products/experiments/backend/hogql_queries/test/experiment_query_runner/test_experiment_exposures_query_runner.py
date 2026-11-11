@@ -1,6 +1,6 @@
 import re
 from contextlib import nullcontext
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -136,13 +136,32 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("ten_year_window", "2015-01-01T00:00:00+00:00", "2025-01-01T00:00:00+00:00", False),
-            ("start_in_year_one", "0001-01-01T00:00:00+00:00", "2024-01-31T00:00:00+00:00", True),
-            ("end_in_year_9999", "2024-01-01T00:00:00+00:00", "9999-12-31T00:00:00+00:00", True),
+            (
+                "window_in_range",
+                "2024-01-01T00:00:00+00:00",
+                "2024-01-10T00:00:00+00:00",
+                date(2024, 1, 1),
+                date(2024, 1, 10),
+            ),
+            (
+                "start_in_year_one",
+                "0001-01-01T00:00:00+00:00",
+                "2024-01-10T00:00:00+00:00",
+                date(2015, 1, 1),
+                date(2024, 1, 10),
+            ),
+            (
+                "end_in_year_9999",
+                "2024-01-01T00:00:00+00:00",
+                "9999-12-31T00:00:00+00:00",
+                date(2024, 1, 1),
+                date(2024, 1, 16),
+            ),
         ]
     )
-    def test_window_too_long_is_a_validation_error(
-        self, _name: str, start_date: str, end_date: str, rejected: bool
+    @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
+    def test_fill_date_gaps_stays_within_the_event_floor_and_tomorrow(
+        self, _name: str, start_date: str, end_date: str, first_day: date, last_day: date
     ) -> None:
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
@@ -153,12 +172,13 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             end_date=end_date,
             exposure_criteria=None,
         )
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        if rejected:
-            with self.assertRaises(ValidationError):
-                ExperimentExposuresQueryRunner(team=self.team, query=query)
-        else:
-            ExperimentExposuresQueryRunner(team=self.team, query=query)
+        rows = runner._fill_date_gaps([])
+
+        days = sorted({day for day, _, _ in rows})
+        assert (days[0], days[-1]) == (first_day, last_day)
+        assert len(rows) == len(days) * len(runner.variants)
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_exposure_query_resolves_soft_deleted_feature_flag_key(self):
