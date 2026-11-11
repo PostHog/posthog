@@ -660,7 +660,11 @@ def _is_finished_condition(condition: Any) -> bool:
         Property(**condition)
     except (PropertyValidationError, exceptions.ValidationError, TypeError):
         return False
-    return condition.get("value") != [] or condition.get("operator") in VALUELESS_OPERATORS
+    return (
+        condition.get("value") != []
+        or condition.get("operator") in VALUELESS_OPERATORS
+        or condition.get("type") == "hogql"
+    )
 
 
 def _has_unfinished_condition(conditions: Any) -> bool:
