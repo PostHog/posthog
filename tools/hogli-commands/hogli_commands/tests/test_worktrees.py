@@ -102,10 +102,10 @@ if tool == "coder" and args == ["users", "show", "me", "--output", "json"]:
     print(json.dumps({"username": "test-user"}))
 elif tool == "coder" and args == ["list", "--output", "json"]:
     print(json.dumps(state["workspaces"]))
-elif tool == "coder" and args[:1] in (["stop"], ["delete"]) and args[2:] == ["--yes"]:
+elif tool == "coder" and args[:1] == ["delete"] and args[2:] == ["--yes"]:
     if not any(w["name"] == args[1] for w in state["workspaces"]):
         sys.exit(1)
-    state["workspaces"] = [w for w in state["workspaces"] if args[0] == "stop" or w["name"] != args[1]]
+    state["workspaces"] = [w for w in state["workspaces"] if w["name"] != args[1]]
     save(args)
 elif tool == "mutagen" and args[:2] == ["sync", "list"] and "--label-selector" in args:
     print(json.dumps(selected(state["sessions"], args[args.index("--label-selector") + 1])))
@@ -1056,7 +1056,7 @@ class TestWorktreeBoxes:
             ("worktree-removed", True),
             ("mirror-wrote-the-folder-back", True),
             ("git-dir-gone", True),
-            ("recreated-with-another-id", True),
+            ("recreated-at-the-path-to-take-over-the-box", False),
         ],
     )
     def test_prune_deletes_the_box_once_its_folder_no_longer_holds_the_worktree(
@@ -1089,9 +1089,8 @@ class TestWorktreeBoxes:
         if change == "git-dir-gone":
             git(repo, "worktree", "add", "-q", str(worktree), "feature")
             shutil.rmtree(admin)
-        if change == "recreated-with-another-id":
+        if change == "recreated-at-the-path-to-take-over-the-box":
             git(repo, "worktree", "add", "-q", str(worktree), "feature")
-            devbox_config.ensure_worktree_id(admin)
         monkeypatch.chdir(repo)
 
         result = CliRunner().invoke(cli, ["devbox:worktree:prune", "--delete"])

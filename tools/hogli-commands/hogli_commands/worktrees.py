@@ -617,18 +617,21 @@ def _boxes_of_removed_worktrees(
     The admin directory in the shared git dir survives a `git worktree move`,
     and Claude Code deletes a worktree's folder without it. So a worktree
     counts as removed when its admin directory is gone, or when `git worktree
-    prune` would delete that directory, unless its registered folder still
-    links to it. A folder that a sync mirror wrote back after the worktree was
-    removed has no `.git` link of its own, so it does not keep the box.
+    prune` would delete that directory. A record without a worktree ID cannot
+    tell its admin directory from a reused one, so any directory at that path
+    counts as its own. Its registered folder keeps the box only while it holds a
+    live worktree: a sync mirror can write the files back without `.git` after
+    the worktree is removed.
     """
     if repo_common is None:
         return []
     boxes: list[WorktreeBox] = []
     for path, record in registry.items():
         admin_dir = Path(record.git_dir)
-        worktree_is_live = _is_its_admin_dir(record, admin_dir) and not _git_would_prune(admin_dir)
+        admin_dir_is_its_own = record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
+        worktree_is_live = admin_dir_is_its_own and not _git_would_prune(admin_dir)
         if (
-            _still_holds_its_worktree(Path(path), record)
+            _holds_a_worktree(Path(path))
             or worktree_is_live
             or _resolve(admin_dir.parent.parent) != _resolve(repo_common)
         ):
@@ -639,14 +642,10 @@ def _boxes_of_removed_worktrees(
     return boxes
 
 
-def _is_its_admin_dir(record: WorktreeBoxRecord, admin_dir: Path) -> bool:
-    """A record without a worktree ID cannot tell its admin directory from a reused one, so any directory counts."""
-    return record.tracks_worktree(admin_dir) if record.worktree_id else admin_dir.exists()
-
-
-def _still_holds_its_worktree(path: Path, record: WorktreeBoxRecord) -> bool:
+def _holds_a_worktree(path: Path) -> bool:
+    """Any live worktree counts, whatever its ID, because one recreated at a registered path takes over that box."""
     admin_dir = _gitdir_for(path)
-    return admin_dir is not None and _is_its_admin_dir(record, admin_dir)
+    return admin_dir is not None and admin_dir.is_dir() and not _git_would_prune(admin_dir)
 
 
 def _git_would_prune(admin_dir: Path) -> bool:
@@ -826,10 +825,7 @@ def _clean_worktree_boxes(
 
 
 def _worktree_came_back(box: WorktreeBox) -> bool:
-    return (
-        _still_holds_its_worktree(box.worktree_path, box.record)
-        or load_worktree_boxes().get(str(box.worktree_path)) != box.record
-    )
+    return _holds_a_worktree(box.worktree_path) or load_worktree_boxes().get(str(box.worktree_path)) != box.record
 
 
 def _ready_to_act_on(
