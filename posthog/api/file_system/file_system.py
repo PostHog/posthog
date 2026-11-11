@@ -142,6 +142,35 @@ class FileSystemListQuerySerializer(serializers.Serializer):
         default=False,
         help_text="Include meta.tags, the tag names, for dashboards and insights on this page.",
     )
+    type = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.",
+    )
+    ref = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. "
+            "Combine with type to find an item's entry in the project tree."
+        ),
+    )
+    path = serializers.CharField(required=False, allow_blank=True, help_text="Only the entry at exactly this path.")
+    parent = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Only entries under this folder path, at any depth, such as 'Experiments/Q4'.",
+    )
+
+
+class FileSystemMoveRequestSerializer(serializers.Serializer):
+    new_path = serializers.CharField(
+        help_text=(
+            "Full new path for the entry, including its own name as the last segment, such as "
+            "'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a "
+            "name as '\\/'."
+        ),
+    )
 
 
 class FileSystemDeleteQuerySerializer(serializers.Serializer):
@@ -1284,6 +1313,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         shortcuts.filter(path=join_path([split_path(old_path)[-1]])).update(path=join_path([split_path(new_path)[-1]]))
         shortcuts.update(ref=new_path)
 
+    @extend_schema(request=FileSystemMoveRequestSerializer, responses=FileSystemSerializer)
     @action(methods=["POST"], detail=True)
     def move(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()

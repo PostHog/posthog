@@ -52325,6 +52325,11 @@ export namespace Schemas {
       readonly path: string | null;
     }
 
+    export interface FileSystemMoveRequest {
+      /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
+      new_path: string;
+    }
+
     export interface FileSystemRankedSearchItem {
       /** The matching file system entry. */
       entry: FileSystem;
@@ -134176,9 +134181,25 @@ export namespace Schemas {
      */
     offset?: number;
     /**
+     * Only entries under this folder path, at any depth, such as 'Experiments/Q4'.
+     */
+    parent?: string;
+    /**
+     * Only the entry at exactly this path.
+     */
+    path?: string;
+    /**
+     * Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree.
+     */
+    ref?: string;
+    /**
      * A search term.
      */
     search?: string;
+    /**
+     * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
+     */
+    type?: string;
     };
 
     export type FileSystemDestroyParams = {
