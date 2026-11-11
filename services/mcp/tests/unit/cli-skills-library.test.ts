@@ -19,6 +19,8 @@ function productSkills(body = 'Build a conversion funnel.'): Uint8Array {
     return zipSync({ 'funnels/SKILL.md': skillFile('funnels', 'Analyze conversion funnels.', `# Funnels\n\n${body}`) })
 }
 
+const AUDIT_SKILL = skillFile('audit', 'Audit an install.', '# Audit\n\nCheck every event.')
+
 function contextMill(): Uint8Array {
     const manifest = {
         version: '1.0',
@@ -34,7 +36,7 @@ function contextMill(): Uint8Array {
     }
     return zipSync({
         'manifest.json': strToU8(JSON.stringify(manifest)),
-        'audit.zip': zipSync({ 'SKILL.md': strToU8('# Audit\n') }),
+        'audit.zip': zipSync({ 'SKILL.md': AUDIT_SKILL }),
         'omnibus-instrument-integration.zip': zipSync({
             'SKILL.md': skillFile(
                 'omnibus-instrument-integration',
@@ -119,7 +121,9 @@ describe('CLI skills library', () => {
             paths: ['references/COMMANDMENTS.md'],
         })
         const listing = await library.learn(LIST)
+        const resource = await library.learn({ skill: 'posthog:audit', paths: [] })
 
+        expect(text(resource)).toContain('Check every event.')
         expect(text(skill)).toContain(
             'Read `hog learn posthog:instrument-integration references/COMMANDMENTS.md` first.'
         )
@@ -137,9 +141,15 @@ describe('CLI skills library', () => {
         ])
         expect(listing.ok && listing.value.output).toEqual({
             kind: 'list',
-            skills: ['posthog:funnels', 'posthog:instrument-integration'],
-            count: 2,
-            truncated: false,
+            skills: [
+                { name: 'posthog:funnels', kind: 'learning', description: 'Analyze conversion funnels.' },
+                { name: 'posthog:audit', kind: 'implementation', description: 'Audit an install.' },
+                {
+                    name: 'posthog:instrument-integration',
+                    kind: 'implementation',
+                    description: 'Add PostHog SDK integration.',
+                },
+            ],
         })
     })
 
@@ -362,7 +372,10 @@ describe('CLI skills library', () => {
 
         const result = await library.learn(LIST)
 
-        expect(result.ok && result.value.output).toMatchObject({ kind: 'list', skills: ['posthog:funnels'] })
+        expect(result.ok && result.value.output).toEqual({
+            kind: 'list',
+            skills: [{ name: 'posthog:funnels', kind: 'learning', description: 'Analyze conversion funnels.' }],
+        })
         expect(result.ok && result.value.assets[1]).toMatchObject({
             name: 'context-mill',
             origin: 'unavailable',
@@ -435,29 +448,42 @@ describe('CLI skills library', () => {
         expect(result).toEqual({ ok: false, error: { code, message: expect.stringContaining(message) } })
     })
 
-    it('installs a batch from the release installable listed, without asking the network again', async () => {
+    it('installs a batch of any listed skills from the catalog it loaded, without asking the network again', async () => {
         const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'posthog-skills-install-'))
         const cache = await cacheDir()
         await warmCache(cache)
-        const outage = fakeFetch({ [CONTEXT_MILL_URL]: new TypeError('Unable to connect') })
-        const library = createSkillsLibrary({ cacheDir: cache, fetch: outage.fetch })
+        const outage = fakeFetch({
+            [PRODUCT_SKILL_ARCHIVE_URL]: new TypeError('Unable to connect'),
+            [CONTEXT_MILL_URL]: new TypeError('Unable to connect'),
+        })
+        const library = createSkillsLibrary({ cacheDir: cache, fetch: outage.fetch, learnCommand: 'hog learn' })
 
-        const listed = await library.installable()
+        const listed = await library.catalog()
         const release = listed.ok ? listed.value.release : undefined
         const installed = await library.install('audit', { cwd: dir, release })
-        const again = await library.install('audit', { cwd: dir, skillsDir: '.claude/skills', release })
+        const again = await library.install('posthog:audit', { cwd: dir, skillsDir: '.claude/skills', release })
+        const product = await library.install('posthog:funnels', { cwd: dir, release })
+        const omnibus = await library.install('posthog:instrument-integration', { cwd: dir, release })
         const unknown = await library.install('missing', { cwd: dir, release })
 
         expect(installed.ok && installed.value.skill.fileCount).toBe(1)
-        expect(again.ok && again.value.assets).toEqual([expect.objectContaining({ origin: 'cache' })])
-        await expect(fs.readFile(path.join(dir, '.agents', 'skills', 'audit', 'SKILL.md'), 'utf8')).resolves.toBe(
-            '# Audit\n'
+        expect(again.ok && again.value.assets).toEqual([
+            expect.objectContaining({ name: 'product-skills', origin: 'cache' }),
+            expect.objectContaining({ name: 'context-mill', origin: 'cache' }),
+        ])
+        expect(product.ok && product.value.skill.fileCount).toBe(1)
+        expect(omnibus.ok && omnibus.value.skill.fileCount).toBe(2)
+        const installedFile = (...parts: string[]): Promise<string> => fs.readFile(path.join(dir, ...parts), 'utf8')
+        await expect(installedFile('.agents', 'skills', 'audit', 'SKILL.md')).resolves.toContain('Check every event.')
+        await expect(installedFile('.claude', 'skills', 'audit', 'SKILL.md')).resolves.toContain('Check every event.')
+        await expect(installedFile('.agents', 'skills', 'funnels', 'SKILL.md')).resolves.toContain(
+            'Build a conversion funnel.'
         )
-        await expect(fs.readFile(path.join(dir, '.claude', 'skills', 'audit', 'SKILL.md'), 'utf8')).resolves.toBe(
-            '# Audit\n'
+        await expect(installedFile('.agents', 'skills', 'instrument-integration', 'SKILL.md')).resolves.toContain(
+            'Read `hog learn posthog:instrument-integration references/COMMANDMENTS.md` first.'
         )
         expect(unknown).toEqual({ ok: false, error: { code: 'unknown_skill', message: 'Unknown skill "missing".' } })
-        expect(outage.requests.map((request) => request.url)).toEqual([CONTEXT_MILL_URL])
+        expect(outage.requests.map((request) => request.url)).toEqual([PRODUCT_SKILL_ARCHIVE_URL, CONTEXT_MILL_URL])
     })
 
     it('refuses to install a skill whose archive is past the extraction limit, and keeps the installed copy', async () => {
@@ -466,7 +492,7 @@ describe('CLI skills library', () => {
         await fs.mkdir(path.dirname(installed), { recursive: true })
         await fs.writeFile(installed, '# Installed\n')
         const release = unzipSync(contextMill())
-        release['audit.zip'] = zipSync({ 'SKILL.md': strToU8('# Audit\n'), 'big.bin': new Uint8Array(9 * MIB) })
+        release['audit.zip'] = zipSync({ 'SKILL.md': AUDIT_SKILL, 'big.bin': new Uint8Array(9 * MIB) })
         const library = createSkillsLibrary({
             cacheDir: await cacheDir(),
             fetch: fakeFetch({ ...ONLINE, [CONTEXT_MILL_URL]: zipSync(release) }).fetch,

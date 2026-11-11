@@ -1,6 +1,13 @@
 import { z } from 'zod'
 
-import type { LearnRequest, LearnResult, SkillAssetStatus, SkillsError } from '@posthog/mcp/src/cli/library-types'
+import type {
+    CatalogSkill,
+    LearnRequest,
+    LearnResult,
+    SkillAssetStatus,
+    SkillKind,
+    SkillsError,
+} from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
@@ -81,8 +88,9 @@ function toHogError(error: SkillsError): HogError {
     return new HogError(code, error.message, hint, exitCode)
 }
 
-// A person sees why the skills may be out of date before the skills themselves.
-export function printDownloadWarnings(out: Output, assets: readonly SkillAssetStatus[]): void {
+// Why the skills may be out of date, shown after the command's result.
+export function downloadWarnings(assets: readonly SkillAssetStatus[]): string[] {
+    const warnings: string[] = []
     for (const asset of assets) {
         const outcome =
             asset.origin === 'cache' && asset.fetchedAt
@@ -93,8 +101,30 @@ export function printDownloadWarnings(out: Output, assets: readonly SkillAssetSt
 
         if (outcome) {
             const failure = escapeControls(asset.failure ?? '')
-            out.line(out.style(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure})${outcome}.`, 'yellow'))
+            warnings.push(`hog couldn't download ${ASSET_NAMES[asset.name]} (${failure})${outcome}.`)
         }
+    }
+    return warnings
+}
+
+const KIND_TITLES: Record<SkillKind, string> = {
+    learning: 'Skills for using PostHog',
+    implementation: 'Skills for adding PostHog to your code',
+}
+
+function printSkillList(out: Output, skills: readonly CatalogSkill[]): void {
+    for (const kind of ['learning', 'implementation'] as const) {
+        const ofKind = skills.filter((skill) => skill.kind === kind)
+        if (ofKind.length === 0) {
+            continue
+        }
+
+        out.line(out.style(`${KIND_TITLES[kind]} (${ofKind.length})`, 'bold'))
+        out.table(
+            ['skill', 'description'],
+            ofKind.map((skill) => [skill.name, skill.description])
+        )
+        out.line()
     }
 }
 
@@ -154,8 +184,8 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        printDownloadWarnings(out, result.assets)
         const { output } = result
+        const warnings = downloadWarnings(result.assets)
         switch (output.kind) {
             case 'overview':
                 out.line('Commands:')
@@ -164,23 +194,26 @@ export default defineCommand({
                 }
                 return
             case 'list':
-                for (const skill of output.skills) {
-                    out.line(escapeControls(skill))
-                }
+                printSkillList(out, output.skills)
                 out.line(
-                    out.style(
-                        `${plural(output.count, 'skill')}${output.truncated ? `, ${output.skills.length} listed` : ''}. Run \`hog learn <skill>\` to read one.`,
-                        'dim'
-                    )
+                    `${plural(output.skills.length, 'skill')}. Read one with ${out.style('hog learn <skill>', 'bold')}, or add it to this repository with ${out.style('hog skills add <skill>', 'bold')}.`
                 )
+                out.notes({ warnings })
                 return
             case 'text':
                 out.line(escapeControls(output.text))
+                out.notes({ warnings })
         }
     },
 
+    // Agents get names and kinds only, as the MCP server's `learn skills` does. `hog learn -d` describes a skill.
     agent({ result, out }) {
-        out.json(result)
+        const { output } = result
+        out.json(
+            output.kind === 'list'
+                ? { ...result, output: { ...output, skills: output.skills.map(({ name, kind }) => ({ name, kind })) } }
+                : result
+        )
     },
 
     // Skill names come from the published catalog, and a read only counts once it served, so these

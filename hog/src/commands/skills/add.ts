@@ -3,16 +3,16 @@ import { z } from 'zod'
 
 import type { SkillAssetStatus, SkillsLibrary, SkillsRelease } from '@posthog/mcp/src/cli/library-types'
 
-import { printDownloadWarnings } from '@/commands/learn'
+import { downloadWarnings } from '@/commands/learn'
 import { KNOWN_AGENTS, knownAgent } from '@/core/agent'
 import { defineCommand } from '@/core/command'
 import { EXIT_USAGE, HogError } from '@/core/errors'
-import { escapeControls } from '@/core/output'
+import { escapeControls, type Output } from '@/core/output'
 import { findGitRoot, isInside, realWritePath } from '@/core/paths'
 import type { Env, Runtime } from '@/core/runtime'
 import { parseOrThrow } from '@/core/schema'
 
-import { LIST_HINT, SHARED_SKILL_FOLDER, SKILL_FOLDERS, skillsError } from './shared'
+import { LIST_HINT, SHARED_SKILL_FOLDER, SKILL_FOLDERS, skillName, skillsError } from './shared'
 
 const AgentName = z.enum(KNOWN_AGENTS, { error: (issue) => `Unknown agent "${String(issue.input)}".` })
 
@@ -28,7 +28,8 @@ interface Target {
 }
 
 interface AddedSkill {
-    id: string
+    // As `hog learn skills` lists it, such as `posthog:tracing-nodejs`.
+    name: string
     agent: string | null
     path: string
     status: 'installed' | 'already_installed'
@@ -82,14 +83,14 @@ async function installOne(
     release: SkillsRelease,
     runtime: Runtime,
     root: string,
-    id: string,
+    name: string,
     folder: string,
     force: boolean
 ): Promise<Pick<AddedSkill, 'path' | 'status'>> {
-    const path = join(root, folder, id)
+    const path = join(root, folder, name.slice(name.indexOf(':') + 1))
     await assertInsideRoot(runtime, root, path)
 
-    const result = await library.install(id, { cwd: root, force, skillsDir: folder, release })
+    const result = await library.install(name, { cwd: root, force, skillsDir: folder, release })
     if (result.ok) {
         return { path, status: 'installed' }
     }
@@ -101,10 +102,57 @@ async function installOne(
     throw skillsError(result.error)
 }
 
+function addReport(result: AddResult, out: Output): Parameters<Output['report']>[0] {
+    const root = escapeControls(result.root)
+    const added = [...new Set(result.skills.filter((skill) => skill.status === 'installed').map((skill) => skill.name))]
+    const kept = [
+        ...new Set(result.skills.filter((skill) => skill.status === 'already_installed').map((skill) => skill.name)),
+    ]
+    const list = (names: readonly string[]): string => names.map(escapeControls).join(', ')
+
+    // One line per folder written, so agents that share a folder show once.
+    const folders = new Map(result.skills.map((skill) => [skill.path, skill]))
+    const effects = [...folders.values()].map((skill) => {
+        const path = escapeControls(relative(result.root, skill.path))
+        return skill.status === 'installed'
+            ? `Wrote ${path}`
+            : `Left ${path} as it was, because the skill is already there`
+    })
+
+    const notes: string[] = []
+    if (result.rootKind === 'folder') {
+        notes.push(`${root} isn't in a git repository, so the skills went in this folder.`)
+    }
+    if (result.agentSource === 'none') {
+        notes.push(
+            `No agent is running hog, so the skills went in ${SHARED_SKILL_FOLDER}, which most agents read. To add them for one agent, pass ${out.style('--agent', 'bold')}, as in ${out.style('--agent claude-code', 'bold')}.`
+        )
+    }
+    if (kept.length > 0) {
+        notes.push(
+            `To replace a skill that is already there, run the command again with ${out.style('--force', 'bold')}.`
+        )
+    }
+
+    return {
+        result:
+            added.length > 0
+                ? `Added ${list(added)} to ${root}`
+                : `Nothing to add: ${list(kept)} ${kept.length === 1 ? 'is' : 'are'} already in ${root}`,
+        status: added.length > 0 ? 'done' : 'unchanged',
+        effects,
+        warnings: downloadWarnings(result.assets),
+        notes,
+    }
+}
+
 export default defineCommand({
     description: 'Add PostHog skills to this repository, in the folder your agent reads',
     args: {
-        ids: { description: 'The skill IDs to add, from `hog skills list`', variadic: true },
+        skills: {
+            description: 'The skills to add, as `hog learn skills` lists them, such as posthog:tracing-nodejs',
+            variadic: true,
+        },
     },
     options: {
         agent: {
@@ -117,12 +165,12 @@ export default defineCommand({
     },
     writes: true,
     notes: [
-        'Skills go in the closest git repository, or in the current folder outside one. Claude Code reads `.claude/skills`. Most other agents read `.agents/skills`.',
+        'Any skill `hog learn skills` lists can be added, and the `posthog:` prefix is optional. Skills go in the closest git repository, or in the current folder outside one. Claude Code reads `.claude/skills`. Most other agents read `.agents/skills`.',
         'Without `--agent`, skills go in the folder of the agent running hog, or in `.agents/skills` if no agent is running it. Skills are public, so `hog skills add` needs no login.',
     ].join('\n'),
     examples: [
-        'hog skills add audit-feature-flags error-tracking-nextjs',
-        'hog skills add audit-feature-flags --agent claude-code --agent codex',
+        'hog skills add posthog:tracing-nodejs posthog:analyzing-funnel-correlation',
+        'hog skills add posthog:audit-feature-flags --agent claude-code --agent codex',
     ],
 
     async run({ args, options, ctx }): Promise<AddResult> {
@@ -131,20 +179,20 @@ export default defineCommand({
         const repository = await findGitRoot(ctx.runtime)
         const root = repository?.root ?? ctx.runtime.cwd()
 
-        // Every id is checked before the first write, so a typo doesn't leave half the skills installed.
+        // Every name is checked before the first write, so a typo doesn't leave half the skills installed.
         const library = await ctx.skills()
-        const listed = await library.installable()
+        const listed = await library.catalog()
         if (!listed.ok) {
             throw skillsError(listed.error)
         }
 
-        const ids = [...new Set(args.ids)]
-        const unknown = ids.filter((id) => !listed.value.skills.some((skill) => skill.id === id))
+        const names = [...new Set(args.skills.map(skillName))]
+        const unknown = names.filter((name) => !listed.value.skills.some((skill) => skill.name === name))
         if (unknown.length > 0) {
-            const names = unknown.map((id) => `"${id}"`).join(', ')
+            const quoted = unknown.map((name) => `"${name}"`).join(', ')
             throw new HogError(
                 'unknown_skill',
-                `Unknown ${unknown.length === 1 ? 'skill' : 'skills'} ${names}.`,
+                `Unknown ${unknown.length === 1 ? 'skill' : 'skills'} ${quoted}.`,
                 LIST_HINT
             )
         }
@@ -152,9 +200,9 @@ export default defineCommand({
         // Agents that share a folder share one copy, so each folder installs a skill once.
         const outcomes = new Map<string, Pick<AddedSkill, 'path' | 'status'>>()
         const skills: AddedSkill[] = []
-        for (const id of ids) {
+        for (const name of names) {
             for (const target of targets) {
-                const key = join(target.folder, id)
+                const key = join(target.folder, name)
                 let outcome = outcomes.get(key)
                 if (!outcome) {
                     outcome = await installOne(
@@ -162,14 +210,14 @@ export default defineCommand({
                         listed.value.release,
                         ctx.runtime,
                         root,
-                        id,
+                        name,
                         target.folder,
                         options.force === true
                     )
                     outcomes.set(key, outcome)
                 }
 
-                skills.push({ id, agent: target.agent, ...outcome })
+                skills.push({ name, agent: target.agent, ...outcome })
             }
         }
 
@@ -183,29 +231,7 @@ export default defineCommand({
     },
 
     human({ result, out }) {
-        printDownloadWarnings(out, result.assets)
-
-        const root = escapeControls(result.root)
-        out.line(
-            result.rootKind === 'repository'
-                ? `Skills go in the git repository at ${root}.`
-                : `${root} isn't in a git repository, so the skills go in this folder.`
-        )
-
-        if (result.agentSource === 'none') {
-            out.line(`No agent is running hog, so the skills go in ${SHARED_SKILL_FOLDER}, which most agents read.`)
-            out.line('Pass `--agent` to pick one, such as `--agent claude-code`.')
-        }
-
-        for (const skill of result.skills) {
-            const path = escapeControls(relative(result.root, skill.path))
-            const id = escapeControls(skill.id)
-            out.line(
-                skill.status === 'installed'
-                    ? `Installed ${id} in ${path}`
-                    : `${id} is already in ${path}. Pass --force to replace it.`
-            )
-        }
+        out.report(addReport(result, out))
     },
 
     agent({ result, out }) {
@@ -215,7 +241,7 @@ export default defineCommand({
     // Ids only reach here once the published catalog lists them, so they never carry text the caller made up.
     telemetry({ result }) {
         return {
-            skills_added: [...new Set(result.skills.map((skill) => skill.id))].sort(),
+            skills_added: [...new Set(result.skills.map((skill) => skill.name))].sort(),
             agent_source: result.agentSource,
             already_installed: result.skills.filter((skill) => skill.status === 'already_installed').length,
             skill_asset_origins: Object.fromEntries(result.assets.map((asset) => [asset.name, asset.origin])),

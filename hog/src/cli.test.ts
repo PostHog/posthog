@@ -66,7 +66,7 @@ describe('hog', () => {
         ['login', ['login', 'upload'], 'Did you mean `hog auth login`?'],
         ['sourcemap', ['sourcemap', 'upload'], '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
         ['exp', ['exp', 'upload'], '`exp` is `hog query|endpoints|schema` in hog.'],
-        ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills list|add` in hog.'],
+        ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills add` in hog.'],
     ])('a command that moved, like %s, points to its new name', async (_name, argv, message) => {
         const result = await runHog(argv)
         expect(result.exitCode).toBe(2)
@@ -116,7 +116,6 @@ describe('hog', () => {
             'api access',
             'api agents-md',
             'learn',
-            'skills list',
             'skills add',
             'mcp add',
             'error-tracking inject',

@@ -122,9 +122,23 @@ export interface LearnRequest {
     lines?: string
 }
 
+/**
+ * `learning`: how to use PostHog, such as analyzing a funnel. These come from the product skills.
+ * `implementation`: how to add PostHog to code, such as an SDK for one framework. These come from context-mill.
+ */
+export type SkillKind = 'learning' | 'implementation'
+
+export interface CatalogSkill {
+    /** As `learn` and `install` take it, such as `posthog:tracing-nodejs`. */
+    name: string
+    kind: SkillKind
+    /** The first line of the skill's description. */
+    description: string
+}
+
 export type LearnOutput =
     | { kind: 'overview'; commands: string[] }
-    | { kind: 'list'; skills: string[]; count: number; truncated: boolean }
+    | { kind: 'list'; skills: CatalogSkill[] }
     | { kind: 'text'; text: string }
 
 export interface LearnResult {
@@ -133,16 +147,9 @@ export interface LearnResult {
     assets: SkillAssetStatus[]
 }
 
-export interface InstallableSkill {
-    id: string
-    name: string
-    description: string
-    tags: string[]
-}
-
 /**
- * The context-mill release that one `installable` call loaded. `install` writes from it instead of
- * loading the release again, so a batch of installs waits for one download, or one failed download.
+ * The skills that one `catalog` call loaded. `install` writes from them instead of loading them
+ * again, so a batch of installs waits for one download, or one failed download.
  */
 export interface SkillsRelease {
     readonly assets: SkillAssetStatus[]
@@ -194,16 +201,16 @@ export interface SkillsLibrary {
     learn(request: LearnRequest): Promise<SkillsResult<LearnResult>>
     /** The `posthog:instrument-*` skills. Downloads only context-mill, not the product skills. */
     instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>>
-    installable(): Promise<
-        SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>
-    >
+    /** Every skill `learn` serves. Each one can be installed. */
+    catalog(): Promise<SkillsResult<{ skills: CatalogSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>>
     /**
-     * Writes a skill into `<skillsDir>/<id>` under `cwd`. `skillsDir` defaults to `.agents/skills`, where
-     * `posthog-cli api skill install` writes. A write that would land outside `cwd`, through `..` or a
-     * symlink, fails with `install_failed`. Without `release`, the call loads the release itself.
+     * Writes a skill from `catalog` into `<skillsDir>/<id>` under `cwd`, where `id` is the name without its
+     * `posthog:` prefix. `name` may leave the prefix out. `skillsDir` defaults to `.agents/skills`. A write
+     * that would land outside `cwd`, through `..` or a symlink, fails with `install_failed`. Without
+     * `release`, the call loads the skills itself.
      */
     install(
-        id: string,
+        name: string,
         options: { cwd: string; force?: boolean; skillsDir?: string; release?: SkillsRelease }
     ): Promise<SkillsResult<{ skill: InstalledSkill; assets: SkillAssetStatus[] }>>
 }

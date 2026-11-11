@@ -60,7 +60,7 @@ function fakeSkills(answer: LearnResult | SkillsError = READ): FakeSkills {
 
                     return 'code' in answer ? { ok: false, error: answer } : { ok: true, value: answer }
                 },
-                installable: async () => ({
+                catalog: async () => ({
                     ok: true,
                     value: { skills: [], assets: NETWORK, release: { assets: NETWORK } },
                 }),
@@ -125,7 +125,7 @@ describe('hog learn', () => {
         ])
     })
 
-    test('a person sees that the skills came from the saved copy when the download failed', async () => {
+    test('a person sees the skill first, then that it came from the saved copy because the download failed', async () => {
         const cached: SkillAssetStatus[] = [
             { ...NETWORK[0]!, origin: 'cache', fetchedAt: '2026-01-01T09:30:00.000Z', failure: 'Unable to connect' },
             { ...NETWORK[1]!, origin: 'unavailable', fetchedAt: undefined, failure: 'HTTP 503' },
@@ -134,10 +134,54 @@ describe('hog learn', () => {
 
         const result = await learn(['posthog:instrument-integration'], skills, 'person')
 
-        expect(result.stdout.split('\n').slice(0, 2)).toEqual([
-            "hog couldn't download the PostHog product skills (Unable to connect). Using the copy saved on 2026-01-01 09:30 UTC.",
-            "hog couldn't download the setup skills, such as posthog:instrument-integration (HTTP 503), and there's no saved copy.",
-        ])
+        expect(result.stdout).toBe(
+            [
+                SKILL_TEXT,
+                '',
+                "hog couldn't download the PostHog product skills (Unable to connect). Using the copy saved on 2026-01-01 09:30 UTC.",
+                "hog couldn't download the setup skills, such as posthog:instrument-integration (HTTP 503), and there's no saved copy.",
+                '',
+            ].join('\n')
+        )
+    })
+
+    test('the skill list splits skills for using PostHog from skills for adding it to code', async () => {
+        const list: LearnResult = {
+            output: {
+                kind: 'list',
+                skills: [
+                    { name: 'posthog:analyzing-funnels', kind: 'learning', description: 'Find where people drop off.' },
+                    {
+                        name: 'posthog:tracing-nodejs',
+                        kind: 'implementation',
+                        description: 'Trace requests in Node.js.',
+                    },
+                ],
+            },
+            reads: [],
+            assets: NETWORK,
+        }
+
+        const person = await learn(['skills'], fakeSkills(list), 'person')
+        const agent = await learn(['skills'], fakeSkills(list))
+
+        const lines = person.stdout.split('\n')
+        expect(lines[0]).toBe('Skills for using PostHog (1)')
+        expect(lines.find((line) => line.includes('analyzing-funnels'))).toContain('Find where people drop off.')
+        expect(lines).toContain('Skills for adding PostHog to your code (1)')
+        expect(lines.at(-2)).toBe(
+            '2 skills. Read one with hog learn <skill>, or add it to this repository with hog skills add <skill>.'
+        )
+        expect(agent.json()).toMatchObject({
+            output: {
+                kind: 'list',
+                skills: [
+                    { name: 'posthog:analyzing-funnels', kind: 'learning' },
+                    { name: 'posthog:tracing-nodejs', kind: 'implementation' },
+                ],
+            },
+        })
+        expect(JSON.stringify(agent.json())).not.toContain('drop off')
     })
 
     test('an agent gets the result as JSON, with the files read and where the skills came from', async () => {

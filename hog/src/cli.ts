@@ -397,8 +397,8 @@ const RENAMED: Record<string, { to: string; hint: string }> = {
     },
     update: { to: 'upgrade', hint: 'Run `hog upgrade`.' },
     skill: {
-        to: 'skills list|add',
-        hint: '`hog skills list` lists the skills, and `hog skills add <id...>` replaces `posthog-cli api skill install`.',
+        to: 'skills add',
+        hint: '`hog learn skills` lists the skills, and `hog skills add <skill...>` replaces `posthog-cli api skill install`.',
     },
 }
 

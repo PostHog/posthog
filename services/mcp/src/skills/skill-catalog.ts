@@ -142,6 +142,10 @@ export class SkillCatalog {
         return this.skillsByName.get(name)?.description
     }
 
+    get(name: string): SkillDefinition | undefined {
+        return this.skillsByName.get(name)
+    }
+
     searchResults(query: string, namespace = ''): LearnSearchResult[] {
         const normalizedQuery = normalizeQuery(query)
         return [...this.skillsByName.values()]

@@ -66,15 +66,11 @@ function fakeSkills(): SkillsLibrary {
                 ],
                 assets: [],
             }),
-        installable: async () =>
+        catalog: async () =>
             ok({
                 skills: [
-                    {
-                        id: 'querying-posthog-data',
-                        name: 'Querying PostHog data',
-                        description: 'Write HogQL',
-                        tags: [],
-                    },
+                    { name: 'posthog:querying-posthog-data', kind: 'learning', description: 'Write HogQL' },
+                    { name: 'posthog:tracing-nodejs', kind: 'implementation', description: 'Trace Node.js' },
                 ],
                 assets: [],
                 release: { assets: [] },
@@ -283,7 +279,7 @@ describe('hog setup', () => {
             next: { kind: 'done' },
             context: {
                 events: { since: '2026-01-01T00:00:00.000Z', count: 0 },
-                skills: [{ id: 'querying-posthog-data' }],
+                skills: [{ id: 'posthog:querying-posthog-data' }],
             },
         })
         const instructions = (reviewed.json() as any).next.instructions

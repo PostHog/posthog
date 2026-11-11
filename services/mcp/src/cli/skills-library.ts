@@ -1,3 +1,4 @@
+import { strFromU8, strToU8, type Unzipped } from 'fflate'
 import { randomUUID } from 'node:crypto'
 import * as fs from 'node:fs/promises'
 import * as path from 'node:path'
@@ -7,15 +8,17 @@ import { hashBytes } from '@/hono/cache/SharedBlobCache'
 import { CONTEXT_MILL_URL, contextMillEntries, omnibusSkillFiles, unzipOmnibusArchives } from '@/resources/internals'
 import {
     LearnLookupError,
+    makeSkillFile,
     MAX_SKILL_ARCHIVE_BYTES,
     PRODUCT_SKILL_ARCHIVE_URL,
     SkillCatalog,
+    type SkillDefinition,
     unzipUntrusted,
 } from '@/skills/skill-catalog'
 import { ExecLearnCatalog, learnSkillCommands, SkillsUnavailableError } from '@/tools/exec-learn'
 
 import type {
-    InstallableSkill,
+    CatalogSkill,
     LearnRequest,
     LearnResult,
     SkillAssetName,
@@ -27,12 +30,17 @@ import type {
     SkillsLibraryOptions,
     SkillsRelease,
     SkillsResult,
+    SkillKind,
 } from './library-types'
-import { installSkill, type InstallableSkills, listSkills, SkillInstallError } from './skills'
+import { installSkill, type InstallableSkills, SkillInstallError, writeSkill } from './skills'
 
 const DEFAULT_RESPONSE_TIMEOUT_MS = 5_000
 const DEFAULT_DOWNLOAD_TIMEOUT_MS = 60_000
 const INSTRUMENT_SKILL_PREFIX = 'instrument-'
+// context-mill also publishes each omnibus skill as a resource named `omnibus-<name>`. The catalog
+// serves it once, as `<name>`, from the omnibus archive.
+const OMNIBUS_RESOURCE_PREFIX = 'omnibus-'
+const SKILL_NAMESPACE = 'posthog:'
 const PROJECT_SKILLS_UNAVAILABLE =
     'This CLI serves PostHog skills only. Read project skills through the PostHog MCP server.'
 
@@ -106,6 +114,10 @@ async function writeAtomically(file: string, contents: Uint8Array | string): Pro
 
 interface ContextMillRelease extends InstallableSkills {
     omnibus(): SkillCatalog | undefined
+    // The resource skills as listings: name and description only. Their files stay zipped until
+    // `resourceSkill` reads one, because unzipping every resource on each call would take about a second.
+    resourceListings(): SkillDefinition[]
+    resourceSkill(id: string): SkillDefinition | undefined
 }
 
 interface LoadedRelease {
@@ -118,13 +130,49 @@ interface LoadedRelease {
 function parseContextMill(bytes: Uint8Array): ContextMillRelease {
     let omnibus: { catalog: SkillCatalog | undefined } | undefined
 
+    const entries = contextMillEntries(bytes)
+    const readFile = (name: string): Uint8Array | undefined =>
+        unzipUntrusted(bytes, 'The context-mill release', (file) => file.name === name)[name]
+    const resources = entries.filter((entry) => entry.file && !entry.id.startsWith(OMNIBUS_RESOURCE_PREFIX))
+
     return {
-        entries: contextMillEntries(bytes),
-        readFile: (name) => unzipUntrusted(bytes, 'The context-mill release', (file) => file.name === name)[name],
+        entries,
+        readFile,
         omnibus: () => {
             omnibus ??= { catalog: omnibusCatalog(bytes) }
             return omnibus.catalog
         },
+        resourceListings: () =>
+            resources.map((entry) => {
+                const description =
+                    typeof entry.description === 'string' ? entry.description : entry.resource.description
+                return {
+                    name: entry.id,
+                    description,
+                    files: [makeSkillFile('SKILL.md', `# ${entry.name}\n\n${description}\n`)],
+                }
+            }),
+        resourceSkill: (id) => {
+            const entry = resources.find((candidate) => candidate.id === id)
+            const zipped = entry?.file ? readFile(entry.file) : undefined
+            return zipped ? resourceSkill(id, unzipUntrusted(zipped, `Skill archive "${entry?.file}"`)) : undefined
+        },
+    }
+}
+
+// `learn` serves text only, so a binary file in a resource skill is left out of what it reads.
+// `install` writes the resource's own archive, binary files included.
+function resourceSkill(id: string, files: Unzipped): SkillDefinition | undefined {
+    const text: Unzipped = Object.fromEntries(
+        Object.entries(files)
+            .filter(([file, bytes]) => !file.endsWith('/') && !strFromU8(bytes).includes('\0'))
+            .map(([file, bytes]) => [`${id}/${file}`, bytes])
+    )
+
+    try {
+        return SkillCatalog.fromFiles(text).get(id)
+    } catch {
+        return undefined
     }
 }
 
@@ -367,9 +415,68 @@ function learnError(error: unknown): SkillsError {
     return { code, message: message(error) }
 }
 
-const Listing = z.object({
-    posthog: z.object({ skills: z.array(z.string()), count: z.number(), truncated: z.boolean() }),
-})
+interface Catalog {
+    catalog: SkillCatalog
+    kinds: ReadonlyMap<string, SkillKind>
+    // The names listed from context-mill resources, whose files `withFiles` loads on demand.
+    resources: ReadonlySet<string>
+    release: ContextMillRelease | undefined
+}
+
+interface LoadedCatalog {
+    loaded: Catalog | undefined
+    assets: SkillAssetStatus[]
+}
+
+// Every skill once, by name. A product skill wins over a context-mill skill of the same name, because
+// the product archive can be sha-pinned and context-mill is not.
+function combineSkills(
+    product: SkillCatalog | undefined,
+    release: ContextMillRelease | undefined
+): Catalog | undefined {
+    const kinds = new Map<string, SkillKind>()
+    const resources = new Set<string>()
+    const definitions: SkillDefinition[] = []
+    const add = (skill: SkillDefinition | undefined, kind: SkillKind): boolean => {
+        if (!skill || kinds.has(skill.name)) {
+            return false
+        }
+
+        kinds.set(skill.name, kind)
+        definitions.push(skill)
+        return true
+    }
+
+    const omnibus = release?.omnibus()
+    for (const name of product?.listNames() ?? []) {
+        add(product?.get(name), omnibus?.has(name) ? 'implementation' : 'learning')
+    }
+    for (const name of omnibus?.listNames() ?? []) {
+        add(omnibus?.get(name), 'implementation')
+    }
+    for (const listing of release?.resourceListings() ?? []) {
+        if (add(listing, 'implementation')) {
+            resources.add(listing.name)
+        }
+    }
+
+    return definitions.length > 0 ? { catalog: new SkillCatalog(definitions), kinds, resources, release } : undefined
+}
+
+function bareName(name: string): string {
+    return name.startsWith(SKILL_NAMESPACE) ? name.slice(SKILL_NAMESPACE.length) : name
+}
+
+function catalogSkills({ catalog, kinds }: Catalog): CatalogSkill[] {
+    const skills = catalog.listNames().map((name) => ({
+        name: `${SKILL_NAMESPACE}${name}`,
+        kind: kinds.get(name) ?? 'implementation',
+        description: (catalog.describe(name) ?? '').trim().split('\n')[0] ?? '',
+    }))
+    const order: Record<SkillKind, number> = { learning: 0, implementation: 1 }
+
+    return skills.sort((left, right) => order[left.kind] - order[right.kind] || left.name.localeCompare(right.name))
+}
 
 export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrary {
     const settings: Settings = {
@@ -380,6 +487,7 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         now: options.now ?? Date.now,
     }
     const learnCommand = options.learnCommand ?? 'learn'
+    const rewrite = (text: string): string => rewriteLearnCommands(text, learnCommand)
 
     const loadContextMill = memoizeWhileFresh(async () => {
         const loaded = await loadAsset(settings, 'context-mill', parseContextMill)
@@ -392,13 +500,12 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
     })
 
     // Each asset keeps its own network copy, so an outage of one doesn't download the other again.
-    const loadCatalog = memoizeWhileFresh(async () => {
+    const loadCatalog = memoizeWhileFresh(async (): Promise<LoadedCatalog> => {
         const [product, contextMill] = await Promise.all([loadProductSkills(), loadContextMill()])
-        const omnibus = contextMill.release?.omnibus()
-        const catalog = product.catalog && omnibus ? product.catalog.withOverlay(omnibus) : (product.catalog ?? omnibus)
+        const combined = combineSkills(product.catalog, contextMill.release)
 
         return {
-            catalog: catalog?.mapText((text) => rewriteLearnCommands(text, learnCommand)),
+            loaded: combined && { ...combined, catalog: combined.catalog.mapText(rewrite) },
             assets: [...product.assets, ...contextMill.assets],
         }
     })
@@ -408,14 +515,21 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
         return release ? { ok: true, value: { release, assets } } : { ok: false, error: offline(assets) }
     }
 
-    // The releases `installable` handed out. A load that fell back to the cache isn't memoized, so
-    // without this each install of a batch would wait for the network to fail again.
-    const handedOut = new WeakMap<SkillsRelease, ContextMillRelease>()
+    // A resource skill is listed by name and description only. A call that reads one gets a catalog
+    // with that skill's files in place of its listing.
+    const withFiles = ({ catalog, resources, release }: Catalog, name: string | undefined): SkillCatalog => {
+        const id = name?.startsWith(SKILL_NAMESPACE) ? bareName(name) : undefined
+        const skill = id !== undefined && resources.has(id) ? release?.resourceSkill(id) : undefined
+        if (!skill) {
+            return catalog
+        }
 
-    const releaseFor = async (handle: SkillsRelease | undefined): Promise<SkillsResult<LoadedRelease>> => {
-        const release = handle && handedOut.get(handle)
-        return release && handle ? { ok: true, value: { release, assets: handle.assets } } : loadRelease()
+        const loaded = new SkillCatalog([skill]).mapText(rewrite)
+        return new SkillCatalog(catalog.listNames().map((other) => loaded.get(other) ?? catalog.get(other)!))
     }
+
+    // The catalogs `catalog` handed out, so each install of a batch writes from the same download.
+    const handedOut = new WeakMap<SkillsRelease, LoadedCatalog>()
 
     return {
         async learn(request): Promise<SkillsResult<LearnResult>> {
@@ -438,15 +552,25 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
                 return { ok: true, value: { output: { kind: 'overview', commands }, reads: [], assets: [] } }
             }
 
-            const { catalog, assets } = await loadCatalog()
-            if (!catalog) {
+            const { loaded, assets } = await loadCatalog()
+            if (!loaded) {
                 return { ok: false, error: offline(assets) }
+            }
+
+            if (skill === 'skills' && paths.length === 0 && modes === 0) {
+                return {
+                    ok: true,
+                    value: { output: { kind: 'list', skills: catalogSkills(loaded) }, reads: [], assets },
+                }
             }
 
             const reads: SkillRead[] = []
             const learn = new ExecLearnCatalog(
                 [],
-                { posthog: catalog, projectUnavailableReason: PROJECT_SKILLS_UNAVAILABLE },
+                {
+                    posthog: describe ? loaded.catalog : withFiles(loaded, skill),
+                    projectUnavailableReason: PROJECT_SKILLS_UNAVAILABLE,
+                },
                 ({ source, skill: name, path: file, readKind }) =>
                     reads.push({ source, skill: name, path: file ?? 'SKILL.md', readKind }),
                 learnCommand
@@ -454,31 +578,22 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
 
             try {
                 const raw = await learn.execute(learnInput(learnWords(skill, paths, request)))
-
-                if (skill === 'skills' && paths.length === 0 && modes === 0) {
-                    const { skills, count, truncated } = Listing.parse(JSON.parse(raw)).posthog
-                    return { ok: true, value: { output: { kind: 'list', skills, count, truncated }, reads, assets } }
-                }
-
                 return { ok: true, value: { output: { kind: 'text', text: raw }, reads, assets } }
             } catch (error) {
                 return { ok: false, error: learnError(error) }
             }
         },
 
-        async installable(): Promise<
-            SkillsResult<{ skills: InstallableSkill[]; assets: SkillAssetStatus[]; release: SkillsRelease }>
-        > {
-            const loaded = await loadRelease()
-            if (!loaded.ok) {
-                return loaded
+        async catalog() {
+            const loaded = await loadCatalog()
+            if (!loaded.loaded) {
+                return { ok: false, error: offline(loaded.assets) }
             }
 
-            const { release, assets } = loaded.value
-            const handle: SkillsRelease = { assets }
-            handedOut.set(handle, release)
+            const handle: SkillsRelease = { assets: loaded.assets }
+            handedOut.set(handle, loaded)
 
-            return { ok: true, value: { skills: await listSkills(release), assets, release: handle } }
+            return { ok: true, value: { skills: catalogSkills(loaded.loaded), assets: loaded.assets, release: handle } }
         },
 
         async instrumentSkills(): Promise<SkillsResult<{ skills: string[]; assets: SkillAssetStatus[] }>> {
@@ -494,27 +609,41 @@ export function createSkillsLibrary(options: SkillsLibraryOptions): SkillsLibrar
                 value: {
                     skills: names
                         .filter((name) => name.startsWith(INSTRUMENT_SKILL_PREFIX))
-                        .map((name) => `posthog:${name}`),
+                        .map((name) => `${SKILL_NAMESPACE}${name}`),
                     assets: loaded.value.assets,
                 },
             }
         },
 
-        async install(id, { cwd, force, skillsDir, release: handle }) {
-            const loaded = await releaseFor(handle)
-            if (!loaded.ok) {
-                return loaded
+        async install(name, { cwd, force, skillsDir, release: handle }) {
+            const { loaded, assets } = (handle && handedOut.get(handle)) || (await loadCatalog())
+            if (!loaded) {
+                return { ok: false, error: offline(assets) }
             }
 
-            const { release, assets } = loaded.value
+            const id = bareName(name)
+            const options = { cwd, force, skillsDir }
 
             try {
-                return {
-                    ok: true,
-                    value: { skill: await installSkill(id, { cwd, force, skillsDir, source: release }), assets },
+                const skill = loaded.catalog.get(id)
+                if (!skill) {
+                    return { ok: false, error: { code: 'unknown_skill', message: `Unknown skill "${name}".` } }
                 }
+
+                // A resource skill is written from its own archive. Every other skill is written from
+                // the files `learn` serves, so the installed copy names commands the way `learn` does.
+                const installed =
+                    loaded.release && loaded.resources.has(id)
+                        ? await installSkill(id, { ...options, source: loaded.release })
+                        : await writeSkill(
+                              id,
+                              Object.fromEntries(skill.files.map((file) => [file.path, strToU8(file.content)])),
+                              options
+                          )
+
+                return { ok: true, value: { skill: installed, assets } }
             } catch (error) {
-                return { ok: false, error: installError(id, error) }
+                return { ok: false, error: installError(name, error) }
             }
         },
     }

@@ -1,12 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 
-import type {
-    InstallableSkill,
-    SkillAssetStatus,
-    SkillsLibrary,
-    SkillsRelease,
-} from '@posthog/mcp/src/cli/library-types'
+import type { CatalogSkill, SkillAssetStatus, SkillsLibrary, SkillsRelease } from '@posthog/mcp/src/cli/library-types'
 
 import type { Env } from '@/core/runtime'
 import { runHog, type FakeRuntimeOptions, type HogRun } from '@/testing'
@@ -20,14 +15,9 @@ const ASSETS: SkillAssetStatus[] = [
     },
 ]
 
-const CATALOG: InstallableSkill[] = [
-    {
-        id: 'posthog-flags',
-        name: 'Feature flags',
-        description: 'Roll out a change behind a flag.\nThen clean the flag up.',
-        tags: [],
-    },
-    { id: 'posthog-replay', name: 'Session replay', description: 'Watch what people did.', tags: [] },
+const CATALOG: CatalogSkill[] = [
+    { name: 'posthog:analyzing-funnels', kind: 'learning', description: 'Find where people drop off.' },
+    { name: 'posthog:tracing-nodejs', kind: 'implementation', description: 'Trace requests in Node.js.' },
 ]
 
 interface InstallCall {
@@ -57,7 +47,7 @@ function fakeSkills(installed: string[] = []): FakeSkills {
     const library: SkillsLibrary = {
         learn: async () => ({ ok: false, error: { code: 'usage', message: 'not used' } }),
         instrumentSkills: async () => ({ ok: true, value: { skills: [], assets: ASSETS } }),
-        installable: async () => {
+        catalog: async () => {
             fake.releaseLoads += 1
             return { ok: true, value: { skills: CATALOG, assets: ASSETS, release } }
         },
@@ -67,7 +57,7 @@ function fakeSkills(installed: string[] = []): FakeSkills {
                 fake.releaseLoads += 1
             }
 
-            const directory = join(cwd, skillsDir ?? '.agents/skills', id)
+            const directory = join(cwd, skillsDir ?? '.agents/skills', id.replace('posthog:', ''))
             if (present.has(directory) && !force) {
                 return {
                     ok: false,
@@ -113,15 +103,22 @@ describe('hog skills', () => {
     ])('%s installs into %s of the repository root', async (_name, env, flags, folder, agent, agentSource) => {
         const fake = fakeSkills()
 
-        const result = await skills(['add', 'posthog-flags', ...flags], fake, env)
+        const result = await skills(['add', 'posthog:tracing-nodejs', ...flags], fake, env)
 
         expect(result.exitCode).toBe(0)
-        expect(fake.calls).toEqual([{ id: 'posthog-flags', cwd: '/work', force: false, skillsDir: folder }])
+        expect(fake.calls).toEqual([{ id: 'posthog:tracing-nodejs', cwd: '/work', force: false, skillsDir: folder }])
         expect(result.json()).toEqual({
             root: '/work',
             rootKind: 'repository',
             agentSource,
-            skills: [{ id: 'posthog-flags', agent, path: `/work/${folder}/posthog-flags`, status: 'installed' }],
+            skills: [
+                {
+                    name: 'posthog:tracing-nodejs',
+                    agent,
+                    path: `/work/${folder}/tracing-nodejs`,
+                    status: 'installed',
+                },
+            ],
             assets: ASSETS,
         })
     })
@@ -130,7 +127,7 @@ describe('hog skills', () => {
         const fake = fakeSkills()
 
         const result = await skills(
-            ['add', 'posthog-flags', '--agent', 'claude-code', '--agent', 'codex', '--agent', 'cursor'],
+            ['add', 'posthog:tracing-nodejs', '--agent', 'claude-code', '--agent', 'codex', '--agent', 'cursor'],
             fake,
             {}
         )
@@ -140,75 +137,70 @@ describe('hog skills', () => {
         expect(fake.releaseLoads).toBe(1)
         expect(result.json()).toMatchObject({
             skills: [
-                { agent: 'claude-code', path: '/work/.claude/skills/posthog-flags', status: 'installed' },
-                { agent: 'codex', path: '/work/.agents/skills/posthog-flags', status: 'installed' },
-                { agent: 'cursor', path: '/work/.agents/skills/posthog-flags', status: 'installed' },
+                { agent: 'claude-code', path: '/work/.claude/skills/tracing-nodejs', status: 'installed' },
+                { agent: 'codex', path: '/work/.agents/skills/tracing-nodejs', status: 'installed' },
+                { agent: 'cursor', path: '/work/.agents/skills/tracing-nodejs', status: 'installed' },
             ],
         })
     })
 
-    test('a person outside a git repository is told where the skills went', async () => {
-        const fake = fakeSkills()
+    test.each<[string, string[], string[]]>([
+        [
+            'a new skill',
+            [],
+            ['✓ Added posthog:analyzing-funnels to /scratch', '  Wrote .agents/skills/analyzing-funnels'],
+        ],
+        [
+            'a skill that is already there',
+            ['/scratch/.agents/skills/analyzing-funnels'],
+            [
+                '• Nothing to add: posthog:analyzing-funnels is already in /scratch',
+                '  Left .agents/skills/analyzing-funnels as it was, because the skill is already there',
+            ],
+        ],
+    ])('a person who adds %s sees the result first, then the folder, then the notes', async (_name, installed, top) => {
+        const fake = fakeSkills(installed)
 
         const result = await skills(
-            ['add', 'posthog-flags'],
+            ['add', 'analyzing-funnels'],
             fake,
             { NO_COLOR: '1' },
             { cwd: '/scratch', stdoutIsTTY: true }
         )
 
         expect(result.exitCode).toBe(0)
-        expect(result.stdout).toBe(
-            [
-                "/scratch isn't in a git repository, so the skills go in this folder.",
-                'No agent is running hog, so the skills go in .agents/skills, which most agents read.',
-                'Pass `--agent` to pick one, such as `--agent claude-code`.',
-                'Installed posthog-flags in .agents/skills/posthog-flags',
-                '',
-            ].join('\n')
-        )
+        expect(result.stdout.split('\n').slice(0, 5)).toEqual([
+            ...top,
+            '',
+            "/scratch isn't in a git repository, so the skills went in this folder.",
+            'No agent is running hog, so the skills went in .agents/skills, which most agents read. To add them for one agent, pass --agent, as in --agent claude-code.',
+        ])
     })
 
     test.each<[string, string[], boolean | undefined, 'installed' | 'already_installed']>([
         ['without --force keeps', [], false, 'already_installed'],
         ['with --force replaces', ['--force'], true, 'installed'],
     ])('an installed skill %s the copy', async (_name, flags, force, status) => {
-        const fake = fakeSkills(['/work/.claude/skills/posthog-flags'])
+        const fake = fakeSkills(['/work/.claude/skills/tracing-nodejs'])
 
-        const result = await skills(['add', 'posthog-flags', ...flags], fake, { CLAUDECODE: '1' })
+        const result = await skills(['add', 'posthog:tracing-nodejs', ...flags], fake, { CLAUDECODE: '1' })
 
         expect(result.exitCode).toBe(0)
-        expect(fake.calls).toEqual([{ id: 'posthog-flags', cwd: '/work', force, skillsDir: '.claude/skills' }])
-        expect(result.json()).toMatchObject({ skills: [{ id: 'posthog-flags', status }] })
+        expect(fake.calls).toEqual([{ id: 'posthog:tracing-nodejs', cwd: '/work', force, skillsDir: '.claude/skills' }])
+        expect(result.json()).toMatchObject({ skills: [{ name: 'posthog:tracing-nodejs', status }] })
     })
 
-    test('an unknown id fails before any skill is installed, and the hint names hog skills list', async () => {
+    test('an unknown skill fails before any skill is installed, and the hint names hog learn skills', async () => {
         const fake = fakeSkills()
 
-        const result = await skills(['add', 'posthog-flags', 'posthog-nope'], fake, { CLAUDECODE: '1' })
+        const result = await skills(['add', 'posthog:tracing-nodejs', 'posthog:nope'], fake, { CLAUDECODE: '1' })
 
         expect(result.exitCode).toBe(1)
         expect(result.error()).toMatchObject({
             code: 'unknown_skill',
-            message: 'Unknown skill "posthog-nope".',
-            hint: 'Run `hog skills list` to see the skills you can add.',
+            message: 'Unknown skill "posthog:nope".',
+            hint: 'Run `hog learn skills` to see every skill you can add.',
         })
         expect(fake.calls).toEqual([])
-    })
-
-    test('hog skills list shows each skill with the first line of its description', async () => {
-        const fake = fakeSkills()
-
-        const result = await skills(['list'], fake, { CLAUDECODE: '1' })
-
-        expect(result.exitCode).toBe(0)
-        expect(result.requests).toEqual([])
-        expect(result.json()).toEqual({
-            skills: [
-                { id: 'posthog-flags', name: 'Feature flags', description: 'Roll out a change behind a flag.' },
-                { id: 'posthog-replay', name: 'Session replay', description: 'Watch what people did.' },
-            ],
-            assets: ASSETS,
-        })
     })
 })
