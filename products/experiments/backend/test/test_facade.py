@@ -3,7 +3,6 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -16,7 +15,7 @@ from posthog.test.base import (
     _create_flag_evaluations,
     flush_persons_and_events,
 )
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -804,14 +803,6 @@ class TestPrecomputationSettings(BaseTest):
         )
 
 
-def _github_with_repositories(*full_names: str) -> MagicMock:
-    return MagicMock(
-        return_value=SimpleNamespace(
-            list_all_cached_repositories=lambda max_repos: [{"full_name": full_name} for full_name in full_names]
-        )
-    )
-
-
 class TestTeamExperimentsSettings(BaseTest):
     def test_reads_every_setting(self) -> None:
         TeamExperimentsConfig.objects.create(
@@ -858,8 +849,8 @@ class TestTeamExperimentsSettings(BaseTest):
         )
 
         with patch(
-            "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
-            _github_with_repositories("PostHog/posthog"),
+            "products.tasks.backend.facade.repo_selection.team_repository_names",
+            return_value={"posthog/posthog": "PostHog/posthog"},
         ):
             updated = api.update_team_experiments_settings(
                 team_id=self.team.id,
@@ -934,8 +925,8 @@ class TestTeamExperimentsSettings(BaseTest):
 
         with (
             patch(
-                "products.tasks.backend.logic.repo_selection.agent.resolve_team_github_integration",
-                _github_with_repositories("PostHog/posthog"),
+                "products.tasks.backend.facade.repo_selection.team_repository_names",
+                return_value={"posthog/posthog": "PostHog/posthog"},
             ),
             pytest.raises(ExperimentValidationError) as raised,
         ):
