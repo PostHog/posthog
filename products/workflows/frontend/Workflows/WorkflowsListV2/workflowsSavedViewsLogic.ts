@@ -904,12 +904,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 const id = raw.get('view') ?? 'all'
                 const explicit = raw.has('q') || raw.has('text') || raw.has('columns') || raw.has('added')
                 if (!values.available) {
-                    if (explicit && cache.followedLink) {
-                        // A followed link with its own state replaces an earlier view-only link and the edits made
-                        // while the views load, also on the same view. The list replaces the URL with its own edits,
-                        // and a failed load syncs without any navigation, so both of those keep them.
+                    if (cache.followedLink) {
+                        // A followed link replaces an earlier view-only link, and with its own state also the edits
+                        // made while the views load. The list replaces the URL with its own edits, and a failed load
+                        // syncs without any navigation, so both of those keep them.
                         cache.viewOnlyLink = undefined
-                        cache.editsWhileViewsLoad = undefined
+                        cache.editsWhileViewsLoad = explicit ? undefined : cache.editsWhileViewsLoad
                     }
                     // A link without its own filters takes them from the view, also when it carries columns.
                     if (!raw.has('q') && values.enabled && raw.has('view') && cache.viewOnlyLink?.id !== id) {
