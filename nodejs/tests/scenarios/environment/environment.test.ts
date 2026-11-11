@@ -2,6 +2,7 @@ import childProcess, { ChildProcess, SpawnOptions, spawn } from 'child_process'
 import { once } from 'events'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, rmdirSync, writeFileSync } from 'fs'
 import http from 'http'
+import Redis from 'ioredis'
 import net from 'net'
 import os from 'os'
 import path from 'path'
@@ -10,7 +11,7 @@ import { setTimeout as nextTimers } from 'timers/promises'
 import { SES_RATE_LIMIT_KEY } from '~/cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
 import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.service'
 import { defaultConfig } from '~/common/config/config'
-import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { RedisClient, RedisClientPipeline, RedisV2 } from '~/common/redis/redis-v2'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
@@ -60,13 +61,29 @@ const writeFake = (file: string, body: string): void => {
     writeFileSync(file, `#!${process.execPath}\n${body}`, { mode: 0o755 })
 }
 
-const callsOf = (file: string): string[][] =>
-    existsSync(file)
-        ? readFileSync(file, 'utf8')
-              .split('\n')
-              .filter(Boolean)
-              .map((line) => parseJSON(line))
-        : []
+const sesLimiterOn = ({
+    host,
+    port,
+}: {
+    host: string
+    port: number
+}): { limiter: RateLimiterService; close: () => Promise<void> } => {
+    const client = new Redis({ host, port, lazyConnect: true, maxRetriesPerRequest: 0 })
+    const valkey: RedisV2 = {
+        useClient: async (_options, use) => await use(client as unknown as RedisClient),
+        usePipeline: async (_options, build) => {
+            const pipeline = client.pipeline()
+            build(pipeline as unknown as RedisClientPipeline)
+            return await pipeline.exec()
+        },
+    }
+    return {
+        limiter: new RateLimiterService(valkey, { name: 'scenario-reset' }),
+        close: async () => {
+            await client.quit()
+        },
+    }
+}
 
 describe('scenario environment', () => {
     describe('planCleanup', () => {
@@ -350,12 +367,7 @@ describe('scenario environment', () => {
     })
 
     it('refills the SES token bucket the email worker claims from, so a reset starts with a full one', async () => {
-        const valkey = createRedisV2PoolFromConfig({
-            connection: { url: '127.0.0.1', options: { port: 6379 } },
-            poolMinSize: 1,
-            poolMaxSize: 1,
-        })
-        const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+        const { limiter, close } = sesLimiterOn({ host: '127.0.0.1', port: 6379 })
         const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
         try {
             await limiter.claimUpTo(claim)
@@ -366,6 +378,7 @@ describe('scenario environment', () => {
             expect(await limiter.claimUpTo(claim)).toBe(5)
         } finally {
             await forgetSesBucket({ host: '127.0.0.1', port: 6379 })
+            await close()
         }
     })
 
@@ -715,27 +728,33 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             const [exec, container, rpk, noun, verb, group] = args
-            fs.appendFileSync(path.join(__dirname, 'docker-calls'), JSON.stringify(args) + '\\n')
-            if (
-                [exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' ||
-                !['describe', 'seek'].includes(verb)
-            ) {
+            const [, , , , , , to, position, topicsFlag, topic, allowNew] = args
+            const describes = args.length === 6 && verb === 'describe'
+            const seeks =
+                args.length === 11 &&
+                verb === 'seek' &&
+                to === '--to' &&
+                ['start', 'end'].includes(position) &&
+                topicsFlag === '--topics' &&
+                allowNew === '--allow-new-topics'
+            if ([exec, container, rpk, noun].join(' ') !== 'exec posthog-kafka-1 rpk group' || !(describes || seeks)) {
                 process.stderr.write('The fake docker has no command ' + args.join(' ') + '\\n')
                 process.exit(1)
             }
-            if (verb === 'seek') {
-                const topic = args[args.indexOf('--topics') + 1]
+            if (seeks) {
                 const answer = path.join(__dirname, 'seek')
-                const { stdout, stderr, code } = fs.existsSync(answer)
-                    ? JSON.parse(fs.readFileSync(answer, 'utf8'))
-                    : {
-                          stdout: 'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n',
-                          stderr: '',
-                          code: 0,
-                      }
-                process.stdout.write(stdout)
-                process.stderr.write(stderr)
-                process.exit(code)
+                if (fs.existsSync(answer)) {
+                    const { stdout, stderr, code } = JSON.parse(fs.readFileSync(answer, 'utf8'))
+                    process.stdout.write(stdout)
+                    process.stderr.write(stderr)
+                    process.exit(code)
+                }
+                const offsets = path.join(__dirname, 'offsets.json')
+                const groups = fs.existsSync(offsets) ? JSON.parse(fs.readFileSync(offsets, 'utf8')) : {}
+                groups[group] = { ...groups[group], [topic]: position }
+                fs.writeFileSync(offsets, JSON.stringify(groups))
+                process.stdout.write('TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET\\n' + topic + '  0  -1  0\\n')
+                process.exit(0)
             }
             const members = Number(fs.readFileSync(path.join(__dirname, 'members'), 'utf8'))
             process.stdout.write(
@@ -763,6 +782,10 @@ describe('scenario environment', () => {
             const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({})))
             return { group, topic: topics[0] }
         }
+        const offsetsOf = (): Record<string, Record<string, string>> =>
+            existsSync(path.join(fakes, 'offsets.json'))
+                ? parseJSON(readFileSync(path.join(fakes, 'offsets.json'), 'utf8'))
+                : {}
         let fakes = ''
         let cacheDir = ''
         let stranger: ChildProcess | undefined
@@ -1059,12 +1082,7 @@ describe('scenario environment', () => {
         )
 
         it("starts the next card without the last card's unfinished jobs, spent SES tokens or events backlog", async () => {
-            const valkey = createRedisV2PoolFromConfig({
-                connection: { url: testRedis.host, options: { port: testRedis.port } },
-                poolMinSize: 1,
-                poolMaxSize: 1,
-            })
-            const limiter = new RateLimiterService(valkey, { name: 'scenario-reset' })
+            const { limiter, close } = sesLimiterOn(testRedis)
             const claim = { key: SES_RATE_LIMIT_KEY, requested: 5, capacity: 5, refillPerSecond: 0.001 }
             const { group, topic } = eventsGroup()
             environment = environmentOf()
@@ -1085,78 +1103,57 @@ describe('scenario environment', () => {
                 expect({
                     jobs: await jobsLeft(),
                     tokens: await limiter.claimUpTo(claim),
-                    seeks: callsOf(path.join(fakes, 'docker-calls')).filter((call) => call[4] === 'seek'),
+                    offsets: offsetsOf(),
                 }).toEqual({
                     jobs: ['completed'],
                     tokens: 5,
-                    seeks: [
-                        [
-                            'exec',
-                            'posthog-kafka-1',
-                            'rpk',
-                            'group',
-                            'seek',
-                            group,
-                            '--to',
-                            'end',
-                            '--topics',
-                            topic,
-                            '--allow-new-topics',
-                        ],
-                    ],
+                    offsets: { [group]: { [topic]: 'end' } },
                 })
             } finally {
                 await forgetSesBucket(testRedis)
+                await close()
             }
         }, 30_000)
 
-        it.each<[string, (topic: string) => { stdout: string; stderr: string; code: number }, boolean]>([
+        it.each<[string, { stdout: string; stderr: string; code: number }, string | null]>([
             [
                 'a topic that does not exist yet',
-                () => ({
+                {
                     stdout: '',
                     stderr: 'unable to list all offsets successfully: UNKNOWN_TOPIC_OR_PARTITION: This server does not host this topic-partition.\n',
                     code: 1,
-                }),
-                true,
+                },
+                null,
             ],
             [
                 'a partition the broker refused to move',
-                (topic) => ({
-                    stdout: [
-                        ['TOPIC', 'PARTITION', 'PRIOR-OFFSET', 'CURRENT-OFFSET', 'ERROR'],
-                        [topic, '0', '-1', '-1', 'INVALID_OPERATION: seeking a non-empty group is not allowed.'],
-                    ]
-                        .map(([name, ...columns]) =>
-                            [name.padEnd(topic.length + 2), ...columns.map((column) => column.padEnd(16))]
-                                .join('')
-                                .trimEnd()
-                        )
-                        .map((line) => `${line}\n`)
-                        .join(''),
+                {
+                    stdout:
+                        'TOPIC                 PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\n' +
+                        'scenario_seek_events  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\n',
                     stderr: '',
                     code: 1,
-                }),
-                false,
+                },
+                'Could not move scenario-seek-group to the end of scenario_seek_events:\nscenario_seek_events/0: INVALID_OPERATION: seeking a non-empty group is not allowed.',
             ],
         ])(
             'moves the events group past %s only when rpk reports no failed partition',
-            async (_name, answer, resets) => {
-                const { group, topic } = eventsGroup()
-                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(answer(topic)))
+            async (_name, rpkSeek, failure) => {
+                writeFileSync(path.join(fakes, 'seek'), JSON.stringify(rpkSeek))
                 environment = environmentOf()
                 await environment.up()
 
-                const failure = await environment.reset({}).then(
-                    () => null,
-                    (error: Error) => error.message
-                )
+                const outcome = await environment
+                    .reset({
+                        CDP_EVENTS_CONSUMER_GROUP_ID: 'scenario-seek-group',
+                        CDP_EVENTS_CONSUMER_TOPIC: 'scenario_seek_events',
+                    })
+                    .then(
+                        () => null,
+                        (error: Error) => error.message
+                    )
 
-                expect(failure).toEqual(
-                    resets
-                        ? null
-                        : `Could not move ${group} to the end of ${topic}:\n${topic}/0: INVALID_OPERATION: seeking a non-empty group is not allowed.`
-                )
+                expect(outcome).toEqual(failure)
             },
             30_000
         )
