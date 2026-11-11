@@ -4,7 +4,7 @@ import { Counter } from 'prom-client'
 import { logger } from '~/common/utils/logger'
 
 import type { CdpOutputs } from '../../cdp-services'
-import type { CdpEventsDlqOutput } from '../../outputs/outputs'
+import type { CdpEventsDlqOutput, CdpIntakeDlqOutput } from '../../outputs/outputs'
 import type { DeadLetterStep, HogFunctionInvocationGlobals, InvocationBuildFailure } from '../../types'
 import type { HogErrorClass } from '../../utils/hog-error-classification'
 
@@ -29,7 +29,7 @@ const PARKED_CLASSES: ReadonlySet<HogErrorClass> = new Set<HogErrorClass>(['drif
 export const isOurFailure = (failure: { errorClass?: HogErrorClass }): boolean =>
     failure.errorClass === undefined || PARKED_CLASSES.has(failure.errorClass)
 
-export type CdpDlqOutput = CdpEventsDlqOutput
+export type CdpDlqOutput = CdpEventsDlqOutput | CdpIntakeDlqOutput
 
 const counterDeadLetterMessages = new Counter({
     name: 'cdp_dead_letter_messages_total',
@@ -70,11 +70,12 @@ const MIN_UNEXPECTED_TO_BREAK = 3
 /**
  * The steps that count toward the circuit breaker in `produceForBatch`. `filter` and `inputs` never
  * count, because one broken builtin legitimately breaks a whole batch and those records are the point.
- * `parse` never counts either. Most parse errors come from bytes that fail the same way on every read,
- * so a stall would never clear them. A `lookup` error does not come from the bytes, so it counts with
- * `process`.
+ * `parse` counts only when the consumer sets `parseFailuresStallBatch`. Most parse errors come from bytes
+ * that fail the same way on every read, so a stall would never clear them. A `lookup` error does not
+ * come from the bytes, so it counts with `process`.
  */
 const UNEXPECTED_STEPS: ReadonlySet<DeadLetterStep> = new Set<DeadLetterStep>(['lookup', 'process'])
+const UNEXPECTED_STEPS_WITH_PARSE: ReadonlySet<DeadLetterStep> = new Set<DeadLetterStep>([...UNEXPECTED_STEPS, 'parse'])
 
 export interface CdpDeadLetterServiceConfig {
     CDP_DLQ_ENABLED: boolean
@@ -82,10 +83,15 @@ export interface CdpDeadLetterServiceConfig {
 }
 
 export class DeadLetterCircuitBreakerError extends Error {
-    constructor(processFailures: number, lookupFailures: number, batchSize: number) {
+    constructor(processFailures: number, lookupFailures: number, batchSize: number, parseFailures?: number) {
+        const counts = [
+            `${processFailures} process`,
+            `${lookupFailures} lookup`,
+            ...(parseFailures === undefined ? [] : [`${parseFailures} parse`]),
+        ]
         super(
-            `Refusing to dead-letter ${processFailures + lookupFailures} of ${batchSize} messages ` +
-                `(${processFailures} process, ${lookupFailures} lookup): an unexpected failure this wide ` +
+            `Refusing to dead-letter ${processFailures + lookupFailures + (parseFailures ?? 0)} of ${batchSize} messages ` +
+                `(${counts.join(', ')}): an unexpected failure this wide ` +
                 'is a bug in this deployment or data that fails a batched lookup, not poison in the stream'
         )
         this.name = 'DeadLetterCircuitBreakerError'
@@ -96,7 +102,14 @@ export interface CdpDeadLetterServiceOptions {
     outputs: CdpOutputs
     output: CdpDlqOutput
     consumerGroup: string
-    resolveMessage: (globals: HogFunctionInvocationGlobals) => Message | undefined
+    /** Needed only by a consumer that records failures against event globals. */
+    resolveMessage?: (globals: HogFunctionInvocationGlobals) => Message | undefined
+    /**
+     * Counts `parse` failures toward the breaker. For a consumer whose only failure is a message it
+     * cannot parse, such as the intake consumer, a parse failure across much of a batch is the one sign
+     * of a bad producer or consumer deploy, and stalling keeps the good messages out of the dead letters.
+     */
+    parseFailuresStallBatch?: boolean
 }
 
 /**
@@ -231,17 +244,28 @@ export class CdpDeadLetterService implements InvocationFailureSink {
                 .filter((entry) => entry.failures.some((failure) => UNEXPECTED_STEPS.has(failure.step)))
                 .map((entry) => entry.globals)
         )
-        const unexpectedMessages = new Set(
-            messageFailures.filter(({ failure }) => UNEXPECTED_STEPS.has(failure.step)).map(({ message }) => message)
-        )
-        const unexpected = unexpectedEvents.size + unexpectedMessages.size
+        const unexpectedSteps = this.options.parseFailuresStallBatch ? UNEXPECTED_STEPS_WITH_PARSE : UNEXPECTED_STEPS
+        const unexpectedMessagesAt = (step: DeadLetterStep): Set<Message> =>
+            new Set(
+                messageFailures
+                    .filter(({ failure }) => failure.step === step && unexpectedSteps.has(step))
+                    .map(({ message }) => message)
+            )
+        const lookupMessages = unexpectedMessagesAt('lookup')
+        const parseMessages = unexpectedMessagesAt('parse')
+        const unexpected = unexpectedEvents.size + lookupMessages.size + parseMessages.size
         if (
             unexpected >= MIN_UNEXPECTED_TO_BREAK &&
             messages.length &&
             unexpected > messages.length * this.config.CDP_DLQ_BATCH_FAIL_RATIO
         ) {
             counterDeadLetterBatchFailures.labels({ output: this.options.output }).inc()
-            throw new DeadLetterCircuitBreakerError(unexpectedEvents.size, unexpectedMessages.size, messages.length)
+            throw new DeadLetterCircuitBreakerError(
+                unexpectedEvents.size,
+                lookupMessages.size,
+                messages.length,
+                this.options.parseFailuresStallBatch ? parseMessages.size : undefined
+            )
         }
 
         // Grouped on the globals object itself, so one record covers one event and one step. Both
@@ -264,7 +288,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
             await Promise.all([
                 ...messageFailures.map(({ message, failure }) => this.produceRecord(message, null, [failure])),
                 ...[...records.entries()].flatMap(([globals, byStep]) => {
-                    const message = this.options.resolveMessage(globals)
+                    const message = this.options.resolveMessage?.(globals)
                     if (!message) {
                         // A consumer that stopped tracking a message it built globals from. There
                         // are no bytes to park, so failing the batch is the only way to keep the
