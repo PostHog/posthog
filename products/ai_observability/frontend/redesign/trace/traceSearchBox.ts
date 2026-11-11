@@ -1,6 +1,6 @@
-import type { TraceSearchMatchApi, TraceSearchResultsApi } from '../../../generated/api.schemas'
-import type { TraceSearchBoxData } from '../components/TraceSearchBox'
-import type { MatchDirection, TraceSearchFailure, TraceSearchStatus } from '../types'
+import type { TraceSearchMatchApi, TraceSearchResultsApi } from '../../generated/api.schemas'
+import type { TraceSearchBoxData } from './components/TraceSearchBox'
+import type { MatchDirection, TraceSearchFailure, TraceSearchStatus } from './types'
 
 export function toMatchingNodeIds(results: TraceSearchResultsApi | null): ReadonlySet<string> | null {
     return results ? new Set(results.matches.map((match) => match.nodeId)) : null

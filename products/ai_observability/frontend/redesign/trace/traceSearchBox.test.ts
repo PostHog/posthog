@@ -1,5 +1,5 @@
-import type { TraceSearchMatchApi, TraceSearchResultsApi } from '../../../generated/api.schemas'
-import { steppedMatchId, toMatchingNodeIds, toSearchBox } from './toSearch'
+import type { TraceSearchMatchApi, TraceSearchResultsApi } from '../../generated/api.schemas'
+import { steppedMatchId, toMatchingNodeIds, toSearchBox } from './traceSearchBox'
 
 const MATCHES: TraceSearchMatchApi[] = [
     { nodeId: 'trace-1', count: 2 },
@@ -8,7 +8,7 @@ const MATCHES: TraceSearchMatchApi[] = [
 ]
 const RESULTS: TraceSearchResultsApi = { total: 7, matches: MATCHES }
 
-describe('toSearch', () => {
+describe('traceSearchBox', () => {
     test.each([
         ['next from a match', 'gen-1', 'next', 'gen-2'],
         ['next wraps', 'gen-2', 'next', 'trace-1'],
