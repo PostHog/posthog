@@ -94,6 +94,21 @@ describe('DataTable', () => {
         expect(Object.keys(next).sort()).toEqual([...expected].sort())
     })
 
+    it('disables a row checkbox when only the selectable predicate changes', () => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const people: TestRow[] = [{ name: 'Ada' }]
+        const rowSelection = {}
+        const { container, rerender } = render(
+            <DataTable columns={columns} data={people} selectable={() => true} rowSelection={rowSelection} />
+        )
+        const checkbox = (): Element => container.querySelector('tbody [role="checkbox"]')!
+        expect(checkbox().hasAttribute('data-disabled')).toBe(false)
+
+        rerender(<DataTable columns={columns} data={people} selectable={() => false} rowSelection={rowSelection} />)
+
+        expect(checkbox().hasAttribute('data-disabled')).toBe(true)
+    })
+
     it('applies a row class name per row', () => {
         const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
         const { container } = render(

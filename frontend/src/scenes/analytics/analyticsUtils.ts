@@ -125,6 +125,16 @@ export function isSpacePath(path: string): boolean {
     return segments.length === 1 && !([UNFILED_FOLDER, USERS_FOLDER] as string[]).includes(segments[0])
 }
 
+/** The id of an item's row in the list's selection. */
+export function analyticsItemSelectionId(item: Pick<AnalyticsItem, 'type' | 'id'>): string {
+    return `${item.type}:${item.id}`
+}
+
+/** The id of a folder's row in the list's selection. */
+export function analyticsFolderSelectionId(path: string): string {
+    return `folder:${path}`
+}
+
 /** The space an entry sits in: its top-level folder, or null when it is still unfiled (personal). */
 export function analyticsSpaceOfPath(path: string): string | null {
     const [top] = splitPath(path)

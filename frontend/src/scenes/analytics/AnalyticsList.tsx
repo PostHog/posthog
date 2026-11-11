@@ -93,7 +93,7 @@ function AnalyticsListContent(): JSX.Element {
         scope,
         loadedCount,
         feedQuery,
-        rowSelection,
+        visibleRowSelection,
     } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore, setFilters, setRowSelection } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
@@ -252,7 +252,7 @@ function AnalyticsListContent(): JSX.Element {
                             selectable
                             getRowId={analyticsListRowId}
                             rowSelectionLabel={selectRowLabel}
-                            rowSelection={rowSelection}
+                            rowSelection={visibleRowSelection}
                             onRowSelectionChange={setRowSelection}
                             viewportRef={setTableViewport}
                             viewportEndRef={tableEndRef}

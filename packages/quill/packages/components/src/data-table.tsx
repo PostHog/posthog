@@ -370,8 +370,8 @@ function DataTableHead<TData>({
 
 // Memoized so that a resize, which ends by setting a width on the table, does not render every row again. For the same
 // reason, a caller with its own state should keep `columns`, `onRowClick`, `rowClassName` and `empty` stable between renders.
-// TanStack keeps `rows` the same array when only the selection changes, so `rowSelection` is a prop that the body never
-// reads: it is there to make the memo render the rows again.
+// TanStack keeps `rows` the same array when only the selection changes, so `rowSelection` and `selectable` are props that the
+// body never reads: they are there to make the memo render the rows again.
 function DataTableBodyInner<TData, TValue>({
     rows,
     columns,
@@ -382,6 +382,7 @@ function DataTableBodyInner<TData, TValue>({
 }: {
     rows: Row<TData>[]
     rowSelection: RowSelectionState
+    selectable: DataTableProps<TData, TValue>['selectable']
     columns: ColumnDef<TData, TValue>[]
     filler: boolean
     onRowClick?: (row: TData) => void
@@ -646,6 +647,7 @@ function DataTable<TData, TValue>({
             <DataTableBody
                 rows={table.getRowModel().rows}
                 rowSelection={table.getState().rowSelection}
+                selectable={selectable}
                 columns={tableColumns}
                 filler={hasFiller}
                 onRowClick={onRowClick}

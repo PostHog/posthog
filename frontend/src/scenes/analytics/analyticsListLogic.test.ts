@@ -216,9 +216,12 @@ describe('analyticsListLogic', () => {
         ],
         ['a scope switch', (logic: ReturnType<typeof analyticsListLogic>) => logic.actions.setScope('mine')],
         ['clearing the filters', (logic: ReturnType<typeof analyticsListLogic>) => logic.actions.clearFilters()],
+        ['hiding insights', (logic: ReturnType<typeof analyticsListLogic>) => logic.actions.setInsightsHidden(true)],
     ])('clears the checked rows on %s, so a bulk action never reaches hidden rows', async (_, change) => {
         const logic = analyticsListLogic()
         logic.mount()
+        router.actions.push(urls.analyticsList())
+        await expectLogic(logic).toFinishAllListeners()
         logic.actions.setRowSelection({ 'insight:i1': true, 'notebook:n1': true })
         expect(logic.values.selectedCount).toBe(2)
 
@@ -226,6 +229,18 @@ describe('analyticsListLogic', () => {
 
         expect(logic.values.rowSelection).toEqual({})
         expect(logic.values.selectedCount).toBe(0)
+    })
+
+    it('counts only checked rows that are on screen, so a row a reload drops leaves the selection', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsList())
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setRowSelection({ 'insight:i1': true, 'insight:gone': true })
+
+        expect(logic.values.visibleRowSelection).toEqual({ 'insight:i1': true })
+        expect(logic.values.selectedCount).toBe(1)
     })
 
     it('drops only insights from the picked types when insights get hidden', async () => {
