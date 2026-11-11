@@ -114,7 +114,11 @@ class ResendImportProvider(ImportProvider):
                 "Opts contacts who unsubscribed in Resend out of all marketing email. PostHog reads their email "
                 "address only and doesn't create people from your contacts."
             ),
-            count_labels=(("opted_out", "Newly opted out"), ("subscribed", "Still subscribed, not imported")),
+            count_labels=(
+                ("opted_out", "Newly opted out"),
+                ("already_present", "Already in PostHog, left as they are"),
+                ("subscribed", "Still subscribed, not imported"),
+            ),
         ),
         ImportStepSpec(
             key="topic_opt_outs",
@@ -296,7 +300,14 @@ def _save_opt_outs(context: ImportContext, contacts: list[dict[str, Any]]) -> Sa
         if contact.get("unsubscribed") is True and (email := _contact_email(contact.get("email")))
     }
     changed = import_opt_outs(context.team_id, unsubscribed, context.created_by_id)
-    return SavedPage(imported=changed, counts={"opted_out": changed, "subscribed": len(contacts) - len(unsubscribed)})
+    return SavedPage(
+        imported=changed,
+        counts={
+            "opted_out": changed,
+            "already_present": len(unsubscribed) - changed,
+            "subscribed": len(contacts) - len(unsubscribed),
+        },
+    )
 
 
 def _fetch_topic_opt_outs(
