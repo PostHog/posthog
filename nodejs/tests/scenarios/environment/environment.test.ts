@@ -386,8 +386,8 @@ describe('scenario environment', () => {
         const logOf = (role: Role): string => path.join(process.env.XDG_CACHE_HOME!, 'posthog-scenarios', `${role}.log`)
         const healthOf = async (role: Role): Promise<number> =>
             (await internalFetch(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`)).status
-        const holdPort = async (role: Role): Promise<void> => {
-            portHolder = http.createServer((_request, response) => response.end())
+        const holdPort = async (role: Role, answersAfter: Promise<unknown> = Promise.resolve()): Promise<void> => {
+            portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
             await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
         }
         const stubTheStack = (consumerGroupMembers: number[]): void => {
@@ -417,11 +417,11 @@ describe('scenario environment', () => {
                 if (options.env?.PLUGIN_SERVER_MODE === unspawnable) {
                     return realSpawn(path.join(NODEJS_DIR, 'no-such-tsx'), args, options)
                 }
+                const role = realSpawn(process.execPath, ['-e', stubRole], options)
                 if (options.env?.PLUGIN_SERVER_MODE === losesItsPort) {
-                    void holdPort(losesItsPort!)
+                    void holdPort(losesItsPort!, once(role, 'exit'))
                     losesItsPort = undefined
                 }
-                const role = realSpawn(process.execPath, ['-e', stubRole], options)
                 stubRolePids.add(role.pid!)
                 roleChildren.set(options.env?.PLUGIN_SERVER_MODE as Role, role)
                 return role
