@@ -170,11 +170,12 @@ class TestReleaseAPI(APIBaseTest):
         self._restrict_as_admin(f"hog_flows/{hidden_id}")
         self.client.force_login(self._create_user("member@example.com"))
 
-        listed = self.client.get(self._url()).json()["results"][0]["broadcast_ids"]
+        member_view = self.client.get(self._url()).json()["results"][0]
         self.client.patch(self._url(f"{release_id}/"), {"broadcast_ids": []}, format="json")
         stored = Release.objects.unscoped().get(id=release_id).broadcast_ids
 
-        assert listed == [visible_id]
+        assert member_view["broadcast_ids"] == [visible_id]
+        assert [broadcast["name"] for broadcast in member_view["broadcasts"]] == ["Launch email"]
         assert [str(broadcast_id) for broadcast_id in stored] == [hidden_id]
 
     def test_update_of_a_missing_release_returns_404(self) -> None:

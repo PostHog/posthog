@@ -5,10 +5,21 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import ReleaseDTO
+from ..facade.contracts import LinkedBroadcastDTO, ReleaseDTO
+
+
+class LinkedBroadcastSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = LinkedBroadcastDTO
 
 
 class ReleaseSerializer(DataclassSerializer):
+    broadcasts = LinkedBroadcastSerializer(
+        many=True,
+        read_only=True,
+        help_text="ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out.",
+    )
+
     has_hidden_flags = serializers.BooleanField(
         read_only=True,
         help_text="True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids.",

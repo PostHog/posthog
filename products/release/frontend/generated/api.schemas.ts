@@ -7,12 +7,20 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LinkedBroadcastDTOApi {
+    id: string
+    name: string
+    status: string
+}
+
 export interface ReleaseOwnerDTOApi {
     id: number
     first_name: string
 }
 
 export interface ReleaseDTOApi {
+    /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
+    readonly broadcasts: readonly LinkedBroadcastDTOApi[]
     /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
     readonly has_hidden_flags: boolean
     id: string

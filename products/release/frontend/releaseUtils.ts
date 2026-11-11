@@ -11,14 +11,10 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import type {
-    HogFlowApi,
-    HogFlowBatchJobApi,
-    SendCalendarFlowApi,
-} from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowBatchJobApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
-import type { ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, ReleaseDTOApi } from './generated/api.schemas'
 
 export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released' | 'ended'
 
@@ -99,7 +95,7 @@ export interface ReleaseRow {
     flags: FeatureFlagApi[]
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
-    broadcasts: HogFlowApi[]
+    broadcasts: LinkedBroadcastDTOApi[]
     stage: ReleaseStage
     status: string
     audience: string
@@ -408,7 +404,7 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
 }
 
 export interface ReleaseMessaging {
-    broadcasts: HogFlowApi[]
+    broadcasts: LinkedBroadcastDTOApi[]
     sends: SendCalendarFlowApi[]
     runs: Record<string, HogFlowBatchJobApi[]>
 }
@@ -464,7 +460,7 @@ export interface ReleaseIndex {
     earlyAccessByFlagKey: Map<string, EarlyAccessFeatureApi[]>
     changesByFlagId: Map<string, ScheduledChangeApi[]>
     scheduleEventsByFlagId: Map<number, ReleaseEvent[]>
-    broadcastsById: Map<string, HogFlowApi>
+    broadcastsById: Map<string, LinkedBroadcastDTOApi>
     sendEventsByBroadcastId: Map<string, ReleaseEvent[]>
     complete: boolean
     resolvedFlagIds: Set<number>
@@ -572,7 +568,7 @@ interface ReleaseFacts {
     complete: boolean
     experiments: ExperimentBasicApi[]
     earlyAccess: EarlyAccessFeatureApi[]
-    broadcasts: HogFlowApi[]
+    broadcasts: LinkedBroadcastDTOApi[]
     drafts: ExperimentBasicApi[]
     done: ExperimentBasicApi[]
     running: ExperimentBasicApi[]
@@ -642,7 +638,7 @@ function releaseFacts(release: ReleaseDTOApi, index: ReleaseIndex): ReleaseFacts
         earlyAccess,
         broadcasts: release.broadcast_ids
             .map((id) => index.broadcastsById.get(id))
-            .filter((broadcast): broadcast is HogFlowApi => !!broadcast),
+            .filter((broadcast): broadcast is LinkedBroadcastDTOApi => !!broadcast),
         drafts: experiments.filter(isExperimentDraft),
         done,
         running,

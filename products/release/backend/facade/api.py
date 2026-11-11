@@ -40,12 +40,18 @@ class LinkLookups:
 class _Hidden:
     flags: frozenset[int]
     broadcasts: frozenset[UUID]
+    summaries: dict[UUID, contracts.LinkedBroadcastDTO]
 
 
 def _hidden(lookups: LinkLookups, releases: list[Release]) -> _Hidden:
     flag_ids = sorted({flag_id for obj in releases for flag_id in obj.feature_flag_ids})
     broadcast_ids = sorted({broadcast_id for obj in releases for broadcast_id in obj.broadcast_ids}, key=str)
-    return _Hidden(flags=lookups.flags(flag_ids).hidden, broadcasts=lookups.broadcasts(broadcast_ids).hidden)
+    broadcasts = lookups.broadcasts(broadcast_ids)
+    return _Hidden(
+        flags=lookups.flags(flag_ids).hidden,
+        broadcasts=broadcasts.hidden,
+        summaries={summary.id: summary for summary in broadcasts.summaries},
+    )
 
 
 def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
@@ -57,6 +63,11 @@ def _to_dto(obj: Release, hidden: _Hidden) -> contracts.ReleaseDTO:
         feature_flag_ids=[flag_id for flag_id in obj.feature_flag_ids if flag_id not in hidden.flags],
         has_hidden_flags=any(flag_id in hidden.flags for flag_id in obj.feature_flag_ids),
         broadcast_ids=[broadcast_id for broadcast_id in obj.broadcast_ids if broadcast_id not in hidden.broadcasts],
+        broadcasts=[
+            hidden.summaries[broadcast_id]
+            for broadcast_id in obj.broadcast_ids
+            if broadcast_id not in hidden.broadcasts and broadcast_id in hidden.summaries
+        ],
         created_at=obj.created_at,
     )
 

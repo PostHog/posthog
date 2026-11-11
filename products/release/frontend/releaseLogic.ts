@@ -21,17 +21,12 @@ import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/
 import {
     hogFlowsBatchJobsList,
     hogFlowsList,
-    hogFlowsRetrieve,
     hogFlowsSendCalendarRetrieve,
 } from 'products/workflows/frontend/generated/api'
-import type {
-    HogFlowApi,
-    HogFlowBatchJobApi,
-    SendCalendarFlowApi,
-} from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowBatchJobApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
-import type { PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, PatchedUpdateReleaseApi, ReleaseDTOApi } from './generated/api.schemas'
 import {
     CALENDAR_DAYS_AFTER,
     CALENDAR_DAYS_BEFORE,
@@ -70,7 +65,7 @@ interface ReleaseLogicValues {
     earlyAccessFeatures: EarlyAccessFeatureApi[]
     earlyAccessCount: number
     scheduledChanges: ScheduledChangeApi[]
-    broadcasts: HogFlowApi[]
+    broadcasts: LinkedBroadcastDTOApi[]
     broadcastSends: SendCalendarFlowApi[]
     broadcastRuns: Record<string, HogFlowBatchJobApi[]>
     linkSearchResults: LinkCandidate[]
@@ -159,9 +154,6 @@ interface ReleaseLogicActions {
     unlinkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
     unlinkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
-    loadBroadcasts: () => void
-    loadBroadcastsSuccess: (broadcasts: HogFlowApi[]) => { broadcasts: HogFlowApi[] }
-    loadBroadcastsFailure: (error: string) => { error: string }
     loadBroadcastSends: () => void
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
     loadBroadcastSendsFailure: (error: string) => { error: string }
@@ -483,25 +475,6 @@ export const releaseLogic = kea<releaseLogicType>([
                 },
             },
         ],
-        broadcasts: [
-            [] as HogFlowApi[],
-            {
-                loadBroadcasts: async (_, breakpoint) => {
-                    const projectId = String(values.currentProjectId)
-                    const ids = [...new Set(values.releases.flatMap((release) => release.broadcast_ids))]
-                    const results = await inBatches(ids, (id) => hogFlowsRetrieve(projectId, id), breakpoint)
-                    const broadcasts: HogFlowApi[] = []
-                    for (const result of results) {
-                        if (result.status === 'fulfilled') {
-                            broadcasts.push(result.value)
-                        } else if ((result.reason as { status?: number })?.status !== 404) {
-                            throw result.reason
-                        }
-                    }
-                    return broadcasts
-                },
-            },
-        ],
         broadcastSends: [
             [] as SendCalendarFlowApi[],
             {
@@ -514,12 +487,19 @@ export const releaseLogic = kea<releaseLogicType>([
                     today.setHours(0, 0, 0, 0)
                     const start = new Date(today.getTime() - CALENDAR_DAYS_BEFORE * 86_400_000)
                     const end = new Date(today.getTime() + (CALENDAR_DAYS_AFTER + 1) * 86_400_000)
-                    const flows = await hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
-                        start: start.toISOString(),
-                        end: end.toISOString(),
-                    })
-                    breakpoint()
-                    return flows.filter((flow) => linked.has(flow.id))
+                    const pages = valuesOrThrow(
+                        await inBatches(
+                            chunk([...linked], ID_CHUNK),
+                            (ids) =>
+                                hogFlowsSendCalendarRetrieve(String(values.currentProjectId), {
+                                    start: start.toISOString(),
+                                    end: end.toISOString(),
+                                    ids: ids.join(','),
+                                }),
+                            breakpoint
+                        )
+                    )
+                    return pages.flat()
                 },
             },
         ],
@@ -639,10 +619,8 @@ export const releaseLogic = kea<releaseLogicType>([
         broadcastsFailed: [
             false,
             {
-                loadBroadcasts: () => false,
                 loadBroadcastSends: () => false,
                 loadBroadcastRuns: () => false,
-                loadBroadcastsFailure: () => true,
                 loadBroadcastSendsFailure: () => true,
                 loadBroadcastRunsFailure: () => true,
             },
@@ -707,6 +685,14 @@ export const releaseLogic = kea<releaseLogicType>([
             (flags: FeatureFlagApi[], scheduledChanges: ScheduledChangeApi[]) =>
                 indexSchedules(flags, scheduledChanges),
         ],
+        broadcasts: [
+            (s) => [s.releases],
+            (releases: ReleaseDTOApi[]): LinkedBroadcastDTOApi[] => [
+                ...new Map(
+                    releases.flatMap((release) => release.broadcasts).map((broadcast) => [broadcast.id, broadcast])
+                ).values(),
+            ],
+        ],
         unknownFlagIds: [
             (s) => [s.hiddenExperimentFlagIds, s.hiddenEarlyAccessFlagIds],
             (hiddenExperimentFlagIds: number[], hiddenEarlyAccessFlagIds: number[]) => [
@@ -746,7 +732,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 unknownFlagIds: number[],
                 earlyAccessReady: boolean,
                 resolvedFlagIds: number[],
-                broadcasts: HogFlowApi[],
+                broadcasts: LinkedBroadcastDTOApi[],
                 broadcastSends: SendCalendarFlowApi[],
                 broadcastRuns: Record<string, HogFlowBatchJobApi[]>
             ): ReleaseRow[] => {
@@ -863,7 +849,6 @@ export const releaseLogic = kea<releaseLogicType>([
                                 actions.loadScheduledChanges()
                             }
                             if (cache.rebroadcastAfterSaves) {
-                                actions.loadBroadcasts()
                                 actions.loadBroadcastSends()
                                 actions.loadBroadcastRuns()
                             }
@@ -927,7 +912,6 @@ export const releaseLogic = kea<releaseLogicType>([
         loadReleasesSuccess: () => {
             actions.loadFlags()
             actions.loadScheduledChanges()
-            actions.loadBroadcasts()
             actions.loadBroadcastSends()
             actions.loadBroadcastRuns()
         },

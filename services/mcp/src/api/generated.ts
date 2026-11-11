@@ -64680,6 +64680,12 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface LinkedBroadcastDTO {
+      id: string;
+      name: string;
+      status: string;
+    }
+
     /**
      * Minimal inbox `SignalReport` projection for the scout reverse lookup — just enough
      * for the scout UI to render a clickable chip and deep-link into the inbox, which loads
@@ -75710,6 +75716,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
+      readonly broadcasts: readonly LinkedBroadcastDTO[];
       /** True when the release links flags the caller cannot see. Their IDs are left out of feature_flag_ids. */
       readonly has_hidden_flags: boolean;
       id: string;
@@ -134501,6 +134509,11 @@ export namespace Schemas {
      * End of the shown range, exclusive, as an ISO 8601 datetime. At most 92 days after start.
      */
     end: string;
+    /**
+     * Comma-separated workflow IDs, at most 200. Only these workflows are returned.
+     * @minLength 1
+     */
+    ids?: string;
     /**
      * Start of the shown range, inclusive, as an ISO 8601 datetime.
      */

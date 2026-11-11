@@ -28,10 +28,18 @@ class UnknownBroadcastsError(Exception):
 
 
 @dataclass(frozen=True)
+class LinkedBroadcastDTO:
+    id: UUID
+    name: str
+    status: str
+
+
+@dataclass(frozen=True)
 class BroadcastVisibility:
     existing: frozenset[UUID]
     visible: frozenset[UUID]
     linkable: frozenset[UUID]
+    summaries: tuple[LinkedBroadcastDTO, ...] = ()
 
     @property
     def hidden(self) -> frozenset[UUID]:
@@ -64,6 +72,7 @@ class ReleaseDTO:
     feature_flag_ids: list[int]
     has_hidden_flags: bool
     broadcast_ids: list[UUID]
+    broadcasts: list[LinkedBroadcastDTO]
     created_at: datetime
 
 

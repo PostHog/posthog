@@ -20,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
-from products.workflows.backend.facade.api import get_workflow_names, get_workflow_view_access
+from products.workflows.backend.facade.api import get_workflow_summaries, get_workflow_view_access
 
 from ..facade import api, contracts
 from .serializers import ReleaseSerializer, UpdateReleaseSerializer, WriteReleaseSerializer
@@ -61,13 +61,23 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         requested = {str(broadcast_id): broadcast_id for broadcast_id in broadcast_ids}
         if not requested:
             return contracts.BroadcastVisibility(existing=frozenset(), visible=frozenset(), linkable=frozenset())
-        access = get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
-        names = get_workflow_names(team_id=self.team_id, workflow_ids=requested.keys())
+        access = get_workflow_view_access(
+            team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=requested.keys()
+        )
+        names = {
+            summary.id: summary
+            for summary in get_workflow_summaries(team_id=self.team_id, workflow_ids=requested.keys())
+        }
         return contracts.BroadcastVisibility(
             existing=frozenset(requested.values()),
             visible=frozenset(broadcast_id for key, broadcast_id in requested.items() if access.allows(key)),
             linkable=frozenset(
                 broadcast_id for key, broadcast_id in requested.items() if key in names and key in access.viewable_ids
+            ),
+            summaries=tuple(
+                contracts.LinkedBroadcastDTO(id=broadcast_id, name=names[key].name, status=names[key].status)
+                for key, broadcast_id in requested.items()
+                if key in names and access.allows(key)
             ),
         )
 

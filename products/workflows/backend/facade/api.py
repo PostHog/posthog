@@ -2,7 +2,7 @@ from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
-from django.db.models import F
+from django.db.models import F, QuerySet
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
@@ -224,21 +224,32 @@ def get_workflow_names(*, team_id: int, workflow_ids: Iterable[str]) -> dict[str
     }
 
 
-def get_viewable_workflow_ids(*, team_id: int, user_access_control: UserAccessControl) -> set[str]:
+def _team_workflows(team_id: int, workflow_ids: Iterable[str] | None) -> QuerySet[HogFlow]:
+    queryset = HogFlow.objects.filter(team_id=team_id)
+    return queryset if workflow_ids is None else queryset.filter(id__in=list(workflow_ids))
+
+
+def get_viewable_workflow_ids(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Iterable[str] | None = None
+) -> set[str]:
     """The ids, as strings, of the team's workflows the reader may view."""
     return {
         str(pk)
         for pk in user_access_control.filter_queryset_by_access_level(
-            HogFlow.objects.filter(team_id=team_id)
+            _team_workflows(team_id, workflow_ids)
         ).values_list("id", flat=True)
     }
 
 
-def get_workflow_view_access(*, team_id: int, user_access_control: UserAccessControl) -> WorkflowViewAccess:
+def get_workflow_view_access(
+    *, team_id: int, user_access_control: UserAccessControl, workflow_ids: Iterable[str] | None = None
+) -> WorkflowViewAccess:
     """What the reader may view, for records that outlive their workflow. A denial outlives the workflow it names, so a
     deleted workflow stays hidden from a reader denied it, and otherwise follows their access to workflows as a whole."""
-    viewable = get_viewable_workflow_ids(team_id=team_id, user_access_control=user_access_control)
-    existing = {str(pk) for pk in HogFlow.objects.filter(team_id=team_id).values_list("id", flat=True)}
+    viewable = get_viewable_workflow_ids(
+        team_id=team_id, user_access_control=user_access_control, workflow_ids=workflow_ids
+    )
+    existing = {str(pk) for pk in _team_workflows(team_id, workflow_ids).values_list("id", flat=True)}
     return WorkflowViewAccess(
         viewable_ids=frozenset(viewable),
         blocked_ids=frozenset(
@@ -253,6 +264,13 @@ def get_workflow_summary(*, team_id: int, workflow_id: str) -> WorkflowSummary:
     if row is None:
         raise WorkflowNotFound()
     return WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+
+
+def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list[WorkflowSummary]:
+    return [
+        WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+        for row in _team_workflows(team_id, workflow_ids).values("id", "name", "status")
+    ]
 
 
 def has_active_workflows(*, team_id: int) -> bool:

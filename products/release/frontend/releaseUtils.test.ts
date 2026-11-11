@@ -1,12 +1,8 @@
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import type {
-    HogFlowApi,
-    HogFlowBatchJobApi,
-    SendCalendarFlowApi,
-} from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowBatchJobApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, ReleaseDTOApi } from './generated/api.schemas'
 import { LinkCandidate, buildReleaseIndex, buildReleaseRow, rankLinkSuggestions } from './releaseUtils'
 
 const FLAG = {
@@ -29,6 +25,7 @@ function row(hasHiddenFlags: boolean, flags: FeatureFlagApi[] = [FLAG]): ReturnT
         feature_flag_ids: flags.map((flag) => flag.id),
         has_hidden_flags: hasHiddenFlags,
         broadcast_ids: [],
+        broadcasts: [],
         created_at: '2026-10-02T00:00:00Z',
     } as ReleaseDTOApi
     const index = buildReleaseIndex([FLAG], [], [], [], {
@@ -75,6 +72,7 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [LAUNCH_SEND.id],
+            broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active' }],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
         const index = buildReleaseIndex(
@@ -84,7 +82,7 @@ describe('buildReleaseRow', () => {
             [],
             { complete: true, resolvedFlagIds: [FLAG.id], unknownFlagIds: [] },
             {
-                broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email' } as HogFlowApi],
+                broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email' } as LinkedBroadcastDTOApi],
                 sends: [LAUNCH_SEND],
                 runs: {
                     [LAUNCH_SEND.id]: [
@@ -113,6 +111,7 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [],
+            broadcasts: [],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
         const index = buildReleaseIndex([FLAG], [], [ARCHIVED_EARLY_ACCESS], [], {
