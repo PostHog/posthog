@@ -38,20 +38,21 @@ export function getRunAudience(
     runStartedAt: string,
     now: Dayjs = dayjs()
 ): RunAudience | null {
-    const audience = totals?.triggered ?? 0
-    if (!totals || audience <= 0) {
+    if (!totals || !(totals.triggered > 0)) {
         return null
     }
-    const sent = totals.email_sent ?? 0
-    const optedOut = totals.email_opted_out ?? 0
-    const suppressed = totals.email_suppressed ?? 0
-    const skippedAtCap = totals.message_frequency_capped ?? 0
-    const noEmail = (totals.email_missing_recipient ?? 0) + (totals.email_bounce_prevented ?? 0)
+    const count = (metric: string): number => totals[metric] ?? 0
+    const audience = count('triggered')
+    const sent = count('email_sent')
+    const optedOut = count('email_opted_out')
+    const suppressed = count('email_suppressed')
+    const skippedAtCap = count('message_frequency_capped')
+    const noEmail = count('email_missing_recipient') + count('email_bounce_prevented')
     // A send that errors can record both metrics for one person.
-    const failed = Math.max(totals.email_failed ?? 0, totals.failed ?? 0)
+    const failed = Math.max(count('email_failed'), count('failed'))
     const unfinished = Math.max(audience - sent - optedOut - suppressed - skippedAtCap - noEmail - failed, 0)
     // The held count never goes down, so someone who was held and later sent is only out of `unfinished`.
-    const waitingOnCap = Math.min(unfinished, totals.message_frequency_cap_held ?? 0)
+    const waitingOnCap = Math.min(unfinished, count('message_frequency_cap_held'))
     const remaining = unfinished - waitingOnCap
 
     const started = dayjs(runStartedAt)
