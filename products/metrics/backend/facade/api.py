@@ -82,7 +82,12 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
+from products.metrics.backend.metric_names_query_runner import (
+    MetricNamesQueryRunner,
+    cached_metric_names,
+    fold_classic_histograms,
+    name_matches,
+)
 from products.metrics.backend.metric_query_runner import (
     MAX_QUERY_SPAN,
     MAX_RAW_SERIES,
@@ -549,12 +554,21 @@ def list_metric_names(
     limit: int = 100,
     services: Sequence[str] = (),
     names: Sequence[str] = (),
+    match: str = "substring",
+    include_sparklines: bool = True,
+    include_first_seen: bool = False,
+    fold_histograms: bool = False,
 ) -> list[dict[str, Any]]:
     """List distinct metric names for the team's picker.
 
-    Returns a list of `{"name": str, "metric_type": str}` dicts.
+    Returns a list of `{"name": str, "metric_type": str, ...}` dicts.
     Passing `services` narrows the list to names those services reported.
-    Raises `ValueError` for an out-of-range limit or too many services.
+    `match` decides how `search` matches a name: a case-insensitive `substring`
+    or `prefix`, or an RE2 `regex`. `include_first_seen` adds each name's
+    earliest hour within retention, and `fold_histograms` folds a Prometheus
+    classic histogram's `_bucket`/`_sum`/`_count` rows into the `_bucket` row.
+    Raises `ValueError` for an out-of-range limit, too many services, an
+    unknown match mode or an invalid regex.
 
     The unsearched list is cached per team and service scope for a minute;
     searches are not. Behind the derived series flag, the derived metrics the
@@ -572,21 +586,38 @@ def list_metric_names(
             return ingested
         available = {metric.name for metric in list_derived_metric_names(team)}
         return [*ingested, *(_derived_name_row(get_derived_metric(n)) for n in derived_names if n in available)]
-    ingested = cached_metric_names(team=team, search=search, limit=limit, services=services)
+    ingested = cached_metric_names(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        match=match,
+        include_sparklines=include_sparklines,
+        include_first_seen=include_first_seen,
+    )
+    if fold_histograms:
+        ingested = fold_classic_histograms(ingested)
     if not derived_metrics_enabled(team):
         return ingested
-    derived = [_derived_name_row(metric) for metric in list_derived_metric_names(team, search=search)]
+    derived = [
+        _derived_name_row(metric, include_first_seen=include_first_seen)
+        for metric in list_derived_metric_names(team)
+        if name_matches(metric.name, search, match)
+    ]
     return [*ingested, *derived][:limit]
 
 
-def _derived_name_row(metric: DerivedMetric) -> dict[str, Any]:
-    return {
+def _derived_name_row(metric: DerivedMetric, *, include_first_seen: bool = False) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "name": metric.name,
         "metric_type": metric.metric_type.value,
         "unit": metric.unit,
         "last_seen": None,
         "sparkline": [],
     }
+    if include_first_seen:
+        row["first_seen"] = None
+    return row
 
 
 def list_metric_picker_names(
