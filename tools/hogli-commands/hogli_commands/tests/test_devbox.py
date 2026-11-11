@@ -3344,6 +3344,7 @@ class TestDevboxCommands:
         monkeypatch.setattr(devbox_cli, "resolve_workspace_name", lambda ws, **kw: (name, []))
         monkeypatch.setattr(devbox_cli, "_local_port_is_available", lambda port: port not in busy)
         monkeypatch.setattr(coder, "get_username", lambda: "test-user")
+        monkeypatch.setattr(devbox_cli, "get_username", lambda: "test-user")
         monkeypatch.setattr(coder, "get_coder_url", lambda: "https://coder.example.com")
         monkeypatch.setattr(
             devbox_cli,
