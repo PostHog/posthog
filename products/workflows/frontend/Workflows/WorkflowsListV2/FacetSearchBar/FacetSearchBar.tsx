@@ -67,11 +67,12 @@ export function FacetSearchBar<TItem>({
     const optionId = (index: number): string => `${listboxId}-option-${index}`
     const activeOptionId = open && highlightedSuggestion ? optionId(highlightedIndex) : undefined
 
+    // A new list keeps the highlight's id but can render it at a scrolled-away row.
     useEffect(() => {
         if (activeOptionId) {
             document.getElementById(activeOptionId)?.scrollIntoView?.({ block: 'nearest' })
         }
-    }, [activeOptionId])
+    }, [activeOptionId, suggestions])
 
     const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>): void => {
         // Keys during IME composition belong to the input method, not to the suggestions. Safari reports 229.
