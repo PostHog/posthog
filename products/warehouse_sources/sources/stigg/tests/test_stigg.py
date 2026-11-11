@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, Optional
 
 from parameterized import parameterized
@@ -189,37 +190,44 @@ def _key(path: str, **query: str) -> tuple[str, frozenset[tuple[str, str]]]:
 _LIMIT = str(PAGE_SIZE)
 
 
-class TestPlanFanout:
+class TestVersionedPackageFanout:
     @parameterized.expand(
         [
-            ("plan_entitlements", "/entitlements", {}),
-            ("plan_charges", "/charges", {"limit": _LIMIT}),
-            ("plan_overage_charges", "/overage-charges", {"limit": _LIMIT}),
+            ("plan_entitlements", "plans", "planId", "/entitlements", {}),
+            ("plan_charges", "plans", "planId", "/charges", {"limit": _LIMIT}),
+            ("plan_overage_charges", "plans", "planId", "/overage-charges", {"limit": _LIMIT}),
+            ("addon_charges", "addons", "addonId", "/charges", {"limit": _LIMIT}),
         ]
     )
-    def test_one_request_series_per_plan_id_across_versions(
-        self, endpoint: str, suffix: str, child_query: dict[str, str]
+    def test_one_request_series_per_package_id_across_versions(
+        self, endpoint: str, parent: str, parent_key: str, suffix: str, child_query: dict[str, str]
     ) -> None:
         # `basic` is listed twice (two versions, pages apart) but its sub-resource takes only the
-        # plan id, so it is fetched once. The framework only skips a repeated path within the
+        # package id, so it is fetched once. The framework only skips a repeated path within the
         # last two parent pages.
         responses = {
-            _key("/plans", limit=_LIMIT): [
-                _response([{"id": "basic", "versionNumber": 1}, {"id": "pro", "versionNumber": 1}], "plans-2")
+            _key(f"/{parent}", limit=_LIMIT): [
+                _response([{"id": "basic", "versionNumber": 1}, {"id": "pro", "versionNumber": 1}], "page-2")
             ],
-            _key("/plans", limit=_LIMIT, after="plans-2"): [_response([{"id": "team", "versionNumber": 1}], "plans-3")],
-            _key("/plans", limit=_LIMIT, after="plans-3"): [_response([{"id": "basic", "versionNumber": 2}])],
-            _key(f"/plans/basic{suffix}", **child_query): [_response([{"id": "c1"}], "child-2")],
-            _key(f"/plans/basic{suffix}", **child_query, after="child-2"): [_response([{"id": "c2"}])],
-            _key(f"/plans/pro{suffix}", **child_query): [_response([{"id": "c1"}])],
-            _key(f"/plans/team{suffix}", **child_query): [_response([])],
+            _key(f"/{parent}", limit=_LIMIT, after="page-2"): [
+                _response([{"id": "team", "versionNumber": 1}], "page-3")
+            ],
+            _key(f"/{parent}", limit=_LIMIT, after="page-3"): [_response([{"id": "basic", "versionNumber": 2}])],
+            _key(f"/{parent}/basic{suffix}", **child_query): [_response([{"id": "c1"}], "child-2")],
+            _key(f"/{parent}/basic{suffix}", **child_query, after="child-2"): [_response([{"id": "c2"}])],
+            _key(f"/{parent}/pro{suffix}", **child_query): [_response([{"id": "c1"}])],
+            _key(f"/{parent}/team{suffix}", **child_query): [_response([])],
         }
 
         result = _driver().run(endpoint, _routed(responses))
 
         assert result.raised is None
-        assert [(row["planId"], row["id"]) for row in result.rows] == [("basic", "c1"), ("basic", "c2"), ("pro", "c1")]
-        assert all(not any(key.startswith("_plans_") for key in row) for row in result.rows)
+        assert [(row[parent_key], row["id"]) for row in result.rows] == [
+            ("basic", "c1"),
+            ("basic", "c2"),
+            ("pro", "c1"),
+        ]
+        assert all(not any(key.startswith(f"_{parent}_") for key in row) for row in result.rows)
         assert len(result.requests) == 7
 
     def test_deleted_plan_404_is_skipped(self) -> None:
@@ -255,6 +263,57 @@ class TestPlanFanout:
 
 
 class TestCustomerFanout:
+    @parameterized.expand(
+        [
+            ("full_refresh", False, dt.datetime(2026, 3, 1, tzinfo=dt.UTC), {}),
+            ("first_incremental_sync", True, None, {}),
+            (
+                "incremental",
+                True,
+                dt.datetime(2026, 3, 1, 12, 30, tzinfo=dt.UTC),
+                {"startDate": "2026-03-01T12:30:00.000Z"},
+            ),
+            (
+                "incremental_naive_value",
+                True,
+                dt.datetime(2026, 3, 1, 12, 30),
+                {"startDate": "2026-03-01T12:30:00.000Z"},
+            ),
+        ]
+    )
+    def test_credit_ledger_sends_the_watermark_on_every_page_of_every_customer(
+        self,
+        _name: str,
+        should_use_incremental_field: bool,
+        last_value: Optional[dt.datetime],
+        window: dict[str, str],
+    ) -> None:
+        responses = {
+            _key("/customers", limit=_LIMIT): [_response([{"id": "acme"}, {"id": "beta"}])],
+            _key("/credits/ledger", customerId="acme", limit=_LIMIT, **window): [
+                _response([{"timestamp": "2026-03-02T00:00:00Z", "eventType": "CREDITS_GRANTED"}], "ledger-2")
+            ],
+            _key("/credits/ledger", customerId="acme", limit=_LIMIT, after="ledger-2", **window): [
+                _response([{"timestamp": "2026-03-03T00:00:00Z", "eventType": "CREDITS_CONSUMED"}])
+            ],
+            _key("/credits/ledger", customerId="beta", limit=_LIMIT, **window): [_response([])],
+        }
+
+        result = _driver().run(
+            "credit_ledger",
+            _routed(responses),
+            should_use_incremental_field=should_use_incremental_field,
+            incremental_field="timestamp",
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert result.raised is None
+        assert [(row["customerId"], row["eventType"]) for row in result.rows] == [
+            ("acme", "CREDITS_GRANTED"),
+            ("acme", "CREDITS_CONSUMED"),
+        ]
+        assert len(result.requests) == 4
+
     def test_credit_grants_walk_pages_per_customer_with_an_encoded_id(self) -> None:
         responses = {
             _key("/customers", limit=_LIMIT): [_response([{"id": "acme/eu team"}, {"id": "beta"}])],

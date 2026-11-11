@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, PostHogConfig } from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { redactDestinationSecretsInReplay } from 'lib/utils/destinationSecretRedaction'
 import { inStorybook } from 'lib/utils/dom'
 import { isEmbeddedPageFrame } from 'lib/utils/embeddedPageFrame'
 import {
@@ -20,6 +21,20 @@ import { dropWebMCPToolErrors } from 'products/webmcp/frontend/webmcpToolError'
 import { startDetachedElementTracking } from './detachedElementTracker'
 
 export const SDK_DEFAULTS_DATE = '2026-05-30'
+
+const suppressPassiveTelemetryLastSeen: BeforeSendFn = (event) => {
+    if (
+        event &&
+        (event.event === '$exception' ||
+            event.event === '$web_vitals' ||
+            event.event === '$performance' ||
+            event.event === '$snapshot' ||
+            event.event.startsWith('$ai_'))
+    ) {
+        return { ...event, properties: { ...event.properties, $update_person_last_seen_at: false } }
+    }
+    return event
+}
 
 let removeMobileHandoff: (() => void) | undefined
 
@@ -155,6 +170,8 @@ export function loadPostHogJS(): void {
                 dropInjectedScriptReferenceErrors,
                 dropWebMCPToolErrors,
                 redactMetricVariableUrls,
+                redactDestinationSecretsInReplay,
+                suppressPassiveTelemetryLastSeen,
                 // A page in a frame counts its own pageviews, so its events say so and analysis can filter them.
                 // `register` would persist the property in storage the main window shares, so it is stamped per event.
                 ...(isEmbeddedPageFrame() ? [stampEmbeddedPageFrame] : []),
@@ -197,6 +214,7 @@ export function loadPostHogJS(): void {
                             const memory = (window.performance as any).memory
                             if (memory && memory.usedJSHeapSize) {
                                 loadedInstance.capture('memory_usage', {
+                                    $update_person_last_seen_at: false,
                                     totalJSHeapSize: memory.totalJSHeapSize,
                                     usedJSHeapSize: memory.usedJSHeapSize,
                                     visibility_trigger: visibilityTrigger,

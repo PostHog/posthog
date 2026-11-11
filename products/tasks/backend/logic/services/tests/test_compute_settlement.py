@@ -579,11 +579,12 @@ class TestComputeSettlement(BaseTest):
             {"keys": {"obo": str(self.team.id)}, "compute_usd": "4.622400", "billable_compute_usd": "4.622400"},
             {"keys": {"obo": "999"}, "compute_usd": "2.000000", "billable_compute_usd": "0"},
         ]
-        report = httpx.Response(200, json={"rows": rows}, request=httpx.Request("GET", GATEWAY_URL))
+        report = httpx.Response(200, json={"rows": rows, "truncated": False}, request=httpx.Request("GET", GATEWAY_URL))
         with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=report) as get:
             result = reconcile_compute_settlement(since, self.now, self.team.id)
 
         assert get.call_args.kwargs["params"]["group_by"] == "obo,charge_kind"
+        assert get.call_args.kwargs["params"]["order_by"] == "key"
         assert result.writer_parity == (
             TeamComputeDelta(
                 team_id=str(self.team.id), local_usd=Decimal("4.622400"), gateway_usd=Decimal("4.622400"), local_rows=2

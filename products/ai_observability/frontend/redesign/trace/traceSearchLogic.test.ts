@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceSearchResultsApi } from '../../generated/api.schemas'
-import { makeTraceResource } from './adapter/testFixtures'
+import { makeTraceResource } from './testFixtures'
 import { SEARCH_DEBOUNCE_MS, traceSearchLogic } from './traceSearchLogic'
 import { traceViewLogic } from './traceViewLogic'
 
