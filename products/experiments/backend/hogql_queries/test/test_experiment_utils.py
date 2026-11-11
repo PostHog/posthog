@@ -28,6 +28,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_bayesian_experiment_result,
     get_experiment_query_debug,
     get_frequentist_experiment_result,
+    get_overall_variant_results,
     get_variant_result,
     get_variant_results,
     metric_variant_to_statistic,
@@ -738,6 +739,41 @@ class TestAggregateVariantsAcrossBreakdowns:
         assert control.denominator_sum == 350.0  # 200 + 150
         assert control.denominator_sum_squares == 900.0  # 500 + 400
         assert control.numerator_denominator_sum_product == 210.0  # 120 + 90
+
+    def test_aggregate_quantile_reads_the_overall_columns_and_keeps_a_non_empty_grid(self):
+        overall_grid = _quantile_grid(10, 4, 20)
+        columns = [
+            "variant",
+            "breakdown_value_1",
+            "num_users",
+            "total_sum",
+            "total_sum_of_squares",
+            "denominator_sum",
+            "denominator_sum_squares",
+            "numerator_denominator_sum_product",
+            "quantile_grid",
+            "overall_total_sum",
+            "overall_total_sum_of_squares",
+            "overall_numerator_denominator_sum_product",
+            "overall_quantile_grid",
+        ]
+        rows = [
+            ("control", "Firefox", 1, 0, 0, 0, 0, 0, [], 0, 0, 0, []),
+            ("control", "Chrome", 2, 3, 9, 5, 13, 9, _quantile_grid(3, 2, 4), 4, 10, 11, overall_grid),
+            ("control", "Safari", 3, 2, 4, 3, 5, 4, _quantile_grid(20, 10, 30), 1, 1, 2, overall_grid),
+        ]
+
+        [control] = aggregate_variants_across_breakdowns(get_overall_variant_results(rows, columns))
+
+        assert (
+            control.number_of_samples,
+            control.sum,
+            control.sum_squares,
+            control.denominator_sum,
+            control.denominator_sum_squares,
+            control.numerator_denominator_sum_product,
+            control.quantile_grid,
+        ) == (6, 5, 11, 8, 18, 13, overall_grid)
 
     def test_aggregate_multiple_variants_multiple_breakdowns(self):
         """Test aggregating multiple variants across multiple breakdowns."""

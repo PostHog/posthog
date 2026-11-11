@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceGitApi, TracePullRequestApi } from '../../generated/api.schemas'
-import { decodeIdSegment, makeTraceResource } from './adapter/testFixtures'
+import { decodeIdSegment, makeTraceResource } from './testFixtures'
 import { traceGitPullRequestLogic } from './traceGitPullRequestLogic'
 import { traceViewLogic } from './traceViewLogic'
 

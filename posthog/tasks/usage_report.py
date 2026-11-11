@@ -69,7 +69,8 @@ from products.business_knowledge.backend.facade import api as business_knowledge
 from products.business_knowledge.backend.facade.contracts import KnowledgeUsageByTeam
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.enums import DashboardUsageCount
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.flag_analytics import USAGE_EVENT_NAMES, billable_feature_flag_requests
@@ -2341,6 +2342,13 @@ def get_teams_with_active_batch_exports_in_period() -> list:
     ]
 
 
+def get_teams_with_dashboard_count(count: DashboardUsageCount) -> list[dict[str, int]]:
+    return [
+        {"team_id": team_id, "total": total}
+        for team_id, total in dashboards_api.dashboard_counts_by_team(count).items()
+    ]
+
+
 @timed_log()
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_dwh_tables_storage_in_s3() -> list:
@@ -3050,17 +3058,21 @@ def capture_report(
         )
 
     # Update organization group properties so they can be used for email campaigns
+    group_properties: dict[str, Any] = {
+        "member_count": full_report_dict.get("organization_user_count", 0),
+        "project_count": full_report_dict.get("team_count", 0),
+        "dashboard_count": full_report_dict.get("dashboard_count", 0),
+        "ff_count": full_report_dict.get("ff_count", 0),
+        "survey_count": full_report_dict.get("survey_count", 0),
+    }
+    # Flags target orgs that send logs or traces. Set only when true, so a quiet day keeps the org targeted.
+    if full_report_dict.get("logs_records_in_period", 0) or full_report_dict.get("apm_tracing_spans_in_period", 0):
+        group_properties["sends_logs_or_traces"] = True
     try:
         pha_client.group_identify(
             group_type="organization",
             group_key=organization_id,
-            properties={
-                "member_count": full_report_dict.get("organization_user_count", 0),
-                "project_count": full_report_dict.get("team_count", 0),
-                "dashboard_count": full_report_dict.get("dashboard_count", 0),
-                "ff_count": full_report_dict.get("ff_count", 0),
-                "survey_count": full_report_dict.get("survey_count", 0),
-            },
+            properties=group_properties,
         )
     except Exception as err:
         logger.exception(
@@ -3292,27 +3304,10 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
             period_start, period_end
         ),
         "teams_with_group_types_total": count_group_type_mappings_per_team(),
-        "teams_with_dashboard_count": list(
-            Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
-        ),
-        "teams_with_dashboard_template_count": list(
-            Dashboard.objects.filter(creation_mode="template")
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        "teams_with_dashboard_shared_count": list(
-            Dashboard.objects.filter(sharingconfiguration__enabled=True)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
-        "teams_with_dashboard_tagged_count": list(
-            Dashboard.objects.filter(tagged_items__isnull=False)
-            .values("team_id")
-            .annotate(total=Count("id"))
-            .order_by("team_id")
-        ),
+        "teams_with_dashboard_count": get_teams_with_dashboard_count(DashboardUsageCount.ALL),
+        "teams_with_dashboard_template_count": get_teams_with_dashboard_count(DashboardUsageCount.FROM_TEMPLATE),
+        "teams_with_dashboard_shared_count": get_teams_with_dashboard_count(DashboardUsageCount.SHARED),
+        "teams_with_dashboard_tagged_count": get_teams_with_dashboard_count(DashboardUsageCount.TAGGED),
         "teams_with_ff_count": list(
             FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")
         ),

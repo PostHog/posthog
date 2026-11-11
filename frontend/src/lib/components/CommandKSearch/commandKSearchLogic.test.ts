@@ -43,13 +43,30 @@ describe('commandKSearchLogic', () => {
         ['retries a query whose request failed', true, undefined],
         ['reuses a query whose request answered', false, []],
     ])('%s when it is searched again', (_, failed, cached) => {
-        logic.actions.remoteLoaded('ada', { persons: [] }, failed)
+        logic.actions.remoteLoaded('ada', { persons: { items: [] } }, failed)
         const remoteBefore = logic.values.remote
 
         logic.actions.requestsStarted({ persons: 'ada', objects: 'ada' })
 
         expect(logic.values.remote.persons.cache['ada']).toEqual(cached)
         expect(logic.values.remote === remoteBefore).toBe(!failed)
+    })
+
+    it('remembers which persons query has more matches, and forgets it when the query loads again without', () => {
+        logic.actions.remoteLoaded('ada', { persons: { items: [], more: true } })
+        expect(logic.values.remote.persons.more).toEqual({ ada: true })
+
+        logic.actions.remoteLoaded('ada', { persons: { items: [] } })
+        expect(logic.values.remote.persons.more).toEqual({})
+    })
+
+    it('keeps the See all persons row when a search returns to a query it already loaded', () => {
+        logic.actions.remoteLoaded('ada', { persons: { items: [], more: true } })
+
+        logic.actions.inputChanged('ada', 3, false)
+
+        expect(logic.values.remoteQueries.persons).toBe('ada')
+        expect(logic.values.remote.persons.more).toEqual({ ada: true })
     })
 
     it('arrow up from the first row returns to the input, and arrow down stops at the last row', () => {
@@ -75,13 +92,13 @@ describe('commandKSearchLogic', () => {
         const sources = Object.keys(logic.values.remoteQueries)
         expect(sources.length).toBeGreaterThan(1)
 
-        logic.actions.remoteLoaded('zzq_xyw', { results: [] })
+        logic.actions.remoteLoaded('zzq_xyw', { results: { items: [] } })
         expect(logic.values.searchCorrection).toBeNull()
 
         sources.forEach((source, index) => {
             logic.actions.remoteLoaded(
                 'zzq_xyw',
-                { [source]: [] } as RemoteResults,
+                { [source]: { items: [] } } as RemoteResults,
                 oneFailed && index === sources.length - 1
             )
         })
@@ -128,21 +145,23 @@ describe('commandKSearchLogic', () => {
         logic.actions.inputChanged('zebra', 5, false)
         const query = logic.values.remoteQueries.results as string
         logic.actions.remoteLoaded(query, {
-            results: [
-                {
-                    id: 'dashboard-1',
-                    name: 'Zebra board',
-                    category: 'results',
-                    record: { type: 'dashboard', ref: '1' },
-                    rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0],
-                },
-            ],
+            results: {
+                items: [
+                    {
+                        id: 'dashboard-1',
+                        name: 'Zebra board',
+                        category: 'results',
+                        record: { type: 'dashboard', ref: '1' },
+                        rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0],
+                    },
+                ],
+            },
         })
         const renderedRow = logic.values.selectableRows.find((row) => row.kind === 'expand')
         expect(renderedRow).toBeTruthy()
         const index = logic.values.selectableRows.indexOf(renderedRow!)
 
-        logic.actions.remoteLoaded(query, { persons: [] })
+        logic.actions.remoteLoaded(query, { persons: { items: [] } })
         expect(logic.values.selectableRows).not.toContain(renderedRow)
         logic.actions.activateRow(renderedRow!, false, 'click')
 
