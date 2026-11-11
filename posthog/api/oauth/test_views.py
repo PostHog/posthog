@@ -4629,7 +4629,7 @@ class TestOAuthAPI(APIBaseTest):
     def test_self_introspection_succeeds_without_introspection_scope(
         self, impersonated: bool, supports_step_up: bool
     ) -> None:
-        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
+        access_token, _ = self._create_access_and_refresh_tokens(scopes="openid")
         access_token.impersonated_by = self.user if impersonated else None
         access_token.supports_step_up = supports_step_up
         access_token.save(update_fields=["impersonated_by", "supports_step_up"])
@@ -4643,9 +4643,12 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertTrue(data["active"])
-        self.assertEqual(data["scope"], "openid user:read")
+        self.assertEqual(data["scope"], "openid")
         self.assertEqual(data["is_impersonated"], impersonated)
         self.assertEqual(data["supports_step_up"], supports_step_up)
+        self.assertEqual(data["user_distinct_id"], self.user.distinct_id)
+        self.assertEqual(data["current_organization_id"], str(self.user.current_organization_id))
+        self.assertEqual(data["current_team_id"], self.user.current_team_id)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
@@ -4769,6 +4772,9 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
+        self.assertNotIn("user_distinct_id", data)
+        self.assertNotIn("current_organization_id", data)
+        self.assertNotIn("current_team_id", data)
 
     @time_machine.travel("2025-01-01 00:00:00", tick=False)
     def test_dcr_client_gets_extended_token_expiry(self):
