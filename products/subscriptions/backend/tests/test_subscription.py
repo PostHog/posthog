@@ -4887,27 +4887,26 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
 
     @parameterized.expand(
         [
-            (enabled, restricted, kind)
-            for enabled in (False, True)
+            (restricted, kind)
             for restricted in (False, True)
             for kind in ("selection", "insight_context", "dashboard_context")
         ]
     )
-    def test_transfer_checks_the_new_owners_content(self, enabled: bool, restricted_selection: bool, kind: str) -> None:
+    def test_transfer_checks_the_new_owners_content(self, restricted_content: bool, kind: str) -> None:
         admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
         OrganizationMembership.objects.create(
             organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
         )
-        selected_insight = self.restricted_insight if restricted_selection else self.open_insight
+        selected_insight = self.restricted_insight if restricted_content else self.open_insight
         if kind == "selection":
             dashboard = self._dashboard_with_tiles(self.open_insight, self.restricted_insight)
-            subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=enabled)
+            subscription = create_subscription(team=self.team, created_by=admin, dashboard=dashboard, enabled=False)
             subscription.dashboard_export_insights.set([selected_insight])
         else:
             context = selected_insight if kind == "insight_context" else self._dashboard_with_tiles(selected_insight)
             subscription = self._ai_sub_with_contexts(context)
             subscription.created_by = admin
-            subscription.enabled = enabled
+            subscription.enabled = False
             subscription.save()
         self.client.force_login(admin)
 
@@ -4919,11 +4918,11 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         subscription.refresh_from_db()
         if kind == "selection":
             assert list(subscription.dashboard_export_insights.values_list("id", flat=True)) == [selected_insight.id]
-        if restricted_selection:
+        if restricted_content:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
             assert "access" in response.json()["detail"]
             assert subscription.created_by == admin
-            assert subscription.enabled is enabled
+            assert subscription.enabled is False
             assert not ActivityLog.objects.filter(
                 scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
             ).exists()
@@ -4933,6 +4932,32 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
             assert subscription.enabled is True
             self.client.force_login(self.user)
             assert self.client.get(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/").status_code == 200
+
+    def test_transfer_rejects_an_ai_owner_without_query_access(self) -> None:
+        admin = User.objects.create_user(email="admin@example.com", first_name="Admin", password=None)
+        OrganizationMembership.objects.create(
+            organization=self.organization, user=admin, level=OrganizationMembership.Level.ADMIN
+        )
+        subscription = self._sub_on_an_ai_prompt()
+        subscription.created_by = admin
+        subscription.enabled = False
+        subscription.save()
+        self._rule("query")
+        self.client.force_login(admin)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(self.user.uuid)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert response.json()["detail"] == "The new owner needs query access for AI prompt subscriptions."
+        subscription.refresh_from_db()
+        assert subscription.created_by == admin
+        assert subscription.enabled is False
+        assert not ActivityLog.objects.filter(
+            scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
+        ).exists()
 
     def _create_on_a_restricted_dashboard(self):
         return self.client.post(
