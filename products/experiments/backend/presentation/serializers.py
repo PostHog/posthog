@@ -3626,6 +3626,12 @@ class ExperimentHealthInputsConditionSetTrafficSerializer(serializers.Serializer
             "rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`."
         )
     )
+    filters_test_accounts = serializers.BooleanField(
+        help_text=(
+            "Whether the counts leave out the calls that the project's filter for internal and test users excludes, "
+            "because the experiment applies that filter."
+        )
+    )
 
 
 class ExperimentHealthInputsExposureEventsSerializer(serializers.Serializer):
@@ -3757,7 +3763,8 @@ class ExperimentHealthInputsReaderAccessSerializer(serializers.Serializer):
         child=serializers.CharField(),
         help_text=(
             "Event properties the reader is denied. The forced-variant and release-condition checks skip their scan "
-            "when one of them is a flag call property it reads."
+            "when one of them is a flag call property it reads, or a property that the filter for internal and test "
+            "users reads when the experiment applies it."
         ),
     )
 

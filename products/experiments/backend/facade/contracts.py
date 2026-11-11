@@ -527,6 +527,9 @@ class ExperimentHealthReaderAccess:
     can_read_flag_history: bool
     can_query_events: bool
     denied_event_properties: frozenset[str]
+    denied_person_properties: frozenset[str] = frozenset()
+    # The group properties the reader is denied, for any group type.
+    denied_group_properties: frozenset[str] = frozenset()
 
 
 class ExperimentValidationError(Exception):

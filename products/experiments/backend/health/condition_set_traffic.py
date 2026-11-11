@@ -14,9 +14,12 @@ conditions (`get_reason_description` in rust/feature-flags/src/api/types.rs). On
 version count, so the numbers match the conditions that the check reads. No call before the flag's last save can
 carry that version, so the scan starts there at the earliest.
 
-The scan runs without the reader, and every reader shares its cached answer. So it skips the filter for internal
-and test users: that filter often reads person properties or cohorts, which is too slow for a request, and it can
-read tables that a reader may not query.
+When the experiment applies the project's filter for internal and test users, the scan applies it to each call, as
+the exposure query does to each exposure. So the counts leave out the people that the results leave out. Only the
+events show who these are: the flag service can match a person on a property that an SDK sends with the flag
+request, and the events of that person can lack the property, so the filter keeps them.
+
+The scan runs without the reader, and every reader shares its cached answer.
 """
 
 import json
@@ -58,8 +61,10 @@ from products.experiments.backend.health.pinned_share import (
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
+    applies_test_account_filters,
     exposure_event_name_filter,
     get_entity_key,
+    get_test_accounts_filter,
     multivariate_flag_response_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -73,7 +78,8 @@ _ANSWER_CACHE_SECONDS = int(timedelta(days=1).total_seconds())
 _TOO_FEW_PEOPLE_CACHE_SECONDS = int(timedelta(hours=1).total_seconds())
 _MATCHED_REASON = "^Matched condition set ([0-9]+)$"
 # The scan runs without the reader, so it can't apply a reader's property access rules. A reader denied one of
-# these gets no share instead of counts derived from it.
+# these, or a property that the filter for internal and test users reads, gets no share instead of counts derived
+# from it.
 _SCANNED_PROPERTIES = frozenset(
     {"$feature_flag", "$feature_flag_response", "$feature_flag_reason", "$feature_flag_version", "locally_evaluated"}
 )
@@ -81,7 +87,7 @@ _SCANNED_PROPERTIES = frozenset(
 _LOCALLY_EVALUATED_REASON = "Evaluated locally"
 # Part of the cache key. Raise it when the fields of `ConditionSetTraffic` change, because an answer cached with
 # other fields can't be read back into it.
-_ANSWER_SHAPE = 3
+_ANSWER_SHAPE = 4
 _MAX_CONDITION_SETS = 1000
 _SCAN_LOCK_SECONDS = QUERY_TIMEOUT_SECONDS + 5
 _WAIT_FOR_SCAN_SECONDS = QUERY_TIMEOUT_SECONDS + 1
@@ -97,7 +103,7 @@ def load_condition_set_traffic(
     """
     if (
         not reader_access.can_query_events
-        or denied_scanned_properties(reader_access)
+        or denied_scanned_properties(reader_access, experiment)
         or not needs_condition_set_traffic(ctx)
     ):
         return None
@@ -132,9 +138,39 @@ def _pins_to_grade(ctx: HealthContext) -> list[PinnedConditions]:
     return [pins for pins in (overrides_to_grade(ctx), removed_overrides_to_grade(ctx)) if pins is not None]
 
 
-def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess) -> frozenset[str]:
+def denied_scanned_properties(reader_access: ExperimentHealthReaderAccess, experiment: Experiment) -> frozenset[str]:
     """The properties that the scan reads and that the reader is denied. The scan does not run when there are any."""
-    return reader_access.denied_event_properties & _SCANNED_PROPERTIES
+    denied = reader_access.denied_event_properties & _SCANNED_PROPERTIES
+    team = experiment.team
+    if applies_test_account_filters(team, experiment.exposure_criteria):
+        for test_filter in team.test_account_filters:
+            denied |= _denied_filter_properties(reader_access, test_filter)
+    return denied
+
+
+def _denied_filter_properties(reader_access: ExperimentHealthReaderAccess, test_filter: object) -> frozenset[str]:
+    # A cohort filter reads memberships computed ahead, which no reader's access rules mask.
+    if not isinstance(test_filter, dict) or test_filter.get("type") == "cohort":
+        return frozenset()
+    filter_type = test_filter.get("type")
+    denied_of_type = (
+        {
+            "event": reader_access.denied_event_properties,
+            "person": reader_access.denied_person_properties,
+            "group": reader_access.denied_group_properties,
+        }.get(filter_type)
+        if isinstance(filter_type, str)
+        else None
+    )
+    if denied_of_type is None:
+        # Another filter type, such as a HogQL expression, can read a property of any type.
+        return (
+            reader_access.denied_event_properties
+            | reader_access.denied_person_properties
+            | reader_access.denied_group_properties
+        )
+    key = test_filter.get("key")
+    return denied_of_type & {key} if isinstance(key, str) else frozenset()
 
 
 def query_condition_set_traffic(
@@ -143,6 +179,7 @@ def query_condition_set_traffic(
     """The calls of the experiment's flag in `[window_start, window_end)`."""
     team = experiment.team
     flag = experiment.feature_flag
+    test_accounts = get_test_accounts_filter(team, experiment.exposure_criteria)
     query = parse_select(
         """
         SELECT condition_set, count(), sum(calls), sum(remotely_evaluated_calls), countIf(assigned_outside)
@@ -168,6 +205,7 @@ def query_condition_set_traffic(
                 AND timestamp >= {window_start} AND timestamp < {window_end}
                 AND properties.$feature_flag = {flag_key}
                 AND {returned_variant}
+                AND {test_accounts}
             GROUP BY entity
         )
         GROUP BY condition_set
@@ -188,6 +226,7 @@ def query_condition_set_traffic(
             # A call that returned no variant, such as "Out of rollout bound", put nobody in the experiment, so it
             # must not count toward the share of calls that name a set.
             "returned_variant": multivariate_flag_response_expr(),
+            "test_accounts": ast.And(exprs=test_accounts) if test_accounts else ast.Constant(value=True),
             # One row per condition set, plus one for people without a matched set. HogQL adds LIMIT 100 otherwise.
             "max_rows": ast.Constant(value=_MAX_CONDITION_SETS + 1),
         },
@@ -223,6 +262,7 @@ def query_condition_set_traffic(
         calls=calls,
         remotely_evaluated_calls=remotely_evaluated_calls,
         people_assigned_outside=people_assigned_outside,
+        filters_test_accounts=bool(test_accounts),
     )
 
 
@@ -291,7 +331,9 @@ def _wait_for_scan(cache_key: str) -> ConditionSetTraffic | None:
 
 def _cache_key(experiment: Experiment, start_date: datetime) -> str:
     flag = experiment.feature_flag
-    # Every input of the query except the end of the window, which moves with the clock.
+    team = experiment.team
+    # Every input of the query except the end of the window, which moves with the clock. A reader who edits the filter
+    # for internal and test users, as the forced-variant finding advises, gets a new scan on the next load.
     inputs = json.dumps(
         [
             _ANSWER_SHAPE,
@@ -300,6 +342,7 @@ def _cache_key(experiment: Experiment, start_date: datetime) -> str:
             flag.version,
             flag.updated_at.isoformat() if flag.updated_at else None,
             flag.aggregation_group_type_index,
+            team.test_account_filters if applies_test_account_filters(team, experiment.exposure_criteria) else None,
         ],
         sort_keys=True,
     )

@@ -11,7 +11,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthSetup,
 )
 from products.experiments.backend.facade.enums import ExposuresPath
-from products.experiments.backend.health.condition_set_traffic import load_condition_set_traffic
+from products.experiments.backend.health.condition_set_traffic import (
+    denied_scanned_properties,
+    load_condition_set_traffic,
+)
 from products.experiments.backend.health.context import HealthContext, load_health_context
 from products.experiments.backend.health.exposure_columns import load_filters_without_column
 from products.experiments.backend.health.exposure_gate import load_flag_history
@@ -35,6 +38,8 @@ class HealthInputs:
     context: HealthContext
     exposures: ExposureInputs
     reader_access: ExperimentHealthReaderAccess
+    # The properties that the flag call scan reads and that the reader is denied, so the scan didn't run.
+    denied_scanned_properties: frozenset[str]
     # None when the experiment has no flag, or the flag has no version.
     flag_version: int | None
     project: ProjectSetupFacts
@@ -64,6 +69,7 @@ def load_experiment_health_inputs(
             can_read_flag_history=reader_access.can_read_flag_history,
         ),
         reader_access=reader_access,
+        denied_scanned_properties=denied_scanned_properties(reader_access, experiment),
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
         project=build_project_setup_facts(
             experiment.team,

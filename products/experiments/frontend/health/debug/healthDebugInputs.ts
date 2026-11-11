@@ -248,7 +248,7 @@ const TRAFFIC_STATUS_LABELS: Record<ExperimentHealthInputsTrafficStatusEnumApi, 
     read: 'Read',
     not_needed: 'Not read: no check needs it',
     no_query_access: 'Not read: you may not query events',
-    denied_properties: 'Not read: you are denied a flag call property that the scan reads',
+    denied_properties: 'Not read: you are denied a property that the scan reads',
     no_flag_version: "Not read: the flag has no version, so its calls can't be matched to it",
     unknown: "Not read: the scan failed or was too expensive, or another request's scan did not answer in time",
 }
@@ -266,6 +266,11 @@ export function buildTrafficFacts(state: HealthInputsState): SetupFact[] {
             ? [
                   { label: 'Since', value: `${formatTimestamp(traffic.since)} (${traffic.team_timezone})` },
                   { label: 'Calls', value: formatCount(traffic.calls) },
+                  {
+                      label: 'Internal and test users',
+                      value: traffic.filters_test_accounts ? 'Left out' : 'Counted',
+                      help: 'The scan leaves out the calls that the filter for internal and test users excludes when the experiment applies that filter, as the results do.',
+                  },
                   {
                       label: 'Evaluated by the flag service',
                       value: `${formatCount(traffic.remotely_evaluated_calls)} (${formatShare(traffic.calls ? traffic.remotely_evaluated_calls / traffic.calls : null)})`,

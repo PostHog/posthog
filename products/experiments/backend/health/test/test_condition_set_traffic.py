@@ -87,6 +87,9 @@ _ZERO_ROLLOUT_FILTERS: dict[str, Any] = {
     },
 }
 NO_ONE_ASSIGNED_OUTSIDE = replace(TRAFFIC, people_by_set={}, remotely_evaluated_calls=0, calls=0)
+_STAFF_EMAILS_EXCLUDED: list[dict[str, Any]] = [
+    {"key": "email", "value": "@example.com", "operator": "not_icontains", "type": "person"}
+]
 ASSIGNED_OUTSIDE = replace(NO_ONE_ASSIGNED_OUTSIDE, calls=900, people_assigned_outside=300)
 
 
@@ -128,16 +131,54 @@ class TestLoadConditionSetTraffic(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_query_access", replace(FULL_ACCESS, can_query_events=False)),
-            ("denied_the_reason", replace(FULL_ACCESS, denied_event_properties=frozenset({"$feature_flag_reason"}))),
+            ("no_query_access", replace(FULL_ACCESS, can_query_events=False), None),
+            (
+                "denied_the_reason",
+                replace(FULL_ACCESS, denied_event_properties=frozenset({"$feature_flag_reason"})),
+                None,
+            ),
+            (
+                "denied_the_person_property_of_the_test_account_filter",
+                replace(FULL_ACCESS, denied_person_properties=frozenset({"email"})),
+                None,
+            ),
+            (
+                "denied_another_person_property",
+                replace(FULL_ACCESS, denied_person_properties=frozenset({"plan"})),
+                TRAFFIC,
+            ),
+            (
+                "denied_the_person_property_of_a_test_account_filter_the_experiment_skips",
+                replace(FULL_ACCESS, denied_person_properties=frozenset({"email"})),
+                TRAFFIC,
+                False,
+            ),
+            (
+                "denied_any_property_under_a_hogql_test_account_filter",
+                replace(FULL_ACCESS, denied_group_properties=frozenset({"industry"})),
+                None,
+                True,
+                [{"key": "properties.$host != 'localhost'", "type": "hogql"}],
+            ),
         ]
     )
-    def test_reader_who_cannot_read_the_flag_calls_gets_no_traffic(
-        self, _name: str, reader_access: ExperimentHealthReaderAccess
+    def test_scans_only_what_the_reader_may_read(
+        self,
+        _name: str,
+        reader_access: ExperimentHealthReaderAccess,
+        expected: ConditionSetTraffic | None,
+        filter_test_accounts: bool = True,
+        test_account_filters: list[dict[str, Any]] = _STAFF_EMAILS_EXCLUDED,
     ) -> None:
+        Team.objects.filter(pk=self.team.pk).update(test_account_filters=test_account_filters)
+        Experiment.objects.filter(pk=self.experiment.pk).update(
+            exposure_criteria={"filterTestAccounts": filter_test_accounts}
+        )
+        self.experiment = Experiment.objects.get(pk=self.experiment.pk)
+
         traffic, query = self._load(TRAFFIC, reader_access=reader_access)
 
-        self.assertEqual((traffic, query.call_count), (None, 0))
+        self.assertEqual((traffic, query.call_count), (expected, 0 if expected is None else 1))
 
     @parameterized.expand(
         [
@@ -243,6 +284,36 @@ class TestLoadConditionSetTraffic(BaseTest):
             next_load, query = self._load(answer)
 
         self.assertEqual((first, next_load, query.call_count), (answer, answer, expected_queries))
+
+    @parameterized.expand(
+        [
+            (
+                "test_account_filter_edited",
+                [
+                    *_STAFF_EMAILS_EXCLUDED,
+                    {"key": "$host", "value": "localhost", "operator": "not_icontains", "type": "event"},
+                ],
+                True,
+            ),
+            ("experiment_stops_filtering_test_accounts", _STAFF_EMAILS_EXCLUDED, False),
+        ]
+    )
+    def test_a_change_to_the_test_account_filter_scans_again(
+        self, _name: str, test_account_filters: list[dict[str, Any]], filter_test_accounts: bool
+    ) -> None:
+        Team.objects.filter(pk=self.team.pk).update(test_account_filters=_STAFF_EMAILS_EXCLUDED)
+        Experiment.objects.filter(pk=self.experiment.pk).update(exposure_criteria={"filterTestAccounts": True})
+        self.experiment = Experiment.objects.get(pk=self.experiment.pk)
+        self._load(TRAFFIC)
+
+        Team.objects.filter(pk=self.team.pk).update(test_account_filters=test_account_filters)
+        Experiment.objects.filter(pk=self.experiment.pk).update(
+            exposure_criteria={"filterTestAccounts": filter_test_accounts}
+        )
+        self.experiment = Experiment.objects.get(pk=self.experiment.pk)
+        _, query = self._load(TRAFFIC)
+
+        self.assertEqual(query.call_count, 1)
 
     @parameterized.expand(
         [
@@ -444,6 +515,35 @@ class TestQueryConditionSetTraffic(ClickhouseTestMixin, BaseTest):
         traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
 
         self.assertEqual((dict(traffic.people_by_set), traffic.calls, traffic.remotely_evaluated_calls), expected)
+
+    @parameterized.expand(
+        [
+            ("experiment_filters_test_accounts", True, ({1: 1, 2: 1}, True)),
+            ("experiment_counts_test_accounts", False, ({1: 2, 2: 1}, False)),
+        ]
+    )
+    def test_leaves_out_the_calls_that_the_test_account_filter_excludes(
+        self, _name: str, filter_test_accounts: bool, expected: tuple[dict[int, int], bool]
+    ) -> None:
+        self.team.test_account_filters = _STAFF_EMAILS_EXCLUDED
+        self.team.save()
+        now = timezone.now()
+        experiment = _create_running_experiment(self.team, self.user, launched_at=now - timedelta(days=30))
+        experiment.exposure_criteria = {"filterTestAccounts": filter_test_accounts}
+        experiment.save()
+        create_person(team=self.team, distinct_ids=["staff"], properties={"email": "qa@example.com"})
+        create_person(team=self.team, distinct_ids=["staff-matched-on-request-properties"])
+        create_person(team=self.team, distinct_ids=["customer"], properties={"email": "someone@example.org"})
+        self._call_flag("staff", "Matched condition set 1", FLAG_VERSION, now - timedelta(days=1))
+        self._call_flag(
+            "staff-matched-on-request-properties", "Matched condition set 1", FLAG_VERSION, now - timedelta(days=1)
+        )
+        self._call_flag("customer", "Matched condition set 2", FLAG_VERSION, now - timedelta(days=1))
+        flush_persons_and_events()
+
+        traffic = query_condition_set_traffic(experiment, window_start=now - timedelta(days=7), window_end=now)
+
+        self.assertEqual((dict(traffic.people_by_set), traffic.filters_test_accounts), expected)
 
     def _call_flag(
         self,

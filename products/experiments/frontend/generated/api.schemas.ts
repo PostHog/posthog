@@ -3811,6 +3811,8 @@ export interface ExperimentHealthInputsConditionSetTrafficApi {
     remotely_evaluated_calls: number
     /** The people who got a variant from a call without a flag version that is no local evaluation in a server SDK, from an hour after the start of the window: a bootstrap or the caller's own assignment. With a 0% rollout, 10 or more of them turn `running_but_no_rollout` into `assigned_outside_flag_service`. */
     people_assigned_outside: number
+    /** Whether the counts leave out the calls that the project's filter for internal and test users excludes, because the experiment applies that filter. */
+    filters_test_accounts: boolean
 }
 
 export interface ExperimentHealthInputsReaderAccessApi {
@@ -3818,7 +3820,7 @@ export interface ExperimentHealthInputsReaderAccessApi {
     can_read_flag_history: boolean
     /** Whether the reader may query events, which the flag-change and forced-variant checks need. */
     can_query_events: boolean
-    /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads. */
+    /** Event properties the reader is denied. The forced-variant and release-condition checks skip their scan when one of them is a flag call property it reads, or a property that the filter for internal and test users reads when the experiment applies it. */
     denied_event_properties: string[]
 }
 
