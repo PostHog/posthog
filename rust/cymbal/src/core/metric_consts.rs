@@ -58,9 +58,8 @@ pub const SYMBOL_SET_DECOMPRESSED_BYTES: &str = "cymbal_symbol_set_decompressed_
 // Time a large symbol set parse waits for a `ParseLimiter` permit, in milliseconds.
 pub const SYMBOL_SET_LARGE_PARSE_WAIT_MS: &str = "cymbal_symbol_set_large_parse_wait_ms";
 pub const SYMBOL_SET_PARSE_INPUT_BYTES: &str = "cymbal_symbol_set_parse_input_bytes";
-// Symbol set parses that failed on a size limit. Labelled by `kind`, and by `limit`:
-// `container` for `SYMBOL_SET_MAX_DECOMPRESSED_BYTES`, `extracted` for
-// `SYMBOL_SET_MAX_EXTRACTED_BYTES`.
+// Parses that failed on a size limit, by `kind` and `limit`: `container` is
+// `SYMBOL_SET_MAX_DECOMPRESSED_BYTES`, `extracted` is `SYMBOL_SET_MAX_EXTRACTED_BYTES`.
 pub const SYMBOL_SET_SIZE_LIMIT_EXCEEDED: &str = "cymbal_symbol_set_size_limit_exceeded";
 
 // Histogram buckets for the byte-shaped metrics above. The default
