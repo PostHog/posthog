@@ -19,9 +19,9 @@ export interface LifecycleInput {
         AutoresearchPipelineApi,
         'created_at' | 'horizon_days' | 'last_scored_at' | 'training_run_count' | 'experiment_count'
     > & { live_training_run: unknown }
-    champion: Pick<AutoresearchModelApi, 'is_preliminary' | 'promoted_at'> | null
-    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'created_at' | 'rows_scored' | 'metrics'>[]
-    /** Prediction dates (YYYY-MM-DD) that a validation run checked against real outcomes. */
+    champion: Pick<AutoresearchModelApi, 'id' | 'is_preliminary' | 'promoted_at'> | null
+    runs: Pick<AutoresearchRunApi, 'run_type' | 'status' | 'created_at' | 'rows_scored' | 'metrics' | 'model'>[]
+    /** Prediction dates (YYYY-MM-DD) that a validation run checked the champion on against real outcomes. */
     validatedDates: string[]
     now: dayjs.Dayjs
 }
@@ -32,17 +32,23 @@ function predictionDate(run: LifecycleInput['runs'][number]): string {
     return typeof recorded === 'string' ? recorded : dayjs(run.created_at).utc().format('YYYY-MM-DD')
 }
 
-/** Scored dates whose prediction horizon has passed, so their real outcomes are known. */
+/** Dates the model scored whose prediction horizon has passed, so their real outcomes are known. */
 function maturedScoredDates(
     runs: LifecycleInput['runs'],
     horizonDays: number | undefined,
-    now: dayjs.Dayjs
+    now: dayjs.Dayjs,
+    modelId: string | undefined
 ): Set<string> {
     const cutoff = now.subtract(horizonDays ?? 0, 'day')
     const dates = new Set<string>()
     for (const run of runs) {
         // A run that scored nobody emits no predictions, so validation has nothing to check for its date.
-        if (run.run_type !== 'inference' || run.status !== 'completed' || !run.rows_scored) {
+        if (
+            run.run_type !== 'inference' ||
+            run.status !== 'completed' ||
+            !run.rows_scored ||
+            (modelId && run.model !== modelId)
+        ) {
             continue
         }
         const date = predictionDate(run)
@@ -55,7 +61,10 @@ function maturedScoredDates(
 
 function checkedDetail(input: LifecycleInput): string {
     const validated = new Set(input.validatedDates).size
-    const matured = Math.max(maturedScoredDates(input.runs, input.pipeline.horizon_days, input.now).size, validated)
+    const matured = Math.max(
+        maturedScoredDates(input.runs, input.pipeline.horizon_days, input.now, input.champion?.id).size,
+        validated
+    )
     if (matured === 0) {
         return input.pipeline.last_scored_at
             ? `First check ${pluralize(input.pipeline.horizon_days ?? 0, 'day')} after scoring`
