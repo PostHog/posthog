@@ -1066,7 +1066,7 @@ def take_subscription_ownership(
     owner_access = viewer if owner.pk == user.pk else UserAccessControl(user=owner, team=team)
     instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
     if owner.pk != user.pk and not viewer.is_organization_admin:
-        raise SubscriptionRequestInvalidError(
+        raise SubscriptionPermissionDeniedError(
             "Only an organization admin can assign a subscription to another person. "
             "Take ownership yourself or ask an admin to transfer it."
         )

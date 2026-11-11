@@ -1200,7 +1200,7 @@ class TestSubscriptionTemporal(APILicensedTest):
 
         subscription.refresh_from_db()
         if another_member and requester_level == OrganizationMembership.Level.MEMBER:
-            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
             assert "organization admin" in response.json()["detail"]
             assert subscription.created_by == previous_owner
             assert subscription.enabled is False

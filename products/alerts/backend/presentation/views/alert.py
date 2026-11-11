@@ -22,7 +22,7 @@ from pydantic import (
 )
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -2493,7 +2493,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ownership.is_valid(raise_exception=True)
         owner = ownership.validated_data["owner"]
         if owner.pk != request.user.pk and not self.user_access_control.is_organization_admin:
-            raise ValidationError(
+            raise PermissionDenied(
                 "Only an organization admin can assign an alert to another person. "
                 "Take ownership yourself or ask an admin to transfer it."
             )
