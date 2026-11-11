@@ -14378,6 +14378,22 @@
         },
         "feature_flag": "stamphog"
     },
+    "stamphog-repo-configs-update": {
+        "description": "Change the settings of one repo config by id. Send only the fields to change. Turning reviews on (`enabled: true`) and `digest_enabled` need the Editor level on stamphog. Turning reviews off (`enabled: false`), `review_mode`, `trigger_label`, `routing_mode`, `routing_fork_labels` and `review_on_clean_external_review` need the Manager level, and a request without it is refused. `review_on_clean_external_review` works only with `review_mode: label`: the API refuses it with `all`, and setting `review_mode` to `all` turns it off. Turn it on only in a repository where PostHog Review runs automatic reviews when a pull request opens or is marked ready. To have reviewers requested only when stamphog does not approve, turn `review_on_clean_external_review` on first, then set `routing_mode` to `fallback`. `routing_fork_labels` replaces the whole map. `provider` and `repository` cannot change on an existing config.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "Update stamphog repo config",
+        "title": "Update stamphog repo config",
+        "required_scopes": ["stamphog:write"],
+        "api_operations": ["PATCH /api/projects/{project_id}/stamphog/repo_configs/{id}/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "stamphog"
+    },
     "stamphog-review-runs-create": {
         "description": "Ask stamphog to review one pull request now, by `repository` (owner/name) and `pr_number`. The repository must be connected and enabled in Stamphog. The request replaces the trigger label, so it works in label mode too, but every other rule still applies: stamphog refuses drafts, closed PRs, bot-authored PRs, PRs from outside the repository, and PRs whose author lacks write access, and the error message says why. Stamphog decides the verdict itself: a passing review posts a real GitHub approval, anything else posts a comment. The review runs in the background, so this returns the run right away (status `queued`). Poll `stamphog-review-runs-get` with its id for the verdict and reasoning. When a run already covers the PR's current head, that run is returned with `created: false` instead of starting another.",
         "category": "Stamphog",
