@@ -1089,6 +1089,18 @@ class TestEarlyAccessFeature(APIBaseTest):
         feature.refresh_from_db()
         assert feature.payload == {}
 
+    def test_list_filters_by_ids(self):
+        features = [
+            EarlyAccessFeature.objects.create(team=self.team, name=name, description="", stage="beta")
+            for name in ("Listed", "Also listed", "Unlisted")
+        ]
+
+        ids = ",".join(str(feature.id) for feature in features[:2])
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/?ids={ids}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert sorted(feature["name"] for feature in response.json()["results"]) == ["Also listed", "Listed"]
+
     def test_payload_in_list_response(self):
         EarlyAccessFeature.objects.create(
             team=self.team,
