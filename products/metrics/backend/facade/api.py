@@ -42,12 +42,14 @@ from products.metrics.backend.derived import (
     get_derived_metric,
     is_derived_metric_name as _is_derived_metric_name,
     list_derived_metric_names,
+    team_has_derived_sources,
 )
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
     DashboardImportStatus,
     DashboardTemplateSummary,
+    DerivedSeriesStatus,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
@@ -62,6 +64,7 @@ from products.metrics.backend.facade.contracts import (
     MetricsOverview,
     PanelQueryCheckRequest,
     PanelQueryCheckResult,
+    RecordingRule,
     SuggestedDashboard,
 )
 from products.metrics.backend.facade.enums import (
@@ -95,6 +98,7 @@ from products.metrics.backend.query_counts import (
     record_metric_queries,
     record_promql_query as _record_promql_query,
 )
+from products.metrics.backend.recording_rules import logic as recording_rule_logic
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
 
@@ -608,6 +612,16 @@ def is_derived_metric_name(name: str) -> bool:
     return _is_derived_metric_name(name)
 
 
+def get_derived_series_status(team: Team, *, can_read: Callable[[APIScopeObject], bool]) -> DerivedSeriesStatus:
+    """Whether the team has spans or logs to derive series from, and whether derived series are on for it.
+
+    `can_read` says whether the caller can read a source's resource (`logs`, `tracing`). A source the
+    caller cannot read counts as absent, so the answer does not reveal that the team sends it.
+    """
+    has_sources = team_has_derived_sources(team, can_read=can_read)
+    return DerivedSeriesStatus(has_sources=has_sources, enabled=has_sources and derived_metrics_enabled(team))
+
+
 def derived_metric_resources(names: Iterable[str]) -> list[APIScopeObject]:
     """The access-control resources (`logs`, `tracing`) that the derived metrics among `names` read.
 
@@ -1073,3 +1087,38 @@ def dashboard_template_picture(*, template_id: str, round_number: int) -> bytes 
     )
 
     return service.picture(template_id, round_number)
+
+
+def list_recording_rules(*, team: Team) -> list[RecordingRule]:
+    return recording_rule_logic.list_rules(team.id)
+
+
+def get_recording_rule(*, team: Team, rule_id: str) -> RecordingRule:
+    """Raises `RecordingRuleNotFound`."""
+    return recording_rule_logic.get_rule(team.id, rule_id)
+
+
+def create_recording_rule(
+    *, team: Team, user: User, metric_name: str, query: str, description: str, enabled: bool
+) -> RecordingRule:
+    """Raises `RecordingRuleError` with a message for the user."""
+    return recording_rule_logic.create_rule(
+        team.id, created_by_id=user.id, metric_name=metric_name, query=query, description=description, enabled=enabled
+    )
+
+
+def update_recording_rule(
+    *,
+    team: Team,
+    rule_id: str,
+    query: str | None = None,
+    description: str | None = None,
+    enabled: bool | None = None,
+) -> RecordingRule:
+    """Raises `RecordingRuleError` with a message for the user. The metric name cannot change."""
+    return recording_rule_logic.update_rule(team.id, rule_id, query=query, description=description, enabled=enabled)
+
+
+def delete_recording_rule(*, team: Team, rule_id: str) -> None:
+    """Raises `RecordingRuleNotFound`."""
+    recording_rule_logic.delete_rule(team.id, rule_id)
