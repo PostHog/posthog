@@ -28,7 +28,7 @@ caller cannot surface a 409/change request), so ``ApprovalRequired`` is never ra
 """
 
 from datetime import datetime
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -435,11 +435,7 @@ def flag_is_active(key: str, *, team_id: int | None = None) -> bool:
     return qs.exists()
 
 
-class FlagAccessFilter(Protocol):
-    def filter_queryset_by_access_level(self, queryset: Any) -> Any: ...
-
-
-def existing_flag_ids(flag_ids: list[int], *, team_id: int, access_control: FlagAccessFilter) -> set[int]:
+def existing_flag_ids(flag_ids: list[int], *, team_id: int, access_control: UserAccessControl) -> set[int]:
     queryset = access_control.filter_queryset_by_access_level(
         FeatureFlag.objects.filter(team_id=team_id, id__in=flag_ids, deleted=False)
     )

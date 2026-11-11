@@ -18,6 +18,8 @@ from posthog.api.mixins import TypedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
+from products.feature_flags.backend.facade.api import existing_flag_ids
+
 from ..facade import api, contracts
 from .serializers import ReleaseSerializer, UpdateReleaseSerializer, WriteReleaseSerializer
 
@@ -28,6 +30,9 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
+
+    def _visible_flag_ids(self, flag_ids: list[int]) -> set[int]:
+        return existing_flag_ids(flag_ids, team_id=self.team_id, access_control=self.user_access_control)
 
     @extend_schema(responses={200: ReleaseSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -45,7 +50,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Create a release."""
         try:
             dto = api.create(
-                contracts.CreateReleaseInput(team_id=self.team_id, **request.validated_data), self.user_access_control
+                contracts.CreateReleaseInput(team_id=self.team_id, **request.validated_data), self._visible_flag_ids
             )
         except api.UnknownFeatureFlagsError as error:
             raise ValidationError({"feature_flag_ids": f"These flags do not exist in this project: {error.flag_ids}"})
@@ -59,7 +64,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def partial_update(self, request: TypedRequest[dict[str, Any]], pk: UUID, **kwargs) -> Response:
         """Change the name, description, owner or linked flags of a release."""
         try:
-            dto = api.update(self.team_id, pk, request.validated_data, self.user_access_control)
+            dto = api.update(self.team_id, pk, request.validated_data, self._visible_flag_ids)
         except api.ReleaseNotFoundError:
             raise NotFound("Release not found.")
         except api.UnknownFeatureFlagsError as error:
