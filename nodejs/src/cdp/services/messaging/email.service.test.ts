@@ -3190,5 +3190,50 @@ describe('EmailService', () => {
                 distinct_id: 'distinct_id',
             })
         })
+
+        it.each([
+            {
+                outcome: 'delivered',
+                rejectWith: undefined,
+                delivered: 1,
+                error: undefined,
+                metrics: ['email_sent', 'email_untracked'],
+            },
+            {
+                outcome: 'rejected',
+                rejectWith: 'SES rejected the email',
+                delivered: 0,
+                error: expect.stringContaining('SES rejected the email'),
+                metrics: ['email_failed'],
+            },
+        ])(
+            'keeps a $outcome send as it was when the engagement setting read fails',
+            async ({ rejectWith, delivered, error, metrics }) => {
+                const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
+                service = createService({}, {}, { teamConfigDb: teamConfigDb.postgres })
+                if (rejectWith) {
+                    ses.failWith({ status: 400, type: 'MessageRejected', message: rejectWith })
+                }
+                const failuresBefore = await metricValue('cdp_email_engagement_setting_read_failures_total', {})
+
+                const result = await service.executeSendEmail(invocation)
+                await teamConfigDb.close()
+
+                expect(ses.sent).toHaveLength(delivered)
+                expect(result.error).toEqual(error)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(metrics)
+                expect(result.capturedPostHogEvents).toEqual([])
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message:
+                            'Could not read the engagement setting, so no engagement event was recorded for this email.',
+                    })
+                )
+                expect(await metricValue('cdp_email_engagement_setting_read_failures_total', {})).toBe(
+                    failuresBefore + 1
+                )
+            }
+        )
     })
 })

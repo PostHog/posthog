@@ -54,6 +54,11 @@ import {
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
 
+const emailEngagementSettingReadFailuresTotal = new Counter({
+    name: 'cdp_email_engagement_setting_read_failures_total',
+    help: 'Email sends whose engagement setting read failed after the send attempt. The send keeps its outcome.',
+})
+
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
     help: 'SES API responses classified as throttle/rate-limit. Sustained nonzero rate means the local bucket is set too high vs. the SES quota.',
@@ -1049,11 +1054,7 @@ export class EmailService {
 
         const distinctId = resolveEmailTrackingDistinctId(invocation)
         const workflowVersion = invocation.state.renderedWorkflowVersion
-        if (
-            distinctId &&
-            !isTest &&
-            (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
-        ) {
+        if (distinctId && !isTest && (await this.readEngagementCaptureOrWarn(invocation, addLog))) {
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -1087,6 +1088,26 @@ export class EmailService {
         }
 
         return result
+    }
+
+    private async readEngagementCaptureOrWarn(
+        invocation: CyclotronJobInvocationHogFunction,
+        addLog: ReturnType<typeof createAddLogFunction>
+    ): Promise<boolean> {
+        try {
+            return await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId)
+        } catch (error) {
+            emailEngagementSettingReadFailuresTotal.inc()
+            logger.error('Failed to read the email engagement capture setting', {
+                teamId: invocation.teamId,
+                functionId: invocation.functionId,
+                actionId: invocation.state.actionId,
+                invocationId: invocation.id,
+                error: error instanceof Error ? error.message : String(error),
+            })
+            addLog('warn', 'Could not read the engagement setting, so no engagement event was recorded for this email.')
+            return false
+        }
     }
 
     /**
