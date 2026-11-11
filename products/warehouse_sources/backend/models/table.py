@@ -1018,28 +1018,46 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # instead of on the node chdb already could not finish on.
             table_size_mib=self.size_in_s3_mib,
         )
-        try:
-            tag_queries(
-                team_id=self.team.pk,
-                table_id=self.id,
-                warehouse_query=True,
-                name="get_count",
-                product=Product.WAREHOUSE,
-                feature=Feature.QUERY,
-            )
+        tag_queries(
+            team_id=self.team.pk,
+            table_id=self.id,
+            warehouse_query=True,
+            name="get_count",
+            product=Product.WAREHOUSE,
+            feature=Feature.QUERY,
+        )
 
-            result = sync_execute(
-                f"SELECT count() FROM {s3_table_func}",
-                args=placeholder_context.values,
-                settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
-            )
-        except Exception as err:
-            if not is_expected_warehouse_read_error(err):
-                capture_exception(err)
-            if safe_expose_ch_error:
-                self._safe_expose_ch_error(err)
-            else:
-                raise
+        # The cluster is a little broken right now, and so this can intermittently fail.
+        # See https://posthog.slack.com/archives/C076R4753Q8/p1756901693184169 for context
+        attempts = 5
+        result = None
+        for i in range(attempts):
+            try:
+                result = sync_execute(
+                    f"SELECT count() FROM {s3_table_func}",
+                    args=placeholder_context.values,
+                    settings=DISABLE_HIVE_PARTITIONING_SETTINGS,
+                )
+                break
+            except Exception as err:
+                # A query-performance-limit error (timeout, memory, size) is a property of this
+                # query against this file, not a cluster blip - it fails the same way on every
+                # retry, so retrying only ties the request up for `attempts` rounds of the same
+                # multi-minute query instead of surfacing the failure.
+                is_terminal = classify_query_error(err) == QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+                if is_terminal or i >= attempts - 1:
+                    if not is_expected_warehouse_read_error(err):
+                        capture_exception(err)
+                    if safe_expose_ch_error:
+                        self._safe_expose_ch_error(err)
+                    else:
+                        raise
+
+                # Pause execution slightly to not overload clickhouse
+                time.sleep(2**i)
+
+        if result is None:
+            raise Exception("No count returned by clickhouse in get_count")
 
         return int(result[0][0])
 
