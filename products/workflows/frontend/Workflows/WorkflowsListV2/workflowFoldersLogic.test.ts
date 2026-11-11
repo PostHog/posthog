@@ -658,29 +658,30 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Billing/Cards')
     })
 
-    it('keeps only the folder busy until a slow delete answers, then shows what the server saved', async () => {
+    it('frees a folder whose delete passes its deadline, then shows what the server saved when it answers', async () => {
         await expectLogic(logic).toFinishAllListeners()
         const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
         let answer: () => void = () => {}
         const answered = new Promise<void>((resolve) => (answer = resolve))
         useMocks({ delete: { '/api/projects/:team_id/file_system/:id/': () => answered.then(() => [204]) } })
         jest.useFakeTimers()
-        let deleted: Promise<void> | undefined
         try {
-            deleted = logic.asyncActions.deleteFolder('Empty')
-            await jest.advanceTimersByTimeAsync(10 * 60 * 1000)
+            void logic.asyncActions.deleteFolder('Empty')
+            await jest.advanceTimersByTimeAsync(0)
             expect(logic.values.folderBusyReason('Empty')).toEqual('Wait until this folder finishes deleting')
             expect(logic.values.folderBusyReason('Billing')).toBeNull()
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+            expect(logic.values.folderBusyReason('Empty')).toBeNull()
         } finally {
             jest.useRealTimers()
         }
         try {
+            expect(errorToast).toHaveBeenCalled()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.folderPaths).toContain('Empty')
             serverEntries = serverEntries.filter((entry) => entry.id !== 'empty')
             answer()
-            await deleted
             await waitFor(() => expect(logic.values.folderPaths).not.toContain('Empty'))
-            expect(logic.values.folderBusyReason('Empty')).toBeNull()
-            expect(errorToast).not.toHaveBeenCalled()
         } finally {
             errorToast.mockRestore()
         }

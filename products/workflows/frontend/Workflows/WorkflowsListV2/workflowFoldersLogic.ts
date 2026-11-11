@@ -18,7 +18,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
-import { withTimeout } from 'lib/utils/async'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { fileSystemCreate, fileSystemList, fileSystemDestroy, fileSystemUnfiledRetrieve } from '~/generated/core/api'
@@ -996,11 +996,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             if (!entry?.id || folder === 'Unfiled' || values.folderBusyReason(folder)) {
                 return
             }
-            // The delete has no deadline. Giving up early would not stop the server from deleting the folder, and the
-            // list would show a guess. A slow delete holds only this folder, which shows why until the server answers.
+            // A delete past its deadline frees the folder, but the server can still delete it, so the folders
+            // reload once more when the late answer arrives.
             actions.setFolderBusy(folder, 'delete')
+            const request = fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
             try {
-                await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
+                await withTimeout(request, FOLDER_REQUEST_TIMEOUT_MS)
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch (error) {
                 // The folders reload from the server instead of guessing, and a retry that finds the folder gone
@@ -1015,6 +1016,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     )
                 }
                 actions.loadBrowser()
+                if (error instanceof PromiseTimeoutError) {
+                    void request.then(
+                        () => actions.loadBrowser(),
+                        () => actions.loadBrowser()
+                    )
+                }
             } finally {
                 actions.setFolderBusy(folder, null)
             }
