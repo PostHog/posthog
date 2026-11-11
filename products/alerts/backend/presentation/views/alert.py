@@ -2491,16 +2491,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         alert = self._alert_or_native()
         ownership = AlertTransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
         ownership.is_valid(raise_exception=True)
-        user = ownership.validated_data["owner"]
+        owner = ownership.validated_data["owner"]
         try:
-            assert_creator_can_run(user, alert.team, alert.insight)
+            assert_creator_can_run(owner, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
             raise ValidationError("Can't take ownership: the new owner doesn't have access to this insight.") from None
         # The scheduled checks run as the owner, so an AI alert needs the new owner on the rollout.
         # An already enabled alert does not pass through the admission below, so it is checked here.
-        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config, owner=user)
+        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config, owner=owner)
         if alert.has_no_insight_row:
-            return Response(self.get_serializer(self._take_native_ownership(alert, user)).data)
+            return Response(self.get_serializer(self._take_native_ownership(alert, owner)).data)
         # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
         # the row, so the owner is saved first.
         with transaction.atomic():
@@ -2511,12 +2511,12 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with upgrade_insight(alert.insight):
                 query = alert.insight.query
             _validate_transfer_query_access(request.user, alert.team, query, requirement="You need")
-            if user.pk != request.user.pk:
-                _validate_transfer_query_access(user, alert.team, query, requirement="The new owner needs")
+            if owner.pk != request.user.pk:
+                _validate_transfer_query_access(owner, alert.team, query, requirement="The new owner needs")
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
-                user=user,
+                user=owner,
                 actor=cast(User, request.user),
                 was_impersonated=get_was_impersonated(),
             )
@@ -2535,7 +2535,7 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         native = AlertConfiguration.from_platform_view(view, team_id=self.team_id) if view is not None else None
         return native is not None and native.insight_id == insight_id
 
-    def _take_native_ownership(self, alert: AlertConfiguration, user: User) -> AlertConfiguration:
+    def _take_native_ownership(self, alert: AlertConfiguration, owner: User) -> AlertConfiguration:
         """`take_ownership` for an alert with no insight row: the platform stores its owner, and its
         enable goes through the platform's admission, after the AI detector's."""
         requester = cast(User, self.request.user)
@@ -2553,16 +2553,16 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with upgrade_insight(alert.insight):
                 query = alert.insight.query
             _validate_transfer_query_access(requester, alert.team, query, requirement="You need")
-            if user.pk != requester.pk:
-                _validate_transfer_query_access(user, alert.team, query, requirement="The new owner needs")
+            if owner.pk != requester.pk:
+                _validate_transfer_query_access(owner, alert.team, query, requirement="The new owner needs")
             assign_alert_owner(
                 team_id=alert.team_id,
                 alert_id=alert.id,
-                user=user,
+                user=owner,
                 actor=requester,
                 was_impersonated=get_was_impersonated(),
             )
-            alert.created_by = user
+            alert.created_by = owner
             # The same checks the row path's enable runs, against the insight as it is under the lock,
             # so an insight edit that broke the alert's configuration refuses the enable.
             self.get_serializer(alert, data={"enabled": True}, partial=True).is_valid(raise_exception=True)
