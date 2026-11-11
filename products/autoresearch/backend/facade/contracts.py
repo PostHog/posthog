@@ -121,6 +121,9 @@ class LiveTrainingRun:
     """Progress of the pipeline's pending or running training run, read from its live iteration rows."""
 
     id: UUID
+    task_id: UUID | None
+    task_run_id: UUID | None
+    task_url: str | None
     iteration_budget: int
     experiment_count: int
     best_holdout_score: float | None
