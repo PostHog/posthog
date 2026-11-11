@@ -674,7 +674,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     selectors({
         browserLoadFailed: [(s) => [s.folderScanFailed], (folderScanFailed: boolean): boolean => folderScanFailed],
         // The shared tree applies a folder move only once its request lands, so a second change queued before then
-        // starts from the old path and leaves cached subfolders under a name the folder no longer has.
+        // starts from the old path and leaves cached subfolders under a name the folder no longer has. A delete
+        // removes the folder with whatever changed inside it. A link or a create from the tree has no deadline and
+        // leaves the folder's path as it is, so waiting on one could block these changes indefinitely.
         folderMutationDisabledReason: [
             (s) => [s.pendingActions, s.folderActionPending],
             (pendingActions: ProjectTreeAction[], folderActionPending: boolean) =>
@@ -684,11 +686,20 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                     }
                     const related = (path: string | undefined): boolean =>
                         !!path && !!folder && (isPathUnder(path, folder) || isPathUnder(folder, path))
-                    return pendingActions.some(
-                        (action) => action.item.type === 'folder' && (related(action.path) || related(action.newPath))
+                    const pending = pendingActions.find(
+                        (action) =>
+                            action.item.type === 'folder' &&
+                            action.type !== 'link' &&
+                            action.type !== 'prepare-link' &&
+                            action.type !== 'create' &&
+                            (related(action.path) || related(action.newPath))
                     )
-                        ? 'Wait until this folder finishes moving'
-                        : null
+                    if (!pending) {
+                        return null
+                    }
+                    return pending.type === 'prepare-delete' || pending.type === 'delete'
+                        ? 'Wait until this folder finishes deleting'
+                        : 'Wait until this folder finishes moving'
                 },
         ],
         // The shared Move to dialog lets a person pick any folder, so a file move waits while any folder move is pending.
