@@ -7,6 +7,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 import { isBoxPlotMissingProperty } from 'lib/components/ChartFilter/isBoxPlotMissingProperty'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -247,6 +248,8 @@ export function InsightVizDisplay({
         useValues(funnelDataLogic(insightProps))
 
     const explainChartEnabled = useFeatureFlag('EXPLAIN_CHART')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const quillSurface = todayRailNav && !embedded
 
     const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
@@ -625,7 +628,7 @@ export function InsightVizDisplay({
                     />
                 )}
                 {showingResults && (
-                    <>
+                    <QuillSurfaceContext.Provider value={quillSurface}>
                         {!embedded &&
                             ((isFunnels && hasFunnelResults) ||
                                 isPaths ||
@@ -678,7 +681,7 @@ export function InsightVizDisplay({
                                 chart
                             )}
                         </div>
-                    </>
+                    </QuillSurfaceContext.Provider>
                 )}
             </div>
             <ResultCustomizationsModal />
