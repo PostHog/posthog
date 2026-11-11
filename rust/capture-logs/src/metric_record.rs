@@ -53,8 +53,6 @@ pub struct KafkaMetricRow {
     pub series_fingerprint: i64,
     pub has_labels: bool,
     pub retention_days: Option<i32>,
-    /// OTLP `start_time_unix_nano`. Ingestion uses it to find counter resets, and ClickHouse
-    /// does not store it. None when the sender gives no start time.
     #[serde(with = "ts_microseconds_option")]
     pub start_timestamp: Option<DateTime<Utc>>,
 }
