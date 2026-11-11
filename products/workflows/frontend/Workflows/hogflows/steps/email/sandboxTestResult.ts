@@ -37,6 +37,9 @@ const REASONS: Record<string, string> = {
     ses_transient: 'The email service had a temporary problem.',
     ses_rejected: 'The email service rejected this email.',
     sandbox_worker_unavailable: "The sandbox sender couldn't be reached.",
+    sandbox_worker_unreachable: "The sandbox sender couldn't be reached.",
+    send_rate_limited: 'Too many emails are being sent right now. Send the test again in a moment.',
+    unsupported_action_id: "The sandbox sender can't send from this step. Delete the step and add it again.",
 }
 
 export function sandboxTestOutcome(result: HogflowTestResult | null): SandboxTestOutcome | null {

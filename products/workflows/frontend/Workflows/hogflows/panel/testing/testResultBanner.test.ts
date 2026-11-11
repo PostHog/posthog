@@ -60,6 +60,24 @@ describe('testResultBanner', () => {
             "Not sent yet. Couldn't check whether the sandbox sender is available. Try again in a few minutes.",
         ],
         [
+            'a send over the rate limit',
+            { status: 'failed', reason: 'send_rate_limited' },
+            'error',
+            "Couldn't send. Too many emails are being sent right now. Send the test again in a moment.",
+        ],
+        [
+            'a send that could not reach the sandbox sender',
+            { status: 'pending', reason: 'sandbox_worker_unreachable' },
+            'warning',
+            "Not sent yet. The sandbox sender couldn't be reached. Try again in a few minutes.",
+        ],
+        [
+            'a step whose id the sandbox sender cannot tag',
+            { status: 'failed', reason: 'unsupported_action_id' },
+            'error',
+            "Couldn't send. The sandbox sender can't send from this step. Delete the step and add it again.",
+        ],
+        [
             'a failed send with an unknown reason',
             { status: 'failed', reason: 'something_new' },
             'error',

@@ -25,8 +25,7 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet
 from django.utils.timezone import now
 
-from rest_framework import serializers
-
+from posthog.helpers.full_text_search import to_search_results
 from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 from posthog.resource_limits import LimitKey, check_count_limit
@@ -34,6 +33,7 @@ from posthog.resource_limits import LimitKey, check_count_limit
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.facade.contracts import (
+    AppliedDashboard,
     CannotAddToDashboard,
     CannotRemoveFromDashboard,
     DashboardInsights,
@@ -44,10 +44,22 @@ from products.dashboards.backend.facade.contracts import (
     DashboardNotViewable,
     DashboardRef,
     DashboardSummary,
+    DashboardTemplateDefinition,
+    InsightPlacement,
     MembershipChange,
     PlacedInsightTile,
+    TeamDashboardRef,
+    TilePlacement,
 )
-from products.dashboards.backend.facade.enums import DashboardCreationMode
+from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardUsageCount
+from products.dashboards.backend.logic import (
+    search as search_logic,
+    team_settings as team_settings_logic,
+    templates as templates_logic,
+    tiles as tiles_logic,
+    usage as usage_logic,
+    visibility as visibility_logic,
+)
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -56,19 +68,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.product_analytics.backend.facade.models import Insight
-
-
-# The tile shape an insight payload carries for each dashboard it sits on. No docstring: it would
-# land in the generated OpenAPI component as a description.
-class DashboardTileBasicSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = DashboardTile
-        fields = ["id", "dashboard_id", "deleted"]
-        extra_kwargs = {
-            "id": {"help_text": "ID of the dashboard tile."},
-            "dashboard_id": {"help_text": "ID of the dashboard the tile sits on."},
-            "deleted": {"help_text": "Whether the tile was removed from the dashboard."},
-        }
 
 
 def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
@@ -803,6 +802,211 @@ def update_insight_dashboard_membership(
     )
 
 
+# For callers outside this product that still query the dashboard models; parity tests pin each query.
+
+
+def search_dashboards(
+    *,
+    project_id: int,
+    query: str | None,
+    access_control: UserAccessControl,
+    limit: int,
+    offset: int = 0,
+    with_access_levels: bool = False,
+    include_count: bool = True,
+) -> tuple[list[dict[str, Any]], int]:
+    """Ranked full-text search over a project's dashboards, in the result shape of core search.
+
+    Leaves out the dashboards the user may not view and the ones built from a template. Without a
+    query the dashboards come in name order. `with_access_levels` adds `user_access_level`, the
+    user's resolved level for each dashboard. `include_count=False` skips the count query and
+    reports a total of 0.
+    """
+    rows, total_count = search_logic.search(
+        project_id=project_id,
+        query=query,
+        access_control=access_control,
+        limit=limit,
+        offset=offset,
+        include_count=include_count,
+    )
+    access_levels = (
+        access_control.bulk_object_access_levels("dashboard", [(str(row["id"]), row["created_by_id"]) for row in rows])
+        if with_access_levels
+        else None
+    )
+    return to_search_results(
+        rows, entity_type="dashboard", ranked=bool(query), access_levels=access_levels
+    ), total_count
+
+
+def dashboards_by_last_access(
+    *, team_ids: list[int], user_access_control: UserAccessControl, limit: int
+) -> list[DashboardSummary]:
+    """These teams' live dashboards the user may view, most recently opened first.
+
+    Dashboards nobody opened come last, newest first. Org admins see every dashboard.
+    """
+    if not team_ids:
+        return []
+    dashboards = usage_logic.by_last_access(team_ids=team_ids, user_access_control=user_access_control, limit=limit)
+    return [_to_summary(dashboard) for dashboard in dashboards]
+
+
+def find_dashboard_team_id(*, dashboard_id: int) -> int | None:
+    """The team that stores a live dashboard, or None when there is no live dashboard with this id.
+
+    Unscoped: only for a caller that checks the user's access to the returned team itself.
+    """
+    # nosemgrep: idor-lookup-without-team (the caller checks access to the returned team)
+    return Dashboard.objects.filter(pk=dashboard_id).values_list("team_id", flat=True).first()
+
+
+def home_tab_dashboard_id(*, team_id: int) -> int | None:
+    """The dashboard this team's product analytics Home tab shows, or None for the built-in view.
+
+    A dashboard that was soft-deleted since, or that another team stores, counts as none.
+    """
+    return team_settings_logic.home_tab_dashboard_id(team_id=team_id)
+
+
+def set_home_tab_dashboard(*, team_id: int, dashboard_id: int | None) -> None:
+    """Point this team's Home tab at a dashboard, or back at the built-in view with None.
+
+    Does not check the dashboard: validate it against the team first, with `get_dashboard`.
+    """
+    team_settings_logic.set_home_tab_dashboard(team_id=team_id, dashboard_id=dashboard_id)
+
+
+def remove_quick_filter_from_dashboards(*, team_id: int, quick_filter_id: str) -> int:
+    """Take a deleted quick filter off every dashboard stored on this team, and return how many changed."""
+    return team_settings_logic.remove_quick_filter_from_dashboards(team_id=team_id, quick_filter_id=quick_filter_id)
+
+
+def placements_on_dashboards_accessed_since(
+    *, placements: Collection[InsightPlacement], since: datetime, shared_only: bool = False
+) -> list[InsightPlacement]:
+    """Which of these placements have a live tile on a dashboard someone opened since the given time.
+
+    With `shared_only`, the dashboard must also have an enabled sharing configuration. One query.
+    """
+    return tiles_logic.placements_on_dashboards_accessed_since(
+        placements=placements, since=since, shared_only=shared_only
+    )
+
+
+def live_tile_placements(
+    *, dashboard_ids: Collection[int] | None = None, insight_ids: Collection[int] | None = None
+) -> list[TilePlacement]:
+    """The live tiles on these dashboards, or of these insights, or both, oldest tile first.
+
+    Live means neither the tile nor its dashboard is soft-deleted. A tile of a deleted insight still
+    counts. Pass at least one of the two filters. Unscoped: the ids come from the caller's own rows.
+    """
+    return tiles_logic.live_tile_placements(dashboard_ids=dashboard_ids, insight_ids=insight_ids)
+
+
+def insight_ids_on_template_dashboards(
+    *, insight_ids: Collection[int], name_prefix: str, description_prefix: str
+) -> set[int]:
+    """Which of these insights have a live tile on a live dashboard built from a template, whose name
+    and description start with these prefixes. Product-generated dashboards carry such prefixes."""
+    return tiles_logic.insight_ids_on_template_dashboards(
+        insight_ids=insight_ids, name_prefix=name_prefix, description_prefix=description_prefix
+    )
+
+
+def delete_widget_tiles_for_teams(team_ids: list[int]) -> None:
+    """Delete every widget tile of these teams, soft-deleted ones included, without signals.
+
+    Team deletion calls this before the Team row goes, because a tile protects its widget from the
+    cascade.
+    """
+    tiles_logic.delete_widget_tiles_for_teams(team_ids)
+
+
+def has_user_created_dashboard(*, team_id: int) -> bool:
+    """Whether a person, not the system, created a live dashboard stored on this exact team.
+
+    The project's dashboards are stored on its root team, so this is False for an environment.
+    """
+    return usage_logic.has_user_created_dashboard(team_id=team_id)
+
+
+def dashboard_counts_by_team(count: DashboardUsageCount) -> dict[int, int]:
+    """For the usage report: how many live dashboards of the given kind each team stores, keyed by team id.
+
+    A shared dashboard counts once per enabled sharing configuration, and a tagged one once per tag.
+    """
+    return usage_logic.counts_by_team(count)
+
+
+def dashboards_created_between(
+    *, period_start: datetime, period_end: datetime, team_ids: range
+) -> list[TeamDashboardRef]:
+    """The live dashboards created after `period_start` and up to `period_end`, by teams in `team_ids`.
+
+    Generated dashboards stay out. For cross-team batch jobs off the request path.
+    """
+    return usage_logic.created_between(period_start=period_start, period_end=period_end, team_ids=team_ids)
+
+
+def create_global_template_if_missing(template: DashboardTemplateDefinition) -> bool:
+    """Store a template every project can use, unless one with its name exists. True when it was created."""
+    return templates_logic.create_global_template_if_missing(template)
+
+
+def create_starter_dashboard(*, team_id: int) -> DashboardRef:
+    """Create the pinned starter dashboard a new project gets, with the signup template's tiles.
+
+    Run inside the caller's transaction. The caller makes it the team's primary dashboard.
+    """
+    dashboard = templates_logic.create_starter_dashboard(team_id=team_id)
+    return DashboardRef(id=dashboard.id, name=dashboard.name)
+
+
+def widget_type_label(widget_type: str) -> str | None:
+    """The catalog label of a widget type, or None for a type the catalog does not list."""
+    # Imported at call time: the catalog loads every widget spec, and they import posthog.schema.
+    from products.dashboards.backend.widget_catalog import WIDGET_CATALOG  # noqa: PLC0415
+
+    entry = WIDGET_CATALOG.get(widget_type)
+    return entry["label"] if entry is not None else None
+
+
+def hidden_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl, include_deleted: bool
+) -> set[int]:
+    """Which of these dashboards of this team the user may not view. A soft-deleted one counts only with `include_deleted`.
+
+    Without dashboard resource access, every dashboard is hidden except the ones granted to the user
+    and the ones the user created. Org admins see every dashboard.
+    """
+    return visibility_logic.hidden_dashboard_ids(
+        team_id=team_id,
+        dashboard_ids=dashboard_ids,
+        user_access_control=user_access_control,
+        include_deleted=include_deleted,
+    )
+
+
+def insight_placements(
+    *,
+    team_id: int,
+    dashboard_ids: Collection[int],
+    include_deleted: bool,
+    insight_ids: Collection[int] | None = None,
+) -> list[InsightPlacement]:
+    """The insight tiles on these dashboards of this team, oldest tile first. With `insight_ids`, only those insights.
+
+    Without `include_deleted`, a removed tile and a tile on a soft-deleted dashboard do not count.
+    A tile of a soft-deleted insight counts either way.
+    """
+    return tiles_logic.insight_placements(
+        team_id=team_id, dashboard_ids=dashboard_ids, insight_ids=insight_ids, include_deleted=include_deleted
+    )
+
+
 __all__ = [
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
@@ -814,7 +1018,6 @@ __all__ = [
     "DashboardNotViewable",
     "DashboardRef",
     "DashboardSummary",
-    "DashboardTileBasicSerializer",
     "InsightTilePlacement",
     "MembershipChange",
     "PlacedInsightTile",
@@ -856,4 +1059,28 @@ __all__ = [
     "viewable_dashboard_id",
     "viewable_dashboard_ids",
     "viewable_dashboard_ref",
+    "AppliedDashboard",
+    "DashboardTemplateDefinition",
+    "DashboardUsageCount",
+    "InsightPlacement",
+    "TeamDashboardRef",
+    "TilePlacement",
+    "create_global_template_if_missing",
+    "create_starter_dashboard",
+    "dashboard_counts_by_team",
+    "dashboards_by_last_access",
+    "dashboards_created_between",
+    "delete_widget_tiles_for_teams",
+    "find_dashboard_team_id",
+    "has_user_created_dashboard",
+    "hidden_dashboard_ids",
+    "home_tab_dashboard_id",
+    "insight_ids_on_template_dashboards",
+    "insight_placements",
+    "live_tile_placements",
+    "placements_on_dashboards_accessed_since",
+    "remove_quick_filter_from_dashboards",
+    "search_dashboards",
+    "set_home_tab_dashboard",
+    "widget_type_label",
 ]

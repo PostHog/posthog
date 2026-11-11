@@ -68,7 +68,13 @@ import {
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import { getTeamUtmDefaults } from './hogflows/steps/components/utmDefaults'
-import { hasOwnSender, needsSandboxSender, sandboxSenderAllowed } from './hogflows/steps/email/emailStepVariants'
+import {
+    type EmailStepAction,
+    hasOwnSender,
+    isEmailStep,
+    needsSandboxSender,
+    sandboxSenderAllowed,
+} from './hogflows/steps/email/emailStepVariants'
 import { getTemplatingError } from './hogflows/steps/templatingError'
 import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
@@ -3583,6 +3589,22 @@ function getSaveQueue(
     }))
 }
 
+function senderErrors(
+    action: EmailStepAction,
+    emailValue: any,
+    templating: string | undefined
+): Pick<EmailFieldErrors, 'from'> {
+    if (action.type === 'email_sandbox') {
+        return {}
+    }
+    return {
+        from: !emailValue?.from?.integrationId
+            ? 'Choose an email sender, or connect a new one'
+            : (getTemplatingError(emailValue?.from?.email, templating) ??
+              getTemplatingError(emailValue?.from?.name, templating)),
+    }
+}
+
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
@@ -4334,7 +4356,7 @@ export const workflowLogic = kea<workflowLogicType>([
                         if (!schemaValidation.success) {
                             result.valid = false
                             result.schema = schemaValidation.error
-                        } else if (action.type === 'function_email' || action.type === 'email_sandbox') {
+                        } else if (isEmailStep(action)) {
                             // special case for email steps which have nested email inputs, so basic hog input validation is not enough
                             // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
                             const emailValue = action.config.inputs?.email?.value as any | undefined
@@ -4355,14 +4377,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 subject: !emailValue?.subject
                                     ? 'Add a subject line'
                                     : getTemplatingError(emailValue?.subject, emailTemplating),
-                                ...(action.type === 'function_email'
-                                    ? {
-                                          from: !emailValue?.from?.integrationId
-                                              ? 'Choose an email sender, or connect a new one'
-                                              : (getTemplatingError(emailValue?.from?.email, emailTemplating) ??
-                                                getTemplatingError(emailValue?.from?.name, emailTemplating)),
-                                      }
-                                    : {}),
+                                ...senderErrors(action, emailValue, emailTemplating),
                                 to: !emailValue?.to?.email
                                     ? 'Add a recipient'
                                     : getTemplatingError(emailValue?.to?.email, emailTemplating),

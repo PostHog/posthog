@@ -10,6 +10,8 @@ from rest_framework.exceptions import ValidationError
 
 from products.workflows.backend.services.sandbox_email.validation import validate_sandbox_email_action
 
+from common.hogvm.python.execute import execute_bytecode
+
 ACTION_ID = "action_email_sandbox_1f0e6a2c-8f53-4c58-9a51-0b5e8c1d2a77"
 
 
@@ -57,47 +59,105 @@ def _detail(error: pytest.ExceptionInfo[ValidationError]) -> str:
     return str(error.value.detail)
 
 
+def _render(compiled: Any, globals: dict[str, Any]) -> Any:
+    if isinstance(compiled, dict):
+        return {key: _render(field, globals) for key, field in compiled.items()}
+    return execute_bytecode(compiled, globals).result
+
+
+_RENDERED_DEFAULTS = {
+    "subject": "Hello",
+    "preheader": "",
+    "text": "Hello from our workflow.",
+    "html": "",
+}
+
+
 class TestSandboxEmailActionValidation(SimpleTestCase):
-    def test_accepts_a_liquid_step_and_drops_client_bytecode(self) -> None:
-        action = _action()
-        action["config"]["inputs"]["email"]["bytecode"] = ["_H", 1, 32, "forged"]
+    def test_a_liquid_step_keeps_its_template_for_the_worker(self) -> None:
+        cleaned = _validate(_action())
 
-        cleaned = _validate(action)
-
-        email = cleaned["config"]["inputs"]["email"]
-        assert email == {"templating": "liquid", "value": _action()["config"]["inputs"]["email"]["value"]}
+        assert cleaned["config"]["inputs"]["email"]["value"] == _action()["config"]["inputs"]["email"]["value"]
         assert cleaned["config"]["message_category_type"] == "marketing"
 
-    def test_compiles_hog_templating_without_the_design(self) -> None:
-        action = _action(
-            to={"email": "{person.properties.email}"},
-            subject="Hi {person.properties.name}",
-            design={"body": "{not a template"},
+    def test_a_forged_client_bytecode_never_reaches_the_rendered_email(self) -> None:
+        recipient = {"email": "{person.properties.email}", "name": ""}
+        forged_step = _action(to=recipient, subject="Forged", text="Forged text")
+        forged_step["config"]["inputs"]["email"]["templating"] = "hog"
+        forged = _validate(forged_step)["config"]["inputs"]["email"]
+        action = _action(to=recipient)
+        action["config"]["inputs"]["email"].update(
+            templating="hog",
+            bytecode=forged["bytecode"],
+            input_deps=forged["input_deps"],
+            bytecode_contract=forged["bytecode_contract"],
         )
-        action["config"]["inputs"]["email"]["templating"] = "hog"
 
         email = _validate(action)["config"]["inputs"]["email"]
 
-        assert email["bytecode"]["subject"][0] == "_H"
-        assert "design" not in email["bytecode"]
-        assert email["input_deps"] == []
-        assert email["bytecode_contract"]
-        assert email["value"]["design"] == {"body": "{not a template"}
+        rendered = _render(email["bytecode"], {"person": {"properties": {"email": "ada@example.com"}}})
+        assert (rendered["subject"], rendered["text"]) == ("Hello", "Hello from our workflow.")
 
-    @parameterized.expand([("warehouse_trigger", True), ("event_trigger", False)])
-    def test_the_record_alias_needs_a_warehouse_trigger(self, _name: str, is_dwh_source: bool) -> None:
-        action = _action(to={"email": "{record.email}"})
+    @parameterized.expand(
+        [
+            (
+                "person_properties",
+                {
+                    "to": {"email": "{person.properties.email}", "name": "{person.properties.name}"},
+                    "subject": "Hi {person.properties.name}",
+                    "text": "Your plan is {person.properties.plan}.",
+                },
+                False,
+                {"person": {"properties": {"email": "ada@example.com", "name": "Ada", "plan": "scale"}}},
+                {
+                    "to": {"email": "ada@example.com", "name": "Ada"},
+                    "subject": "Hi Ada",
+                    "text": "Your plan is scale.",
+                },
+            ),
+            (
+                "event_properties",
+                {
+                    "to": {"email": "ada@example.com", "name": ""},
+                    "subject": "Order {event.properties.order_id} shipped",
+                },
+                False,
+                {"event": {"properties": {"order_id": "A-17"}}},
+                {"to": {"email": "ada@example.com", "name": ""}, "subject": "Order A-17 shipped"},
+            ),
+            (
+                "record_alias_on_a_warehouse_trigger",
+                {"to": {"email": "{record.email}", "name": ""}},
+                True,
+                {"event": {"properties": {"email": "row@example.com"}}},
+                {"to": {"email": "row@example.com", "name": ""}},
+            ),
+        ]
+    )
+    def test_a_hog_step_renders_its_templates_and_leaves_the_design_alone(
+        self,
+        _name: str,
+        value: dict[str, Any],
+        is_dwh_source: bool,
+        globals: dict[str, Any],
+        rendered: dict[str, Any],
+    ) -> None:
+        action = _action(**value, design={"body": "{not a template"})
         action["config"]["inputs"]["email"]["templating"] = "hog"
 
-        if is_dwh_source:
-            assert _validate(action, is_dwh_source=True)["config"]["inputs"]["email"]["bytecode"]["to"]["email"]
-        else:
-            with pytest.raises(ValidationError) as error:
-                _validate(action)
-            assert "Invalid template" in _detail(error)
+        email = _validate(action, is_dwh_source=is_dwh_source)["config"]["inputs"]["email"]
 
-    def test_rejects_an_invalid_hog_template(self) -> None:
-        action = _action(subject="Hi {person.properties.")
+        assert _render(email["bytecode"], globals) == {**_RENDERED_DEFAULTS, **rendered}
+        assert email["value"]["design"] == {"body": "{not a template"}
+
+    @parameterized.expand(
+        [
+            ("record_alias_on_an_event_trigger", {"to": {"email": "{record.email}"}}),
+            ("unclosed_placeholder", {"subject": "Hi {person.properties."}),
+        ]
+    )
+    def test_rejects_a_hog_template_the_step_cannot_render(self, _name: str, value: dict[str, Any]) -> None:
+        action = _action(**value)
         action["config"]["inputs"]["email"]["templating"] = "hog"
 
         with pytest.raises(ValidationError) as error:
@@ -195,7 +255,6 @@ class TestSandboxEmailActionValidation(SimpleTestCase):
             ("recipient_string", {"to": "member@example.com"}),
             ("recipient_name_number", {"to": {"email": "member@example.com", "name": 1}}),
             ("subject_number", {"subject": 1}),
-            # The sender's renderer takes a missing optional field, never a null one.
             ("recipient_name_null", {"to": {"email": "member@example.com", "name": None}}),
             ("preheader_null", {"preheader": None}),
         ]

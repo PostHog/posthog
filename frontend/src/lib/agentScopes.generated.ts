@@ -13,6 +13,8 @@ export const AGENT_USE_CASE_SCOPES = [
     'access_control:write',
     'account:read',
     'account:write',
+    'account_note:read',
+    'account_note:write',
     'activity_log:read',
     'alert:read',
     'alert:write',
