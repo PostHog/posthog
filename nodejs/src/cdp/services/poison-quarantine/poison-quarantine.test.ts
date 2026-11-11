@@ -9,7 +9,7 @@ import { waitForExpect } from '~/tests/helpers/expectations'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 
 import { createCdpOutputsRegistry } from '../../outputs/registry'
-import { EachBatchHandler, MAX_QUARANTINED_PER_BATCH, PoisonQuarantine } from './poison-quarantine'
+import { EachBatchHandler, PoisonQuarantine } from './poison-quarantine'
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
@@ -83,15 +83,83 @@ describe('PoisonQuarantine', () => {
         expect(await readQuarantinedValues(1)).toEqual(['poison'])
     })
 
-    it('fails the batch and quarantines nothing when more records fail alone than poison would explain', async () => {
-        const alwaysFails = wrap(() => Promise.reject(new Error('dependency down')))
-        const outage = Array.from({ length: MAX_QUARANTINED_PER_BATCH + 1 }, (_, offset) =>
-            record(`outage-${offset}`, offset)
-        )
+    const failNamed =
+        (...prefixes: string[]): EachBatchHandler =>
+        (messages) =>
+            messages.some((message) => prefixes.some((prefix) => message.value!.toString().startsWith(prefix)))
+                ? Promise.reject(new Error('dependency down'))
+                : Promise.resolve()
 
-        await expect(alwaysFails(outage)).rejects.toThrow('dependency down')
+    it('quarantines up to three records that fail alone in one batch', async () => {
+        const handler = wrap(failNamed('poison'))
 
-        await alwaysFails([record('lone', 99)])
-        expect(await readQuarantinedValues(1)).toEqual(['lone'])
+        await handler([record('poison-0', 0), record('poison-1', 1), record('poison-2', 2), record('healthy', 3)])
+
+        expect((await readQuarantinedValues(3)).sort()).toEqual(['poison-0', 'poison-1', 'poison-2'])
+    })
+
+    it.each([
+        ['more records fail alone than poison would explain', 4, 1],
+        ['no record succeeds alone to show the dependencies are up', 2, 0],
+    ])('fails the batch and quarantines nothing when %s', async (_, failing, healthy) => {
+        const handler = wrap(failNamed('outage', 'poison'))
+        const batch = [
+            ...Array.from({ length: failing }, (_, offset) => record(`outage-${offset}`, offset)),
+            ...Array.from({ length: healthy }, (_, offset) => record(`healthy-${offset}`, failing + offset)),
+        ]
+
+        await expect(handler(batch)).rejects.toThrow('dependency down')
+
+        await handler([record('poison', 99), record('healthy', 100)])
+        expect(await readQuarantinedValues(1)).toEqual(['poison'])
+    })
+
+    it('runs every record of a failed batch alone at the same time', async () => {
+        const size = 12
+        let started = 0
+        let releaseAll!: () => void
+        const allStarted = new Promise<void>((resolve) => (releaseAll = resolve))
+        const handler = wrap(async (messages) => {
+            if (messages.length > 1) {
+                throw new Error('batch failed')
+            }
+            if (++started === size) {
+                releaseAll()
+            }
+            await allStarted
+            if (messages[0].value!.toString() === 'poison') {
+                throw new Error('poison')
+            }
+        })
+        const batch = [
+            record('poison', 0),
+            ...Array.from({ length: size - 1 }, (_, offset) => record(`healthy-${offset}`, offset + 1)),
+        ]
+
+        await handler(batch)
+
+        expect(await readQuarantinedValues(1)).toEqual(['poison'])
+    })
+
+    it('hands a background failure of a record that ran alone to the consumer, not the process', async () => {
+        const unhandled: unknown[] = []
+        const onUnhandled = (reason: unknown): number => unhandled.push(reason)
+        process.on('unhandledRejection', onUnhandled)
+        try {
+            const handler = wrap(async (messages) => {
+                if (messages.some((message) => message.value!.toString() === 'poison')) {
+                    await new Promise((resolve) => setImmediate(resolve))
+                    throw new Error('poison')
+                }
+                return { backgroundTask: Promise.reject(new Error('background failed')) }
+            })
+
+            const result = await handler([record('background', 0), record('poison', 1)])
+
+            await expect(result?.backgroundTask).rejects.toThrow('background failed')
+            expect(unhandled).toEqual([])
+        } finally {
+            process.off('unhandledRejection', onUnhandled)
+        }
     })
 })

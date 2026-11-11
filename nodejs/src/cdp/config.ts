@@ -170,7 +170,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
-    // Off until the quarantine topic exists: a record that cannot be written there fails its batch as before.
     CDP_POISON_QUARANTINE_ENABLED: boolean
     CDP_QUARANTINE_TOPIC: string
     CDP_QUARANTINE_PRODUCER: CdpProducerName

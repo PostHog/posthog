@@ -19,9 +19,8 @@ export interface QuarantineSource {
     mayHaveSideEffects: boolean
 }
 
-export const MAX_QUARANTINED_PER_BATCH = 3
+const MAX_QUARANTINED_PER_BATCH = 3
 const ATTEMPTS_ALONE = 2
-const RECORDS_RUN_AT_ONCE = 10
 
 const counterQuarantinedRecords = new Counter({
     name: 'cdp_poison_quarantined_records_total',
@@ -75,26 +74,33 @@ export class PoisonQuarantine {
             error: String(batchError),
         })
 
-        const outcomes = await runInGroups(messages, RECORDS_RUN_AT_ONCE, (message) => runAlone(handler, message))
+        const outcomes = await Promise.all(messages.map((message) => runAlone(handler, message)))
         const poisoned = outcomes.filter(hasFailedAlone)
+        const backgroundTasks = outcomes.filter(hasRunAlone).flatMap((outcome) => outcome.backgroundTask ?? [])
 
-        if (poisoned.length > MAX_QUARANTINED_PER_BATCH) {
+        const rethrow = async (error: unknown): Promise<never> => {
+            await Promise.allSettled(backgroundTasks)
             stopTimer({ outcome: 'rethrown' })
+            throw error
+        }
+
+        if (poisoned.length > MAX_QUARANTINED_PER_BATCH || poisoned.length === outcomes.length) {
             logger.error('☣️', 'cdp_poison_too_many_failed_alone', {
                 consumerGroup: source.consumerGroup,
                 failedAlone: poisoned.length,
+                size: messages.length,
             })
-            throw batchError
+            return await rethrow(batchError)
         }
 
-        await Promise.all(poisoned.map(({ message, error }) => this.quarantine(message, error, source)))
+        try {
+            await Promise.all(poisoned.map(({ message, error }) => this.quarantine(message, error, source)))
+        } catch (quarantineError) {
+            return await rethrow(quarantineError)
+        }
         stopTimer({ outcome: poisoned.length ? 'quarantined' : 'recovered' })
 
-        return {
-            backgroundTask: Promise.all(
-                outcomes.filter(hasRunAlone).flatMap((outcome) => outcome.backgroundTask ?? [])
-            ),
-        }
+        return { backgroundTask: Promise.all(backgroundTasks) }
     }
 
     private async quarantine(message: Message, error: unknown, source: QuarantineSource): Promise<void> {
@@ -131,18 +137,11 @@ async function runAlone(handler: EachBatchHandler, message: Message): Promise<Al
     for (let attempt = 0; attempt < ATTEMPTS_ALONE; attempt++) {
         try {
             const result = await handler([message])
+            result?.backgroundTask?.catch(() => undefined)
             return { message, backgroundTask: result?.backgroundTask }
         } catch (error) {
             lastError = error
         }
     }
     return { message, error: lastError }
-}
-
-async function runInGroups<T, R>(items: T[], groupSize: number, run: (item: T) => Promise<R>): Promise<R[]> {
-    const results: R[] = []
-    for (let start = 0; start < items.length; start += groupSize) {
-        results.push(...(await Promise.all(items.slice(start, start + groupSize).map(run))))
-    }
-    return results
 }
