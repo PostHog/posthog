@@ -48,7 +48,7 @@ const BAR_SERIES_KEY = 'bar-list'
 
 export function BarList<Meta = unknown>({ onError, ...rest }: BarListProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <BarListInner {...rest} onError={onError} />
         </ChartErrorBoundary>
     )

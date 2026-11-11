@@ -506,6 +506,19 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(router.values.searchParams.graphs_tab).toBe(GraphsTab.UNIQUE_USERS)
     })
 
+    it('keeps an AI visibility prompt page open when a shared header control changes', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT]: true,
+        })
+        router.actions.push('/web/content-autopilot/prompts/prompt-1')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setDates('-30d', null)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toContain('/web/content-autopilot/prompts/prompt-1')
+    })
+
     it('restores the date range and interval from the URL', async () => {
         router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'week' })
         await expectLogic(logic).toFinishAllListeners()

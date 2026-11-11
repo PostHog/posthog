@@ -58,7 +58,7 @@ describe('MarkdownNotebookV2Renderer UI', () => {
         featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS], {
             [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
         })
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }
         logic = notebookLogic(logicProps)
