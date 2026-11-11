@@ -36,15 +36,15 @@ A new backend feature in `products/ai_observability/backend/` has this shape fro
 
 - Reads live in `logic/<feature>/*_queries.py` and return row dataclasses, not positional tuples.
   `logic/evaluations/overview_queries.py` and `overview.py` show the pattern.
-- Decisions, such as sampling, scoring, ranking and what to publish, are pure functions over those rows in `logic/<feature>/`.
+- The feature's rules and calculations are pure functions over those rows in `logic/<feature>/`.
   Their tests need no database.
 - A view or a workflow calls one function in `facade/api.py`.
   A view only parses the request, calls the facade and serializes the result.
 - Workflows and activities live in `backend/temporal/`, beside `trace_summary.py`.
 - New code does not import from the workflow modules in `posthog/temporal/ai_observability/`.
-  To reuse a helper there, such as the Hog runner or event IO, move it into product logic and import it from there in both places.
+  To reuse a helper there, move it into product logic and import it from there in both places.
 
-A flat package that mixes queries, ORM writes and model calls with its decisions forces every test through ClickHouse.
+Code that mixes queries, ORM writes and model calls with its rules forces every test through a database.
 It also gets harder to move with every PR built on it.
 Read [`products/architecture.md`](../architecture.md) sections 3 to 5 when you place a new module or define a facade contract.
 
