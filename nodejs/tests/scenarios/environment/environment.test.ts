@@ -12,6 +12,7 @@ import { RateLimiterService } from '~/cdp/services/rate-limiter/rate-limiter.ser
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { isPortFree } from '~/tests/helpers/service-process'
 
 import { CdpRole } from '../cards'
 import { Environment, createEnvironment } from './environment'
@@ -507,6 +508,23 @@ describe('scenario environment', () => {
 
             expect(await exited).toEqual([null, 'SIGTERM'])
         }, 15_000)
+
+        it('returns only once a group that ignores SIGTERM has let go of its port', async () => {
+            const stubborn = spawn(
+                process.execPath,
+                [
+                    '-e',
+                    "process.on('SIGTERM', () => {}); const server = require('http').createServer().listen(0, '127.0.0.1', () => process.stdout.write(String(server.address().port)))",
+                ],
+                { detached: true, stdio: ['ignore', 'pipe', 'ignore'] }
+            )
+            children.push(stubborn)
+            const port = Number(String((await once(stubborn.stdout!, 'data'))[0]))
+
+            await terminate({ groups: [stubborn.pid!], pids: [] }, 200)
+
+            expect(await isPortFree(port)).toBe(true)
+        }, 10_000)
     })
 
     describe('role supervisor on real processes', () => {
