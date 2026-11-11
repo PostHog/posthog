@@ -25,13 +25,13 @@ from products.stamphog.backend.logic.gateway_tokens import (
     mint_scoped_token,
     revoke_scoped_token,
 )
-from products.stamphog.backend.logic.routing.cut import CUT_MODEL
+from products.stamphog.backend.logic.routing.cut import CUT_MODEL, SHARED_BEHAVIOR_MODEL, model_for
 
 logger = structlog.get_logger(__name__)
 
 # One small call reads at most the capped diff, so this cap and TTL sit far below the reviewer's.
 # They bound what a leaked token can spend, so do not widen them without a cost reason.
-ROUTING_TOKEN_CAP_USD = "0.25"
+ROUTING_TOKEN_CAP_USD = "1"
 ROUTING_TOKEN_TTL_SECONDS = 300
 # A timeout keeps every owner, so this only bounds how long the author waits for the review requests.
 # It sits above the slowest call of the offline evaluation.
@@ -55,7 +55,7 @@ def _parse_answer(text: str) -> Mapping[str, object] | None:
 
 def _create(client: Anthropic, system_prompt: str, user_prompt: str, output_config: OutputConfigParam) -> Message:
     return client.messages.create(
-        model=CUT_MODEL,
+        model=model_for(system_prompt),
         max_tokens=_MAX_OUTPUT_TOKENS,
         system=system_prompt,
         messages=[{"role": "user", "content": user_prompt}],
@@ -107,7 +107,7 @@ class GatewayCutModel:
                 user=user,
                 cap_usd=ROUTING_TOKEN_CAP_USD,
                 ttl_seconds=ROUTING_TOKEN_TTL_SECONDS,
-                allowed_models=[CUT_MODEL],
+                allowed_models=[CUT_MODEL, SHARED_BEHAVIOR_MODEL],
             )
         except Exception as exc:  # noqa: BLE001 - the cut is optional, so a mint failure keeps every owner
             logger.warning("stamphog_reviewer_routing_mint_failed", error_type=type(exc).__name__)
