@@ -63,10 +63,13 @@ export class IntegrationManagerService {
     }
 
     public async withPreloaded<T>(ids: IntegrationIdInput[], run: () => Promise<T>): Promise<T> {
-        const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true })
-        const scope: PreloadScope = { records: new Map(Object.entries(records)), reloaded: new Set() }
+        const scope: PreloadScope = { records: new Map(), reloaded: new Set() }
         this.openScopes.add(scope)
         try {
+            const records = await this.lazyLoader.getMany(toReferences(ids), { flush: true })
+            for (const [reference, record] of Object.entries(records)) {
+                scope.records.set(reference, record)
+            }
             return await this.preloaded.run(scope, run)
         } finally {
             this.openScopes.delete(scope)
@@ -128,9 +131,7 @@ export class IntegrationManagerService {
         this.lazyLoader.markForRefresh(references)
         for (const scope of this.openScopes) {
             for (const reference of references) {
-                if (scope.records.has(reference)) {
-                    scope.reloaded.add(reference)
-                }
+                scope.reloaded.add(reference)
             }
         }
     }

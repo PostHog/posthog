@@ -182,6 +182,21 @@ describe('IntegrationManagerService', () => {
             }
         })
 
+        it('serves an integration reloaded while the batch preloads it from the cache', async () => {
+            await manager.get(5)
+            const rotated = createIntegration({ id: 5, team_id: 1, config: { rotated: true } })
+            const load = source.load.getMockImplementation()!
+            source.load.mockImplementationOnce((references) => {
+                source.records['5'] = { integration: rotated, decryptFailures: [] }
+                publish('reload-integrations', { integrationIds: [5] })
+                return load(references)
+            })
+
+            const served = await manager.withPreloaded([5, UUID_REFERENCE], async () => await manager.get(5))
+
+            expect(served).toBe(rotated)
+        })
+
         it('reloads an id from a reload message, given as a number', async () => {
             await manager.get(5)
             manager['onIntegrationsReloaded']([5])
