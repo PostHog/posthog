@@ -850,13 +850,20 @@ def setup_default_skills_for_team(canonical_team_id: int) -> list[str]:
     max_enabled = _resolve_enabled_scout_limit(
         canonical_team_id, [team_configs.get(canonical_team_id) or {}, default_team_config]
     )
-    enabled_elsewhere = (
-        SignalScoutConfig.objects.for_team(canonical_team_id)
-        .filter(enabled=True)
-        .exclude(skill_name__in=skills)
-        .count()
+    enabled = set(
+        SignalScoutConfig.objects.for_team(canonical_team_id).filter(enabled=True).values_list("skill_name", flat=True)
     )
-    return skills[: max(1, max_enabled - enabled_elsewhere)]
+    # Setup never disables a scout, so every enabled config keeps its slot. Only a scout that setup
+    # turns on takes a free slot, and general takes one first because activation needs it.
+    free_slots = max_enabled - len(enabled) - (SETUP_REQUIRED_SKILL not in enabled)
+    selected = [SETUP_REQUIRED_SKILL]
+    for name in skills[1:]:
+        if name in enabled:
+            selected.append(name)
+        elif free_slots > 0:
+            selected.append(name)
+            free_slots -= 1
+    return selected
 
 
 def resolve_sync_seed_inputs(canonical_team_id: int) -> tuple[list[dict], set[str]]:

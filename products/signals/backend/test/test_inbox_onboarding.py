@@ -593,19 +593,19 @@ class TestInboxOnboarding(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("no_payload", None, None, 0, ["signals-scout-general"]),
+            ("no_payload", None, None, [], ["signals-scout-general"]),
             (
                 "team_layer",
                 {"setup_default_skills": ["signals-scout-anomaly-detection"]},
                 {"setup_default_skills": ["signals-scout-logs"]},
-                0,
+                [],
                 ["signals-scout-general", "signals-scout-anomaly-detection"],
             ),
             (
                 "malformed_team_layer_falls_through",
                 {"setup_default_skills": "signals-scout-anomaly-detection"},
                 {"setup_default_skills": ["signals-scout-logs"]},
-                0,
+                [],
                 ["signals-scout-general", "signals-scout-logs"],
             ),
             (
@@ -622,7 +622,7 @@ class TestInboxOnboarding(APIBaseTest):
                     "withheld_skills": ["signals-scout-error-tracking"],
                 },
                 None,
-                0,
+                [],
                 ["signals-scout-general", "signals-scout-logs"],
             ),
             (
@@ -637,7 +637,7 @@ class TestInboxOnboarding(APIBaseTest):
                     ]
                 },
                 None,
-                0,
+                [],
                 [
                     "signals-scout-general",
                     "signals-scout-logs",
@@ -653,8 +653,18 @@ class TestInboxOnboarding(APIBaseTest):
                     "max_enabled_scouts": 3,
                 },
                 None,
-                1,
+                ["custom-scout"],
                 ["signals-scout-general", "signals-scout-logs"],
+            ),
+            (
+                "enabled_scout_cap_keeps_listed_enabled_scouts",
+                {
+                    "setup_default_skills": ["signals-scout-logs", "signals-scout-apm"],
+                    "max_enabled_scouts": 3,
+                },
+                None,
+                ["signals-scout-apm", "custom-scout"],
+                ["signals-scout-general", "signals-scout-apm"],
             ),
         ]
     )
@@ -663,7 +673,7 @@ class TestInboxOnboarding(APIBaseTest):
         _name: str,
         team_layer: dict | None,
         default_layer: dict | None,
-        other_enabled_scouts: int,
+        enabled_skills: list[str],
         expected: list[str],
     ) -> None:
         payload = (
@@ -674,8 +684,8 @@ class TestInboxOnboarding(APIBaseTest):
                 "default_team_config": default_layer or {},
             }
         )
-        for index in range(other_enabled_scouts):
-            SignalScoutConfig.objects.create(team=self.team, skill_name=f"custom-scout-{index}", enabled=True)
+        for skill_name in enabled_skills:
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name, enabled=True)
         with patch("products.signals.backend.scout_harness.team_limits._read_flag_payload", return_value=payload):
             response = self.client.get(self.url)
         assert response.status_code == 200, response.content
