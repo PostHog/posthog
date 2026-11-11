@@ -73,14 +73,14 @@ export interface todayProductsLogicActions {
     setAllProductsOpen: (open: boolean) => {
         open: boolean
     }
-    toggleAllProducts: () => {
-        value: true
-    }
     setSearch: (search: string) => {
         search: string
     }
     setStarredOpen: (open: boolean) => {
         open: boolean
+    }
+    toggleAllProducts: () => {
+        value: true
     }
     toggleStarred: (item: FileSystemImport) => {
         item: FileSystemImport
