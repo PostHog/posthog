@@ -66,6 +66,7 @@ class ManagedWarehousePanel(Panel):
     key = "managed-warehouse"
     title = "Managed warehouse"
     owner = MANAGED_WAREHOUSE
+    operation_keys = frozenset({"enable-backfill", "deprovision"})
 
     def facts(self, obj: Model) -> list[Fact]:
         server = get_duckgres_server_summary(obj.pk)
