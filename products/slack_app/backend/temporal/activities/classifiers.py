@@ -292,18 +292,25 @@ NEEDS_REPO_INSTRUCTIONS = (
     "`message` is a request someone sent to PostHog's assistant in Slack, and `thread` is the conversation it "
     "sits in. The assistant can read the team's PostHog data and the PostHog documentation without any code. "
     "It can also open one of the team's code repositories, which costs time. `routing_rules` lists kinds of "
-    "requests the team sends to a repository. Does answering `message` need the team's source code?"
+    "requests the team sends to a repository. Does answering `message` need the team's source code? A "
+    "question about how the team's own product, app, job or service behaves is answered from its code, even "
+    "when it does not say the word code."
 )
 NEEDS_REPO_TRUE = (
     "Reading, changing, reviewing or debugging the team's code: fix a bug, implement or change a feature, "
     "open or update a pull request, explain how some code works, find where something is defined or sent, "
-    "look into a failing test or CI job, or a request that matches one of `routing_rules`."
+    "look into a failing test or CI job, or a request that matches one of `routing_rules`. This includes how "
+    "or why the team's own app, job, handler or logic does something, such as how a value is calculated or "
+    "when a retry gives up. It also includes a request to start, change or stop tracking something, such as "
+    '"can we track when someone does X?": a new event or property is sent from the team\'s app, so it is a '
+    "code change."
 )
 NEEDS_REPO_FALSE = (
     "A question about the team's product data or setup that PostHog holds: metrics, trends, funnels, "
     "retention, events, persons, cohorts, dashboards, insights, session recordings, feature flag or "
-    "experiment state, surveys, errors, logs or LLM traces. Also a question about how to use PostHog, "
-    "a request to change a PostHog setting, or a social message."
+    "experiment state, surveys, errors, logs or LLM traces. Also a question about how PostHog itself works or "
+    "how to use it, a request to change a PostHog setting, or a social message. Checking whether an event "
+    "already arrives is a data question."
 )
 
 

@@ -242,7 +242,7 @@ class SandboxedEvalHarness:
                 if Infra.PERSONHOG in required:
                     reporter.setup_started("build personhog")
                     ensure_personhog_binaries()
-                if Infra.AI_GATEWAY in required:
+                if Infra.AI_GATEWAY in required and not os.environ.get("EVAL_EXTERNAL_AI_GATEWAY_URL"):
                     reporter.setup_started("build ai-gateway")
                     ensure_ai_gateway_binary()
                 reporter.setup_started("start shared services and prepare demo data")
@@ -356,7 +356,7 @@ class SandboxedEvalHarness:
             self._stack.callback(live_server.stop)
             self._live_server = live_server
 
-        if Infra.AI_GATEWAY in required:
+        if Infra.AI_GATEWAY in required and not os.environ.get("EVAL_EXTERNAL_AI_GATEWAY_URL"):
             reporter.setup_started("start AI gateway")
             capture = GenerationCapture(
                 LOGS_ROOT / "ai_gateway" / f"{datetime.now(UTC):%Y%m%d-%H%M%S}_{uuid4().hex[:8]}.generations.jsonl"
@@ -473,7 +473,10 @@ class SandboxedEvalHarness:
         if self._posthog_client is not None:
             self._stack.callback(_shutdown_trace_client, self._posthog_client)
 
-        if Infra.AI_GATEWAY in required:
+        if Infra.AI_GATEWAY in required and os.environ.get("EVAL_EXTERNAL_AI_GATEWAY_URL"):
+            # An external gateway (production) is used as-is: no local build, start, or key provisioning.
+            self._ai_gateway_mint_key = os.environ["EVAL_EXTERNAL_AI_GATEWAY_MINT_KEY"]
+        elif Infra.AI_GATEWAY in required:
             assert self._demo_data is not None and self._database is not None
             with self._database.blocker.unblock():
                 self._ai_gateway_mint_key = provision_ai_gateway_mint_key(
@@ -484,7 +487,7 @@ class SandboxedEvalHarness:
         self, suites: Sequence[EvalSuite], required: frozenset[Infra], reporter: ProgressReporter
     ) -> list[SuiteRunResult]:
         async with AsyncExitStack() as stack:
-            if Infra.AI_GATEWAY in required:
+            if Infra.AI_GATEWAY in required and not os.environ.get("EVAL_EXTERNAL_AI_GATEWAY_URL"):
                 assert self._demo_data is not None and self._ai_gateway_mint_key is not None
                 await stack.enter_async_context(
                     maintain_ai_gateway_mint_key(self._demo_data.master_team_id, self._ai_gateway_mint_key)
@@ -524,10 +527,16 @@ class SandboxedEvalHarness:
                     SANDBOX_AI_GATEWAY_PRODUCTS=f"{EVAL_AI_PRODUCT},signals_scout,signals_repo_selection,slack_app",
                     SANDBOX_AI_GATEWAY_MINT_KEY=self._ai_gateway_mint_key,
                     # Tool-side judges share the eval ledger with the sandboxed agent.
-                    AI_GATEWAY_URL=f"http://localhost:{AI_GATEWAY_PORT}/v1",
+                    AI_GATEWAY_URL=(
+                        os.environ.get("EVAL_EXTERNAL_AI_GATEWAY_URL") or f"http://localhost:{AI_GATEWAY_PORT}"
+                    )
+                    + "/v1",
                     AI_GATEWAY_API_KEY=self._ai_gateway_mint_key,
                     **self.provider.settings_overrides(),
                 )
+                if external_gateway := os.environ.get("EVAL_EXTERNAL_AI_GATEWAY_URL"):
+                    # The provider points sandboxes at the local gateway; an external one replaces it.
+                    overrides["SANDBOX_AI_GATEWAY_URL"] = external_gateway
 
             if overrides:
                 stack.enter_context(override_settings(**overrides))

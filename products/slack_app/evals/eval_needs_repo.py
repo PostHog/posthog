@@ -63,6 +63,23 @@ CODE_CASES = [
         prompt="can you review https://github.com/example-org/web-app/pull/42 for me?",
         expected=_needs_repo(True),
     ),
+    # Asks how the team's own system behaves without saying "code".
+    BaseEvalCase(
+        name="own_job_behavior",
+        prompt="why does the export job retry three times before it fails?",
+        expected=_needs_repo(True),
+    ),
+    # Asks to track something new without naming an API, which reads like a data request.
+    BaseEvalCase(
+        name="start_tracking",
+        prompt="can we start tracking an event when someone invites a teammate?",
+        expected=_needs_repo(True),
+    ),
+    BaseEvalCase(
+        name="stop_tracking",
+        prompt="stop sending the page_scrolled event, it's too noisy",
+        expected=_needs_repo(True),
+    ),
 ]
 
 DATA_CASES = [
@@ -95,6 +112,18 @@ DATA_CASES = [
     BaseEvalCase(
         name="how_to_use_posthog",
         prompt="how do I set up a survey that only shows to paying users?",
+        expected=_needs_repo(False),
+    ),
+    # Names a page of the team's app, but the answer is in error tracking.
+    BaseEvalCase(
+        name="errors_on_own_page",
+        prompt="why does our checkout page throw so many errors today?",
+        expected=_needs_repo(False),
+    ),
+    # Tracking that PostHog can set up without code.
+    BaseEvalCase(
+        name="track_without_code",
+        prompt="can I track clicks on the pricing button without code, like with an action?",
         expected=_needs_repo(False),
     ),
     BaseEvalCase(name="thanks", prompt="thanks, that's perfect!", expected=_needs_repo(False)),

@@ -31,7 +31,7 @@ tunnel_config="$(mktemp "${TMPDIR:-/tmp}/posthog-ngrok.XXXXXX")"
 trap 'rm -f "$tunnel_config"' EXIT
 
 cat >"$tunnel_config" <<EOF
-version: '3'
+version: '2'
 tunnels:
   posthog:
     proto: http

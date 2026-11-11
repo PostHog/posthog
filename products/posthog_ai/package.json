@@ -4,6 +4,7 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ scripts/ eval_harness/test/ -v --tb=short"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "@posthog/react": "catalog:",
         "@tanstack/react-virtual": "*",
