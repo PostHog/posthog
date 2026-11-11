@@ -14,12 +14,9 @@ const COLUMN_LABELS: Record<string, string> = {
 export function AnalyticsListSkeleton({ columns }: { columns: AnalyticsListColumns }): JSX.Element {
     return (
         <div aria-busy aria-label="Loading analytics">
-            <Table fullWidth size="sm" className="**:data-expand:min-w-54 **:data-expand:max-w-0">
+            <Table fullWidth size="sm" className="**:data-expand:min-w-64 **:data-expand:max-w-0">
                 <TableHeader>
                     <TableRow>
-                        <TableHead>
-                            <Skeleton className="size-4" />
-                        </TableHead>
                         {columns.map((column) => (
                             <TableHead key={column.id} expand={column.id === 'name'}>
                                 {COLUMN_LABELS[column.id ?? '']}
@@ -30,9 +27,6 @@ export function AnalyticsListSkeleton({ columns }: { columns: AnalyticsListColum
                 <TableBody aria-hidden>
                     {Array.from({ length: 6 }, (_, index) => (
                         <TableRow key={index}>
-                            <TableCell>
-                                <Skeleton className="size-4" />
-                            </TableCell>
                             {columns.map((column) => {
                                 if (column.id === 'name') {
                                     return (

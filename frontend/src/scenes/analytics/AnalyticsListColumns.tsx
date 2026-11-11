@@ -45,8 +45,6 @@ import {
     ANALYTICS_DRAG_SCOPE,
     ANALYTICS_TYPE_INFO,
     AnalyticsItem,
-    analyticsFolderSelectionId,
-    analyticsItemSelectionId,
     analyticsOpenHref,
     isSpacePath,
 } from './analyticsUtils'
@@ -54,14 +52,6 @@ import {
 export type AnalyticsListRow = { kind: 'folder'; folder: FolderRow } | { kind: 'item'; item: AnalyticsItem }
 
 export type AnalyticsListColumns = ColumnDef<AnalyticsListRow>[]
-
-export function analyticsListRowId(row: AnalyticsListRow): string {
-    return row.kind === 'folder' ? analyticsFolderSelectionId(row.folder.path) : analyticsItemSelectionId(row.item)
-}
-
-export function analyticsListRowName(row: AnalyticsListRow): string {
-    return row.kind === 'folder' ? row.folder.name : row.item.name
-}
 
 function EmptyCell(): JSX.Element {
     return (
@@ -354,8 +344,7 @@ export function analyticsListColumns({
     return [
         {
             id: 'name',
-            // With the 40px checkbox column, the leading pair needs 256px, so narrow scenes don't scroll sideways.
-            minSize: 216,
+            minSize: 256,
             header: 'Title',
             meta: { expand: true },
             enableSorting: false,

@@ -47,15 +47,9 @@ import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
-import {
-    AnalyticsListRow,
-    analyticsListColumns,
-    analyticsListRowId,
-    analyticsListRowName,
-} from './AnalyticsListColumns'
+import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
-import { AnalyticsListSelectionBar } from './AnalyticsListSelectionBar'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
@@ -65,7 +59,6 @@ import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 const EMPTY_COLLECTION: ReactNode = <Text size="sm">Nothing in this collection.</Text>
-const selectRowLabel = (row: AnalyticsListRow): string => `Select ${analyticsListRowName(row)}`
 
 export const scene: SceneExport = {
     component: AnalyticsList,
@@ -93,9 +86,8 @@ function AnalyticsListContent(): JSX.Element {
         scope,
         loadedCount,
         feedQuery,
-        visibleRowSelection,
     } = useValues(analyticsListLogic)
-    const { clearFilters, loadList, loadMore, setFilters, setRowSelection } = useActions(analyticsListLogic)
+    const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
@@ -239,7 +231,6 @@ function AnalyticsListContent(): JSX.Element {
                 className={cn('flex min-h-0 flex-col transition-opacity', feedStale && 'opacity-60')}
                 aria-busy={feedStale || hasMore}
             >
-                <AnalyticsListSelectionBar />
                 {rows.length > 0 && (
                     <Card size="sm" flush className="min-h-0 pt-0">
                         <DataTable
@@ -249,11 +240,6 @@ function AnalyticsListContent(): JSX.Element {
                             size="sm"
                             stickyHeader
                             resizableColumns
-                            selectable
-                            getRowId={analyticsListRowId}
-                            rowSelectionLabel={selectRowLabel}
-                            rowSelection={visibleRowSelection}
-                            onRowSelectionChange={setRowSelection}
                             viewportRef={setTableViewport}
                             viewportEndRef={tableEndRef}
                             sorting={

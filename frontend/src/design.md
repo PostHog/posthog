@@ -233,7 +233,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Cards may contain an `ItemGroup`; never nest cards; never wrap a whole page section in a card
 - Table vs Item list:
   - Table: rows share columns users compare, sort, or scan vertically (DataTable when sorting/filtering/selection is needed)
-  - Rows the user picks for a bulk action: `DataTable` with `selectable`, never a checkbox column built by hand. It adds the header checkbox and shift-click range selection. Pass `getRowId`, `rowSelection` and `onRowSelectionChange`, keep the selection in the list's logic, and clear it when the filters change. Precedent: `scenes/analytics/AnalyticsList`
+  - Rows the user picks for a bulk action: `DataTable` with `selectable`, never a checkbox column built by hand. It adds the header checkbox and shift-click range selection. Pass `getRowId`, `rowSelection` and `onRowSelectionChange`, keep the selection in the list's logic, and clear it when the filters change.
   - A link in a table cell is a small link Button, never a bare Link: `<Button variant="link-foreground" size="sm" nativeButton={false} render={<LinkPrimitive to={url} />}>`. It keeps the foreground color and, on hover, shows the normal button fill, because a whole column of `primary` links is too loud. Use `link-muted` for a secondary link. The table keeps its text in line with the column header. See the Table `WithLinks` story
   - Item rows: heterogeneous entries (primary/secondary text + actions)
 - Overlays:
