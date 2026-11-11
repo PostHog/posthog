@@ -6,14 +6,19 @@ import { LemonInput, LemonSelect, LemonTag, Link, Tooltip } from '@posthog/lemon
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { DefinitionsSceneTabs } from 'scenes/data-management/DefinitionsSceneTabs'
 import { DefinitionHeader, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
-import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
+import {
+    PropertyDefinitionWithQueryUsage,
+    QUERY_USAGE_COLUMN_KEY,
+    propertyDefinitionsTableLogic,
+    queryUsageOrderingFromSorting,
+} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { verifiedFilterFromOption, verifiedFilterValue, verifiedOptions } from 'scenes/data-management/utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -31,9 +36,10 @@ export function PropertyDefinitionsTable(): JSX.Element {
         propertyTypeOptions,
         showVerifiedFilter,
         showQueryUsage,
-        queryUsage,
-        queryUsageLoading,
-        queryUsageFailed,
+        queryUsageSorting,
+        queryUsageFreshness,
+        queryUsageCoverageDays,
+        usageSortError,
     } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
 
@@ -93,23 +99,15 @@ export function PropertyDefinitionsTable(): JSX.Element {
             ? [
                   {
                       title: 'Queries',
-                      key: 'queries',
+                      key: QUERY_USAGE_COLUMN_KEY,
                       tooltip: 'How many times a query used this property in the last 30 days',
                       align: 'right',
-                      render: function RenderQueries(_, definition: PropertyDefinition) {
-                          const count = queryUsage?.[definition.id]
-                          if (count !== undefined) {
+                      sorter: true,
+                      defaultSortOrder: -1,
+                      render: function RenderQueries(_, definition: PropertyDefinitionWithQueryUsage) {
+                          const count = definition.query_usage_30_day
+                          if (typeof count === 'number') {
                               return <span data-attr="property-definition-query-count">{count.toLocaleString()}</span>
-                          }
-                          if (queryUsageLoading) {
-                              return <LemonSkeleton className="h-4 w-8 ml-auto" />
-                          }
-                          if (queryUsageFailed) {
-                              return (
-                                  <Tooltip title="Couldn't load query counts. Refresh the page to try again.">
-                                      <span className="text-secondary">—</span>
-                                  </Tooltip>
-                              )
                           }
                           return <span className="text-secondary">—</span>
                       },
@@ -184,6 +182,34 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     )}
                 </div>
             </div>
+            {usageSortError && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Clear sort',
+                        onClick: () => setFilters({ ordering: undefined }, false),
+                        'data-attr': 'property-definitions-clear-usage-sort',
+                    }}
+                >
+                    {usageSortError}
+                </LemonBanner>
+            )}
+            {showQueryUsage && queryUsageFreshness && (
+                <div
+                    className="flex flex-wrap items-center gap-x-1 text-xs text-secondary"
+                    data-attr="property-definitions-query-usage-freshness"
+                >
+                    <span>Query counts updated</span>
+                    <TZLabel time={queryUsageFreshness.computed_at} />
+                    {queryUsageCoverageDays !== null && (
+                        <span data-attr="property-definitions-query-usage-coverage">
+                            {`· Counts cover only the last ${queryUsageCoverageDays} ${
+                                queryUsageCoverageDays === 1 ? 'day' : 'days'
+                            }, so a property at 0 may still be in use.`}
+                        </span>
+                    )}
+                </div>
+            )}
             <LemonTable
                 columns={columns}
                 className="event-properties-definition-table"
@@ -209,6 +235,13 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 dataSource={propertyDefinitions.results}
                 emptyState="No property definitions"
                 nouns={['property', 'properties']}
+                {...(showQueryUsage
+                    ? {
+                          sorting: queryUsageSorting,
+                          useURLForSorting: false,
+                          onSort: (sorting) => setFilters({ ordering: queryUsageOrderingFromSorting(sorting) }, false),
+                      }
+                    : {})}
             />
         </SceneContent>
     )
