@@ -22,12 +22,12 @@ pnpm --filter=@posthog/nodejs scenarios run smoke
 
 For each card the runner prints its status and reason, its evidence directory, and whether the scorecard was recorded.
 
-| Exit code | Meaning                                                                                                                                                             |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0         | `passed`                                                                                                                                                            |
-| 1         | `failed`: an invariant broke, or the stack did not converge                                                                                                         |
-| 2         | `invalid`: the run could not judge, or a card, the profile or the scorecard variables did not load                                                                  |
-| 3         | The scorecard variables are set and the scorecard was not read back, or its files could not be written. A run interrupted after the capture keeps its status's code |
+| Exit code | Meaning                                                                                                                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0         | `passed`                                                                                                                                                                                                   |
+| 1         | `failed`: an invariant broke, or the stack did not converge                                                                                                                                                |
+| 2         | `invalid`: the run could not judge, or a card, the profile or the scorecard variables did not load                                                                                                         |
+| 3         | The scorecard variables are set and the scorecard was not read back, or its files could not be written. A run interrupted after the capture keeps its status's code, unless its files could not be written |
 
 With several cards the exit code is the highest of their codes.
 
@@ -439,7 +439,7 @@ export interface Runner {
   - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, the intake accepted fewer than `minOffered` of the target units before the drive ended, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a `role.kill` causing it, even if every delivery later arrives. The role-exit rule applies once `role.kill` arrives; until then the supervisor restarts the role and the status does not see the exit.
   - `passed` otherwise.
-- **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written. A run interrupted after the capture keeps the status's code, because the event was sent.
+- **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written. A run interrupted after the capture keeps the status's code, unless its files could not be written.
 
 ### Environment
 
