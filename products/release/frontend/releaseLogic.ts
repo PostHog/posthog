@@ -75,6 +75,7 @@ interface ReleaseLogicValues {
     linkSearchResults: LinkCandidate[]
     linkSearchResultsLoading: boolean
     linkSuggestions: LinkCandidate[]
+    linkSuggestionsFor: string | null
     broadcastsFailed: boolean
     search: string
     stageFilter: ReleaseStage | null
@@ -168,6 +169,7 @@ interface ReleaseLogicActions {
     loadBroadcastSendsFailure: (error: string) => { error: string }
     searchLinks: (search: string) => string
     setLinkSearchIncomplete: (incomplete: boolean) => { incomplete: boolean }
+    setLinkSuggestionsFor: (key: string | null) => { key: string | null }
     searchLinksSuccess: (linkSearchResults: LinkCandidate[]) => { linkSearchResults: LinkCandidate[] }
     searchLinksFailure: (error: string) => { error: string }
     loadLinkSuggestions: (releaseId: string) => string
@@ -189,6 +191,10 @@ type ListPage<T> = { results?: T[]; next?: string | null } | T[]
 function inRequestedOrder<T, K>(items: T[], ids: K[], idOf: (item: T) => K): T[] {
     const position = new Map(ids.map((id, index) => [id, index]))
     return [...items].sort((a, b) => (position.get(idOf(a)) ?? 0) - (position.get(idOf(b)) ?? 0))
+}
+
+export function linkSuggestionsKey(release: { id: string; name: string }): string {
+    return `${release.id}:${release.name}`
 }
 
 async function findLinkCandidates(
@@ -288,6 +294,7 @@ export const releaseLogic = kea<releaseLogicType>([
         setHiddenExperimentFlagIds: (flagIds: number[]) => ({ flagIds }),
         setHiddenEarlyAccessFlagIds: (flagIds: number[]) => ({ flagIds }),
         setLinkSearchIncomplete: (incomplete: boolean) => ({ incomplete }),
+        setLinkSuggestionsFor: (key: string | null) => ({ key }),
         setResolvedFlagIds: (flagIds: number[]) => ({ flagIds }),
         setSearch: (search: string) => ({ search }),
         setStageFilter: (stage: ReleaseStage | null) => ({ stage }),
@@ -539,6 +546,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     }
                     const { candidates } = await findLinkCandidates(String(values.currentProjectId), tokens)
                     breakpoint()
+                    actions.setLinkSuggestionsFor(linkSuggestionsKey(release))
                     const linked = new Set([
                         ...release.feature_flag_ids.map((id) => `flag:${id}`),
                         ...release.broadcast_ids.map((id) => `broadcast:${id}`),
@@ -616,6 +624,14 @@ export const releaseLogic = kea<releaseLogicType>([
             { searchLinks: () => false, searchLinksSuccess: () => false, searchLinksFailure: () => true },
         ],
         lastLinkSearch: ['', { searchLinks: (_, search) => search }],
+        linkSuggestionsFor: [
+            null as string | null,
+            {
+                loadLinkSuggestions: () => null,
+                loadLinkSuggestionsFailure: () => null,
+                setLinkSuggestionsFor: (_, { key }) => key,
+            },
+        ],
         linkSearchIncomplete: [
             false,
             {

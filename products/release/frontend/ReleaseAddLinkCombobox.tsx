@@ -17,7 +17,7 @@ import {
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
-import { releaseLogic } from './releaseLogic'
+import { linkSuggestionsKey, releaseLogic } from './releaseLogic'
 import { LinkCandidate, ReleaseRow } from './releaseUtils'
 
 interface CandidateGroup {
@@ -28,14 +28,17 @@ interface CandidateGroup {
 
 export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Element {
     const {
-        linkSearchResults,
+        linkSearchResults: loadedResults,
         linkSearchResultsLoading,
-        linkSuggestions,
+        linkSuggestions: loadedSuggestions,
+        linkSuggestionsFor,
         linkSearchFailed,
         linkSearchIncomplete,
         lastLinkSearch,
     } = useValues(releaseLogic)
     const { searchLinks, addLink } = useActions(releaseLogic)
+    const linkSuggestions = linkSuggestionsFor === linkSuggestionsKey(row) ? loadedSuggestions : []
+    const linkSearchResults = linkSearchFailed ? [] : loadedResults
     const linked = new Set([
         ...row.flags.map((flag) => `flag:${flag.id}`),
         ...row.broadcasts.map((broadcast) => `broadcast:${broadcast.id}`),
@@ -82,22 +85,23 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
                 <ComboboxEmpty>
                     {linkSearchResultsLoading ? (
                         <Spinner />
-                    ) : linkSearchFailed ? (
-                        <div className="flex flex-col items-center gap-2">
-                            <Text size="xs">Search could not load. Check your connection, then try again.</Text>
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => searchLinks(lastLinkSearch)}
-                                data-attr="release-add-link-retry"
-                            >
-                                Try again
-                            </Button>
-                        </div>
-                    ) : (
+                    ) : linkSearchFailed ? null : (
                         'No flag or broadcast matches that name.'
                     )}
                 </ComboboxEmpty>
+                {linkSearchFailed && !linkSearchResultsLoading && (
+                    <div className="flex flex-col items-center gap-2 px-2 py-2">
+                        <Text size="xs">Search could not load. Check your connection, then try again.</Text>
+                        <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => searchLinks(lastLinkSearch)}
+                            data-attr="release-add-link-retry"
+                        >
+                            Try again
+                        </Button>
+                    </div>
+                )}
                 {linkSearchIncomplete && !linkSearchResultsLoading && (
                     <div className="flex items-center justify-between gap-2 px-2 py-1">
                         <Text size="xs" variant="muted">

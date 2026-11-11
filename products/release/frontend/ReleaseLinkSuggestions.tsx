@@ -5,17 +5,18 @@ import { Button, Text } from '@posthog/quill'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
-import { releaseLogic } from './releaseLogic'
+import { linkSuggestionsKey, releaseLogic } from './releaseLogic'
 import { ReleaseRow } from './releaseUtils'
 
 export function ReleaseLinkSuggestions({ row }: { row: ReleaseRow }): JSX.Element | null {
-    const { linkSuggestions } = useValues(releaseLogic)
+    const { linkSuggestions: loaded, linkSuggestionsFor } = useValues(releaseLogic)
     const { loadLinkSuggestions, addLink } = useActions(releaseLogic)
 
     useEffect(() => {
         loadLinkSuggestions(row.id)
     }, [row.id, row.name, loadLinkSuggestions])
 
+    const linkSuggestions = linkSuggestionsFor === linkSuggestionsKey(row) ? loaded : []
     if (!linkSuggestions.length) {
         return null
     }

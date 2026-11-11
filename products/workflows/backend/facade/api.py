@@ -48,7 +48,6 @@ from products.workflows.backend.services.email_sending_controls import (
 from products.workflows.backend.services.existing_email_tools import (
     lookup_existing_email_tools as _lookup_existing_email_tools,
 )
-from products.workflows.backend.services.hog_flow_reads import list_workflow_summaries
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 from products.workflows.backend.services.owned_workflow_health import list_owned_workflow_health
 from products.workflows.backend.services.template_input_usage import (
@@ -300,6 +299,8 @@ def get_recent_batch_jobs(
 def search_broadcast_summaries(
     *, team_id: int, search: str, user_access_control: UserAccessControl, limit: int
 ) -> list[WorkflowSummary]:
+    from products.workflows.backend.services.hog_flow_reads import list_workflow_summaries  # noqa: PLC0415
+
     return list_workflow_summaries(
         team_id=team_id,
         query=WorkflowListQuery(broadcast_eligible=True),
