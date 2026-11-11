@@ -44,14 +44,17 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
+import { AnalyticsBulkBar } from './AnalyticsBulkBar'
+import { AnalyticsBulkTagsDialog } from './AnalyticsBulkTagsDialog'
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
-import { AnalyticsListRow, analyticsListColumns } from './AnalyticsListColumns'
+import { AnalyticsListRow, analyticsListColumns, analyticsListRowId } from './AnalyticsListColumns'
 import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsSelectionLogic } from './analyticsSelectionLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
@@ -59,6 +62,7 @@ import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 const EMPTY_COLLECTION: ReactNode = <Text size="sm">Nothing in this collection.</Text>
+const canSelectRow = (row: AnalyticsListRow): boolean => row.kind === 'item'
 
 export const scene: SceneExport = {
     component: AnalyticsList,
@@ -88,6 +92,8 @@ function AnalyticsListContent(): JSX.Element {
         feedQuery,
     } = useValues(analyticsListLogic)
     const { clearFilters, loadList, loadMore, setFilters } = useActions(analyticsListLogic)
+    const { rowSelection } = useValues(analyticsSelectionLogic)
+    const { setRowSelection } = useActions(analyticsSelectionLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
@@ -228,7 +234,7 @@ function AnalyticsListContent(): JSX.Element {
         }
         return (
             <div
-                className={cn('flex min-h-0 flex-col transition-opacity', feedStale && 'opacity-60')}
+                className={cn('flex min-h-0 flex-col gap-3 transition-opacity', feedStale && 'opacity-60')}
                 aria-busy={feedStale || hasMore}
             >
                 {rows.length > 0 && (
@@ -251,11 +257,16 @@ function AnalyticsListContent(): JSX.Element {
                                     setFilters({ orderBy })
                                 }
                             }}
+                            rowSelection={rowSelection}
+                            onRowSelectionChange={setRowSelection}
+                            enableRowSelection={canSelectRow}
+                            getRowId={analyticsListRowId}
                             className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
                             empty={EMPTY_COLLECTION}
                         />
                     </Card>
                 )}
+                <AnalyticsBulkBar />
             </div>
         )
     }
@@ -356,6 +367,7 @@ function AnalyticsListContent(): JSX.Element {
             </div>
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
+            <AnalyticsBulkTagsDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

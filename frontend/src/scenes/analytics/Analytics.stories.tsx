@@ -399,3 +399,12 @@ export const ListNewInsightDialog: Story = {
         await within(document.body).findByText('How does it change over time?', {}, { timeout: 15000 })
     },
 }
+
+export const ListBulkSelection: Story = {
+    parameters: { pageUrl: urls.analyticsList() },
+    play: async () => {
+        await clickWhenRendered('analytics-list-select-all')
+        await clickWhenRendered('analytics-bulk-tags')
+        await within(document.body).findByText('Add tags…', {}, { timeout: 15000 })
+    },
+}

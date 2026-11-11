@@ -131,6 +131,17 @@ export interface DataTableProps<TData, TValue> {
     /** Called with the next sort when the user clicks a sortable header. */
     onSortingChange?: (sorting: SortingState) => void
     /**
+     * Controls which rows are selected, keyed by row id. Without this prop, the table keeps the selection itself. Pair it
+     * with `getRowId` when rows can load, move or go away, so a selection follows its record and not a position.
+     */
+    rowSelection?: RowSelectionState
+    /** Called with the next selection when a cell or header toggles one. */
+    onRowSelectionChange?: (rowSelection: RowSelectionState) => void
+    /** Which rows the user can select. Defaults to every row. */
+    enableRowSelection?: (row: TData) => boolean
+    /** A stable id for a row. Defaults to its index. */
+    getRowId?: (row: TData) => string
+    /**
      * Lets the user drag the edge of a column to resize it, with the arrow keys as well. Columns fit their content until
      * the first resize. Use `minSize` and `maxSize` on a column to bound it, and `enableResizing: false` to opt it out.
      */
@@ -454,6 +465,10 @@ function DataTable<TData, TValue>({
     viewportEndRef,
     sorting: controlledSorting,
     onSortingChange,
+    rowSelection: controlledRowSelection,
+    onRowSelectionChange,
+    enableRowSelection,
+    getRowId,
     resizableColumns = false,
     columnSizing: controlledColumnSizing,
     onColumnSizingChange,
@@ -466,6 +481,11 @@ function DataTable<TData, TValue>({
 }: DataTableProps<TData, TValue>): React.ReactElement {
     const paginated = pageSize != null
     const [sorting, setSorting] = useControllable<SortingState>(controlledSorting, onSortingChange, [])
+    const [rowSelection, setRowSelection] = useControllable<RowSelectionState>(
+        controlledRowSelection,
+        onRowSelectionChange,
+        {}
+    )
     const [columnSizing, setColumnSizing] = useControllable<ColumnSizingState>(
         controlledColumnSizing,
         onColumnSizingChange,
@@ -484,8 +504,11 @@ function DataTable<TData, TValue>({
         columns,
         enableColumnResizing: resizableColumns,
         defaultColumn: { minSize: MIN_TABLE_COLUMN_WIDTH, maxSize: Infinity },
-        state: { sorting, columnSizing, ...(paginated ? { pagination } : {}) },
+        state: { sorting, columnSizing, rowSelection, ...(paginated ? { pagination } : {}) },
         onColumnSizingChange: setColumnSizing,
+        onRowSelectionChange: setRowSelection,
+        enableRowSelection: enableRowSelection ? (row) => enableRowSelection(row.original) : true,
+        getRowId: getRowId ? (row) => getRowId(row) : undefined,
         manualSorting: controlledSorting !== undefined,
         // A list sorted on the server always has an order, so its headers have no "off" state.
         enableSortingRemoval: controlledSorting === undefined,
