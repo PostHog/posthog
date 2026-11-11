@@ -4,6 +4,7 @@ import { defaultConfig } from '~/common/config/config'
 import { KAFKA_CDP_QUARANTINE } from '~/common/config/kafka-topics'
 import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { buildTestCdpProducerRegistry } from '~/tests/helpers/cdp'
 import { waitForExpect } from '~/tests/helpers/expectations'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
@@ -111,6 +112,19 @@ describe('PoisonQuarantine', () => {
         await expect(handler(batch)).rejects.toThrow('dependency down')
 
         await handler([record('poison', 99), record('healthy', 100)])
+        expect(await readQuarantinedValues(1)).toEqual(['poison'])
+    })
+
+    it('fails the batch and quarantines nothing when a record that fails alone hits a dependency outage', async () => {
+        const handler = wrap((messages) =>
+            messages.some((message) => message.value!.toString() === 'uncached')
+                ? Promise.reject(new DependencyUnavailableError('lookup failed', 'Postgres', new Error('ENOTFOUND')))
+                : Promise.resolve()
+        )
+
+        await expect(handler([record('uncached', 0), record('cached', 1)])).rejects.toThrow('lookup failed')
+
+        await wrap(failNamed('poison'))([record('poison', 99), record('healthy', 100)])
         expect(await readQuarantinedValues(1)).toEqual(['poison'])
     })
 
