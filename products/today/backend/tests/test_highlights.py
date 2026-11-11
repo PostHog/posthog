@@ -6,7 +6,7 @@ from functools import partial
 from queue import Queue
 from time import monotonic, sleep
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -151,14 +151,15 @@ class TestBuildHighlights(SimpleTestCase):
         sources = (
             HighlightSource(name="key_metrics", find=lambda _c: HighlightFindings(), pulse_order=2),
             HighlightSource(name="routine", find=lambda _c: HighlightFindings(), pulse_order=1),
-            HighlightSource(name="experiments", find=lambda _c: HighlightFindings()),
+            HighlightSource(name="experiments", find=lambda _c: HighlightFindings(), pulse_order=-1),
             HighlightSource(name="alerts", find=lambda _c: HighlightFindings()),
         )
         found = {
             "key_metrics": HighlightFindings(pulse=(metric("k1"), metric("k2"), metric("k3"))),
             "routine": HighlightFindings(pulse=(metric("r1"), metric("r2"))),
             "experiments": HighlightFindings(
-                items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),)
+                items=(replace(candidate("win", "experiments", 0.9), label=HighlightLabel.OPPORTUNITY),),
+                pulse=(replace(metric("experiment:1"), series=[]),),
             ),
             "alerts": HighlightFindings(items=(candidate("alert", "alerts", 0.5),)),
         }
@@ -167,13 +168,13 @@ class TestBuildHighlights(SimpleTestCase):
 
         self.assertEqual(
             (
-                [m.key for m in built.pulse],
+                [(m.key, len(m.period_starts)) for m in built.pulse],
                 [(i.key, i.source, i.priority) for i in built.items],
                 built.day,
                 built.refresh_at,
             ),
             (
-                ["r1", "r2", "k1", "k2", "k3"],
+                [("experiment:1", 0), ("r1", 1), ("r2", 1), ("k1", 1), ("k2", 1), ("k3", 1)],
                 [("alert", "alerts", HighlightPriority.P2), ("win", "experiments", HighlightPriority.P3)],
                 DAY,
                 datetime(2026, 10, 14, tzinfo=ZoneInfo("Europe/Prague")),
@@ -481,6 +482,12 @@ class TestLoadSources(SimpleTestCase):
             ),
             ("not a source", declaring("alerts")),
             ("an empty name", declaring(HighlightSource(name="", find=lambda _c: HighlightFindings()))),
+            (
+                "names that cannot be called",
+                declaring(
+                    HighlightSource(name="alerts", find=lambda _c: HighlightFindings(), number_names=cast(Any, "names"))
+                ),
+            ),
             (
                 "a name taken twice",
                 declaring(

@@ -71,7 +71,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -2503,13 +2503,16 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            # Under key version 2 the credible interval feeds the key, so the update restamps every inline metric.
+            ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
-        experiment = self._create_draft_experiment()
-        service = self._service()
-        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+        with patch_calculation_key_version(2):
+            experiment = self._create_draft_experiment()
+            service = self._service()
+            service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
 
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
@@ -2517,6 +2520,14 @@ class TestExperimentService(APIBaseTest):
         # update pipeline internally re-touches existing inline metrics.
         assert "metrics" not in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
+        assert "metrics" not in logged_fields
+        assert "metrics_secondary" not in logged_fields
 
     @parameterized.expand(
         [
@@ -2564,6 +2575,12 @@ class TestExperimentService(APIBaseTest):
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
 
     @parameterized.expand(
         [

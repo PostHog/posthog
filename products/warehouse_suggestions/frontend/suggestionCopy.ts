@@ -473,6 +473,22 @@ export function countOf(count: number, singular: string, plural: string): string
     return `${count} ${count === 1 ? singular : plural}`
 }
 
+export const SUGGESTED_MODEL_SECTIONS: Record<string, { title: string; description: string; showsSaving?: boolean }> = {
+    materialize: {
+        title: 'Materialize',
+        description: 'Store these views so reads and other refreshes can reuse their results.',
+    },
+    unmaterialize: {
+        title: 'Stop materializing',
+        description: 'These views cost more to refresh than to run on each read.',
+    },
+    deprecate: {
+        title: 'Mark deprecated',
+        description: 'No one has read these views recently.',
+        showsSaving: false,
+    },
+}
+
 export function waitingSuggestionsText(waiting: number): string {
     return `${countOf(waiting, 'more suggestion is', 'more suggestions are')} waiting.`
 }

@@ -108,7 +108,7 @@ The server selects the first valid hostname from:
 
 `AccountsTableRow.logoDomain` carries the resolved hostname. The browser loads image bytes from `GET /api/projects/@current/accounts/icon/?domain=…&theme=…`. The action proxies logo.dev through `CDPIconsService`, which enforces per-team and instance budgets and caches misses for 24 hours. Keep logo.dev behind this proxy so the browser does not send customer domains to a third party or require another CSP origin.
 
-The `tag_names` cell is editable in place: `TagsCell` renders the editable `ObjectTags` variant and loads available tags from `tagsModel` when editing starts. The All tags filter and account detail sidebar use the same lazy-load behavior. Tag edits save through the account PATCH via `accountsLogic.updateAccountTags` — optimistic per-account override (`tagOverrides`, masking the stale fetched cell like `relationshipOverrides`), debounced full-list PATCH (`TAGS_SAVE_DEBOUNCE_MS`, since `ObjectTags` fires per added/removed tag), `savingTags` guard, revert + toast + captured exception on failure. Clicking a tag in the cell adds it to the tags filter, compounding with tags already filtered (`addTagToFilter` — dedupes, and reports through `reportFilterChange('tag')` like the filter control).
+The `tag_names` cell is editable in place: `TagsCell` and the account detail sidebar render the editable `ObjectTags` variant, which suggests project tags a page at a time from the server. The All tags filter is a `TagSelect`. Tag edits save through the account PATCH via `accountsLogic.updateAccountTags` — optimistic per-account override (`tagOverrides`, masking the stale fetched cell like `relationshipOverrides`), debounced full-list PATCH (`TAGS_SAVE_DEBOUNCE_MS`, since `ObjectTags` fires per added/removed tag), `savingTags` guard, revert + toast + captured exception on failure. Clicking a tag in the cell adds it to the tags filter, compounding with tags already filtered (`addTagToFilter` — dedupes, and reports through `reportFilterChange('tag')` like the filter control).
 
 The Accounts table sets `editorFullWidth` so the tag editor fits its column after a manual resize. The `EditableTagsInNarrowContainer` ObjectTags story checks the narrow editor layout.
 
@@ -211,6 +211,15 @@ Empty pins offer the Pin properties action in place. Open field editors use the 
 Loading, failed requests, refresh failures, and missing definitions remain distinct states.
 
 ## The expanded row
+
+`AccountAutomationsExpansion` and its keyed `accountAutomationsLogic` render the Automations system tab and view widget.
+`customer-analytics-automations-widget` gates the system tab, widget picker, and saved widgets through the shared component registry.
+The generated `accountsAutomationsList` client loads distinct runs from the account-scoped endpoint, with ten rows per page.
+Customer analytics reads retained run records and step logs, using existing Workflows facade reads for access and definitions.
+Four table columns show the workflow with inline status, trigger time, last completed step name and time, and expected resume time.
+Step names come from the current workflow definition when the retained logs identify the completed action.
+The empty state explains that older runs may no longer be available.
+`AutomationsViewed`, `AutomationsLoaded`, `AutomationsLoadFailed`, and `AutomationWorkflowOpened` track entry, loading, failure, and workflow navigation without account data.
 
 `AccountsTable.useExpandable()` makes expansion **controlled** by `accountsExpansionLogic`: `isRowExpanded` reads `expandedAccountIds`, `onRowExpand`/`onRowCollapse` dispatch `toggleAccountExpanded`. With `CUSTOMER_ANALYTICS_ACCOUNT_SCENE` enabled, the body is `AccountPinnedPropertiesExpansion`.
 With the flag disabled, the body is `AccountNotebooksExpansion`: the Useful links and active-relationships sidebar plus the shared `AccountDetailTabs` over `notes` / `tasks` / `users` / `relationships` / `feature_requests` / `usage` / `spend` / `opportunities` / `conversations` / `meetings` / `event_stream` (`AccountExpansionTab`; the `tasks` tab is gated by the `CUSTOMER_ANALYTICS_CUSTOMER_TASKS` flag and the `event_stream` tab is gated by the `CUSTOMER_ANALYTICS_CSP` flag). `AccountNotesExpansion` owns the shared Notes body. Active tab comes from `activeTabFor(accountId)` (defaults to `notes`). Pagination inside these tabs keeps its page state out of the URL so changing pages does not rerun deep-link restoration and replace the active tab.

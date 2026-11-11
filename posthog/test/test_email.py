@@ -386,6 +386,7 @@ class TestEmail(BaseTest):
                     "provider": "customer_io",
                     "delivery_id": "test_delivery_id",
                     "queued_at": 1604977406,
+                    "$update_person_last_seen_at": False,
                 },
             )
 
@@ -684,6 +685,9 @@ class TestEmail(BaseTest):
             )
 
         self.assertEqual([c.kwargs["event"] for c in mock_capture.call_args_list], expected_events)
+        self.assertTrue(
+            all(c.kwargs["properties"]["$update_person_last_seen_at"] is False for c in mock_capture.call_args_list)
+        )
         self.assertTrue(
             all(c.kwargs["properties"]["template_name"] == "2fa_enabled" for c in mock_capture.call_args_list)
         )
