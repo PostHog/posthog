@@ -87,6 +87,7 @@ describe('ImplementButton', () => {
             has_feedback: false,
             claim_step: 'start',
             opened_from_link: false,
+            chat_layout: 'side_panel',
         })
     })
 
@@ -114,6 +115,7 @@ describe('ImplementButton', () => {
             has_feedback: false,
             claim_step: 'start',
             opened_from_link: true,
+            chat_layout: 'side_panel',
         })
     })
 
@@ -176,6 +178,7 @@ describe('ImplementButton', () => {
                           has_feedback: false,
                           claim_step: 'take_over',
                           opened_from_link: openedFromLink,
+                          chat_layout: 'side_panel',
                       },
                   ]
                 : []
@@ -215,6 +218,7 @@ describe('ImplementButton', () => {
                           has_feedback: false,
                           claim_step: 'confirm_own_agent',
                           opened_from_link: true,
+                          chat_layout: 'side_panel',
                       },
                   ]
                 : []
@@ -334,6 +338,7 @@ describe('ImplementButton', () => {
             has_feedback: true,
             claim_step: 'start',
             opened_from_link: false,
+            chat_layout: 'side_panel',
         })
     })
 

@@ -46,7 +46,7 @@ export function ImplementButton({
         loading: githubCheckLoading,
     } = useValues(reportGithubAccessLogic({ report, surface }))
     const { retryAccess, setConnectionOpen } = useActions(reportGithubAccessLogic({ report, surface }))
-    const { implementReport, openReportTask } = useActions(inboxTaskKickoffLogic)
+    const { implementReport, openReportTask, openExistingRun } = useActions(inboxTaskKickoffLogic)
     const [instructions, setInstructions] = useState('')
     const [choicesOpen, setChoicesOpen] = useState(false)
     const choicesOpenedFromLink = useRef(false)
@@ -112,12 +112,29 @@ export function ImplementButton({
                 to={urls.taskDetail(task.id)}
                 onClick={(event) => {
                     event.preventDefault()
+                    captureInboxReportAction({ report, actionType: 'open_existing_run', surface })
                     openReportTask(report, task.id, run.id)
                 }}
                 tooltip="Open this task in the PostHog AI sidebar"
                 data-attr="inbox-report-open-task"
             >
                 View task
+            </LemonButton>
+        )
+    }
+
+    // The list row knows a run is working but not which one, so the run is looked up on press.
+    if (report.implementation_in_flight) {
+        return (
+            <LemonButton
+                type="primary"
+                size="small"
+                className="w-fit"
+                onClick={() => openExistingRun(report, surface)}
+                tooltip="A run is already working on this report"
+                data-attr="inbox-report-open-existing-run"
+            >
+                View run
             </LemonButton>
         )
     }

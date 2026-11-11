@@ -716,6 +716,94 @@ describe('inboxTaskKickoffLogic', () => {
             }
         )
 
+        it.each([
+            { name: 'a task claim', claimedTask: true },
+            { name: 'the run log', claimedTask: false },
+        ])('opens the working run from $name instead of starting a second one', async ({ claimedTask }) => {
+            const inFlight = makeReport({
+                id: 'report-in-flight',
+                status: SignalReportStatus.READY,
+                implementation_in_flight: true,
+                assignee: claimedTask
+                    ? {
+                          claim_id: 'claim-task',
+                          kind: 'task',
+                          user: null,
+                          task_id: 'working-task',
+                          agent: null,
+                          claimed_at: '2026-06-11T10:00:00Z',
+                          responsible_user: null,
+                      }
+                    : null,
+            })
+            useMocks({
+                get: {
+                    '/api/projects/:team/tasks/:id/': { id: 'working-task', latest_run: { id: 'working-run' } },
+                    '/api/projects/:team/signals/reports/:id/artefacts/': {
+                        count: 2,
+                        next: null,
+                        previous: null,
+                        results: [
+                            {
+                                id: 'older',
+                                type: 'task_run',
+                                created_at: '2026-06-11T09:00:00Z',
+                                content: {
+                                    task_id: 'old-task',
+                                    run_id: 'old-run',
+                                    product: 'signals',
+                                    type: 'implementation',
+                                },
+                            },
+                            {
+                                id: 'newer',
+                                type: 'task_run',
+                                created_at: '2026-06-11T10:00:00Z',
+                                content: {
+                                    task_id: 'working-task',
+                                    run_id: 'working-run',
+                                    product: 'signals',
+                                    type: 'implementation',
+                                },
+                            },
+                        ],
+                    },
+                },
+            })
+
+            await expectLogic(logic, () =>
+                logic.actions.implementReport(inFlight, undefined, 'context_menu')
+            ).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(0)
+            expect(runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID }).values.activeCreation).toMatchObject({
+                taskId: 'working-task',
+                runId: 'working-run',
+            })
+            expect(logic.values.reportChatContext?.report.id).toBe(inFlight.id)
+        })
+
+        it.each([
+            { flag: true, hostsChat: true, inMain: true },
+            { flag: true, hostsChat: false, inMain: false },
+            { flag: false, hostsChat: true, inMain: false },
+        ])(
+            'opens an implementation run in the report page (flag: $flag, page holds the chat: $hostsChat)',
+            async ({ flag, hostsChat, inMain }) => {
+                featureFlagLogic.actions.setFeatureFlags(flag ? [FEATURE_FLAGS.INBOX_REPORT_CHAT_MAIN] : [], {
+                    [FEATURE_FLAGS.INBOX_REPORT_CHAT_MAIN]: flag,
+                })
+                if (hostsChat) {
+                    logic.actions.setMainChatHost(report.id)
+                }
+
+                await expectLogic(logic, () => logic.actions.createPrFromReport(report)).toFinishAllListeners()
+
+                expect(logic.values.mainChatReportId).toBe(inMain ? report.id : null)
+                expect(sidePanelStateLogic.values.selectedTab === SidePanelTab.Max).toBe(!inMain)
+            }
+        )
+
         it('sends Back to the report composer even when the shared panel left history open', () => {
             const panel = runnerPanelLogic({ panelId: REPORT_AI_PANEL_ID })
             // The PostHog AI side panel shares this panel state, so its history can already be open.

@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { ReactNode } from 'react'
+import { ReactNode, useEffect } from 'react'
 
 import {
     IconArrowLeft,
@@ -27,6 +27,7 @@ import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
+import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxDetailLayoutLogic } from '../../logics/inboxDetailLayoutLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
@@ -50,6 +51,7 @@ import { PullRequestFilesChanged } from './PullRequestFilesChanged'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportChart } from './ReportChart'
 import { ReportChartsContext } from './reportChartsContext'
+import { ReportChatMain } from './ReportChatMain'
 import { ReportChecksSection } from './ReportChecksSection'
 import { ReportClaimPill } from './ReportClaimPill'
 import { useReportDetailActions } from './ReportDetailActions'
@@ -260,6 +262,17 @@ export function InboxDetailFrame({
         inboxReportDetailLogic(logicProps)
     )
     const { evidenceRailCollapsed } = useValues(inboxDetailLayoutLogic)
+    const chatMainEnabled = useFeatureFlag('INBOX_REPORT_CHAT_MAIN')
+    const { mainChatReportId, reportChatContext } = useValues(inboxTaskKickoffLogic)
+    const { setMainChatHost, releaseMainChatHost } = useActions(inboxTaskKickoffLogic)
+    useEffect(() => {
+        if (!chatMainEnabled) {
+            return
+        }
+        setMainChatHost(report.id)
+        return () => releaseMainChatHost(report.id)
+    }, [chatMainEnabled, report.id, setMainChatHost, releaseMainChatHost])
+    const chatInMain = chatMainEnabled && mainChatReportId === report.id && reportChatContext?.report.id === report.id
     const { toggleEvidenceRail } = useActions(inboxDetailLayoutLogic)
     const { linkImplementReportId } = useValues(inboxSceneLogic)
     const { setLinkImplementReportId } = useActions(inboxSceneLogic)
@@ -549,7 +562,9 @@ export function InboxDetailFrame({
                 )}
 
                 <main className={DETAIL_MAIN_CLASS}>
-                    {showFilesTab ? (
+                    {chatInMain ? (
+                        <ReportChatMain report={report} />
+                    ) : showFilesTab ? (
                         <LemonTabs
                             activeKey={detailTab}
                             onChange={setDetailTab}

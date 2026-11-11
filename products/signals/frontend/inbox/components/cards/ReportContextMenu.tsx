@@ -148,7 +148,7 @@ function ReportContextMenuItems({
     const { user } = useValues(userLogic)
     // Kept mounted by `ReportsTab` beyond this menu's lifetime, so the create-PR listener survives
     // the menu closing on click.
-    const { implementReport } = useActions(inboxTaskKickoffLogic)
+    const { implementReport, openExistingRun } = useActions(inboxTaskKickoffLogic)
     const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
     const createPrDisabledReason =
@@ -351,7 +351,21 @@ function ReportContextMenuItems({
             <ContextMenuGroup>
                 {selectItem}
                 {claimItem}
-                {canCreateImplementationPr(report) && (
+                {canCreateImplementationPr(report) && report.implementation_in_flight ? (
+                    <>
+                        <ContextMenuItem asChild>
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => openExistingRun(report, 'context_menu')}
+                                data-attr="inbox-report-context-menu-open-existing-run"
+                            >
+                                <IconPullRequest />
+                                View run
+                            </ButtonPrimitive>
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                    </>
+                ) : canCreateImplementationPr(report) ? (
                     <>
                         <ContextMenuItem asChild disabled={!!createPrDisabledReason}>
                             <ButtonPrimitive
@@ -369,7 +383,7 @@ function ReportContextMenuItems({
                         {/* Create PR acts on its own; the divider separates it from the verdict submenus. */}
                         <ContextMenuSeparator />
                     </>
-                )}
+                ) : null}
                 {canResolveReport(report) && (
                     <ContextMenuSub>
                         <ContextMenuSubTrigger asChild data-attr="inbox-report-context-menu-resolve">

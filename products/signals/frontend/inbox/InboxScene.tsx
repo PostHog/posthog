@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import React, { useEffect, useRef } from 'react'
 
@@ -32,6 +32,7 @@ import { InboxTriageView } from './components/triage/InboxTriageView'
 import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
+import { inboxRunNoticeLogic } from './logics/inboxRunNoticeLogic'
 import { scoutFleetLogic } from './logics/scoutFleetLogic'
 import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport } from './types'
 
@@ -204,6 +205,7 @@ function InboxRunsPanel(): JSX.Element {
 }
 
 export function InboxScene(): JSX.Element {
+    useMountedLogic(inboxRunNoticeLogic)
     const {
         activeTab,
         selectedReportId,

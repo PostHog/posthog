@@ -89,6 +89,13 @@ export interface inboxTriageLogicActions {
         report: SignalReport
         surface: import('../inboxAnalytics').InboxReportActionSurface
     } // inboxTaskKickoffLogic
+    openExistingRun: (
+        report: SignalReport,
+        surface: import('../inboxAnalytics').InboxReportActionSurface
+    ) => {
+        report: SignalReport
+        surface: import('../inboxAnalytics').InboxReportActionSurface
+    } // inboxTaskKickoffLogic
     dismissReport: (
         reportId: string,
         dismissal: import('../utils/dismissalReasons').DismissalFeedback
@@ -263,7 +270,7 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
                 'loadMoreReportsFailure',
             ],
             inboxTaskKickoffLogic,
-            ['implementReport'],
+            ['implementReport', 'openExistingRun'],
             inboxSceneLogic,
             ['setSelectedReportId'],
         ],
@@ -508,6 +515,10 @@ export const inboxTriageLogic = kea<inboxTriageLogicType>([
             },
             createPrForCurrent: () => {
                 const report = values.currentReport
+                if (report?.implementation_in_flight) {
+                    actions.openExistingRun(report, 'triage_mode')
+                    return
+                }
                 if (
                     !report ||
                     !values.canCreatePr ||

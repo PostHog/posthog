@@ -116,6 +116,7 @@ export type InboxReportActionSurface =
     | 'triage_mode'
     | 'context_menu'
     | 'today'
+    | 'toast'
 
 /**
  * Affordance that put the first report into a multi-select. Tells us which ones people find, so
@@ -187,6 +188,9 @@ export type InboxReportActionType =
     | 'refund'
     | 'open_pr'
     | 'review_pull_request'
+    | 'open_existing_run'
+    | 'run_notice_shown'
+    | 'run_notice_opened'
     | 'view_diff'
     | 'show_more'
     | 'expand_section'
