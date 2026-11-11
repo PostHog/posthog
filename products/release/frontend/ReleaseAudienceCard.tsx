@@ -37,7 +37,16 @@ function emptyVariantWarning(row: ReleaseRow, audience: ReleaseFlagAudience): st
     const running = row.experiments.find(
         (experiment) => experiment.feature_flag_key === audience.flag.key && isExperimentRunning(experiment)
     )
-    const empty = audience.variants.filter((variant) => variant.percent === 0)
+    const groups =
+        (
+            (audience.flag.filters ?? {}) as {
+                groups?: { variant?: string | null; rollout_percentage?: number | null }[]
+            }
+        ).groups ?? []
+    const pinned = new Set(
+        groups.filter((group) => group.variant && (group.rollout_percentage ?? 100) > 0).map((group) => group.variant)
+    )
+    const empty = audience.variants.filter((variant) => variant.percent === 0 && !pinned.has(variant.key))
     if (!running || !empty.length) {
         return null
     }

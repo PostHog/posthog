@@ -379,11 +379,12 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     const prelaunchEarlyAccess = openEarlyAccess
         ? undefined
         : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept')
-    const ended = flags.length > 0 && flags.every((flag) => flag.archived)
+    const ended = flags.length > 0 && !missingFlagIds.length && flags.every((flag) => flag.archived)
     const released =
         !ended &&
         index.complete &&
         flags.length > 0 &&
+        !missingFlagIds.length &&
         flags.every(isFullyRolledOut) &&
         !running.length &&
         !paused.length &&
