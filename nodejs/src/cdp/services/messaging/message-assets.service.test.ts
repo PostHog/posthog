@@ -133,13 +133,20 @@ describe('MessageAssetsService', () => {
         })
 
         it.each([
-            { case: 'the template is marked sensitive', templateSensitive: true, send: undefined },
+            { case: 'the template is marked sensitive', templateSensitive: true, send: undefined, stored: false },
             {
                 case: "the send is marked sensitive on a template that isn't",
                 templateSensitive: false,
                 send: { sensitive: true, tracking: { captureEngagement: true } },
+                stored: false,
             },
-        ])('keeps a placeholder instead of the body when $case', ({ templateSensitive, send }) => {
+            {
+                case: 'the send is marked not sensitive on a template that is',
+                templateSensitive: true,
+                send: { sensitive: false, tracking: { captureEngagement: true } },
+                stored: true,
+            },
+        ])('stores the body only when it may: $case', ({ templateSensitive, send, stored }) => {
             const invocation = invocationWithAction('flow-1')
             invocation.hogFunction.metadata = { message_category_type: 'transactional', sensitive: templateSensitive }
             invocation.hogFunction.inputs = { email: { value: { subject: 'Your code is {{ variables.code }}' } } }
@@ -155,11 +162,11 @@ describe('MessageAssetsService', () => {
 
             expect(row).toMatchObject({
                 recipient: 'recipient@example.com',
-                subject: 'Your code is {{ variables.code }}',
+                subject: stored ? 'Your code is 482913' : 'Your code is {{ variables.code }}',
                 status: 'sent',
             })
-            expect(row!.html).toContain('Email body not stored')
-            expect(row!.html).not.toContain('s3cret')
+            expect(row!.html.includes('s3cret')).toBe(stored)
+            expect(row!.html.includes('Email body not stored')).toBe(!stored)
         })
     })
 
