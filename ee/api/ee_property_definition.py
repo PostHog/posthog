@@ -8,6 +8,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, dict_changes_between, log_activity
 from posthog.taxonomy.property_definition_api import (
     PropertyDefinitionTypeSerializerMixin,
+    PropertyLastSentSerializerMixin,
     PropertyQueryUsageSerializerMixin,
 )
 
@@ -19,6 +20,7 @@ from ee.models.property_definition import EnterprisePropertyDefinition
 class EnterprisePropertyDefinitionSerializer(
     PropertyDefinitionTypeSerializerMixin,
     PropertyQueryUsageSerializerMixin,
+    PropertyLastSentSerializerMixin,
     TaggedItemSerializerMixin,
     serializers.ModelSerializer,
 ):
@@ -53,6 +55,8 @@ class EnterprisePropertyDefinitionSerializer(
             "type",
             "group_type_index",
             "query_usage_30_day",
+            "last_sent_at",
+            "last_sent_status",
         )
         read_only_fields = [
             "id",

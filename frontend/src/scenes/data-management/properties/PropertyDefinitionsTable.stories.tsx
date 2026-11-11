@@ -110,6 +110,13 @@ export const FilteredUnverifiedOnly: Story = {
 }
 
 const QUERY_COUNTS: Record<string, number> = { $browser: 1284, $os: 312, plan: 0, revenue: 57, $current_url: 9_431 }
+const LAST_SENT: Record<string, { last_sent_status: string; last_sent_at: string | null }> = {
+    $current_url: { last_sent_status: 'sent', last_sent_at: '2026-11-12T03:00:00Z' },
+    $browser: { last_sent_status: 'sent', last_sent_at: '2026-11-11T16:00:00Z' },
+    $os: { last_sent_status: 'sent', last_sent_at: '2026-11-06T09:00:00Z' },
+    plan: { last_sent_status: 'not_sent_in_30_days', last_sent_at: null },
+    revenue: { last_sent_status: 'not_tracked', last_sent_at: null },
+}
 
 export const WithQueryCountsSortedByMostQueried: Story = {
     parameters: {
@@ -133,12 +140,14 @@ export const WithQueryCountsSortedByMostQueried: Story = {
                                 ...definition,
                                 type: 'event',
                                 query_usage_30_day: QUERY_COUNTS[definition.name] ?? 0,
+                                ...LAST_SENT[definition.name],
                             }))
                             .sort((a, b) => b.query_usage_30_day - a.query_usage_30_day),
                         query_usage: {
                             computed_at: '2026-11-12T10:00:00Z',
                             tracking_since: '2026-11-03T09:00:00Z',
                         },
+                        last_sent: { status: 'ready', computed_at: '2026-11-12T09:40:00Z' },
                     },
                 ],
             },

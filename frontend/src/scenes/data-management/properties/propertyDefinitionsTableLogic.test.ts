@@ -5,10 +5,14 @@ import { expectLogic, partial } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE, FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
-    PropertyDefinitionWithQueryUsage,
+    LAST_SENT_POLL_INTERVAL_MS,
+    PropertyDefinitionWithUsage,
+    PropertyDefinitionsTableResponse,
     QUERY_USAGE_COLUMN_KEY,
+    formatLastSentDay,
     propertyDefinitionsTableLogic,
     queryUsageOrderingFromSorting,
 } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
@@ -290,6 +294,7 @@ describe('propertyDefinitionsTableLogic', () => {
                 const [params] = listRequestParams()
                 expect(params.get('ordering')).toEqual(expectedOrdering)
                 expect(params.get('include_query_usage')).toEqual(expectedIncludeUsage)
+                expect(params.get('include_last_sent')).toEqual(expectedIncludeUsage)
             }
         )
 
@@ -333,11 +338,78 @@ describe('propertyDefinitionsTableLogic', () => {
         it('reads the coverage of a young project from the list response', () => {
             logic.actions.loadPropertyDefinitionsSuccess({
                 count: 1,
-                results: [{ id: 'a', name: 'plan', query_usage_30_day: 4 } as PropertyDefinitionWithQueryUsage],
+                results: [{ id: 'a', name: 'plan', query_usage_30_day: 4 } as PropertyDefinitionWithUsage],
                 query_usage: { computed_at: '2026-11-12T10:00:00Z', tracking_since: '2026-11-09T14:00:00Z' },
             })
 
             expect(logic.values.queryUsageCoverageDays).toEqual(3)
+        })
+
+        it.each([
+            ['the same day', '2026-11-12T00:10:00Z', 'Today'],
+            ['the day before', '2026-11-11T23:50:00Z', 'Yesterday'],
+            ['five days before', '2026-11-07T08:00:00Z', '5 days ago'],
+        ])('labels a property last sent %s', (_, lastSentAt, expected) => {
+            expect(formatLastSentDay(lastSentAt, dayjs('2026-11-12T18:00:00Z'))).toEqual(expected)
+        })
+
+        describe('last sent', () => {
+            const computingPage = {
+                count: 2,
+                next: null,
+                previous: null,
+                results: [
+                    { ...mockEventPropertyDefinitions[0], last_sent_status: null, last_sent_at: null },
+                    { ...mockEventPropertyDefinitions[1], last_sent_status: 'not_tracked', last_sent_at: null },
+                ],
+                last_sent: { status: 'computing', computed_at: null },
+            }
+            const readyPage = {
+                ...computingPage,
+                results: [
+                    { ...computingPage.results[0], last_sent_status: 'sent', last_sent_at: '2026-11-10T08:00:00Z' },
+                    computingPage.results[1],
+                ],
+                last_sent: { status: 'ready', computed_at: '2026-11-12T10:00:00Z' },
+            }
+
+            afterEach(() => {
+                jest.useRealTimers()
+            })
+
+            it.each([
+                ['merges the snapshot once it is built', [200, readyPage], 'ready', 'sent'],
+                ['shows an error when the poll fails', [500, { detail: 'Server error' }], 'failed', null],
+            ])(
+                'polls while the snapshot is computing and %s',
+                async (_, pollResponse, expectedState, expectedStatus) => {
+                    useMocks({
+                        get: {
+                            '/api/projects/:team/property_definitions/': () => pollResponse,
+                        },
+                    })
+                    setUsageFlag(true)
+                    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'] })
+
+                    logic.actions.loadPropertyDefinitionsSuccess({
+                        ...computingPage,
+                        current: `api/projects/${MOCK_TEAM_ID}/property_definitions?include_last_sent=true`,
+                    } as PropertyDefinitionsTableResponse)
+
+                    expect(logic.values.lastSentState).toEqual('computing')
+
+                    await jest.advanceTimersByTimeAsync(LAST_SENT_POLL_INTERVAL_MS)
+                    jest.useRealTimers()
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(logic.values.lastSentState).toEqual(expectedState)
+                    expect(logic.values.propertyDefinitions.results.map((row) => row.last_sent_status)).toEqual([
+                        expectedStatus,
+                        'not_tracked',
+                    ])
+                    expect(logic.values.propertyDefinitionsLoading).toBe(false)
+                }
+            )
         })
     })
 })
