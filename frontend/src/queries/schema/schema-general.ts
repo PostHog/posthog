@@ -3614,7 +3614,12 @@ export interface BookActivityMatrixCell {
     row: string
     column: string
     series: string
+    /** People active in this product through any channel. Each person counts once. */
     users: integer
+    /** People active in this product in the app. */
+    uiUsers?: integer
+    /** People active in this product through AI agents, such as MCP tool calls. */
+    agentUsers?: integer
 }
 
 export interface BookActivityMatrixCombination {
@@ -3622,6 +3627,10 @@ export interface BookActivityMatrixCombination {
     column: string
     mask: integer
     users: integer
+    /** The products these people used in the app, as a bitmask over `series`. */
+    uiMask?: integer
+    /** The products these people used through AI agents, as a bitmask over `series`. */
+    agentMask?: integer
 }
 
 export interface BookActivityMatrixFirstUse {
@@ -3684,6 +3693,8 @@ export interface BookActivityPerson {
     rank: integer
     engagedSeconds: integer
     actionCount: integer
+    /** AI agent calls, such as MCP tool calls, that qualified this person for the product. */
+    agentCalls?: integer
     /** Every action event that qualified this person, most frequent first. */
     actions: BookActivityPersonAction[]
     /** The top 5 pages by engaged time. */

@@ -5564,19 +5564,35 @@ class BookActivityMatrixCell(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentUsers: int | None = Field(
+        default=None,
+        description=("People active in this product through AI agents, such as MCP tool calls."),
+    )
     column: str
     row: str
     series: str
-    users: int
+    uiUsers: int | None = Field(default=None, description="People active in this product in the app.")
+    users: int = Field(
+        ...,
+        description=("People active in this product through any channel. Each person counts once."),
+    )
 
 
 class BookActivityMatrixCombination(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    agentMask: int | None = Field(
+        default=None,
+        description=("The products these people used through AI agents, as a bitmask over `series`."),
+    )
     column: str
     mask: int
     row: str
+    uiMask: int | None = Field(
+        default=None,
+        description=("The products these people used in the app, as a bitmask over `series`."),
+    )
     users: int
 
 
@@ -11669,6 +11685,10 @@ class BookActivityPerson(BaseModel):
     actions: list[BookActivityPersonAction] = Field(
         ...,
         description=("Every action event that qualified this person, most frequent first."),
+    )
+    agentCalls: int | None = Field(
+        default=None,
+        description=("AI agent calls, such as MCP tool calls, that qualified this person for the product."),
     )
     column: str = Field(..., description="Bucket start, the same as `AccountActivityMatrixColumn.key`.")
     engagedSeconds: int

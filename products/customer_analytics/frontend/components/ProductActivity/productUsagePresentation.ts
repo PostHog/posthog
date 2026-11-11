@@ -3,6 +3,7 @@ import { dayjs } from 'lib/dayjs'
 
 import type {
     BookActivityInterval,
+    BookActivityMatrixCell,
     BookActivityMatrixFirstUse,
     BookActivityMatrixGrouping,
     BookActivityMatrixProduct,
@@ -77,4 +78,55 @@ export function getProductUsageCountScale(users = false): DotMatrixCountBin[] {
         color: `color-mix(in srgb, ${color} ${15 + index * 15}%, var(--color-bg-surface-primary))`,
         ink: index >= 5 ? 'var(--color-white)' : 'var(--color-text-primary)',
     }))
+}
+
+export interface ProductUsageChannelCounts {
+    users: number
+    uiUsers: number
+    agentUsers: number
+}
+
+/** People in one cell, split by whether they used the product in the app or through an AI agent. */
+export function getProductUsageChannelCounts(
+    data: BookActivityMatrixCell[],
+    row: string,
+    column: string,
+    series: string
+): ProductUsageChannelCounts {
+    const cell = data.find((item) => item.row === row && item.column === column && item.series === series)
+    return {
+        users: cell?.users ?? 0,
+        uiUsers: cell?.uiUsers ?? cell?.users ?? 0,
+        agentUsers: cell?.agentUsers ?? 0,
+    }
+}
+
+export function getProductUsageChannelLabel({ users, uiUsers, agentUsers }: ProductUsageChannelCounts): string | null {
+    if (!users || !agentUsers) {
+        return null
+    }
+    const people = (count: number): string => `${count} ${count === 1 ? 'person' : 'people'}`
+    return `${people(uiUsers)} in the app, ${people(agentUsers)} through AI agents`
+}
+
+/** One line about what qualified a person: page time, actions and agent calls, leaving out what is zero. */
+export function getProductUsagePersonSummary(
+    person: { engagedSeconds: number; actionCount: number; agentCalls?: number },
+    formatDuration: (seconds: number) => string
+): string {
+    const count = (value: number, noun: string): string => `${value} ${noun}${value === 1 ? '' : 's'}`
+    const parts = [
+        person.engagedSeconds ? formatDuration(person.engagedSeconds) : null,
+        person.actionCount ? count(person.actionCount, 'action') : null,
+        person.agentCalls ? count(person.agentCalls, 'agent call') : null,
+    ].filter((part): part is string => part !== null)
+    return parts.length ? parts.join(' · ') : `${formatDuration(0)} · 0 actions`
+}
+
+/** Each top page's time as a share of the person's longest page, for proportional bars. */
+export function getProductUsagePathShares(
+    paths: { path: string; seconds: number }[]
+): { path: string; seconds: number; share: number }[] {
+    const longest = Math.max(0, ...paths.map(({ seconds }) => seconds))
+    return paths.map((path) => ({ ...path, share: longest ? path.seconds / longest : 0 }))
 }
