@@ -287,14 +287,26 @@ class SimulatedSESProvider(SESProvider):
         self.ses_v2_status_client = self.ses_v2_client
 
     def create_email_domain(
-        self, domain: str, mail_from_subdomain: str, team_id: int, org_team_ids: Iterable[int] | None = None
+        self,
+        domain: str,
+        mail_from_subdomain: str,
+        team_id: int,
+        org_team_ids: Iterable[int] | None = None,
+        *,
+        keep_existing_mail_from: bool = False,
     ) -> None:
         self._simulated_v2.team_id = team_id
-        super().create_email_domain(domain, mail_from_subdomain, team_id, org_team_ids)
+        super().create_email_domain(
+            domain, mail_from_subdomain, team_id, org_team_ids, keep_existing_mail_from=keep_existing_mail_from
+        )
 
-    def verify_email_domain(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainVerification:
+    def verify_email_domain(
+        self, domain: str, mail_from_subdomain: str, team_id: int, *, keep_existing_mail_from: bool = False
+    ) -> EmailDomainVerification:
         self._simulated_v2.team_id = team_id
-        return super().verify_email_domain(domain, mail_from_subdomain, team_id)
+        return super().verify_email_domain(
+            domain, mail_from_subdomain, team_id, keep_existing_mail_from=keep_existing_mail_from
+        )
 
     def get_email_domain_status(self, domain: str, mail_from_subdomain: str, team_id: int) -> EmailDomainCheck:
         self._simulated_v2.team_id = team_id
