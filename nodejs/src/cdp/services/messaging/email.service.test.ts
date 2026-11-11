@@ -477,6 +477,74 @@ describe('EmailService', () => {
                     )
                 }
             )
+            it.each([
+                ['unsupported', 'Email delivery mode not supported'],
+                [
+                    'mailjet',
+                    "The sender's email provider is not recognized. Select a different sender in the workflow's email step.",
+                ],
+            ])('fails the send and reports email_failed when the provider is %s', async (provider, error) => {
+                await insertIntegration(hub.postgres, team.id, {
+                    id: getIntegrationId(4),
+                    kind: 'email',
+                    config: {
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                        domain: 'posthog.com',
+                        verified: true,
+                        provider,
+                    },
+                })
+                invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.error).toBe(error)
+                expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
+                expect(ses.sent).toEqual([])
+            })
+            it.each([
+                { budget: 'workflow', workflowLimit: true, teamCap: false },
+                { budget: 'team', workflowLimit: false, teamCap: true },
+            ])(
+                'fails an unrecognized provider without spending the $budget sending budget',
+                async ({ workflowLimit, teamCap }) => {
+                    await insertIntegration(hub.postgres, team.id, {
+                        id: getIntegrationId(4),
+                        kind: 'email',
+                        config: {
+                            email: 'test@posthog.com',
+                            name: 'Test User',
+                            domain: 'posthog.com',
+                            verified: true,
+                            provider: 'mailjet',
+                        },
+                    })
+                    const limitedService = createService(
+                        { teamEmailCapMode: teamCap ? 'enforce' : 'off', teamEmailTierDailyCaps: [1] },
+                        {
+                            workflowEmailRateLimiter: createRateLimiter('unknown-provider-workflow-budget-test'),
+                            teamEmailRateLimiter: createRateLimiter('unknown-provider-team-budget-test'),
+                        }
+                    )
+                    if (workflowLimit) {
+                        invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    }
+
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 4 } })
+                    const failed = await limitedService.executeSendEmail(invocation)
+                    invocation.queueParameters = createEmailParams({ from: { integrationId: 1 } })
+                    const sent = await limitedService.executeSendEmail(invocation)
+
+                    expect(failed.error).toBe(
+                        "The sender's email provider is not recognized. Select a different sender in the workflow's email step."
+                    )
+                    expect(sent.finished).toBe(true)
+                    expect(sent.error).toBeUndefined()
+                    expect(sent.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
+                    expect(ses.sent.map((message) => message.from)).toEqual(['"Test User" <test@posthog.com>'])
+                }
+            )
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({
@@ -1295,6 +1363,18 @@ describe('EmailService', () => {
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
+        const captureEngagementEvents = async (): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                 VALUES ($1, true, 'off', '', '', 0)
+                 ON CONFLICT (team_id) DO UPDATE SET capture_workflows_engagement_events = true`,
+                [team.id],
+                'test-capture-engagement-events'
+            )
+        }
         beforeEach(async () => {
             const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
@@ -1549,18 +1629,6 @@ describe('EmailService', () => {
                                 }))
                             ),
                         }))
-                )
-            }
-            const captureEngagementEvents = async (): Promise<void> => {
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `INSERT INTO workflows_teamworkflowsconfig
-                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
-                     VALUES ($1, true, 'off', '', '', 0)
-                     ON CONFLICT (team_id) DO UPDATE SET capture_workflows_engagement_events = true`,
-                    [team.id],
-                    'test-capture-engagement-events'
                 )
             }
             const untilDue = async (due: DateTime): Promise<void> => {
@@ -3116,19 +3184,19 @@ describe('EmailService', () => {
         })
 
         it.each([
-            ['an ordinary template', {}, 'Test Subject', undefined],
-            ['a sensitive template', { sensitive: true }, undefined, undefined],
-            ['a workflow step', {}, 'Test Subject', 3],
+            ['an ordinary template', {}, 'Test Subject', undefined, false],
+            ['a sensitive template', { sensitive: true }, undefined, undefined, false],
+            ['a workflow step', {}, 'Test Subject', 3, false],
+            ['a transactional email', {}, 'Test Subject', undefined, true],
         ])(
             'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
-            async (_name, extraMetadata, subject, workflowVersion) => {
-                // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
-                jest.spyOn(
-                    (service as any).teamWorkflowsConfigService,
-                    'shouldCaptureEngagementEvents'
-                ).mockResolvedValue(true)
+            async (_name, extraMetadata, subject, workflowVersion, transactional) => {
+                await captureEngagementEvents()
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
+                if (transactional) {
+                    invocation.state.globals.event.event = TRANSACTIONAL_EMAIL_EVENT
+                }
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toBeUndefined()
                 expect(result.capturedPostHogEvents).toHaveLength(1)
@@ -3147,6 +3215,9 @@ describe('EmailService', () => {
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
                 expect(result.capturedPostHogEvents[0].properties.$workflow_version).toEqual(workflowVersion)
+                expect(result.capturedPostHogEvents[0].properties.$email_transactional).toEqual(
+                    transactional ? true : undefined
+                )
                 expect(
                     result.metrics.find((metric) => metric.metric_name === 'email_sent')?.app_source_version
                 ).toEqual(
@@ -3175,5 +3246,50 @@ describe('EmailService', () => {
                 distinct_id: 'distinct_id',
             })
         })
+
+        it.each([
+            {
+                outcome: 'delivered',
+                rejectWith: undefined,
+                delivered: 1,
+                error: undefined,
+                metrics: ['email_sent', 'email_untracked'],
+            },
+            {
+                outcome: 'rejected',
+                rejectWith: 'SES rejected the email',
+                delivered: 0,
+                error: expect.stringContaining('SES rejected the email'),
+                metrics: ['email_failed'],
+            },
+        ])(
+            'keeps a $outcome send as it was when the engagement setting read fails',
+            async ({ rejectWith, delivered, error, metrics }) => {
+                const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
+                service = createService({}, {}, { teamConfigDb: teamConfigDb.postgres })
+                if (rejectWith) {
+                    ses.failWith({ status: 400, type: 'MessageRejected', message: rejectWith })
+                }
+                const failuresBefore = await metricValue('cdp_email_engagement_setting_read_failures_total', {})
+
+                const result = await service.executeSendEmail(invocation)
+                await teamConfigDb.close()
+
+                expect(ses.sent).toHaveLength(delivered)
+                expect(result.error).toEqual(error)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(metrics)
+                expect(result.capturedPostHogEvents).toEqual([])
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message:
+                            'Could not read the engagement setting, so no engagement event was recorded for this email.',
+                    })
+                )
+                expect(await metricValue('cdp_email_engagement_setting_read_failures_total', {})).toBe(
+                    failuresBefore + 1
+                )
+            }
+        )
     })
 })
