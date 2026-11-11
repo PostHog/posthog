@@ -13,6 +13,9 @@ import { releaseLogic } from './releaseLogic'
 import { CALENDAR_DAYS_AFTER, CALENDAR_DAYS_BEFORE, ReleaseEvent, ReleaseSpan, STAGE_TONE } from './releaseUtils'
 
 const DAY = 30
+const MARKER_LABEL_WIDTH = 176
+const MARKER_GUTTER = 28
+const MIN_MARKER_LABEL = 24
 const BEFORE = CALENDAR_DAYS_BEFORE
 const AFTER = CALENDAR_DAYS_AFTER
 const NAME = 280
@@ -52,7 +55,7 @@ function markersByDay(
             days.set(day, [event])
         }
     }
-    return [...days].map(([day, dayEvents]) => ({ day, events: dayEvents }))
+    return [...days].sort(([a], [b]) => a.localeCompare(b)).map(([day, dayEvents]) => ({ day, events: dayEvents }))
 }
 
 interface PlacedSpan extends ReleaseSpan {
@@ -278,31 +281,41 @@ export function ReleaseTimeline(): JSX.Element {
                                     </div>
                                 )
                             })}
-                            {(placed.get(row.id)?.markers ?? []).map(({ day, events }) => (
-                                <div
-                                    key={day}
-                                    title={events
-                                        .map(
-                                            (event) =>
-                                                `${dayjs(event.date).format('D MMM')}: ${event.title} (${event.detail})`
-                                        )
-                                        .join('\n')}
-                                    className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
-                                    style={{ left: x(events[0].date) + DAY / 2 - 6, top: 8 }}
-                                    data-attr="release-timeline-marker"
-                                >
-                                    {events.every((event) => event.kind === 'broadcast') ? (
-                                        <span className="flex size-3.5 items-center justify-center rounded-sm bg-background [&_svg]:size-3.5">
-                                            {iconForType('broadcasts')}
-                                        </span>
-                                    ) : (
-                                        <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
-                                    )}
-                                    <span className="max-w-44 truncate">
-                                        {events.length === 1 ? events[0].title : `${events.length} changes`}
-                                    </span>
-                                </div>
-                            ))}
+                            {(placed.get(row.id)?.markers ?? []).map(({ day, events }, index, markers) => {
+                                const room = markers[index + 1]
+                                    ? x(markers[index + 1].events[0].date) - x(events[0].date) - MARKER_GUTTER
+                                    : MARKER_LABEL_WIDTH
+                                return (
+                                    <div
+                                        key={day}
+                                        title={events
+                                            .map(
+                                                (event) =>
+                                                    `${dayjs(event.date).format('D MMM')}: ${event.title} (${event.detail})`
+                                            )
+                                            .join('\n')}
+                                        className="absolute flex items-center gap-1.5 whitespace-nowrap text-xs font-medium text-foreground"
+                                        style={{ left: x(events[0].date) + DAY / 2 - 6, top: 8 }}
+                                        data-attr="release-timeline-marker"
+                                    >
+                                        {events.every((event) => event.kind === 'broadcast') ? (
+                                            <span className="flex size-3.5 items-center justify-center rounded-sm bg-background [&_svg]:size-3.5">
+                                                {iconForType('broadcasts')}
+                                            </span>
+                                        ) : (
+                                            <span className="size-2.5 rotate-45 border-2 border-primary bg-background" />
+                                        )}
+                                        {room >= MIN_MARKER_LABEL && (
+                                            <span
+                                                className="truncate"
+                                                style={{ maxWidth: Math.min(room, MARKER_LABEL_WIDTH) }}
+                                            >
+                                                {events.length === 1 ? events[0].title : `${events.length} changes`}
+                                            </span>
+                                        )}
+                                    </div>
+                                )
+                            })}
                         </div>
                     </div>
                 ))}
