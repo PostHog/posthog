@@ -1804,6 +1804,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ("an agent", {"X-PostHog-Client": "mcp"}, False, 1),
             ("an agent by short id", {"X-PostHog-Client": "mcp"}, True, 1),
             ("the web app", {}, False, 0),
+            ("the desktop app", {"User-Agent": "posthog/desktop.hog.dev/1.0"}, False, 0),
         ]
     )
     def test_agent_reads_are_recorded_for_the_reader(

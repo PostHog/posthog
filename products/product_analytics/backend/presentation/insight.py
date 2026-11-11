@@ -1712,9 +1712,7 @@ INCLUDE_DASHBOARDS_PARAMETER = OpenApiParameter(
 
 
 INSIGHT_VIEWED_MAX_IDS = 2500
-AGENT_READ_SOURCES = frozenset(
-    {EventSource.MCP, EventSource.POSTHOG_AI, EventSource.POSTHOG_CODE, EventSource.DESKTOP, EventSource.WEBMCP}
-)
+AGENT_READ_SOURCES = frozenset({EventSource.MCP, EventSource.POSTHOG_AI, EventSource.POSTHOG_CODE, EventSource.WEBMCP})
 
 
 class InsightViewedRequestSerializer(serializers.Serializer):
