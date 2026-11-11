@@ -685,6 +685,7 @@ class PerplexityWebSearchEngine:
     """A Perplexity Sonar model with its web_search tool, via the AI gateway's /responses path."""
 
     name = "perplexity-web-search"
+    mode = CheckMode.WEB_SEARCH
 
     def __init__(self, model: str | None = None) -> None:
         self.model = model or settings.AEO_PERPLEXITY_MODEL
