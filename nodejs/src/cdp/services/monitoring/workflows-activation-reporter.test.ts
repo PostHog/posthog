@@ -1,3 +1,4 @@
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { Team } from '~/types'
 
 import { WorkflowsActivationReporter } from './workflows-activation-reporter'
@@ -8,19 +9,22 @@ describe('WorkflowsActivationReporter', () => {
     let getTeam: jest.Mock
     let capture: jest.Mock
     let reporter: WorkflowsActivationReporter
+    const unreachablePostgres = {
+        query: () => Promise.reject(new Error('connect ECONNREFUSED')),
+    } as unknown as PostgresRouter
 
     beforeEach(() => {
         jest.useFakeTimers({ now: new Date('2026-10-03T10:00:00Z') })
         getTeam = jest.fn((teamId: number) => Promise.resolve([team, otherTeam].find((t) => t.id === teamId) ?? null))
         capture = jest.fn()
-        reporter = new WorkflowsActivationReporter({ getTeam }, capture)
+        reporter = new WorkflowsActivationReporter({ getTeam }, unreachablePostgres, capture)
     })
 
     afterEach(() => {
         jest.useRealTimers()
     })
 
-    it('captures each team and reason once per hour', async () => {
+    it('captures each team, event and outcome once per hour', async () => {
         await reporter.report(2, 'workflows send failed', {
             reason: 'unverified_domain',
             channel: 'email',
@@ -41,6 +45,23 @@ describe('WorkflowsActivationReporter', () => {
             channel: 'email',
             workflow_id: 'flow-1',
         })
+        await reporter.report(2, 'workflows message sent', {
+            channel: 'email',
+            recipient_outside_org: true,
+            workflow_id: 'flow-1',
+        })
+        await reporter.report(2, 'workflows message sent', {
+            recipient_outside_org: true,
+            channel: 'email',
+            workflow_id: 'flow-2',
+        })
+        await reporter.report(2, 'workflows message sent', {
+            channel: 'email',
+            recipient_outside_org: false,
+            workflow_id: 'flow-1',
+        })
+        await reporter.reportPushSent(2, 'flow-1')
+        await reporter.reportPushSent(2, 'flow-2')
         jest.advanceTimersByTime(60 * 60 * 1000)
         await reporter.report(2, 'workflows send failed', {
             reason: 'unverified_domain',
@@ -56,6 +77,9 @@ describe('WorkflowsActivationReporter', () => {
                 { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-9' },
             ],
             [team, 'workflows send blocked', { reason: 'missing_recipient', channel: 'email', workflow_id: 'flow-1' }],
+            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: true, workflow_id: 'flow-1' }],
+            [team, 'workflows message sent', { channel: 'email', recipient_outside_org: false, workflow_id: 'flow-1' }],
+            [team, 'workflows message sent', { channel: 'push', recipient_outside_org: true, workflow_id: 'flow-1' }],
             [team, 'workflows send failed', { reason: 'unverified_domain', channel: 'email', workflow_id: 'flow-3' }],
         ])
     })
@@ -66,6 +90,14 @@ describe('WorkflowsActivationReporter', () => {
             channel: 'email',
             workflow_id: 'flow-1',
         })
+
+        expect(capture).not.toHaveBeenCalled()
+    })
+
+    it('reports no email sent when the organization members cannot be read', async () => {
+        jest.useRealTimers()
+
+        await reporter.reportEmailSent(2, 'flow-1', ['outsider@example.com'])
 
         expect(capture).not.toHaveBeenCalled()
     })

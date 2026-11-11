@@ -262,6 +262,7 @@ describe('EmailService', () => {
         activationEvents = []
         workflowsActivationReporter = new WorkflowsActivationReporter(
             hub.teamManager,
+            hub.postgres,
             (capturedTeam, event, properties = {}) => {
                 activationEvents.push({ teamId: capturedTeam.id, event, properties })
             }
@@ -1553,6 +1554,95 @@ describe('EmailService', () => {
                 )
             }
         )
+
+        describe('workflows message sent', () => {
+            let memberEmail: string
+            const workflowSend = () => ({
+                ...invocation,
+                hogFlow: new FixtureHogFlowBuilder().withTeamId(team.id).build(),
+            })
+            const messageSent = (recipientOutsideOrg: boolean) => ({
+                teamId: team.id,
+                event: 'workflows message sent',
+                properties: {
+                    workflow_id: invocation.functionId,
+                    channel: 'email',
+                    recipient_outside_org: recipientOutsideOrg,
+                },
+            })
+
+            beforeEach(async () => {
+                const members = await hub.postgres.query<{ email: string }>(
+                    PostgresUse.COMMON_READ,
+                    'SELECT email FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                    [team.organization_id],
+                    'testOrganizationMemberEmail'
+                )
+                memberEmail = members.rows[0].email
+            })
+
+            it.each([
+                ['an outside recipient', () => ({ to: 'outsider@example.com' }), true],
+                ['only organization members in another case', () => ({ to: memberEmail.toUpperCase() }), false],
+                ['an outside cc', () => ({ to: memberEmail, cc: 'Outsider <outsider@example.com>' }), true],
+                ['an outside bcc', () => ({ to: memberEmail, bcc: 'outsider@example.com' }), true],
+                [
+                    'a suppressed outside recipient replaced by a member',
+                    () => ({ to: 'bounced@example.com', cc: memberEmail, suppressed: 'bounced@example.com' }),
+                    false,
+                ],
+            ])('reports an accepted workflow email to %s', async (_name, recipients, recipientOutsideOrg) => {
+                const { to, cc, bcc, suppressed } = {
+                    cc: undefined,
+                    bcc: undefined,
+                    suppressed: undefined,
+                    ...recipients(),
+                }
+                if (suppressed) {
+                    await service['emailSuppressionService'].recordHardBounces(team.id, [suppressed])
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: to, name: 'Recipient' },
+                    cc,
+                    bcc,
+                })
+
+                const result = await service.executeSendEmail(workflowSend())
+
+                expect(result.emailSendResult).toEqual({ status: 'accepted' })
+                await waitForExpect(() => expect(activationEvents).toEqual([messageSent(recipientOutsideOrg)]))
+            })
+
+            it.each([
+                ['a workflow test send', true, true, undefined],
+                ['a hog function send', false, false, undefined],
+                [
+                    'a workflow send the provider rejected',
+                    true,
+                    false,
+                    { status: 400, type: 'MessageRejected', message: 'Email address is not verified' },
+                ],
+            ])('reports nothing for %s', async (_name, fromWorkflow, isTest, fault) => {
+                if (fault) {
+                    ses.failWith(fault)
+                }
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: 'outsider@example.com', name: 'Recipient' },
+                })
+
+                await service.executeSendEmail(fromWorkflow ? workflowSend() : invocation, isTest)
+                ses.failWith(null)
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: memberEmail, name: 'Member' },
+                })
+                await service.executeSendEmail(workflowSend())
+
+                await waitForExpect(() => expect(activationEvents).toEqual([messageSent(false)]))
+            })
+        })
 
         describe('SES tenant attribution', () => {
             it('attributes the send to the team tenant', async () => {

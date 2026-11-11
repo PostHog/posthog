@@ -27,7 +27,7 @@ export type FakeSesFault = { status: number; type: string; message: string } | '
 export interface FakeSes {
     endpoint: string
     sent: FakeSesMessage[]
-    failWith(fault: FakeSesFault): void
+    failWith(fault: FakeSesFault | null): void
     close(): Promise<void>
 }
 
