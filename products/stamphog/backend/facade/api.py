@@ -24,7 +24,7 @@ from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
 from ..logic.routing.claims import is_stale_claim
-from ..logic.routing.fork_labels import fork_labels
+from ..logic.routing.fork_labels import fork_labels, shared_behavior_labels
 from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
@@ -106,6 +106,7 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         trigger_label=obj.trigger_label,
         routing_mode=obj.routing_mode,
         routing_fork_labels=fork_labels(obj),
+        routing_shared_behavior_labels=shared_behavior_labels(obj),
         review_on_clean_external_review=obj.review_on_clean_external_review,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
@@ -444,6 +445,7 @@ def create_repo_config(
     trigger_label: str | None = None,
     routing_mode: str | None = None,
     routing_fork_labels: dict[str, str] | None = None,
+    routing_shared_behavior_labels: dict[str, str] | None = None,
     review_on_clean_external_review: bool | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
@@ -463,6 +465,8 @@ def create_repo_config(
         fields["routing_mode"] = routing_mode
     if routing_fork_labels is not None:
         fields["routing_fork_labels"] = routing_fork_labels
+    if routing_shared_behavior_labels is not None:
+        fields["routing_shared_behavior_labels"] = routing_shared_behavior_labels
     if review_on_clean_external_review is not None:
         fields["review_on_clean_external_review"] = review_on_clean_external_review
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the

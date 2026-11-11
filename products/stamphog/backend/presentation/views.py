@@ -87,7 +87,13 @@ REVIEW_POLICY_FIELDS = ("review_mode", "trigger_label")
 # pull requests with no reviewer at all, so both directions take manager. A fork label replaces a
 # team's review request on fork pull requests, so it decides who gets asked too.
 # The clean-review switch starts reviews outside review_mode, so it decides when reviews run as well.
-MANAGER_FIELDS = (*REVIEW_POLICY_FIELDS, "routing_mode", "routing_fork_labels", "review_on_clean_external_review")
+MANAGER_FIELDS = (
+    *REVIEW_POLICY_FIELDS,
+    "routing_mode",
+    "routing_fork_labels",
+    "routing_shared_behavior_labels",
+    "review_on_clean_external_review",
+)
 
 ReviewLevel = Literal["editor", "manager"]
 

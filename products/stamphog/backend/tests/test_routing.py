@@ -18,6 +18,7 @@ from products.stamphog.backend.logic.routing.cut import (
     CUT_SCHEMA,
     CUT_SYSTEM_PROMPT,
     DIFF_MAX_CHARS,
+    SHARED_BEHAVIOR_SYSTEM_PROMPT,
     CutOwner,
     RoutingDecision,
     apply_cut_guards,
@@ -353,6 +354,94 @@ class TestDecideCuts:
         assert calls == [(CUT_SYSTEM_PROMPT, CUT_SCHEMA)]
         assert [cut.candidate.owner for cut in decision.cut] == expected_cut
         assert decision.llm_skipped == skipped
+
+
+class TestSharedBehaviorCuts:
+    @parameterized.expand(
+        [
+            (
+                "cuts_the_team_when_shared_behavior_is_unchanged",
+                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                {"cuts": []},
+                {"cuts": [{"owner": "team-platform", "reason": "Only calls the existing API."}]},
+                ["team-platform"],
+                2,
+            ),
+            (
+                "keeps_the_team_when_shared_behavior_changes",
+                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                {"cuts": []},
+                {"cuts": []},
+                [],
+                2,
+            ),
+            (
+                "keeps_the_team_when_the_second_call_fails",
+                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                {"cuts": []},
+                RuntimeError("gateway down"),
+                [],
+                2,
+            ),
+            (
+                "ignores_a_second_pass_cut_of_another_owner",
+                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                {"cuts": []},
+                {"cuts": [{"owner": "team-big", "reason": "x"}]},
+                [],
+                2,
+            ),
+            (
+                "skips_the_second_call_when_the_first_cut_the_team",
+                [_candidate("team-big", lines=50), _candidate("team-platform")],
+                {"cuts": [{"owner": "team-platform", "reason": "Only a rename."}]},
+                None,
+                ["team-platform"],
+                1,
+            ),
+            (
+                "skips_the_second_call_for_a_pinned_team",
+                [_candidate("team-big", lines=50), _candidate("team-platform", pins=_SENSITIVE_PIN)],
+                {"cuts": []},
+                None,
+                [],
+                1,
+            ),
+        ]
+    )
+    def test_second_pass(
+        self,
+        _name: str,
+        candidates: list[OwnerCandidate],
+        first_answer: Mapping[str, object],
+        second_answer: Exception | Mapping[str, object] | None,
+        expected_cut: list[str],
+        expected_calls: int,
+    ) -> None:
+        prompts: list[str] = []
+        second_users: list[str] = []
+
+        def call_model(system: str, user: str, schema: Mapping[str, object]) -> Mapping[str, object] | None:
+            prompts.append(system)
+            if system == CUT_SYSTEM_PROMPT:
+                return first_answer
+            second_users.append(user)
+            if isinstance(second_answer, Exception):
+                raise second_answer
+            return second_answer
+
+        decision = decide_cuts(
+            candidates=candidates,
+            title="t",
+            description="d",
+            is_fork=False,
+            call_model=call_model,
+            shared_behavior_teams=frozenset({"team-platform"}),
+        )
+
+        assert [cut.candidate.owner for cut in decision.cut] == expected_cut
+        assert prompts == [CUT_SYSTEM_PROMPT, SHARED_BEHAVIOR_SYSTEM_PROMPT][:expected_calls]
+        assert all("team-big/code.py" not in user for user in second_users)
 
 
 class TestRenderRoutingComment:

@@ -76,6 +76,7 @@ def _setup(
     draft: bool = False,
     state: str = "open",
     fork_labels: dict[str, str] | None = None,
+    shared_behavior_labels: dict[str, str] | None = None,
     enabled: bool = True,
     review_mode: str = ReviewMode.ALL,
     author_type: str = "User",
@@ -118,6 +119,7 @@ def _setup(
             review_mode=review_mode,
             routing_mode=routing_mode,
             routing_fork_labels=fork_labels or {},
+            routing_shared_behavior_labels=shared_behavior_labels or {},
         )
 
 
@@ -338,6 +340,34 @@ def test_a_fork_skips_the_model_and_labels_the_teams_with_a_fork_label(
     )
     assert _stored(team.id)["llm_skipped"] == "fork"
     assert _run_log(team.id)["team-alpha"][0] == alpha_outcome
+
+
+@pytest.mark.parametrize(
+    "name,answer,expected_teams,expected_labels,expected_calls",
+    [
+        ("kept_team_is_labeled", {"cuts": []}, {"team-alpha", "team-beta"}, [{"labels": ["review: beta"]}], 2),
+        ("cut_team_gets_no_label", _CUT_BETA, {"team-alpha"}, [], 1),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_shared_behavior_team_is_labeled_only_when_requested(
+    name: str,
+    answer: dict[str, Any],
+    expected_teams: set[str],
+    expected_labels: list[dict[str, Any]],
+    expected_calls: int,
+    team,
+    user,
+    routing_chain,
+) -> None:
+    _setup(routing_chain, team, user, shared_behavior_labels={"team-beta": "review: beta"})
+    routing_chain.cut_model.answer = answer
+
+    assert _run_event_task(MagicMock(), throw=False).successful()
+
+    assert len(routing_chain.cut_model.calls) == expected_calls
+    assert _requested(routing_chain) == ({"carol"}, expected_teams)
+    assert [write["body"] for write in _writes(routing_chain, "add_labels")] == expected_labels
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

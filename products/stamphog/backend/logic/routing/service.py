@@ -51,7 +51,7 @@ from products.stamphog.backend.logic.routing.comment import (
     render_routing_comment,
 )
 from products.stamphog.backend.logic.routing.cut import CUT_MODEL, RoutingDecision, decide_cuts
-from products.stamphog.backend.logic.routing.fork_labels import fork_labels
+from products.stamphog.backend.logic.routing.fork_labels import fork_labels, shared_behavior_labels
 from products.stamphog.backend.logic.routing.model import GatewayCutModel
 from products.stamphog.backend.logic.routing.run_log import record_routing_run
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
@@ -325,17 +325,24 @@ class _Requests:
     labels: list[str]
 
 
-def _plan_requests(kept: Sequence[OwnerCandidate], *, fork: bool, labels_by_team: Mapping[str, str]) -> _Requests:
+def _plan_requests(
+    kept: Sequence[OwnerCandidate],
+    *,
+    fork: bool,
+    labels_by_team: Mapping[str, str],
+    review_labels_by_team: Mapping[str, str],
+) -> _Requests:
     users = [candidate.owner.removeprefix("@") for candidate in kept if candidate.kind == OwnerKind.PERSON]
     teams = [candidate.owner for candidate in kept if candidate.kind == OwnerKind.TEAM]
+    review_labels = [review_labels_by_team[team] for team in teams if team in review_labels_by_team]
     if not fork:
-        return _Requests(users=users, teams=teams, labeled_teams=[], labels=[])
+        return _Requests(users=users, teams=teams, labeled_teams=[], labels=list(dict.fromkeys(review_labels)))
     labeled_teams = [team for team in teams if team in labels_by_team]
     return _Requests(
         users=users,
         teams=[team for team in teams if team not in labels_by_team],
         labeled_teams=labeled_teams,
-        labels=list(dict.fromkeys(labels_by_team[team] for team in labeled_teams)),
+        labels=list(dict.fromkeys([*(labels_by_team[team] for team in labeled_teams), *review_labels])),
     )
 
 
@@ -502,6 +509,7 @@ def _plan(
         is_fork=fork,
         call_model=model,
         files_truncated=files_truncated,
+        shared_behavior_teams=frozenset(shared_behavior_labels(repo_config)),
     )
     has_pins = any(candidate.is_pinned for candidate in candidates)
     # Owners that full routing would ask and an approval does not.
@@ -512,7 +520,12 @@ def _plan(
         to_request = [candidate for candidate in candidates if candidate.is_pinned and candidate.owner not in already]
     else:
         to_request = list(decision.kept)
-    requests = _plan_requests(to_request, fork=fork, labels_by_team=fork_labels(repo_config))
+    requests = _plan_requests(
+        to_request,
+        fork=fork,
+        labels_by_team=fork_labels(repo_config),
+        review_labels_by_team=shared_behavior_labels(repo_config),
+    )
     planned_at = datetime.now(UTC).isoformat()
     return {
         **claim,

@@ -34,6 +34,27 @@ from ..facade.enums import (
 # GitHub refuses a label name longer than this.
 GITHUB_LABEL_MAX_LENGTH = 50
 FORK_LABELS_MAX_ENTRIES = 100
+SHARED_BEHAVIOR_LABELS_HELP = (
+    "Teams that routing requests only when their part of a pull request changes shared behavior, such as "
+    "run lifecycle, credentials, billing, data models or API contracts, and not for routine use of their "
+    "code. A requested team also gets the mapped label. Keys are owners.yaml team slugs such as "
+    "'team-agent-infrastructure', values are GitHub label names. Sensitive and new-path owners are still "
+    "always requested, and a pull request always keeps at least one reviewer."
+)
+
+
+def _validated_label_map(value: dict[str, str]) -> dict[str, str]:
+    if len(value) > FORK_LABELS_MAX_ENTRIES:
+        raise serializers.ValidationError(f"Map at most {FORK_LABELS_MAX_ENTRIES} teams to a label.")
+    labels: dict[str, str] = {}
+    for slug, label in value.items():
+        slug, label = slug.strip(), label.strip()
+        if not slug or slug.startswith("@"):
+            raise serializers.ValidationError("Each key must be an owners.yaml team slug, not a person.")
+        if not label:
+            raise serializers.ValidationError(f"The label for {slug} cannot be blank.")
+        labels[slug] = label
+    return labels
 
 
 class _GateResultSummarySerializer(serializers.Serializer):
@@ -84,7 +105,8 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
+            "review_mode, trigger_label, routing_mode, routing_fork_labels, routing_shared_behavior_labels or "
+            "review_on_clean_external_review."
         ),
     )
 
@@ -137,6 +159,11 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "GitHub label names. A team with no entry gets a review request as usual."
         ),
     )
+    routing_shared_behavior_labels = serializers.DictField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text=SHARED_BEHAVIOR_LABELS_HELP,
+    )
 
     class Meta:
         dataclass = contracts.RepoConfigDTO
@@ -151,6 +178,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "trigger_label",
             "routing_mode",
             "routing_fork_labels",
+            "routing_shared_behavior_labels",
             "review_on_clean_external_review",
             "user_access_level",
             "created_at",
@@ -907,6 +935,14 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             "the whole map, and an empty object removes every label."
         ),
     )
+    routing_shared_behavior_labels = serializers.DictField(
+        child=serializers.CharField(max_length=GITHUB_LABEL_MAX_LENGTH),
+        required=False,
+        help_text=(
+            f"{SHARED_BEHAVIOR_LABELS_HELP} Sending the field replaces the whole map, and an empty object "
+            "removes every team."
+        ),
+    )
     review_on_clean_external_review = serializers.BooleanField(
         required=False,
         help_text=(
@@ -939,17 +975,10 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             self.fields.pop("repository")
 
     def validate_routing_fork_labels(self, value: dict[str, str]) -> dict[str, str]:
-        if len(value) > FORK_LABELS_MAX_ENTRIES:
-            raise serializers.ValidationError(f"Map at most {FORK_LABELS_MAX_ENTRIES} teams to a label.")
-        labels: dict[str, str] = {}
-        for slug, label in value.items():
-            slug, label = slug.strip(), label.strip()
-            if not slug or slug.startswith("@"):
-                raise serializers.ValidationError("Each key must be an owners.yaml team slug, not a person.")
-            if not label:
-                raise serializers.ValidationError(f"The label for {slug} cannot be blank.")
-            labels[slug] = label
-        return labels
+        return _validated_label_map(value)
+
+    def validate_routing_shared_behavior_labels(self, value: dict[str, str]) -> dict[str, str]:
+        return _validated_label_map(value)
 
     def validate_trigger_label(self, value: str) -> str:
         value = value.strip()

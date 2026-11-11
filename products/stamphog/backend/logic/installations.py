@@ -29,10 +29,20 @@ def reset_unverified_review_policy(config: StamphogRepoConfig) -> list[str]:
     config.trigger_label = StamphogRepoConfig._meta.get_field("trigger_label").get_default()
     config.routing_mode = StamphogRepoConfig._meta.get_field("routing_mode").get_default()
     config.routing_fork_labels = StamphogRepoConfig._meta.get_field("routing_fork_labels").get_default()
+    config.routing_shared_behavior_labels = StamphogRepoConfig._meta.get_field(
+        "routing_shared_behavior_labels"
+    ).get_default()
     config.review_on_clean_external_review = StamphogRepoConfig._meta.get_field(
         "review_on_clean_external_review"
     ).get_default()
-    return ["review_mode", "trigger_label", "routing_mode", "routing_fork_labels", "review_on_clean_external_review"]
+    return [
+        "review_mode",
+        "trigger_label",
+        "routing_mode",
+        "routing_fork_labels",
+        "routing_shared_behavior_labels",
+        "review_on_clean_external_review",
+    ]
 
 
 def _write_db() -> str:

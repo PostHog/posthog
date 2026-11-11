@@ -142,7 +142,11 @@ class GatewayCutModel:
             return None
         finally:
             client.close()
-        self.usage = CutUsage(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
+        previous = self.usage or CutUsage(input_tokens=0, output_tokens=0)
+        self.usage = CutUsage(
+            input_tokens=previous.input_tokens + response.usage.input_tokens,
+            output_tokens=previous.output_tokens + response.usage.output_tokens,
+        )
         if response.stop_reason != "end_turn":
             logger.info("stamphog_reviewer_routing_no_answer", stop_reason=response.stop_reason)
             return None
