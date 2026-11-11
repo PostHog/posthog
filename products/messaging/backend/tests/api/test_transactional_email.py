@@ -75,6 +75,20 @@ CLICKABLE_UNSUBSCRIBE_LINKS = [
         {"html": '<script><!--><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>', "text": ""},
     ),
     (
+        "link_after_a_double_escaped_script_that_ends",
+        {
+            "html": '<script><!--<script></script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            "text": "",
+        },
+    ),
+    (
+        "link_after_a_double_escaped_script_that_ends_after_a_style_tag",
+        {
+            "html": '<script><!--<script></script><style></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
+            "text": "",
+        },
+    ),
+    (
         "link_after_a_plain_script_that_follows_an_escaped_one",
         {
             "html": '<script><!--</script><script><script></script><a href="{{ unsubscribe_url }}">Unsubscribe</a>',
