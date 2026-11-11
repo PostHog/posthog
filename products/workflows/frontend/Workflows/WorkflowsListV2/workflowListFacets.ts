@@ -35,9 +35,9 @@ export function folderScopes(parent: string, includeDescendants: boolean): strin
     return parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
 }
 
-/** `in:` scopes a workflow to the project folder that holds its file. */
+/** A workflow has no folder while `placements` is unknown, so no folder pill matches it and none counts it as Unfiled. */
 export function workflowFolderFacet(
-    filesByRef: Record<string, FileSystemEntry>,
+    placements: Record<string, FileSystemEntry> | null,
     includeDescendants: boolean
 ): FacetDefinition<WorkflowListRow> {
     return {
@@ -48,7 +48,10 @@ export function workflowFolderFacet(
         caseSensitive: true,
         formatValue: (value) => splitPath(value).join(' / '),
         getValues: (row) => {
-            const entry = filesByRef[`hog_flow::${row.id}`]
+            if (!placements) {
+                return []
+            }
+            const entry = placements[`hog_flow::${row.id}`]
             return !entry || entry.shortcut ? ['Unfiled'] : folderScopes(parentPath(entry.path), includeDescendants)
         },
     }

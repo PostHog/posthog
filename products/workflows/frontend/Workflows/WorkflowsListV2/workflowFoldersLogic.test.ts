@@ -26,6 +26,47 @@ describe('workflowFoldersLogic', () => {
             lastCount: results.length,
         })
 
+    const projectFiles = ({ request }: { request: Request }): [number, unknown] => {
+        const type = new URL(request.url).searchParams.get('search')?.replace('type:', '')
+        const entries = [
+            { id: 'billing', path: 'Billing', type: 'folder' },
+            { id: 'cards', path: 'Billing/Cards', type: 'folder' },
+            { id: 'empty', path: 'Empty', type: 'folder' },
+            { id: 'dashboards', path: 'Reports', type: 'folder' },
+            {
+                id: 'report',
+                path: 'Reports/Overview',
+                type: 'insight',
+                ref: 'synthetic-report',
+                meta: { type: 'SQL' },
+            },
+            { id: 'unfiled', path: 'Unfiled', type: 'folder' },
+            { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
+            { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
+            { id: 'nested', path: 'Billing/Cards/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id },
+            {
+                id: 'receipt',
+                path: 'Billing/Cards/Receipt',
+                type: 'message_template',
+                ref: 'template-receipt',
+                team_id: MOCK_TEAM_ID,
+            },
+            {
+                id: 'sibling-receipt',
+                path: 'Billing/Cards/Staging receipt',
+                type: 'message_template',
+                ref: 'template-staging',
+                team_id: MOCK_TEAM_ID + 1,
+            },
+        ]
+        return [
+            200,
+            paginated(
+                entries.filter((entry) => (type?.startsWith('-') ? entry.type === 'insight' : entry.type === type))
+            ),
+        ]
+    }
+
     beforeEach(() => {
         localStorage.clear()
         useMocks({
@@ -33,48 +74,7 @@ describe('workflowFoldersLogic', () => {
                 '/api/projects/:team_id/hog_flows/summaries/': () => [200, paginated(FIXTURE_WORKFLOWS)],
                 '/api/projects/:team_id/hog_flows/metrics/global/': () => [200, []],
                 '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
-                '/api/projects/:team_id/file_system/': ({ request }) => {
-                    const type = new URL(request.url).searchParams.get('search')?.replace('type:', '')
-                    const entries = [
-                        { id: 'billing', path: 'Billing', type: 'folder' },
-                        { id: 'cards', path: 'Billing/Cards', type: 'folder' },
-                        { id: 'empty', path: 'Empty', type: 'folder' },
-                        { id: 'dashboards', path: 'Reports', type: 'folder' },
-                        {
-                            id: 'report',
-                            path: 'Reports/Overview',
-                            type: 'insight',
-                            ref: 'synthetic-report',
-                            meta: { type: 'SQL' },
-                        },
-                        { id: 'unfiled', path: 'Unfiled', type: 'folder' },
-                        { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
-                        { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
-                        { id: 'nested', path: 'Billing/Cards/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id },
-                        {
-                            id: 'receipt',
-                            path: 'Billing/Cards/Receipt',
-                            type: 'message_template',
-                            ref: 'template-receipt',
-                            team_id: MOCK_TEAM_ID,
-                        },
-                        {
-                            id: 'sibling-receipt',
-                            path: 'Billing/Cards/Staging receipt',
-                            type: 'message_template',
-                            ref: 'template-staging',
-                            team_id: MOCK_TEAM_ID + 1,
-                        },
-                    ]
-                    return [
-                        200,
-                        paginated(
-                            entries.filter((entry) =>
-                                type?.startsWith('-') ? entry.type === 'insight' : entry.type === type
-                            )
-                        ),
-                    ]
-                },
+                '/api/projects/:team_id/file_system/': projectFiles,
             },
         })
         initKeaTests()
@@ -94,6 +94,37 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderPaths).not.toContain('Reports')
         expect(logic.values.folderPaths).toContain('Empty')
         expect(logic.values.folderPaths).not.toContain('Unfiled/Cohorts')
+    })
+
+    it('places no workflow in any folder, Unfiled included, until the folder scan loads', async () => {
+        logic.unmount()
+        let releaseScan!: () => void
+        const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    await scanHeld
+                    return projectFiles({ request })
+                },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        logic = workflowFoldersLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.rows).toHaveLength(FIXTURE_WORKFLOWS.length))
+        const scope = logic.values.folderFacets.find((facet) => facet.key === 'in')!
+        const nested = logic.values.folderSearchItems.find((item) => item.id === `workflow:${FIXTURE_WORKFLOWS[1].id}`)!
+
+        logic.actions.openFolder('Unfiled')
+        expect(logic.values.folderRows).toEqual([])
+        expect(scope.getValues(nested)).toEqual([])
+
+        releaseScan()
+        await waitFor(() => expect(logic.values.browserReady).toBe(true))
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[3].id, FIXTURE_WORKFLOWS[2].id])
+        logic.actions.openFolder('Billing/Cards')
+        expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
     })
 
     it('opens folders from the loaded index without another folder request', async () => {
@@ -319,8 +350,8 @@ describe('workflowFoldersLogic', () => {
         )
         projectTreeDataLogic.actions.pruneClosedFolders(['project://'])
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.filesByRef[`hog_flow::${FIXTURE_WORKFLOWS[0].id}`]).toBeUndefined()
-        expect(logic.values.filesByRef[`hog_flow::${FIXTURE_WORKFLOWS[1].id}`]?.path).toEqual('Billing/Cards/Renewal')
+        expect(logic.values.placements?.[`hog_flow::${FIXTURE_WORKFLOWS[0].id}`]).toBeUndefined()
+        expect(logic.values.placements?.[`hog_flow::${FIXTURE_WORKFLOWS[1].id}`]?.path).toEqual('Billing/Cards/Renewal')
     })
 
     it.each([
