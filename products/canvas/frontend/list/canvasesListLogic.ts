@@ -114,7 +114,7 @@ export const canvasesListLogic = kea<canvasesListLogicType>([
     reducers({
         search: ['', { setSearch: (_, { search }) => search, setListParams: (_, { params }) => params.search }],
         ordering: [
-            DEFAULT_ORDERING,
+            DEFAULT_ORDERING as CanvasesOrdering,
             { setOrdering: (_, { ordering }) => ordering, setListParams: (_, { params }) => params.ordering },
         ],
         page: [
