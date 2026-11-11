@@ -61,7 +61,7 @@ from products.messaging.backend.models import FirstCodeSend, MessageCategory, Me
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
-from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender
+from products.workflows.backend.facade.sandbox_email import provision_sandbox_sender, sandbox_sender_status
 from products.workflows.backend.facade.transactional_emails import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
@@ -555,7 +555,28 @@ def send_code_email(
         accepted_send, sandbox_warning = _accepted_send(team, email)
         hog_flow_id = _code_email_workflow_id(team.id, email.key)
     payload = {**_send_payload(to, distinct_id, {}, idempotency_key), "send": accepted_send}
-    return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
+    try:
+        return _queue(team.id, hog_flow_id, payload, send_accepted_transactional_email, sandbox_warning=sandbox_warning)
+    except IdempotencyKeyReused:
+        sandbox_send = _as_an_earlier_sandbox_send(team, email, accepted_send, idempotency_key, sandbox_warning)
+        if sandbox_send is None:
+            raise
+    return _queue(team.id, hog_flow_id, {**payload, "send": sandbox_send}, send_accepted_transactional_email)
+
+
+def _as_an_earlier_sandbox_send(
+    team: Team,
+    email: CodeEmail,
+    accepted_send: dict[str, Any],
+    idempotency_key: str | None,
+    sandbox_warning: SendWarning | None,
+) -> dict[str, Any] | None:
+    if idempotency_key is None or sandbox_warning is not None or _field_the_sandbox_sender_cannot_send(email):
+        return None
+    sandbox_sender_id = sandbox_sender_status(team).integration_id
+    if sandbox_sender_id is None:
+        return None
+    return {**accepted_send, "from": {"integrationId": sandbox_sender_id}}
 
 
 def _check_send_request(to: str, idempotency_key: str | None, copies: tuple[str, ...] = ()) -> None:
@@ -716,7 +737,6 @@ def _queue(
     return QueuedEmail(
         message_id=str(body["invocation_id"]),
         replayed=bool(body.get("replayed", False)),
-        # The pipeline names the sender it used, so a replay warns the same way as the send it repeats.
         warnings=(sandbox_warning,) if sandbox_warning and body.get("sender_kind") == SANDBOX_SENDER_KIND else (),
     )
 

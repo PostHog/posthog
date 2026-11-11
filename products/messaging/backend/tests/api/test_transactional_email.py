@@ -104,6 +104,7 @@ class FakeCdpApi:
     def __init__(self) -> None:
         self.received: list[dict[str, Any]] = []
         self._queued: list[dict[str, Any]] = []
+        self._idempotency_keys: dict[str, tuple[str, dict[str, Any]]] = {}
 
     @contextmanager
     def serving(self, client_post: MagicMock) -> Iterator["FakeCdpApi"]:
@@ -121,8 +122,43 @@ class FakeCdpApi:
             issues.append({"code": "invalid_type", "path": ["send", "tracking", "captureEngagement"]})
         if issues:
             return 400, {}, json.dumps({"error": json.dumps(issues)})
+        key = payload.get("idempotency_key")
+        fingerprint = self._fingerprint(request.url or "", payload)
+        if key in self._idempotency_keys:
+            stored_fingerprint, reply = self._idempotency_keys[key]
+            if stored_fingerprint != fingerprint:
+                return 422, {}, json.dumps({"error": "idempotency_key_reused"})
+            return 202, {}, json.dumps({**reply, "replayed": True})
         self._queued.append(payload)
-        return 202, {}, json.dumps({"invocation_id": f"invocation-{len(self._queued)}"})
+        reply = {"invocation_id": f"invocation-{len(self._queued)}", **self._sender_kind(send)}
+        if key is not None:
+            self._idempotency_keys[key] = (fingerprint, reply)
+        return 202, {}, json.dumps(reply)
+
+    @staticmethod
+    def _fingerprint(url: str, payload: dict[str, Any]) -> str:
+        sender = payload["send"].get("from") or {}
+        chosen = (
+            {"email": sender["email"], "name": sender.get("name")}
+            if sender.get("email")
+            else {"integrationId": sender.get("integrationId"), "name": sender.get("name")}
+        )
+        request = [
+            url,
+            payload["to"],
+            payload["distinct_id"],
+            payload["variables"],
+            {**payload["send"], "from": chosen},
+        ]
+        return json.dumps(request, sort_keys=True)
+
+    @staticmethod
+    def _sender_kind(send: dict[str, Any]) -> dict[str, str]:
+        integration_id = (send.get("from") or {}).get("integrationId")
+        if integration_id is None:
+            return {}
+        kind = Integration.objects.filter(id=integration_id).values_list("kind", flat=True).first()
+        return {"sender_kind": kind} if kind == "email_sandbox" else {}
 
     def emails(self) -> list[dict[str, Any]]:
         return [self._email(payload["send"]) for payload in self._queued]
@@ -993,7 +1029,7 @@ class TestTransactionalEmail(APIBaseTest):
                 {"invocation_id": "first-send", "replayed": True, "sender_kind": "email_sandbox"},
                 True,
             ),
-            ("older_pipeline_without_sender_kind", False, {"invocation_id": "invocation-1"}, False),
+            ("pipeline_reports_no_sandbox_sender_kind", False, {"invocation_id": "invocation-1"}, False),
         ]
     )
     def test_a_code_send_without_a_verified_sender_goes_out_from_the_sandbox_sender(
@@ -1050,6 +1086,25 @@ class TestTransactionalEmail(APIBaseTest):
         assert response.status_code == status.HTTP_202_ACCEPTED, response.content
         assert response.json()["message_id"] == "invocation-1"
         assert [warning["setup_url"] for warning in response.json()["warnings"]] == [self._setup_url(unverified)]
+
+    def test_a_sandbox_send_retried_after_the_team_verifies_a_sender_replays_the_first_send(
+        self, mock_post, _flag, _capture
+    ):
+        self._without_a_verified_sender(unverified_sender=False)
+        psak = self._psak_client(["hog_flow:write"])
+        headers = {"Idempotency-Key": "welcome:user-1"}
+
+        with FakeCdpApi().serving(mock_post) as cdp:
+            first = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
+            Integration.objects.create(
+                team=self.team, kind="email", integration_id="hello@example.org", config={"verified": True}
+            )
+            retry = psak.post(self.send_email_url, self._code_send(), format="json", headers=headers)
+
+        assert first.status_code == status.HTTP_202_ACCEPTED, first.json()
+        assert retry.status_code == status.HTTP_202_ACCEPTED, retry.json()
+        assert retry.json() == {"message_id": first.json()["message_id"], "replayed": True}
+        assert len(cdp.emails()) == 1
 
     @parameterized.expand(
         [
