@@ -1358,6 +1358,44 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
     })
 
+    it('picks up a new view whose timed-out save landed, instead of saving it twice', async () => {
+        const landedId = '00000000-0000-4000-8000-000000000005'
+        let posts = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/workflow_views/': async ({ request }) => {
+                    posts++
+                    const view = { ...savedView, ...((await request.json()) as WorkflowViewCreateApi), id: landedId }
+                    if (posts === 1) {
+                        storedViews.push(view)
+                        return new Promise(() => {})
+                    }
+                    return [201, { ...view, id: '00000000-0000-4000-8000-000000000006' }]
+                },
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: '' })
+        jest.useFakeTimers()
+        try {
+            const saved = logic.asyncActions.saveViewAs('Draft flows')
+            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
+            await saved
+        } finally {
+            jest.useRealTimers()
+        }
+        await logic.asyncActions.saveViewAs('Draft flows')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(posts).toBe(1)
+        expect(logic.values.views.filter((view) => view.name === 'Draft flows').map((view) => view.id)).toEqual([
+            landedId,
+        ])
+        expect(logic.values.activeViewId).toBe(landedId)
+    })
+
     it('keeps a view whose stalled delete answers after the deadline', async () => {
         let answerLate: () => void = () => {}
         const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
