@@ -1,7 +1,6 @@
 import { CyclotronJobFiltersType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
-import type { HogFunctionTemplateApi } from 'products/cdp/frontend/generated/api.schemas'
 
 export type DeliveryWebhookCreateBody = NonNullable<Parameters<typeof hogFunctionsCreate>[1]>
 
@@ -57,40 +56,23 @@ export function generateSigningSecret(): string {
     return `whsec_${btoa(String.fromCharCode(...bytes))}`
 }
 
-export function isHttpsUrl(value: string): boolean {
-    try {
-        return new URL(value).protocol === 'https:'
-    } catch {
-        return false
-    }
-}
-
-function hostOf(url: string): string {
-    try {
-        return new URL(url).host
-    } catch {
-        return url
-    }
-}
-
 export function buildDeliveryWebhookPayload({
     url,
     events,
     signingSecret,
-    template,
 }: {
     url: string
     events: DeliveryWebhookEventName[]
     signingSecret: string
-    template: Pick<HogFunctionTemplateApi, 'code' | 'inputs_schema' | 'icon_url'>
 }): DeliveryWebhookCreateBody {
+    // Callers pass a URL that passed `isHttpsUrl`, so it parses.
+    const { host, pathname } = new URL(url)
+    // The API fills the template's code, inputs schema and icon from `template_id`.
     const payload = {
         template_id: DELIVERY_WEBHOOK_TEMPLATE_ID,
         type: 'destination',
-        name: `Transactional email webhook: ${hostOf(url)}`,
+        name: `Transactional email webhook: ${host}${pathname === '/' ? '' : pathname}`,
         description: 'Sends delivery updates for transactional emails to your endpoint.',
-        hog: template.code,
-        inputs_schema: template.inputs_schema,
         inputs: {
             url: { value: url },
             method: { value: 'POST' },
@@ -103,7 +85,6 @@ export function buildDeliveryWebhookPayload({
             events: events.map((event) => ({ id: event, name: event, type: 'events' })),
             properties: [TRANSACTIONAL_EMAIL_PROPERTY],
         },
-        icon_url: template.icon_url,
         enabled: true,
     }
     // The generated write body marks server-set input fields (bytecode, order, transpiled) as required,

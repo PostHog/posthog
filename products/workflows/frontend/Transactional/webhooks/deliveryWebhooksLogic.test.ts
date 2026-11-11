@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -13,14 +15,6 @@ describe('deliveryWebhooksLogic', () => {
     beforeEach(() => {
         created = []
         useMocks({
-            get: {
-                '/api/projects/:team_id/hog_function_templates/template-webhook/': {
-                    id: 'template-webhook',
-                    code: 'fetch(inputs.url, {})',
-                    inputs_schema: [{ key: 'url', type: 'string' }],
-                    icon_url: '/static/services/webhook.svg',
-                },
-            },
             post: {
                 '/api/projects/:team_id/hog_functions/': async ({ request }) => {
                     const body = (await request.json()) as Record<string, any>
@@ -41,7 +35,7 @@ describe('deliveryWebhooksLogic', () => {
     it('creates a signed webhook that the webhooks list finds, and shows its secret once', async () => {
         logic.actions.openAddModal()
         logic.actions.setWebhookFormValues({
-            url: ' https://example.com/hooks ',
+            url: ' https://example.com/hooks/prod ',
             events: ['$workflows_email_delivered', '$workflows_email_bounced'],
         })
         logic.actions.submitWebhookForm()
@@ -50,7 +44,9 @@ describe('deliveryWebhooksLogic', () => {
         expect(created).toHaveLength(1)
         const [webhook] = created
         expect(webhook.template_id).toEqual('template-webhook')
-        expect(webhook.inputs.url.value).toEqual('https://example.com/hooks')
+        expect(webhook.inputs.url.value).toEqual('https://example.com/hooks/prod')
+        // Two webhooks on one host stay apart in the list.
+        expect(webhook.name).toEqual('Transactional email webhook: example.com/hooks/prod')
         expect(webhook.filters.events.map((e: { id: string }) => e.id)).toEqual([
             '$workflows_email_delivered',
             '$workflows_email_bounced',
@@ -73,12 +69,14 @@ describe('deliveryWebhooksLogic', () => {
         ['a URL without a scheme', { url: 'example.com/hooks' }],
         ['a plain http URL', { url: 'http://example.com/hooks' }],
         ['no events', { url: 'https://example.com/hooks', events: [] }],
-    ])('does not create a webhook with %s', async (_, values) => {
+    ])('does not create a webhook with %s, and shows only the field error', async (_, values) => {
+        const toastError = jest.spyOn(lemonToast, 'error')
         logic.actions.setWebhookFormValues(values)
         logic.actions.submitWebhookForm()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(created).toHaveLength(0)
         expect(logic.values.createdSecret).toBeNull()
+        expect(toastError).not.toHaveBeenCalled()
     })
 })

@@ -5,21 +5,20 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { isHttpsUrl } from 'lib/utils/url'
 import { hogFunctionsListLogic } from 'scenes/hog-functions/list/hogFunctionsListLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { TeamPublicType, TeamType } from '~/types'
 
-import { hogFunctionTemplatesRetrieve, hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
+import { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
 
 import {
     DELIVERY_WEBHOOK_EVENTS,
     DELIVERY_WEBHOOK_LIST_FILTER_GROUPS,
-    DELIVERY_WEBHOOK_TEMPLATE_ID,
     DeliveryWebhookEventName,
     buildDeliveryWebhookPayload,
     generateSigningSecret,
-    isHttpsUrl,
 } from './deliveryWebhookPayload'
 
 export interface DeliveryWebhookForm {
@@ -172,11 +171,10 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             submit: async ({ url, events }: DeliveryWebhookForm) => {
                 // The route takes the team id, so the destination lands in the active environment, not its project's primary one.
                 const projectId = String(values.currentTeamId)
-                const template = await hogFunctionTemplatesRetrieve(projectId, DELIVERY_WEBHOOK_TEMPLATE_ID)
                 const signingSecret = generateSigningSecret()
                 await hogFunctionsCreate(
                     projectId,
-                    buildDeliveryWebhookPayload({ url: url.trim(), events, signingSecret, template })
+                    buildDeliveryWebhookPayload({ url: url.trim(), events, signingSecret })
                 )
                 actions.setCreatedSecret(signingSecret)
             },
@@ -196,6 +194,10 @@ export const deliveryWebhooksLogic = kea<deliveryWebhooksLogicType>([
             hogFunctionsListLogic.findMounted(DELIVERY_WEBHOOK_LIST_PROPS)?.actions.loadHogFunctions()
         },
         submitWebhookFormFailure: ({ error }) => {
+            // The field shows a validation error, so only a failed request needs a toast.
+            if (values.webhookFormHasErrors) {
+                return
+            }
             lemonToast.error(`Couldn't create the webhook: ${error?.message ?? 'unknown error'}. Try again.`)
         },
         enableEngagementEvents: () => {
