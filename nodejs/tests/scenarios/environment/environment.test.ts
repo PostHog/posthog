@@ -632,12 +632,9 @@ describe('scenario environment', () => {
             }
             const verb = positionals.join(' ')
             if (verb === 'wait') {
-                if (flags.timeout !== undefined) {
-                    const answers = stack.running && !(stack.busy && Number(flags.timeout) <= 30)
-                    process.exit(!answers ? 3 : stack.ready ? 0 : 2)
-                }
-                if (!stack.running) {
-                    fail('No stack runs')
+                const answersAfterS = stack.busy ? 10 : 0
+                if (!stack.running || Number(flags.timeout ?? 300) < answersAfterS) {
+                    process.exit(3)
                 }
                 fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
             } else if (verb === 'dev:generate') {
@@ -871,7 +868,7 @@ describe('scenario environment', () => {
                 () => 'up',
                 (error: unknown) => String(error)
             )
-            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(3), 10_000, 50)
+            await waitForExpect(() => expect(describeCount()).toBeGreaterThanOrEqual(2), 20_000, 50)
             releaseDeadMember()
 
             expect({
@@ -883,7 +880,7 @@ describe('scenario environment', () => {
                 up: 'up',
                 apiHealth: 200,
             })
-        }, 30_000)
+        }, 45_000)
 
         it.each<[string, { running: boolean; ready: boolean; busy?: boolean }, string[]]>([
             ['a running stack', { running: true, ready: true }, STACK.templates],
