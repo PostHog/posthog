@@ -1,8 +1,8 @@
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import type { FeatureFlagApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import type { HogFlowBatchJobApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import type { LinkedBroadcastDTOApi, ReleaseDTOApi } from './generated/api.schemas'
+import type { ReleaseDTOApi } from './generated/api.schemas'
 import { LinkCandidate, buildReleaseIndex, buildReleaseRow, rankLinkSuggestions } from './releaseUtils'
 
 const FLAG = {
@@ -72,7 +72,7 @@ describe('buildReleaseRow', () => {
             feature_flag_ids: [FLAG.id],
             has_hidden_flags: false,
             broadcast_ids: [LAUNCH_SEND.id],
-            broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active' }],
+            broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active', recent_sends: [] }],
             created_at: '2026-10-02T00:00:00Z',
         } as ReleaseDTOApi
         const index = buildReleaseIndex(
@@ -82,11 +82,12 @@ describe('buildReleaseRow', () => {
             [],
             { complete: true, resolvedFlagIds: [FLAG.id], unknownFlagIds: [] },
             {
-                broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email' } as LinkedBroadcastDTOApi],
+                broadcasts: [{ id: LAUNCH_SEND.id, name: 'Launch email', status: 'active', recent_sends: [] }],
                 sends: [LAUNCH_SEND],
                 runs: {
                     [LAUNCH_SEND.id]: [
-                        { id: 'job-1', status: 'completed', created_at: '2026-10-05T09:00:00Z' } as HogFlowBatchJobApi,
+                        { id: 'job-1', status: 'completed', created_at: '2026-10-05T09:00:00Z' },
+                        { id: 'job-2', status: 'failed', created_at: '2026-10-06T09:00:00Z' },
                     ],
                 },
             }
@@ -94,9 +95,14 @@ describe('buildReleaseRow', () => {
 
         const result = buildReleaseRow(release, index)
 
-        expect(result.events.filter((event) => event.kind === 'broadcast').map((event) => event.upcoming)).toEqual([
-            undefined,
-            true,
+        expect(
+            result.events
+                .filter((event) => event.kind === 'broadcast')
+                .map((event) => [event.title.split(':')[0], event.upcoming])
+        ).toEqual([
+            ['Broadcast sent', undefined],
+            ['Broadcast failed', undefined],
+            ['Broadcast', true],
         ])
         expect(result.nextDate).toBe(NEXT_SEND)
         expect(result.suggestions.map((suggestion) => suggestion.key)).not.toContain('broadcast')

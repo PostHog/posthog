@@ -7,7 +7,15 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LinkedSendDTOApi {
+    id: string
+    status: string
+    created_at: string
+}
+
 export interface LinkedBroadcastDTOApi {
+    /** The broadcast's most recent sends, newest first, at most 20. */
+    readonly recent_sends: readonly LinkedSendDTOApi[]
     id: string
     name: string
     status: string

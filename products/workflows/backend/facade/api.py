@@ -2,7 +2,8 @@ from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
-from django.db.models import F, QuerySet
+from django.db.models import F, QuerySet, Window
+from django.db.models.functions import RowNumber
 
 from posthog.helpers.full_text_search import build_rank
 from posthog.ingress.contracts import WebhookDelivery
@@ -16,6 +17,7 @@ from products.workflows.backend.facade.contracts import (
     EmailSendingSuspensionChange,
     FlowUtmUpdate,
     RecentWorkflow,
+    SendCalendarBatchJob,
     TeamUtmDefaults,
     TierDecision,
     TwilioAccount,
@@ -31,6 +33,7 @@ from products.workflows.backend.facade.contracts import (
 )
 from products.workflows.backend.models import HogFlow, TeamWorkflowsConfig
 from products.workflows.backend.models.hog_flow.hog_flow import opt_out_category_ids, static_cohort_ids
+from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.services import email_utm_defaults
 from products.workflows.backend.services.batch_jobs import create_batch_job
 from products.workflows.backend.services.default_email_sender import (
@@ -271,6 +274,24 @@ def get_workflow_summaries(*, team_id: int, workflow_ids: Iterable[str]) -> list
         WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
         for row in _team_workflows(team_id, workflow_ids).values("id", "name", "status")
     ]
+
+
+def get_recent_batch_jobs(
+    *, team_id: int, workflow_ids: Iterable[str], limit: int
+) -> dict[str, list[SendCalendarBatchJob]]:
+    rows = (
+        HogFlowBatchJob.objects.filter(team_id=team_id, hog_flow_id__in=list(workflow_ids))
+        .annotate(position=Window(RowNumber(), partition_by=[F("hog_flow_id")], order_by=F("created_at").desc()))
+        .filter(position__lte=limit)
+        .order_by("hog_flow_id", "-created_at")
+        .values("id", "hog_flow_id", "status", "created_at")
+    )
+    jobs: dict[str, list[SendCalendarBatchJob]] = {}
+    for row in rows:
+        jobs.setdefault(str(row["hog_flow_id"]), []).append(
+            SendCalendarBatchJob(id=row["id"], status=row["status"], created_at=row["created_at"])
+        )
+    return jobs
 
 
 def has_active_workflows(*, team_id: int) -> bool:

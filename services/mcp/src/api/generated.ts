@@ -64680,7 +64680,15 @@ export namespace Schemas {
       teams: LinearTeam[];
     }
 
+    export interface LinkedSendDTO {
+      id: string;
+      status: string;
+      created_at: string;
+    }
+
     export interface LinkedBroadcastDTO {
+      /** The broadcast's most recent sends, newest first, at most 20. */
+      readonly recent_sends: readonly LinkedSendDTO[];
       id: string;
       name: string;
       status: string;

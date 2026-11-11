@@ -28,10 +28,18 @@ class UnknownBroadcastsError(Exception):
 
 
 @dataclass(frozen=True)
+class LinkedSendDTO:
+    id: UUID
+    status: str
+    created_at: datetime
+
+
+@dataclass(frozen=True)
 class LinkedBroadcastDTO:
     id: UUID
     name: str
     status: str
+    recent_sends: list[LinkedSendDTO]
 
 
 @dataclass(frozen=True)

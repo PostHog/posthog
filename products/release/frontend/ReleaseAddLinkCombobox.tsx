@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    Button,
     Combobox,
     ComboboxCollection,
     ComboboxContent,
@@ -11,6 +12,7 @@ import {
     ComboboxLabel,
     ComboboxList,
     Spinner,
+    Text,
 } from '@posthog/quill'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -25,7 +27,8 @@ interface CandidateGroup {
 }
 
 export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Element {
-    const { linkSearchResults, linkSearchResultsLoading, linkSuggestions } = useValues(releaseLogic)
+    const { linkSearchResults, linkSearchResultsLoading, linkSuggestions, linkSearchFailed, lastLinkSearch } =
+        useValues(releaseLogic)
     const { searchLinks, addLink } = useActions(releaseLogic)
     const linked = new Set([
         ...row.flags.map((flag) => `flag:${flag.id}`),
@@ -71,7 +74,23 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
             />
             <ComboboxContent>
                 <ComboboxEmpty>
-                    {linkSearchResultsLoading ? <Spinner /> : 'No flag or broadcast matches that name.'}
+                    {linkSearchResultsLoading ? (
+                        <Spinner />
+                    ) : linkSearchFailed ? (
+                        <div className="flex flex-col items-center gap-2">
+                            <Text size="xs">Search could not load. Check your connection, then try again.</Text>
+                            <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => searchLinks(lastLinkSearch)}
+                                data-attr="release-add-link-retry"
+                            >
+                                Try again
+                            </Button>
+                        </div>
+                    ) : (
+                        'No flag or broadcast matches that name.'
+                    )}
                 </ComboboxEmpty>
                 <ComboboxList>
                     {(group: CandidateGroup) => (

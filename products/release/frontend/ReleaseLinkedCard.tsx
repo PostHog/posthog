@@ -205,7 +205,7 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
                     dataAttr="release-linked"
                 />
                 {canEditReleases && <ReleaseLinkSuggestions row={row} />}
-                {row.flags.length > 0 && canEditReleases && <ReleaseAddLinkCombobox row={row} />}
+                {canEditReleases && <ReleaseAddLinkCombobox row={row} />}
             </CardContent>
         </Card>
     )

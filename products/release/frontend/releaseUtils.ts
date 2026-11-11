@@ -11,10 +11,10 @@ import { getExperimentStatus } from 'products/experiments/frontend/experimentSta
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import type { HogFlowBatchJobApi, SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 import { scheduleSendTimes } from 'products/workflows/frontend/SendCalendar/sendCalendarUtils'
 
-import type { LinkedBroadcastDTOApi, ReleaseDTOApi } from './generated/api.schemas'
+import type { LinkedBroadcastDTOApi, LinkedSendDTOApi, ReleaseDTOApi } from './generated/api.schemas'
 
 export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released' | 'ended'
 
@@ -406,18 +406,25 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
 export interface ReleaseMessaging {
     broadcasts: LinkedBroadcastDTOApi[]
     sends: SendCalendarFlowApi[]
-    runs: Record<string, HogFlowBatchJobApi[]>
+    runs: Record<string, LinkedSendDTOApi[]>
 }
 
 const EMPTY_MESSAGING: ReleaseMessaging = { broadcasts: [], sends: [], runs: {} }
 
-function runEvents(broadcastId: string, name: string, runs: HogFlowBatchJobApi[]): ReleaseEvent[] {
+const SEND_TITLE: Record<string, string> = {
+    completed: 'Broadcast sent',
+    partially_failed: 'Broadcast partly sent',
+    failed: 'Broadcast failed',
+    cancelled: 'Broadcast cancelled',
+}
+
+function runEvents(broadcastId: string, name: string, runs: LinkedSendDTOApi[]): ReleaseEvent[] {
     return runs.map((run) => ({
         key: `send-${run.id}`,
         date: run.created_at,
         kind: 'broadcast' as const,
-        title: `Broadcast sent: ${name}`,
-        detail: !run.status || run.status === 'completed' ? undefined : `The send is ${run.status.replace('_', ' ')}`,
+        title: `${SEND_TITLE[run.status] ?? 'Broadcast sending'}: ${name}`,
+        detail: run.status === 'completed' ? undefined : `The send is ${run.status.replace('_', ' ')}`,
         href: urls.broadcast(broadcastId),
     }))
 }

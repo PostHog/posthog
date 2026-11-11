@@ -5,10 +5,19 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import LinkedBroadcastDTO, ReleaseDTO
+from ..facade.contracts import LinkedBroadcastDTO, LinkedSendDTO, ReleaseDTO
+
+
+class LinkedSendSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = LinkedSendDTO
 
 
 class LinkedBroadcastSerializer(DataclassSerializer):
+    recent_sends = LinkedSendSerializer(
+        many=True, read_only=True, help_text="The broadcast's most recent sends, newest first, at most 20."
+    )
+
     class Meta:
         dataclass = LinkedBroadcastDTO
 

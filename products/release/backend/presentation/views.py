@@ -20,10 +20,17 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
-from products.workflows.backend.facade.api import get_workflow_summaries, get_workflow_view_access
+from products.workflows.backend.facade.api import (
+    get_recent_batch_jobs,
+    get_workflow_summaries,
+    get_workflow_view_access,
+)
+from products.workflows.backend.facade.contracts import WorkflowSummary
 
 from ..facade import api, contracts
 from .serializers import ReleaseSerializer, UpdateReleaseSerializer, WriteReleaseSerializer
+
+RECENT_SENDS_LIMIT = 20
 
 
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -74,11 +81,27 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             linkable=frozenset(
                 broadcast_id for key, broadcast_id in requested.items() if key in names and key in access.viewable_ids
             ),
-            summaries=tuple(
-                contracts.LinkedBroadcastDTO(id=broadcast_id, name=names[key].name, status=names[key].status)
-                for key, broadcast_id in requested.items()
-                if key in names and access.allows(key)
+            summaries=self._broadcast_summaries(
+                {key: broadcast_id for key, broadcast_id in requested.items() if key in names and access.allows(key)},
+                names,
             ),
+        )
+
+    def _broadcast_summaries(
+        self, shown: dict[str, UUID], names: dict[str, WorkflowSummary]
+    ) -> tuple[contracts.LinkedBroadcastDTO, ...]:
+        sends = get_recent_batch_jobs(team_id=self.team_id, workflow_ids=shown.keys(), limit=RECENT_SENDS_LIMIT)
+        return tuple(
+            contracts.LinkedBroadcastDTO(
+                id=broadcast_id,
+                name=names[key].name,
+                status=names[key].status,
+                recent_sends=[
+                    contracts.LinkedSendDTO(id=job.id, status=job.status, created_at=job.created_at)
+                    for job in sends.get(key, [])
+                ],
+            )
+            for key, broadcast_id in shown.items()
         )
 
     @property
