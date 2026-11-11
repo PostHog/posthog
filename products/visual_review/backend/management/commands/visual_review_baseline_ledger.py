@@ -10,15 +10,17 @@ from django.db.models import Count
 from posthog.models.scoping import team_scope
 
 from products.visual_review.backend.db import WRITER_DB
-from products.visual_review.backend.facade.enums import BaselineMode
+from products.visual_review.backend.facade.enums import BaselineMode, RunGate, RunPurpose, RunStatus
 from products.visual_review.backend.logic import baselines, errors, github_api, ledger
 from products.visual_review.backend.management.commands.visual_review_debt_digest import find_repo
-from products.visual_review.backend.models import BaselineApproval, BaselineCommit, BaselineEntry, Repo
+from products.visual_review.backend.models import BaselineApproval, BaselineCommit, BaselineEntry, Repo, Run
 
 _FULL_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 
 # The fallback path key of baseline_file_paths. It is not a run type, so it gets no ledger.
 _DEFAULT_PATH_KEY = "default"
+
+_MAX_LISTED_PULL_REQUESTS = 50
 
 
 def _add_repo_arguments(parser: CommandParser) -> None:
@@ -202,3 +204,30 @@ class Command(BaseCommand):
             self.stdout.write(
                 f"Unresolved: position {commit.position}, commit {commit.commit_sha}, PR #{commit.pr_number}"
             )
+
+        self._write_pull_requests_gated_by_status(repo)
+
+    def _write_pull_requests_gated_by_status(self, repo: Repo) -> None:
+        # These runs passed their CI job on the commit status alone, so removing the required statuses
+        # from the ruleset leaves their pull requests without a gate until a new run replaces them.
+        pr_numbers = list(
+            Run.objects.using(WRITER_DB)
+            .filter(
+                repo_id=repo.id,
+                gate=RunGate.COMMIT_STATUS,
+                status=RunStatus.COMPLETED,
+                purpose=RunPurpose.REVIEW,
+                approved=False,
+                superseded_by__isnull=True,
+                pr_number__isnull=False,
+            )
+            .order_by("pr_number")
+            .values_list("pr_number", flat=True)
+            .distinct()
+        )
+        if not pr_numbers:
+            return
+        shown = ", ".join(f"#{pr_number}" for pr_number in pr_numbers[:_MAX_LISTED_PULL_REQUESTS])
+        rest = len(pr_numbers) - _MAX_LISTED_PULL_REQUESTS
+        more = f", and {rest} more" if rest > 0 else ""
+        self.stdout.write(f"Pull requests whose run is gated by the commit status: {shown}{more}")
