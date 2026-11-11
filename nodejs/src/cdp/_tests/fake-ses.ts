@@ -59,7 +59,7 @@ export async function startFakeSes(configurationSets: ConfigurationSets): Promis
     return {
         endpoint: edge.url,
         get sent() {
-            return edge.records.flatMap((record) => (record.detail.message ? [record.detail.message] : []))
+            return [...edge.sent]
         },
         // A fault answers every later send, because the SDK retries throttles, 5xx responses and dropped
         // connections on its own before the caller sees an error.
