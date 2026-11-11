@@ -36,6 +36,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
+from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_update_schedule
@@ -46,6 +47,7 @@ from products.data_modeling.backend.logic.cohort_scheduling import (
     ScheduleReconcilePlan,
     Tier,
     bucket_into_cadence_tiers,
+    is_tier_schedule_id,
     plan_schedule_reconciliation,
     tier_schedule_id,
 )
@@ -64,6 +66,8 @@ from products.data_modeling.backend.logic.node_frequency import (
     build_frequency_graph,
     get_declared_pin,
     get_declared_target,
+    nodes_declared_finer_than,
+    nodes_with_a_declared_target,
     persist_seed_targets,
     scheduled_cadences,
     seed_targets,
@@ -72,6 +76,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_target,
     stage_declared_target,
 )
+from products.data_modeling.backend.logic.refresh_floor import plan_limit
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -170,6 +175,7 @@ def _validate_saved_query_target(
             names=names,
             pinned=pinned,
             plan_floor=graph.plan_floor,
+            schedule_plan_floor=graph.schedule_plan_floor,
         )
     except PlanFloorRefusalError as error:
         team = Team.objects.filter(id=team_id).first()
@@ -366,15 +372,83 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
-    effective, _clamped = scheduled_cadences(graph)
-    desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     _apply_reconciliation(
         dag_id=str(dag.id),
         team_id=team.pk,
         organization_id=str(team.organization_id),
         team_timezone=team.timezone,
-        desired_tiers=desired_tiers,
+        desired_tiers=_desired_tiers(graph),
     )
+
+
+def _desired_tiers(graph: FrequencyGraph) -> dict[Tier, set[str]]:
+    effective, _clamped = scheduled_cadences(graph)
+    return bucket_into_cadence_tiers(effective, graph.declared_anchors)
+
+
+class OrganizationReconcileError(Exception):
+    """At least one of the organization's DAGs failed to reconcile."""
+
+
+def _runs_on_tier_schedules(existing_schedule_ids: set[str]) -> bool:
+    """Whether a reconcile may rewrite the DAG's schedules without converting it first.
+
+    A reconcile would create the first schedules of a DAG with none, and would delete a whole-DAG
+    legacy schedule before `convert_dag_to_tiers` seeds the targets that replace it.
+    """
+    return bool(existing_schedule_ids) and all(
+        is_tier_schedule_id(schedule_id) for schedule_id in existing_schedule_ids
+    )
+
+
+def reconcile_organization_dags(organization_id: str) -> None:
+    """Reconcile every DAG of the organization that runs on tier schedules, raising after all of them if any failed."""
+    failed = 0
+    for dag in DAG.objects.filter(team__organization_id=organization_id).select_related("team"):
+        try:
+            if _runs_on_tier_schedules(list_existing_schedule_ids(str(dag.id))):
+                reconcile_dag_schedules(dag)
+        except Exception as error:
+            logger.exception("Organization schedule reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
+            capture_exception(error)
+            failed += 1
+    if failed:
+        raise OrganizationReconcileError(f"{failed} DAGs failed to reconcile for organization {organization_id}")
+
+
+def reconcile_plan_floor_drift() -> int:
+    """Reconcile the DAGs whose tier schedules no longer match their organization's plan floor.
+
+    A plan change, or a change to the refresh floor flag, moves the cadence a DAG should run at without
+    reconciling it. Only a DAG with a saved cadence finer than its organization's plan limit can move,
+    whether the flag holds it at the floor or releases it. Such a DAG is reconciled only when its
+    schedules differ from the tiers its graph asks for, which costs one listing per DAG.
+
+    Returns how many DAGs it reconciled.
+    """
+    reconciled = 0
+    organization_ids = nodes_with_a_declared_target().values_list("team__organization_id", flat=True).distinct()
+    for organization in Organization.objects.filter(id__in=organization_ids):
+        limit = plan_limit(organization)
+        if limit is None:
+            continue
+        dag_ids = nodes_declared_finer_than(limit).filter(team__organization_id=organization.id).values("dag_id")
+        for dag in DAG.objects.filter(id__in=dag_ids).select_related("team"):
+            try:
+                graph = build_frequency_graph(dag)
+                existing = list_existing_schedule_ids(str(dag.id))
+                if not _runs_on_tier_schedules(existing):
+                    continue
+                plan = plan_schedule_reconciliation(str(dag.id), _desired_tiers(graph), existing)
+                if plan.to_create or plan.to_delete:
+                    reconcile_dag_schedules(dag, graph=graph)
+                    reconciled += 1
+            except UnsupportedFrequencyTargetError:
+                logger.info("Plan floor drift skipped a DAG reconcile refuses", dag_id=str(dag.id), team_id=dag.team_id)
+            except Exception as error:
+                logger.exception("Plan floor drift reconcile failed", dag_id=str(dag.id), team_id=dag.team_id)
+                capture_exception(error)
+    return reconciled
 
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:

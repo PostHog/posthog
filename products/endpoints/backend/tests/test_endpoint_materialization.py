@@ -13,6 +13,7 @@ from django.utils import timezone
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
@@ -403,7 +404,10 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         ]
         self.organization.save(update_fields=["available_product_features"])
         return mock.patch(
-            "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false", return_value=True
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key="data-modeling-refresh-floor", enabled=True, variant=None, payload=None, reason=None
+            ),
         )
 
     @parameterized.expand(

@@ -7,6 +7,7 @@ from unittest import mock
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -35,6 +36,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_team_data_modeling_schedules,
     maybe_reconcile_dag,
     reconcile_dag_schedules,
+    reconcile_plan_floor_drift,
 )
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -51,7 +53,7 @@ from products.data_modeling.backend.test.helpers import (
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
-FLOOR_FLAG = "products.data_modeling.backend.logic.refresh_floor.feature_enabled_or_false"
+FLAG_RESULT = "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result"
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
@@ -59,10 +61,19 @@ H6 = timedelta(hours=6)
 DAY = timedelta(days=1)
 
 
+def _floor_flag(payload=None, *, enabled=True):
+    def evaluate(key, distinct_id, **_kwargs):
+        return FeatureFlagResult(key=key, enabled=enabled, variant=None, payload=payload, reason=None)
+
+    return evaluate
+
+
 def _grant_refresh_interval(organization, minutes):
-    organization.available_product_features = [
-        {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": minutes}
-    ]
+    organization.available_product_features = (
+        []
+        if minutes is None
+        else [{"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": minutes}]
+    )
     organization.save(update_fields=["available_product_features"])
 
 
@@ -454,6 +465,73 @@ class TestMaybeReconcileDag(BaseTest):
         temporal.list_schedules = fake_list_schedules
         return temporal
 
+    @parameterized.expand(
+        [
+            ("plan_floor_runs_at_its_limit", 360, _floor_flag({"clamp_existing": True}), H6),
+            ("plan_without_the_feature_is_not_floored", None, _floor_flag({"clamp_existing": True}), M15),
+            ("existing_cadence_kept_until_clamp_existing", 360, _floor_flag({"clamp_existing": False}), M15),
+            ("payload_without_clamp_keeps_existing_cadence", 360, _floor_flag(None), M15),
+            ("invalid_payload_keeps_existing_cadence", 360, _floor_flag({"clamp_existing": "yes"}), M15),
+            ("flag_off_applies_no_floor", 360, _floor_flag({"clamp_existing": True}, enabled=False), M15),
+        ]
+    )
+    def test_plan_floor_coarsens_the_schedule_and_keeps_the_saved_cadence(self, _name, minutes, flag, expected_tier):
+        _grant_refresh_interval(self.organization, minutes)
+        dag = self._dag_with_target()
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=flag),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing([]))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+
+        self.assertEqual(
+            [call.kwargs["id"] for call in create.call_args_list], [tier_schedule_id(str(dag.id), expected_tier)]
+        )
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        self.assertEqual(get_declared_target(endpoint), M15)
+
+    @parameterized.expand(
+        [
+            ("clamp_moves_a_fast_tier_to_the_floor", [M15], _floor_flag({"clamp_existing": True}), [H6], [M15]),
+            ("tier_already_on_the_floor", [H6], _floor_flag({"clamp_existing": True}), [], []),
+            (
+                "flag_off_releases_a_clamped_tier",
+                [H6],
+                _floor_flag({"clamp_existing": True}, enabled=False),
+                [M15],
+                [H6],
+            ),
+            ("unclamped_floor_leaves_a_fast_tier", [M15], _floor_flag({"clamp_existing": False}), [], []),
+            ("dag_with_a_whole_dag_schedule", None, _floor_flag({"clamp_existing": True}), [], []),
+        ]
+    )
+    def test_drift_sweep_reconciles_only_a_dag_whose_tiers_moved(self, _name, live, flag, created, deleted):
+        _grant_refresh_interval(self.organization, 360)
+        dag = self._dag_with_target()
+        dag_id = str(dag.id)
+        live_ids = [dag_id] if live is None else [tier_schedule_id(dag_id, interval) for interval in live]
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=flag),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=self._temporal_listing(live_ids))),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+        ):
+            reconciled = reconcile_plan_floor_drift()
+
+        self.assertEqual(reconciled, 1 if created or deleted else 0)
+        self.assertEqual(
+            [call.kwargs["id"] for call in create.call_args_list], [tier_schedule_id(dag_id, i) for i in created]
+        )
+        self.assertEqual(
+            sorted(call.kwargs["schedule_id"] for call in delete.call_args_list),
+            sorted(tier_schedule_id(dag_id, i) for i in deleted),
+        )
+
     def test_dag_with_no_schedule_regains_a_tier(self):
         dag = self._dag_with_target()
         with (
@@ -534,7 +612,7 @@ class TestMaybeReconcileDag(BaseTest):
         assert node.saved_query is not None
 
         with (
-            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(FLAG_RESULT, side_effect=_floor_flag()),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
             mock.patch("posthog.event_usage.posthoganalytics.capture") as capture,
             self.assertRaisesMessage(UnsatisfiableFrequencyError, "on your plan"),
@@ -553,7 +631,7 @@ class TestMaybeReconcileDag(BaseTest):
         set_declared_target(node, M15)
         assert node.saved_query is not None
 
-        with mock.patch(FLOOR_FLAG, return_value=True), mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
+        with mock.patch(FLAG_RESULT, side_effect=_floor_flag()), mock.patch(f"{RECONCILE}.maybe_reconcile_dag"):
             apply_saved_query_frequency_target(node.saved_query, M15)
 
         node.refresh_from_db()

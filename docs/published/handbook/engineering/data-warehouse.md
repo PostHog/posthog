@@ -46,8 +46,12 @@ A `limit` that is not a cadence rounds up to the next one, and the minimum stops
 The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
 
 The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
-The minimum refuses new and faster cadences only.
-A view or endpoint already set faster keeps its cadence and keeps running at it, and an endpoint's query edit keeps the cadence of the version it replaces.
+The minimum refuses new and faster cadences, and an endpoint's query edit keeps the cadence of the version it replaces.
+The flag's payload sets `clamp_existing`, which defaults to `false`.
+With `clamp_existing: false`, a view or endpoint already set faster keeps its cadence and keeps running at it.
+With `clamp_existing: true`, its schedule runs at the minimum, its saved cadence stays as it is, and an endpoint keeps serving its table for the minimum's interval.
+An hourly task reconciles the DAGs whose tier schedules no longer match their organization's plan and flag, so a plan or flag change reaches running schedules within an hour.
+To apply a change sooner, run `reconcile_organization_schedules --organization-ids`.
 Deploying the code alone does not enable the rollout.
 
 ## Model materialization usage

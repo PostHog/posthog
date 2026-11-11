@@ -98,6 +98,7 @@ from products.customer_analytics.backend.facade.tasks import schedule_task_diges
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
+    reconcile_plan_floor_drift,
 )
 from products.data_warehouse.backend.facade.tasks import (
     reconcile_all_managed_warehouse_tables_task,
@@ -885,6 +886,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="5", minute="30"),
         cleanup_deleted_saved_query_nodes.s(),
         name="cleanup deleted saved query nodes",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="23"),
+        reconcile_plan_floor_drift.s(),
+        name="reconcile plan floor drift",
     )
 
     # Reopen snoozed conversation tickets whose snooze period has expired
