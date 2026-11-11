@@ -223,6 +223,9 @@ interface ParsedRobotsConfiguration {
 }
 
 const PARSED_BODIES_MAX_BYTES = 32 * 1024 * 1024
+const PARSED_BODIES_MAX_ENTRIES = 20_000
+// A parse of a short body takes far more memory than the body, so each entry counts at least this much.
+const PARSED_BODY_OVERHEAD_BYTES = 1024
 
 /** Keyed by the body, so every item that holds a body shares its parse, also the items of jobs that waited on one fetch. */
 interface ParsedConfigurationCache {
@@ -231,7 +234,12 @@ interface ParsedConfigurationCache {
 }
 
 function parsedBodies<V extends object>(): LRUCache<string, V> {
-    return new LRUCache({ maxSize: PARSED_BODIES_MAX_BYTES, sizeCalculation: (_parsed, body) => 2 * body.length + 1 })
+    return new LRUCache({
+        max: PARSED_BODIES_MAX_ENTRIES,
+        maxSize: PARSED_BODIES_MAX_BYTES,
+        // The body as a key, and a parse that holds about as much again.
+        sizeCalculation: (_parsed, body) => 4 * body.length + PARSED_BODY_OVERHEAD_BYTES,
+    })
 }
 
 export class ConfigurationPolicyService {
