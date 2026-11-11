@@ -1,513 +1,130 @@
+import {
+  type WarmTaskClient,
+  WarmTaskService,
+} from "@posthog/core/task-detail/warmTaskService";
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockClient = vi.hoisted(() => ({
-  warmTask: vi.fn(),
-  cancelTaskRun: vi.fn().mockResolvedValue({}),
+const state = vi.hoisted(() => ({
+  enabled: true,
+  scope: "us:1",
+  user: "user-one",
 }));
-const flagState = vi.hoisted(() => ({ enabled: true }));
-
+const client = vi.hoisted(() => ({
+  warmTask: vi.fn<WarmTaskClient["warmTask"]>(),
+  cancelTaskRun: vi.fn<WarmTaskClient["cancelTaskRun"]>(),
+}));
+let service: WarmTaskService;
+vi.mock("@posthog/di/react", () => ({ useService: () => service }));
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
-  useOptionalAuthenticatedClient: () => mockClient,
+  useOptionalAuthenticatedClient: () => client,
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => flagState.enabled,
+  useFeatureFlag: () => state.enabled,
 }));
-vi.mock("../../../shell/logger", () => ({
-  logger: { scope: () => ({ warn: vi.fn(), error: vi.fn() }) },
+vi.mock("../../auth/store", () => ({
+  getAuthIdentity: vi.fn(),
+  useAuthStateValue: () => state.scope,
+}));
+vi.mock("../../auth/useCurrentUser", () => ({
+  useCurrentUser: () => ({ data: { uuid: state.user } }),
 }));
 
 import { type UseWarmTaskOptions, useWarmTask } from "./useWarmTask";
-import { takeWarmTaskLease } from "./warmTaskLease";
 
-type Props = UseWarmTaskOptions;
-
-const cloudTyping: Props = {
+const cloudTyping: UseWarmTaskOptions = {
+  sessionId: "composer",
   workspaceMode: "cloud",
-  selectedRepository: "acme/repo",
-  githubIntegrationId: 42,
-  branch: "main",
+  selectedRepository: "example/project",
+  githubIntegrationId: 1,
   editorIsEmpty: false,
 };
-
-const NULL_RUNTIME = {
-  runtime_adapter: null,
-  model: null,
-  reasoning_effort: null,
-  initial_permission_mode: null,
-};
+const log = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
+async function flush(): Promise<void> {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(600);
+  });
+}
 
 describe("useWarmTask", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    flagState.enabled = true;
-    mockClient.warmTask.mockResolvedValue({
-      task_id: "task-1",
-      run_id: "run-1",
+    Object.assign(state, { enabled: true, scope: "us:1", user: "user-one" });
+    service = new WarmTaskService({ ...log, scope: () => log });
+    client.warmTask.mockResolvedValue({
+      task_id: "warm-task",
+      run_id: "warm-run",
     });
+    client.cancelTaskRun.mockResolvedValue({});
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it.each<Partial<UseWarmTaskOptions>>([
+    { workspaceMode: "local" },
+    { editorIsEmpty: true },
+    { selectedRepository: null },
+    { githubIntegrationId: undefined },
+    { agentRuntime: "pi" },
+    { contextWindow: "1m" },
+    { fastMode: true },
+    { claudeModelAccess: "own-subscription" },
+    { codexModelAccess: "own-subscription" },
+  ])("does not speculate for an ineligible composer %j", async (selection) => {
+    renderHook(() => useWarmTask({ ...cloudTyping, ...selection }));
+    await flush();
+    expect(client.warmTask).not.toHaveBeenCalled();
   });
 
-  afterEach(() => {
-    vi.runOnlyPendingTimers();
-    vi.useRealTimers();
+  it("releases an abandoned warm and keeps its budget across remounts", async () => {
+    const first = renderHook(() => useWarmTask(cloudTyping));
+    await flush();
+    first.unmount();
+    await flush();
+    renderHook(() => useWarmTask(cloudTyping));
+    await flush();
+    expect(client.warmTask).toHaveBeenCalledTimes(1);
+    expect(client.cancelTaskRun).toHaveBeenCalledExactlyOnceWith(
+      "warm-task",
+      "warm-run",
+      undefined,
+      true,
+    );
   });
 
-  async function flushDebounce(): Promise<void> {
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(600);
-    });
-  }
-
-  it.each<{ reason: string; invalidate: Partial<Props>; late: boolean }>([
-    {
-      reason: "the claude plan",
-      invalidate: { claudeModelAccess: "own-subscription" },
-      late: false,
-    },
-    {
-      reason: "the claude plan",
-      invalidate: { claudeModelAccess: "own-subscription" },
-      late: true,
-    },
-    {
-      reason: "a switch to Pi",
-      invalidate: { agentRuntime: "pi" },
-      late: false,
-    },
-    {
-      reason: "a switch to Pi",
-      invalidate: { agentRuntime: "pi" },
-      late: true,
-    },
-  ])(
-    "releases an unused warm run after $reason and permits another (late: $late)",
-    async ({ invalidate, late }) => {
-      let finishWarm:
-        | ((value: { task_id: string; run_id: string }) => void)
-        | undefined;
-      if (late)
-        mockClient.warmTask.mockImplementationOnce(
-          () =>
-            new Promise((resolve) => {
-              finishWarm = resolve;
-            }),
-        );
-      const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-        initialProps: cloudTyping,
-      });
-      await flushDebounce();
-      rerender({ ...cloudTyping, ...invalidate });
-      if (finishWarm)
-        await act(async () => {
-          finishWarm?.({ task_id: "task-1", run_id: "run-1" });
-        });
-      await flushDebounce();
-      expect(mockClient.warmTask).toHaveBeenCalledTimes(1);
-      expect(mockClient.cancelTaskRun).toHaveBeenCalledWith(
-        "task-1",
-        "run-1",
-        undefined,
-        true,
-      );
-      rerender(cloudTyping);
-      await flushDebounce();
-      expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
+  it.each(["scope", "user"] as const)(
+    "isolates %s changes and releases the prior account's warm",
+    async (field) => {
+      const { rerender } = renderHook(() => useWarmTask(cloudTyping));
+      await flush();
+      state[field] = "different";
+      rerender();
+      await flush();
+      expect(client.warmTask).toHaveBeenCalledTimes(2);
+      expect(client.cancelTaskRun).toHaveBeenCalledTimes(1);
     },
   );
 
-  it("fires a debounced warm when cloud + repo + typing", async () => {
-    renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-
-    expect(mockClient.warmTask).not.toHaveBeenCalled();
-
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
-      ...NULL_RUNTIME,
-    });
-  });
-
-  it.each<{ name: string; props?: Partial<Props>; flagEnabled?: boolean }>([
-    { name: "the flag is off", flagEnabled: false },
-    { name: "not in cloud mode", props: { workspaceMode: "local" } },
-    { name: "no repository is selected", props: { selectedRepository: null } },
-    {
-      name: "no github integration",
-      props: { githubIntegrationId: undefined },
-    },
-    { name: "the editor is empty", props: { editorIsEmpty: true } },
-    { name: "the composer sits on Pi", props: { agentRuntime: "pi" } },
-  ])("does not fire when $name", async ({ props, flagEnabled }) => {
-    if (flagEnabled === false) {
-      flagState.enabled = false;
-    }
-    renderHook((p: Props) => useWarmTask(p), {
-      initialProps: { ...cloudTyping, ...props },
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).not.toHaveBeenCalled();
-  });
-
-  it("fires once the editor becomes non-empty", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: { ...cloudTyping, editorIsEmpty: true },
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).not.toHaveBeenCalled();
-
-    rerender(cloudTyping);
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-  });
-
-  it("does not reset the debounce when the composer rerenders", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-    rerender({ ...cloudTyping });
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
-    });
-
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-  });
-
-  it("warms a repo-less cloud task when repositories are optional", async () => {
-    renderHook((props: Props) => useWarmTask(props), {
-      initialProps: {
+  it("warms repo-less channels with their actual selection", async () => {
+    renderHook(() =>
+      useWarmTask({
         ...cloudTyping,
-        selectedRepository: null,
-        githubIntegrationId: undefined,
         allowNoRepo: true,
-      },
-    });
-
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenCalledWith({
-      repository: null,
-      github_integration: null,
-      branch: "main",
-      ...NULL_RUNTIME,
-    });
-  });
-
-  it("warms all repositories selected for a multi-repo task", async () => {
-    renderHook((props: Props) => useWarmTask(props), {
-      initialProps: {
-        ...cloudTyping,
-        selectedRepository: null,
-        repositories: ["acme/app", "acme/api", "acme/docs"],
-        allowNoRepo: true,
-      },
-    });
-
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenCalledWith({
-      repository: "acme/app",
-      repositories: ["acme/app", "acme/api", "acme/docs"],
-      github_integration: 42,
-      branch: "main",
-      ...NULL_RUNTIME,
-    });
-    expect(
-      takeWarmTaskLease({
-        repository: null,
-        repositories: ["acme/app", "acme/api", "acme/docs"],
-        branch: "main",
-        runtimeAdapter: null,
-        model: null,
-        reasoningEffort: null,
-      }),
-    ).toEqual({ taskId: "task-1", runId: "run-1" });
-  });
-
-  it("ignores a stale repository selection for a repo-less cloud task", async () => {
-    renderHook((props: Props) => useWarmTask(props), {
-      initialProps: { ...cloudTyping, allowNoRepo: true },
-    });
-
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenCalledWith({
-      repository: null,
-      github_integration: null,
-      branch: "main",
-      ...NULL_RUNTIME,
-    });
-  });
-
-  it("does not re-fire for the same selection (backend dedups, client guards)", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-
-    rerender({ ...cloudTyping });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-  });
-
-  it("warms the new selection when the repository changes (no release)", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-
-    rerender({ ...cloudTyping, selectedRepository: "acme/other" });
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/other",
-      github_integration: 42,
-      branch: "main",
-      ...NULL_RUNTIME,
-    });
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
-  });
-
-  it("warms the new selection when the branch changes (no release)", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-    await flushDebounce();
-
-    rerender({ ...cloudTyping, branch: "feature/x" });
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "feature/x",
-      ...NULL_RUNTIME,
-    });
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
-  });
-
-  it("forwards the selected runtime and permission mode and re-warms when either changes", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: {
-        ...cloudTyping,
+        repositories: [],
         runtimeAdapter: "claude",
-        model: "claude-opus-4-8",
-        reasoningEffort: "high",
         permissionMode: "plan",
-      },
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
+      }),
+    );
+    await flush();
+    expect(client.warmTask).toHaveBeenCalledExactlyOnceWith({
+      repository: null,
+      repositories: [],
+      github_integration: null,
+      branch: null,
       runtime_adapter: "claude",
-      model: "claude-opus-4-8",
-      reasoning_effort: "high",
+      model: null,
+      reasoning_effort: null,
       initial_permission_mode: "plan",
     });
-
-    rerender({
-      ...cloudTyping,
-      runtimeAdapter: "claude",
-      model: "claude-opus-4-8",
-      reasoningEffort: "high",
-      permissionMode: "bypassPermissions",
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
-      runtime_adapter: "claude",
-      model: "claude-opus-4-8",
-      reasoning_effort: "high",
-      initial_permission_mode: "bypassPermissions",
-    });
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
-
-    rerender({
-      ...cloudTyping,
-      runtimeAdapter: "codex",
-      model: "gpt-5.5",
-      reasoningEffort: "high",
-      permissionMode: "auto",
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
-      runtime_adapter: "codex",
-      model: "gpt-5.5",
-      reasoning_effort: "high",
-      initial_permission_mode: "auto",
-    });
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(3);
-  });
-
-  it("keeps the warm lease when only reasoning effort changes", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: {
-        ...cloudTyping,
-        runtimeAdapter: "codex",
-        model: "gpt-5.6-sol",
-        reasoningEffort: "high",
-        permissionMode: "auto",
-      },
-    });
-    await flushDebounce();
-
-    rerender({
-      ...cloudTyping,
-      runtimeAdapter: "codex",
-      model: "gpt-5.6-sol",
-      reasoningEffort: "xhigh",
-      permissionMode: "auto",
-    });
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-    expect(
-      takeWarmTaskLease({
-        repository: "acme/repo",
-        branch: "main",
-        runtimeAdapter: "codex",
-        model: "gpt-5.6-sol",
-        reasoningEffort: "xhigh",
-        permissionMode: "auto",
-      }),
-    ).toEqual({ taskId: "task-1", runId: "run-1" });
-  });
-
-  it("forwards sandbox configuration and re-warms when the image changes", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: {
-        ...cloudTyping,
-        sandboxEnvironmentId: "environment-123",
-        customImageId: "image-123",
-      },
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
-      ...NULL_RUNTIME,
-      sandbox_environment_id: "environment-123",
-      custom_image_id: "image-123",
-    });
-
-    rerender({
-      ...cloudTyping,
-      sandboxEnvironmentId: "environment-123",
-      customImageId: "image-456",
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenLastCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
-      ...NULL_RUNTIME,
-      sandbox_environment_id: "environment-123",
-      custom_image_id: "image-456",
-    });
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
-  });
-
-  it("warms only the latest image when selection changes during the debounce", async () => {
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: { ...cloudTyping, customImageId: "image-123" },
-    });
-
-    rerender({ ...cloudTyping, customImageId: "image-456" });
-    await flushDebounce();
-
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-    expect(mockClient.warmTask).toHaveBeenCalledWith({
-      repository: "acme/repo",
-      github_integration: 42,
-      branch: "main",
-      ...NULL_RUNTIME,
-      custom_image_id: "image-456",
-    });
-  });
-
-  it("keeps the latest image lease when warm responses complete out of order", async () => {
-    type WarmResponse = { task_id: string; run_id: string };
-    let resolveFirstWarm!: (value: WarmResponse) => void;
-    let resolveSecondWarm!: (value: WarmResponse) => void;
-    const firstWarm = new Promise<WarmResponse>((resolve) => {
-      resolveFirstWarm = resolve;
-    });
-    const secondWarm = new Promise<WarmResponse>((resolve) => {
-      resolveSecondWarm = resolve;
-    });
-    mockClient.warmTask
-      .mockReturnValueOnce(firstWarm)
-      .mockReturnValueOnce(secondWarm);
-
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: { ...cloudTyping, customImageId: "image-123" },
-    });
-    await flushDebounce();
-
-    rerender({ ...cloudTyping, customImageId: "image-456" });
-    await flushDebounce();
-
-    await act(async () => {
-      resolveSecondWarm({ task_id: "task-2", run_id: "run-2" });
-      await secondWarm;
-    });
-    await act(async () => {
-      resolveFirstWarm({ task_id: "task-1", run_id: "run-1" });
-      await firstWarm;
-    });
-
-    expect(
-      takeWarmTaskLease({
-        repository: "acme/repo",
-        branch: "main",
-        runtimeAdapter: null,
-        model: null,
-        reasoningEffort: null,
-        sandboxEnvironmentId: null,
-        customImageId: "image-456",
-      }),
-    ).toEqual({ taskId: "task-2", runId: "run-2" });
-  });
-
-  it("warms again for a new selection after a failed warm", async () => {
-    mockClient.warmTask.mockRejectedValueOnce(new Error("boom"));
-    const { rerender } = renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
-
-    rerender({ ...cloudTyping, branch: "feature/x" });
-    await flushDebounce();
-    expect(mockClient.warmTask).toHaveBeenCalledTimes(2);
-  });
-
-  it("swallows warm errors without throwing", async () => {
-    mockClient.warmTask.mockRejectedValue(new Error("boom"));
-    renderHook((props: Props) => useWarmTask(props), {
-      initialProps: cloudTyping,
-    });
-
-    await expect(flushDebounce()).resolves.not.toThrow();
-    expect(mockClient.warmTask).toHaveBeenCalledOnce();
   });
 });

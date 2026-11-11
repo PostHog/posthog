@@ -1,11 +1,6 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
 import type { CloudSkillBundleRef } from "@posthog/core/sessions/cloudArtifactIdentifiers";
-import type {
-  ExecutionMode,
-  Workspace,
-  WorkspaceInfo,
-  WorkspaceMode,
-} from "@posthog/shared";
+import type { Workspace, WorkspaceInfo, WorkspaceMode } from "@posthog/shared";
 import type { TaskCreationApiClient } from "./taskCreationApiClient";
 
 export interface CloudPromptTransport {
@@ -108,24 +103,6 @@ export interface ITaskCreationHost {
    * too, or a typed `/my-skill` reaches the sandbox with no bundle attached.
    */
   resolveLocalSkillCommandPrompt(prompt: string): Promise<string>;
-  /**
-   * Return-and-clear the pre-warmed sandbox lease matching the composer
-   * selection, if one was provisioned while the user typed. The saga uploads
-   * first-message attachments (skill bundles, files) to this run before
-   * createTask so the backend's warm activation can forward them; null means
-   * no warm run is known client-side.
-   */
-  takeWarmTaskLease(args: {
-    repository?: string | null;
-    repositories?: string[];
-    branch?: string | null;
-    runtimeAdapter?: string | null;
-    model?: string | null;
-    reasoningEffort?: string | null;
-    permissionMode?: ExecutionMode | null;
-    sandboxEnvironmentId?: string | null;
-    customImageId?: string | null;
-  }): { taskId: string; runId: string } | null;
   uploadRunAttachments(
     client: TaskCreationApiClient,
     taskId: string,
