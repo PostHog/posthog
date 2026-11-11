@@ -77,6 +77,8 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
+                  sparse-checkout: .github/actions/wait-for-check
+                  sparse-checkout-cone-mode: false
 
             - name: Check quiet period
               id: quiet
