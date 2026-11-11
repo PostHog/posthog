@@ -1,7 +1,6 @@
 import { CyclotronJobFiltersType, EventPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { hogFunctionsCreate } from 'products/cdp/frontend/generated/api'
-import type { HogFunctionTemplateApi } from 'products/cdp/frontend/generated/api.schemas'
 
 export type DeliveryWebhookCreateBody = NonNullable<Parameters<typeof hogFunctionsCreate>[1]>
 
@@ -57,31 +56,13 @@ export function generateSigningSecret(): string {
     return `whsec_${btoa(String.fromCharCode(...bytes))}`
 }
 
-export function isHttpsUrl(value: string): boolean {
-    try {
-        return new URL(value).protocol === 'https:'
-    } catch {
-        return false
-    }
-}
+const NAME_PATH_LENGTH = 30
 
-function hostOf(url: string): string {
-    try {
-        return new URL(url).host
-    } catch {
-        return url
+function shortPath(pathname: string): string {
+    if (pathname === '/') {
+        return ''
     }
-}
-
-// Every delivery event carries the ID of the workflow that sent it. A transactional email and a code-send key each
-// have their own workflow, so one filter covers both.
-function sentByWorkflowsProperty(workflowIds: string[]): EventPropertyFilter[] {
-    if (workflowIds.length === 0) {
-        return []
-    }
-    return [
-        { key: '$workflow_id', type: PropertyFilterType.Event, operator: PropertyOperator.Exact, value: workflowIds },
-    ]
+    return pathname.length > NAME_PATH_LENGTH ? `${pathname.slice(0, NAME_PATH_LENGTH)}…` : pathname
 }
 
 export function buildDeliveryWebhookPayload({
@@ -89,21 +70,18 @@ export function buildDeliveryWebhookPayload({
     events,
     workflowIds,
     signingSecret,
-    template,
 }: {
     url: string
     events: DeliveryWebhookEventName[]
     workflowIds: string[]
     signingSecret: string
-    template: Pick<HogFunctionTemplateApi, 'code' | 'inputs_schema' | 'icon_url'>
 }): DeliveryWebhookCreateBody {
+    const { host, pathname } = new URL(url)
     const payload = {
         template_id: DELIVERY_WEBHOOK_TEMPLATE_ID,
         type: 'destination',
-        name: `Transactional email webhook: ${hostOf(url)}`,
+        name: `Transactional email webhook: ${host}${shortPath(pathname)}`,
         description: 'Sends delivery updates for transactional emails to your endpoint.',
-        hog: template.code,
-        inputs_schema: template.inputs_schema,
         inputs: {
             url: { value: url },
             method: { value: 'POST' },
@@ -114,9 +92,20 @@ export function buildDeliveryWebhookPayload({
         filters: {
             source: 'events',
             events: events.map((event) => ({ id: event, name: event, type: 'events' })),
-            properties: [TRANSACTIONAL_EMAIL_PROPERTY, ...sentByWorkflowsProperty(workflowIds)],
+            properties: [
+                TRANSACTIONAL_EMAIL_PROPERTY,
+                ...(workflowIds.length > 0
+                    ? [
+                          {
+                              key: '$workflow_id',
+                              type: PropertyFilterType.Event,
+                              operator: PropertyOperator.Exact,
+                              value: workflowIds,
+                          },
+                      ]
+                    : []),
+            ],
         },
-        icon_url: template.icon_url,
         enabled: true,
     }
     // The generated write body marks server-set input fields (bytecode, order, transpiled) as required,

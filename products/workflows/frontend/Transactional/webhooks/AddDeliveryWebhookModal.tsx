@@ -14,18 +14,24 @@ export function AddDeliveryWebhookModal(): JSX.Element {
     const {
         isAddModalOpen,
         createdSecret,
-        webhookForm,
         isWebhookFormSubmitting,
+        webhookFormChanged,
         transactionalEmailOptions,
         transactionalEmailOptionsLoading,
+        transactionalEmailOptionsLoadFailed,
     } = useValues(deliveryWebhooksLogic)
-    const { closeAddModal, submitWebhookForm, setWebhookFormValue } = useActions(deliveryWebhooksLogic)
+    const { closeAddModal, submitWebhookForm, loadTransactionalEmailOptions } = useActions(deliveryWebhooksLogic)
+    const noTransactionalEmailsYet =
+        !transactionalEmailOptionsLoading &&
+        !transactionalEmailOptionsLoadFailed &&
+        transactionalEmailOptions.length === 0
 
     if (createdSecret) {
         return (
             <LemonModal
                 isOpen={isAddModalOpen}
                 onClose={closeAddModal}
+                closable={false}
                 title="Webhook added"
                 width={560}
                 footer={
@@ -55,10 +61,12 @@ export function AddDeliveryWebhookModal(): JSX.Element {
     return (
         <LemonModal
             isOpen={isAddModalOpen}
+            onClose={closeAddModal}
             // Closing mid-request would hide the secret of a webhook the request still creates.
-            onClose={isWebhookFormSubmitting ? undefined : closeAddModal}
+            closable={!isWebhookFormSubmitting}
+            hasUnsavedInput={webhookFormChanged}
             title="Add webhook"
-            description="Send a request to your endpoint when a transactional email is sent, delivered, opened, or fails."
+            description="Send a request to your endpoint when a transactional email is sent, delivered, opened, clicked, bounced, marked as spam, or fails."
             width={560}
             footer={
                 <>
@@ -93,9 +101,8 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         mode="multiple"
                         options={transactionalEmailOptions}
                         loading={transactionalEmailOptionsLoading}
-                        // The select also shows this when a search matches nothing, so it is set only for an empty list.
                         emptyStateComponent={
-                            !transactionalEmailOptionsLoading && transactionalEmailOptions.length === 0 ? (
+                            noTransactionalEmailsYet ? (
                                 <p className="text-secondary italic p-1 m-0">
                                     No transactional emails yet. This webhook gets updates for every one you add.
                                 </p>
@@ -105,26 +112,40 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         data-attr="transactional-webhook-emails"
                     />
                 </LemonField>
+                {transactionalEmailOptionsLoadFailed ? (
+                    <LemonBanner
+                        type="error"
+                        action={{ children: 'Try again', onClick: () => loadTransactionalEmailOptions() }}
+                    >
+                        Couldn't load your transactional emails. Try again, or leave the field empty to get updates for
+                        all of them.
+                    </LemonBanner>
+                ) : null}
                 <LemonField name="events" label="Events">
-                    <div className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
-                        {DELIVERY_WEBHOOK_EVENTS.map(({ event, label }) => (
-                            <LemonCheckbox
-                                key={event}
-                                label={label}
-                                checked={webhookForm.events.includes(event)}
-                                onChange={(checked) =>
-                                    setWebhookFormValue(
-                                        'events',
-                                        checked
-                                            ? DELIVERY_WEBHOOK_EVENTS.map((e) => e.event).filter(
-                                                  (e) => e === event || webhookForm.events.includes(e)
-                                              )
-                                            : webhookForm.events.filter((e) => e !== event)
-                                    )
-                                }
-                            />
-                        ))}
-                    </div>
+                    {({ value, onChange }) => (
+                        <div
+                            role="group"
+                            aria-label="Events"
+                            className="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2"
+                        >
+                            {DELIVERY_WEBHOOK_EVENTS.map(({ event, label }) => (
+                                <LemonCheckbox
+                                    key={event}
+                                    label={label}
+                                    checked={value.includes(event)}
+                                    onChange={(checked) =>
+                                        onChange(
+                                            checked
+                                                ? DELIVERY_WEBHOOK_EVENTS.map((e) => e.event).filter(
+                                                      (e) => e === event || value.includes(e)
+                                                  )
+                                                : value.filter((e: string) => e !== event)
+                                        )
+                                    }
+                                />
+                            ))}
+                        </div>
+                    )}
                 </LemonField>
             </Form>
         </LemonModal>

@@ -20,12 +20,6 @@ describe('deliveryWebhooksLogic', () => {
         requestedTeamIds = new Set()
         useMocks({
             get: {
-                '/api/projects/:team_id/hog_function_templates/template-webhook/': {
-                    id: 'template-webhook',
-                    code: 'fetch(inputs.url, {})',
-                    inputs_schema: [{ key: 'url', type: 'string' }],
-                    icon_url: '/static/services/webhook.svg',
-                },
                 '/api/projects/:team_id/messaging_templates/': ({ request, params }) => {
                     requestedTeamIds.add(String(params.team_id))
                     const offset = new URL(request.url).searchParams.get('offset')
@@ -36,7 +30,7 @@ describe('deliveryWebhooksLogic', () => {
                                   next: 'http://localhost/api/projects/2001/messaging_templates/?limit=100&offset=2',
                                   results: [
                                       {
-                                          id: 'template-receipt',
+                                          id: 'a1b2c3d4-0000-4000-8000-000000000001',
                                           name: 'Receipt',
                                           transactional_hog_flow_id: 'flow-receipt',
                                       },
@@ -57,6 +51,11 @@ describe('deliveryWebhooksLogic', () => {
                                           id: 'template-reset',
                                           name: 'Password reset',
                                           transactional_hog_flow_id: 'flow-reset',
+                                      },
+                                      {
+                                          id: '9f3c2a71-0000-4000-8000-000000000002',
+                                          name: 'Receipt',
+                                          transactional_hog_flow_id: 'flow-receipt-copy',
                                       },
                                   ],
                               },
@@ -87,9 +86,13 @@ describe('deliveryWebhooksLogic', () => {
     ])('creates a signed webhook for %s that the webhooks list finds', async (_, picked, workflowIds) => {
         logic.actions.openAddModal()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual(['Receipt', 'Password reset'])
+        expect(logic.values.transactionalEmailOptions.map(({ label }) => label)).toEqual([
+            'Receipt (a1b2c3d4)',
+            'Password reset',
+            'Receipt (9f3c2a71)',
+        ])
         logic.actions.setWebhookFormValues({
-            url: ' https://example.com/hooks ',
+            url: ' https://example.com/hooks/prod ',
             events: ['$workflows_email_delivered', '$workflows_email_bounced'],
             workflowIds: logic.values.transactionalEmailOptions
                 .filter(({ label }) => picked.includes(label))
@@ -102,7 +105,8 @@ describe('deliveryWebhooksLogic', () => {
         expect([...requestedTeamIds]).toEqual([String(environment.id)])
         const [webhook] = created
         expect(webhook.template_id).toEqual('template-webhook')
-        expect(webhook.inputs.url.value).toEqual('https://example.com/hooks')
+        expect(webhook.inputs.url.value).toEqual('https://example.com/hooks/prod')
+        expect(webhook.name).toEqual('Transactional email webhook: example.com/hooks/prod')
         expect(webhook.filters.events.map((e: { id: string }) => e.id)).toEqual([
             '$workflows_email_delivered',
             '$workflows_email_bounced',
@@ -122,6 +126,15 @@ describe('deliveryWebhooksLogic', () => {
 
         logic.actions.closeAddModal()
         expect(logic.values.createdSecret).toBeNull()
+    })
+
+    it('names a webhook with a long path by its host and the start of the path', async () => {
+        logic.actions.setWebhookFormValues({ url: `https://example.com/${'a'.repeat(500)}` })
+        logic.actions.submitWebhookForm()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(created[0].name).toEqual(`Transactional email webhook: example.com/${'a'.repeat(29)}…`)
+        expect(created[0].inputs.url.value).toEqual(`https://example.com/${'a'.repeat(500)}`)
     })
 
     it.each([
