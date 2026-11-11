@@ -81,13 +81,17 @@ def _newest_active_quarantines(run: Run, now: datetime) -> dict[str, datetime]:
 def _clean_streaks(
     run: Run, default_branch: str, quarantined: dict[str, datetime], now: datetime
 ) -> dict[str, CleanStreak]:
-    window_runs = auto_quarantine.trusted_runs_since(
-        run, default_branch, now - timedelta(days=AUTO_LIFT_CLEAN_DAYS)
-    ).values("id")
+    # A list of ids, not a subquery: with a join on the run the planner can pick the identifier
+    # index and read every run the repo ever stored, as the flakiness reads found.
+    window_run_ids = list(
+        auto_quarantine.trusted_runs_since(run, default_branch, now - timedelta(days=AUTO_LIFT_CLEAN_DAYS)).values_list(
+            "id", flat=True
+        )
+    )
     counts = {
         identifier: (total, unchanged)
         for identifier, total, unchanged in RunSnapshot.objects.using(WRITER_DB)
-        .filter(run_id__in=window_runs, team_id=run.team_id, identifier__in=list(quarantined))
+        .filter(run_id__in=window_run_ids, team_id=run.team_id, identifier__in=list(quarantined))
         .values("identifier")
         .annotate(total=Count("id"), unchanged=Count("id", filter=Q(result=SnapshotResult.UNCHANGED)))
         .values_list("identifier", "total", "unchanged")
