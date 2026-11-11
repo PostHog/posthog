@@ -95,18 +95,10 @@ After consent the SDK starts sending to `/s/` and `/e/`, and the proxy breaks th
 
 Docs: https://posthog.com/docs/advanced/proxy
 
-### Recordings stopped for everyone on a date, events still arrive
+### Recordings stopped for everyone on a date
 
-**Symptom:** "no recordings for two weeks", with normal event volume.
-
-**Evidence:** recordings made before the date look normal, so check the events after it:
-
-1. The session replay **billing limit**. When it is reached, remote config returns `quotaLimited: ["recordings"]` with `sessionRecording: false`, and the SDK stops recording. Client events after the date carry `$recording_status = 'disabled'`. Older SDKs write the whole remote config into `$remote_config_received`, so `quotaLimited` can show in the config recipe.
-2. Replay turned off in project settings. This also gives `$recording_status = 'disabled'`, but without `quotaLimited`. `disable_session_recording: false` in code does not turn replay on; it only stops the client from blocking it.
-3. The settings were changed recently. Changes take a few minutes to reach ingestion.
-
-**Fix:** raise the limit in Organization settings > Billing above what the period already used. It clears in about 15 minutes. Dropped recordings cannot be recovered.
-A product analytics limit has the opposite effect: recordings arrive, but events do not, so recordings have no person and searches by user find nothing.
+Not a gap in this recording: hand off to the `diagnosing-missing-recordings` skill.
+A replay billing limit never shows in an export, because a limited SDK starts no recorder. Confirm it in the organization's billing settings.
 
 ## Never recorded
 

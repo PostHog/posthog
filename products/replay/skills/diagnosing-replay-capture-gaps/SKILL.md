@@ -14,14 +14,14 @@ description: >
 
 # Diagnosing gaps in what a replay captured
 
-The user has one recording open and something is missing: the start, the end, a page, a stretch in the middle, or other sessions that should have been recorded.
+The user has one recording open and something is missing: the start, the end, a page, or a stretch in the middle.
 The recording itself is the best evidence.
 posthog-js writes its config, its start reason, and its lifecycle (pauses, idle, session changes, page loads) into the recording as custom events.
 
 Your job is to separate three things:
 
 1. **Expected gaps**: the SDK did what it was configured to do (sampling, triggers, URL blocklist, idle, hidden tab, minimum duration).
-2. **Lost data**: the SDK recorded, but data did not reach PostHog (tab closed before upload, blocked `/s/` requests, a proxy that breaks `/s/`, billing limits).
+2. **Lost data**: the SDK recorded, but data did not reach PostHog (tab closed before upload, blocked `/s/` requests, a proxy that breaks `/s/`).
 3. **Not recorded at all**: the SDK never ran or never started on those pages (a second app with replay off, recorder script blocked, init removed).
 
 Name which one it is, and back it with timestamps from this recording.
@@ -70,22 +70,27 @@ A session lasts at most 24 hours, so a one-day buffer on each side keeps events 
 
 ```sql
 SELECT
-    timestamp,
-    event,
     properties.$current_url AS url,
-    properties.$recording_status AS recording_status,
-    properties.$session_recording_start_reason AS start_reason,
-    properties.$sdk_debug_replay_flushed_size AS flushed_size,
     properties.$lib AS lib,
-    properties.$lib_version AS lib_version
+    properties.$lib_version AS lib_version,
+    properties.$recording_status AS recording_status,
+    groupUniqArray(properties.$session_recording_start_reason) AS start_reasons,
+    groupUniqArray(event) AS event_types,
+    count() AS events,
+    min(timestamp) AS first_seen,
+    max(timestamp) AS last_seen
 FROM events
 WHERE $session_id = '<session_id>'
     AND timestamp >= toDateTime('<start>') - INTERVAL 1 DAY
     AND timestamp <= toDateTime('<end>') + INTERVAL 1 DAY
     AND event IN ('$pageview', '$screen', '$pageleave', '$autocapture', '$exception')
-ORDER BY timestamp ASC
-LIMIT 300
+GROUP BY url, lib, lib_version, recording_status
+ORDER BY first_seen ASC
+LIMIT 500
 ```
+
+Each row covers every event for one URL and SDK state, so a long session does not push its end out of the result.
+If the query returns 500 rows, the result is cut off: narrow the time range before you read anything into where events end.
 
 - Events on URLs that the recording does not cover: those pages were not recorded. A single-page app changes route without a page load, so compare against Meta `href` values **and** the `href` of `$pageview` and `$url_changed` custom events, and check that snapshots continue around that time. Only then check `$lib_version` on the unrecorded events. A different version or `$lib` means a different app or init.
 - `recording_status` that changes during the session (for example to `disabled`, `paused`, or `buffering`) shows where the SDK stopped.
@@ -119,8 +124,9 @@ Then give:
 1. **What is missing**: which part of this recording, by player time.
 2. **Why**: the cause, with the custom events, timestamps, and config values that prove it.
 3. **Fix**: the setting path or SDK option and value, the minimum SDK version if one applies, and a docs link.
-4. **What it means for other sessions**: from the config in Step 5.
-5. **What cannot be recovered**: data that never reached PostHog, or that was dropped by a billing limit, is gone.
+4. **What cannot be recovered**: data that never reached PostHog is gone.
+
+If the user asked about other sessions, add the config facts from Step 5 and point to `diagnosing-missing-recordings`.
 
 Do not quote personal data from the recording (URLs with tokens, emails, input values) unless the user needs it.
 
