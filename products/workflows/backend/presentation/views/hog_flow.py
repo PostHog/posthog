@@ -665,6 +665,8 @@ def _is_finished_condition(condition: Any) -> bool:
 
 def _has_unfinished_condition(conditions: Any) -> bool:
     if _is_condition_group(conditions):
+        if not isinstance(conditions["values"], list):
+            return True
         conditions = conditions["values"]
     if not isinstance(conditions, list):
         return False
