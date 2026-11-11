@@ -547,12 +547,18 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     })),
     reducers(() => ({
         otherFileCounts: {
-            [projectTreeDataLogic.actionTypes.movedItem]: (counts, { item, oldPath, newPath }) =>
-                counts && item.type === 'folder'
-                    ? Object.fromEntries(
-                          Object.entries(counts).map(([p, n]) => [reparentPath(p, oldPath, newPath) ?? p, n])
-                      )
-                    : counts,
+            // A folder moved onto an existing one merges into it, so both folders' counts add up.
+            [projectTreeDataLogic.actionTypes.movedItem]: (counts, { item, oldPath, newPath }) => {
+                if (!counts || item.type !== 'folder') {
+                    return counts
+                }
+                const moved: Record<string, number> = {}
+                for (const [path, count] of Object.entries(counts)) {
+                    const to = reparentPath(path, oldPath, newPath) ?? path
+                    moved[to] = (moved[to] ?? 0) + count
+                }
+                return moved
+            },
         },
     })),
     selectors({

@@ -834,14 +834,26 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
     })
 
-    it("still counts other products' files in a folder after it moves, and still hides it", async () => {
+    it.each([
+        ['after it moves', [{ folder: 'Reports', count: 1 }], 1],
+        [
+            'of both folders after it moves onto another',
+            [
+                { folder: 'Reports', count: 2 },
+                { folder: 'Old', count: 3 },
+            ],
+            5,
+        ],
+    ])("still counts other products' files in a folder %s, and still hides it", async (_, counts, expected) => {
         await expectLogic(logic).toFinishAllListeners()
+        useMocks({ get: { '/api/projects/:team_id/file_system/folder_counts/': () => [200, { results: counts }] } })
+        await expectLogic(logic, () => logic.actions.loadOtherFiles()).toFinishAllListeners()
 
         projectTreeDataLogic.actions.movedItem({ id: 'dashboards', path: 'Reports', type: 'folder' }, 'Reports', 'Old')
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Old')
 
-        expect(logic.values.otherProductFileCount).toBe(1)
+        expect(logic.values.otherProductFileCount).toBe(expected)
         expect(logic.values.folderPaths).not.toContain('Old')
     })
 
