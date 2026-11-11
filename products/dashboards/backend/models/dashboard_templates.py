@@ -80,10 +80,7 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
         """
         return DashboardTemplate(
             template_name="Product analytics",
-            dashboard_description=(
-                "These charts use pageviews, clicks, sessions, and location, which PostHog captures automatically. "
-                "Set the retention and funnel tiles to use your own events."
-            ),
+            dashboard_description="",
             dashboard_filters={},
             customization={
                 "groups": {
@@ -94,6 +91,21 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                 }
             },
             tiles=[
+                {
+                    "type": "TEXT",
+                    "color": None,
+                    "transparent_background": True,
+                    "body": (
+                        "# 👋 Start here\n\n"
+                        "The charts below use pageviews, clicks, sessions, and location, which PostHog captures "
+                        "automatically. Set the retention and funnel tiles to use your own events. You can edit "
+                        "any tile or duplicate the dashboard."
+                    ),
+                    "layouts": {
+                        "sm": {"h": 2, "w": 12, "x": 0, "y": 0, "minH": 1, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 0, "minH": 1, "minW": 1},
+                    },
+                },
                 {
                     "name": "Active users (last 30 days)",
                     "type": "INSIGHT",
@@ -133,8 +145,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 4, "x": 0, "y": 0, "minH": 2, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 0, "minH": 2, "minW": 1},
+                        "sm": {"h": 3, "w": 4, "x": 0, "y": 2, "minH": 2, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 3, "minH": 2, "minW": 1},
                     },
                     "description": "",
                 },
@@ -173,8 +185,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 4, "x": 4, "y": 0, "minH": 2, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 3, "minH": 2, "minW": 1},
+                        "sm": {"h": 3, "w": 4, "x": 4, "y": 2, "minH": 2, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 6, "minH": 2, "minW": 1},
                     },
                     "description": "",
                 },
@@ -208,8 +220,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 4, "x": 8, "y": 0, "minH": 2, "minW": 3},
-                        "xs": {"h": 3, "w": 1, "x": 0, "y": 6, "minH": 2, "minW": 1},
+                        "sm": {"h": 3, "w": 4, "x": 8, "y": 2, "minH": 2, "minW": 3},
+                        "xs": {"h": 3, "w": 1, "x": 0, "y": 9, "minH": 2, "minW": 1},
                     },
                     "description": "",
                 },
@@ -220,8 +232,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": "Active users show your trend. Retention shows how many return after their first visit.",
                     "layouts": {
-                        "sm": {"h": 1, "w": 12, "x": 0, "y": 3, "minH": 1, "minW": 3},
-                        "xs": {"h": 2, "w": 1, "x": 0, "y": 9, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 5, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 12, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -263,8 +275,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 4, "w": 6, "x": 0, "y": 4, "minH": 3, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 11, "minH": 3, "minW": 1},
+                        "sm": {"h": 4, "w": 6, "x": 0, "y": 6, "minH": 3, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 14, "minH": 3, "minW": 1},
                     },
                     "description": "",
                 },
@@ -307,8 +319,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 4, "w": 6, "x": 6, "y": 4, "minH": 3, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 16, "minH": 3, "minW": 1},
+                        "sm": {"h": 4, "w": 6, "x": 6, "y": 6, "minH": 3, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 19, "minH": 3, "minW": 1},
                     },
                     "description": "",
                 },
@@ -334,8 +346,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 5, "w": 12, "x": 0, "y": 8, "minH": 4, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 21, "minH": 4, "minW": 1},
+                        "sm": {"h": 5, "w": 12, "x": 0, "y": 10, "minH": 4, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 24, "minH": 4, "minW": 1},
                     },
                     "description": "",
                 },
@@ -346,8 +358,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": "The sites sending people to your app and the countries they visit from.",
                     "layouts": {
-                        "sm": {"h": 1, "w": 12, "x": 0, "y": 13, "minH": 1, "minW": 3},
-                        "xs": {"h": 2, "w": 1, "x": 0, "y": 26, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 15, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 29, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -385,8 +397,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 4, "w": 6, "x": 0, "y": 14, "minH": 3, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 28, "minH": 3, "minW": 1},
+                        "sm": {"h": 4, "w": 6, "x": 0, "y": 16, "minH": 3, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 31, "minH": 3, "minW": 1},
                     },
                     "description": "",
                 },
@@ -420,8 +432,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 4, "w": 6, "x": 6, "y": 14, "minH": 3, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 33, "minH": 3, "minW": 1},
+                        "sm": {"h": 4, "w": 6, "x": 6, "y": 16, "minH": 3, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 36, "minH": 3, "minW": 1},
                     },
                     "description": "",
                 },
@@ -432,8 +444,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": "A funnel from page view to click. Swap in your own events to measure real conversion.",
                     "layouts": {
-                        "sm": {"h": 1, "w": 12, "x": 0, "y": 18, "minH": 1, "minW": 3},
-                        "xs": {"h": 2, "w": 1, "x": 0, "y": 38, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 20, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 41, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -477,8 +489,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                         },
                     },
                     "layouts": {
-                        "sm": {"h": 3, "w": 12, "x": 0, "y": 19, "minH": 3, "minW": 3},
-                        "xs": {"h": 5, "w": 1, "x": 0, "y": 40, "minH": 3, "minW": 1},
+                        "sm": {"h": 3, "w": 12, "x": 0, "y": 21, "minH": 3, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 43, "minH": 3, "minW": 1},
                     },
                     "description": "",
                 },
@@ -489,8 +501,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "transparent_background": True,
                     "body": "Watch how people behave, explore raw events, or dig into traffic and acquisition.",
                     "layouts": {
-                        "sm": {"h": 1, "w": 12, "x": 0, "y": 22, "minH": 1, "minW": 3},
-                        "xs": {"h": 2, "w": 1, "x": 0, "y": 45, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 12, "x": 0, "y": 24, "minH": 1, "minW": 3},
+                        "xs": {"h": 2, "w": 1, "x": 0, "y": 48, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -503,8 +515,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "placement": "left",
                     "style": "primary",
                     "layouts": {
-                        "sm": {"h": 1, "w": 4, "x": 0, "y": 23, "minH": 1, "minW": 2},
-                        "xs": {"h": 1, "w": 1, "x": 0, "y": 47, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 4, "x": 0, "y": 25, "minH": 1, "minW": 2},
+                        "xs": {"h": 1, "w": 1, "x": 0, "y": 50, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -517,8 +529,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "placement": "left",
                     "style": "secondary",
                     "layouts": {
-                        "sm": {"h": 1, "w": 4, "x": 4, "y": 23, "minH": 1, "minW": 2},
-                        "xs": {"h": 1, "w": 1, "x": 0, "y": 48, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 4, "x": 4, "y": 25, "minH": 1, "minW": 2},
+                        "xs": {"h": 1, "w": 1, "x": 0, "y": 51, "minH": 1, "minW": 1},
                     },
                 },
                 {
@@ -531,8 +543,8 @@ class DashboardTemplate(UUIDTModel, RootTeamMixin):
                     "placement": "left",
                     "style": "secondary",
                     "layouts": {
-                        "sm": {"h": 1, "w": 4, "x": 8, "y": 23, "minH": 1, "minW": 2},
-                        "xs": {"h": 1, "w": 1, "x": 0, "y": 49, "minH": 1, "minW": 1},
+                        "sm": {"h": 1, "w": 4, "x": 8, "y": 25, "minH": 1, "minW": 2},
+                        "xs": {"h": 1, "w": 1, "x": 0, "y": 52, "minH": 1, "minW": 1},
                     },
                 },
             ],

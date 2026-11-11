@@ -829,13 +829,9 @@ class TestSignupAPI(APIBaseTest):
 
         dashboard: Dashboard = Dashboard.objects.first()  # type: ignore
         self.assertEqual(dashboard.team, user.team)
-        self.assertEqual(dashboard.tiles.count(), 16)
+        self.assertEqual(dashboard.tiles.count(), 17)
         self.assertEqual(dashboard.name, "Your starter dashboard")
-        self.assertEqual(
-            dashboard.description,
-            "These charts use pageviews, clicks, sessions, and location, which PostHog captures automatically. "
-            "Set the retention and funnel tiles to use your own events.",
-        )
+        self.assertEqual(dashboard.description, "")
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
