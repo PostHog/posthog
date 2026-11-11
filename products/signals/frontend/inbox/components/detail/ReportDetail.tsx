@@ -18,7 +18,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, peekFeatureFlag, reportFeatureFlagExposure } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { urls } from 'scenes/urls'
@@ -295,21 +295,26 @@ export function InboxDetailFrame({
         (section) => section.kind === 'solution'
     )
     const { featureFlags } = useValues(featureFlagLogic)
-    const implementButtonInHeader =
-        !summaryHasSolution ||
-        ((showCreatePr || !!reportTaskToOpen) &&
-            featureFlags[FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION] === 'test')
-    const implementButton =
-        showCreatePr || reportTaskToOpen ? (
-            <ImplementButton
-                report={report}
-                position={implementButtonInHeader ? 'header' : 'body'}
-                reportTaskToOpen={reportTaskToOpen}
-                implementationDisabledReason={implementationDisabledReason}
-                openChoicesFromLink={linkImplementReportId === report.id}
-                onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
-            />
-        ) : null
+    const implementButtonVariant = peekFeatureFlag(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
+    const hasImplementButton = showCreatePr || !!reportTaskToOpen
+    if (
+        hasImplementButton &&
+        summaryHasSolution &&
+        (implementButtonVariant === 'control' || implementButtonVariant === 'test')
+    ) {
+        reportFeatureFlagExposure(featureFlags, FEATURE_FLAGS.INBOX_REPORT_IMPLEMENT_BUTTON_POSITION)
+    }
+    const implementButtonInHeader = !summaryHasSolution || implementButtonVariant === 'test'
+    const implementButton = hasImplementButton ? (
+        <ImplementButton
+            report={report}
+            position={implementButtonInHeader ? 'header' : 'body'}
+            reportTaskToOpen={reportTaskToOpen}
+            implementationDisabledReason={implementationDisabledReason}
+            openChoicesFromLink={linkImplementReportId === report.id}
+            onChoicesOpenedFromLink={() => setLinkImplementReportId(null)}
+        />
+    ) : null
     const overflowMenuItems: LemonMenuItem[] = reportActions.map((action) => ({
         label: action.label,
         icon: action.icon,
