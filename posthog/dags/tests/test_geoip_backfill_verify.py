@@ -8,6 +8,7 @@ import dagster
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole, Query
 from posthog.dags.geoip_backfill import IngestionWindowConfig
 from posthog.dags.geoip_backfill_verify import GeoipVerifyConfig, geoip_backfill_verify_job
+from posthog.dags.tests.conftest import GeoipTeams
 from posthog.dags.tests.test_geoip_backfill import PUBLIC_IP, UNKNOWN_IP, SeededEvent, run_staging, seed
 from posthog.dags.tests.test_geoip_backfill_resend import drop_staging, run_resend
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -29,9 +30,9 @@ def verify(cluster: ClickhouseCluster, staging_run_id: str, now: datetime) -> di
 
 @pytest.mark.django_db
 def test_verify_counts_the_staged_events_before_and_after_the_resend(
-    cluster: ClickhouseCluster, geoip_teams: tuple[int, int], tmp_path: Path
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path
 ) -> None:
-    with_geoip, _ = geoip_teams
+    with_geoip = geoip_teams.with_geoip
     # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
     now = datetime.now(UTC).replace(microsecond=0)
     events = [

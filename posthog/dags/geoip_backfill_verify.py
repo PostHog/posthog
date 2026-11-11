@@ -24,7 +24,7 @@ import pydantic
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole
+from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.query_tagging import DagsterTags
 from posthog.dags.common import dagster_tags
 from posthog.dags.flag_evaluations_backfill import shard_workload
@@ -35,6 +35,7 @@ from posthog.dags.geoip_backfill import (
     IngestionWindow,
     IngestionWindowConfig,
     plan_windows,
+    staged_team_ids,
     tagged,
     window_query_args,
 )
@@ -119,19 +120,17 @@ def _chunks(items: Sequence[int], size: int) -> Iterator[tuple[int, ...]]:
 @dagster.op(tags=OWNER_TAG)
 def plan_geoip_verify(cluster: dagster.ResourceParam[ClickhouseCluster], config: GeoipVerifyConfig) -> VerifyPlan:
     table = GeoipStagingTable(id=uuid.UUID(config.staging_run_id))
-    if not cluster.any_host_by_role(table.exists, NodeRole.DATA).result():
-        raise dagster.Failure(description=f"{table.qualified_name} does not exist.")
-
-    def staged_teams(client: Client) -> list[tuple[int]]:
-        return client.execute(f"SELECT DISTINCT team_id FROM {table.qualified_name}")
-
-    team_ids = {
-        team_id for rows in cluster.map_one_host_per_shard(staged_teams).result().values() for (team_id,) in rows
-    }
-    if config.team_ids:
-        team_ids &= set(config.team_ids)
+    team_ids = staged_team_ids(cluster, table, config.team_ids)
     windows = plan_windows(config.windows, datetime.now(UTC)) if config.windows else ()
-    return VerifyPlan(table=table, team_ids=tuple(sorted(team_ids)), windows=windows, config=config)
+    return VerifyPlan(table=table, team_ids=team_ids, windows=windows, config=config)
+
+
+@frozen
+class StagedTeamSpan:
+    team_id: int
+    rows: int
+    timestamp_from: datetime
+    timestamp_to: datetime
 
 
 @frozen
@@ -156,26 +155,29 @@ class Verification:
     def _count_staged(self, team_ids: tuple[int, ...], counts: dict[str, Counter[int]]) -> None:
         table = self.plan.table.qualified_name
 
-        def staged_per_team(client: Client) -> list[tuple[int, int, datetime, datetime]]:
-            return client.execute(
-                f"SELECT team_id, count(), min(timestamp), max(timestamp) FROM {table} FINAL "
-                "WHERE team_id IN %(team_ids)s GROUP BY team_id",
-                {"team_ids": team_ids},
-            )
+        def staged_per_team(client: Client) -> list[StagedTeamSpan]:
+            return [
+                StagedTeamSpan(team_id=team_id, rows=rows, timestamp_from=timestamp_from, timestamp_to=timestamp_to)
+                for team_id, rows, timestamp_from, timestamp_to in client.execute(
+                    f"SELECT team_id, count(), min(timestamp), max(timestamp) FROM {table} FINAL "
+                    "WHERE team_id IN %(team_ids)s GROUP BY team_id",
+                    {"team_ids": team_ids},
+                )
+            ]
 
         staged = [
-            row
-            for rows in self.cluster.map_one_host_per_shard(tagged(self.query_tags, staged_per_team)).result().values()
-            for row in rows
+            span
+            for spans in self.cluster.map_one_host_per_shard(tagged(self.query_tags, staged_per_team)).result().values()
+            for span in spans
         ]
         if not staged:
             return
-        for team_id, rows, _, _ in staged:
-            counts["staged"][team_id] += rows
+        for span in staged:
+            counts["staged"][span.team_id] += span.rows
         args = {
             "team_ids": team_ids,
-            "timestamp_from": f"{min(row[2] for row in staged):%Y-%m-%d %H:%M:%S.%f}",
-            "timestamp_to": f"{max(row[3] for row in staged):%Y-%m-%d %H:%M:%S.%f}",
+            "timestamp_from": f"{min(span.timestamp_from for span in staged):%Y-%m-%d %H:%M:%S.%f}",
+            "timestamp_to": f"{max(span.timestamp_to for span in staged):%Y-%m-%d %H:%M:%S.%f}",
         }
         for team_id, events, repaired, duplicate_rows in self._on_every_shard(
             staged_events_query(self.plan.table), args

@@ -273,6 +273,26 @@ def read_columns(client: Client, table: str, *, plain_only: bool) -> list[EventC
     return [EventColumn(name=name, type=column_type) for name, column_type in rows]
 
 
+def staged_team_ids(
+    cluster: ClickhouseCluster, table: GeoipStagingTable, only: Sequence[int] | None
+) -> tuple[int, ...]:
+    """The teams with rows in the staging table, narrowed to `only` when it is given."""
+    if not cluster.any_host_by_role(table.exists, NodeRole.DATA).result():
+        raise dagster.Failure(description=f"{table.qualified_name} does not exist.")
+
+    def teams_on_shard(client: Client) -> list[int]:
+        return [team_id for (team_id,) in client.execute(f"SELECT DISTINCT team_id FROM {table.qualified_name}")]
+
+    team_ids = {
+        team_id
+        for shard_teams in cluster.map_one_host_per_shard(teams_on_shard).result().values()
+        for team_id in shard_teams
+    }
+    if only:
+        team_ids &= set(only)
+    return tuple(sorted(team_ids))
+
+
 @frozen
 class TeamCount:
     team_id: int

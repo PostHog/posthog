@@ -45,7 +45,14 @@ from posthog.dags.flag_evaluations_backfill import (
     shard_workload,
     wait_for_blocking_runs,
 )
-from posthog.dags.geoip_backfill import OWNER_TAG, EventColumn, GeoipStagingTable, on_shard_host, tagged
+from posthog.dags.geoip_backfill import (
+    OWNER_TAG,
+    EventColumn,
+    GeoipStagingTable,
+    on_shard_host,
+    staged_team_ids,
+    tagged,
+)
 from posthog.dataclasses import frozen
 from posthog.models.ai_events.sql import (
     DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE,
@@ -155,22 +162,12 @@ def plan_geoip_resend(
 ) -> ResendPlan:
     """Read the staged teams, then wait until no squash, deletes or data deletion request run is active."""
     table = GeoipStagingTable(id=uuid.UUID(config.staging_run_id))
-    if not cluster.any_host_by_role(table.exists, NodeRole.DATA).result():
-        raise dagster.Failure(description=f"{table.qualified_name} does not exist.")
-
-    def staged_teams(client: Client) -> list[tuple[int]]:
-        return client.execute(f"SELECT DISTINCT team_id FROM {table.qualified_name}")
-
-    team_ids = {
-        team_id for rows in cluster.map_one_host_per_shard(staged_teams).result().values() for (team_id,) in rows
-    }
-    if config.team_ids:
-        team_ids &= set(config.team_ids)
+    team_ids = staged_team_ids(cluster, table, config.team_ids)
     check = None
     if not config.dry_run:
         check = wait_for_blocking_runs(context.instance, context.run_id, context.log, config.blocking_run_poll_seconds)
     context.log.info(f"Resending {len(team_ids)} team(s) from {table.qualified_name}")
-    return ResendPlan(table=table, team_ids=tuple(sorted(team_ids)), config=config, blocking_run_check=check)
+    return ResendPlan(table=table, team_ids=team_ids, config=config, blocking_run_check=check)
 
 
 @dagster.op(out=dagster.DynamicOut(int), tags=OWNER_TAG)

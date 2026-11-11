@@ -11,6 +11,7 @@ import dagster
 from posthog.clickhouse.cluster import ClickhouseCluster, NodeRole, Query
 from posthog.dags.geoip_backfill import GeoipStagingTable
 from posthog.dags.geoip_backfill_resend import GeoipResendConfig, geoip_backfill_resend_job
+from posthog.dags.tests.conftest import GeoipTeams
 from posthog.dags.tests.test_geoip_backfill import PUBLIC_IP, SeededEvent, run_staging, seed
 from posthog.models.ai_events.sql import DATA_TABLE_NAME as AI_EVENTS_DATA_TABLE
 from posthog.models.event.sql import EVENTS_DATA_TABLE
@@ -78,9 +79,9 @@ def drop_staging(cluster: ClickhouseCluster, run_id: str) -> None:
 @pytest.mark.django_db
 @pytest.mark.parametrize("dry_run", [False, True], ids=["resend", "dry_run"])
 def test_resend_writes_staged_rows_whose_original_is_unchanged(
-    cluster: ClickhouseCluster, geoip_teams: tuple[int, int], tmp_path: Path, dry_run: bool
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path, dry_run: bool
 ) -> None:
-    with_geoip, _ = geoip_teams
+    with_geoip = geoip_teams.with_geoip
     # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
     now = datetime.now(UTC).replace(microsecond=0)
     damaged = SeededEvent(
@@ -127,9 +128,9 @@ def test_resend_writes_staged_rows_whose_original_is_unchanged(
 
 @pytest.mark.django_db
 def test_resend_rewrites_ai_events_whose_properties_are_unchanged(
-    cluster: ClickhouseCluster, geoip_teams: tuple[int, int], tmp_path: Path
+    cluster: ClickhouseCluster, geoip_teams: GeoipTeams, tmp_path: Path
 ) -> None:
-    with_geoip, _ = geoip_teams
+    with_geoip = geoip_teams.with_geoip
     # nosemgrep: test-datetime-now-without-freeze (every event time and the window are offsets from this one reading)
     now = datetime.now(UTC).replace(microsecond=0)
     generation = SeededEvent(
