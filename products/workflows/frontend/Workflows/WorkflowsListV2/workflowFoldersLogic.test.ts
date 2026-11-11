@@ -1,6 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -8,6 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
@@ -130,6 +132,37 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[3].id, FIXTURE_WORKFLOWS[2].id])
         logic.actions.openFolder('Billing/Cards')
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[1].id])
+    })
+
+    it('offers automation setup only once every workflow page has loaded', async () => {
+        logic.unmount()
+        let answerLaterPage!: (body: unknown) => void
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) =>
+                    new URL(request.url).searchParams.get('offset')
+                        ? new Promise((resolve) => (answerLaterPage = (body) => resolve([200, body])))
+                        : [
+                              200,
+                              paginated(
+                                  FIXTURE_WORKFLOWS.filter((workflow) => workflow.type === 'messaging'),
+                                  'http://localhost/api/projects/997/hog_flows/summaries/?offset=100'
+                              ),
+                          ],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        router.actions.push(urls.workflows(), { q: 'kind:automation' })
+        logic = workflowFoldersLogic()
+        logic.mount()
+
+        await waitFor(() => expect(answerLaterPage).not.toBeUndefined())
+        await waitFor(() => expect(logic.values.rows.length).toBeGreaterThan(0))
+        expect(logic.values.showsAutomationSetup).toBe(false)
+
+        answerLaterPage(paginated([]))
+        await waitFor(() => expect(logic.values.showsAutomationSetup).toBe(true))
     })
 
     it('opens folders from the loaded index without another folder request', async () => {

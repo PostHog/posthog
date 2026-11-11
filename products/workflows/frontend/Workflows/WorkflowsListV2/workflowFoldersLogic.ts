@@ -58,7 +58,7 @@ export interface workflowFoldersLogicValues {
     facets: FacetDefinition<WorkflowListRow>[] // workflowsListV2Logic
     filteredRows: WorkflowListRow[] // workflowsListV2Logic
     isUnfilteredAutomationView: boolean // workflowsListV2Logic
-    listLoaded: boolean // workflowsListV2Logic
+    listComplete: boolean // workflowsListV2Logic
     matchesText: MatchesText<WorkflowListRow> // workflowsListV2Logic
     rows: WorkflowListRow[] // workflowsListV2Logic
     serverSearchStatus: ServerSearchStatus // workflowsListV2Logic
@@ -262,15 +262,15 @@ export interface workflowFoldersLogicMeta {
         matchingRows: (
             rows: WorkflowListRow[],
             value: FacetSearchValue,
-            workflowFacets: any,
+            workflowFacets: FacetDefinition<WorkflowListRow>[],
             matchesText: MatchesText<WorkflowListRow>
         ) => WorkflowListRow[]
         hasActiveQuery: (value: FacetSearchValue) => boolean
         showsAutomationSetup: (
-            listLoaded: any,
-            isUnfilteredAutomationView: any,
-            filteredRows: any,
-            serverSearchStatus: any,
+            listComplete: boolean,
+            isUnfilteredAutomationView: boolean,
+            filteredRows: WorkflowListRow[],
+            serverSearchStatus: ServerSearchStatus,
             folderDraft: WorkflowFolderDraft | null
         ) => boolean
         matchingTemplates: (
@@ -311,7 +311,10 @@ export interface workflowFoldersLogicMeta {
             placements: Record<string, FileSystemEntry> | null,
             currentTeamId: number | null
         ) => WorkflowFolderFileRow[]
-        folderFacets: (workflowFacets: any, hasActiveQuery: boolean) => FacetDefinition<WorkflowFolderFileRow>[]
+        folderFacets: (
+            workflowFacets: FacetDefinition<WorkflowListRow>[],
+            hasActiveQuery: boolean
+        ) => FacetDefinition<WorkflowFolderFileRow>[]
         folderMatchesText: (matchesText: MatchesText<WorkflowListRow>) => MatchesText<WorkflowFolderFileRow>
         displayedValue: (value: FacetSearchValue) => FacetSearchValue
         folderFileRows: (
@@ -507,7 +510,7 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 'rows',
                 'facets',
                 'matchesText',
-                'listLoaded',
+                'listComplete',
                 'isUnfilteredAutomationView',
                 'filteredRows',
                 'serverSearchStatus',
@@ -763,15 +766,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         ],
         // The folder contents hold the inline name field of a new folder, so an open draft keeps them on screen.
         showsAutomationSetup: [
-            (s) => [s.listLoaded, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus, s.folderDraft],
+            (s) => [s.listComplete, s.isUnfilteredAutomationView, s.filteredRows, s.serverSearchStatus, s.folderDraft],
             (
-                listLoaded: boolean,
+                listComplete: boolean,
                 isUnfilteredAutomationView: boolean,
                 filteredRows: WorkflowListRow[],
                 serverSearchStatus: ServerSearchStatus,
                 folderDraft: WorkflowFolderDraft | null
             ): boolean =>
-                listLoaded &&
+                // A later page can still hold an automation workflow.
+                listComplete &&
                 isUnfilteredAutomationView &&
                 filteredRows.length === 0 &&
                 serverSearchStatus !== 'pending' &&

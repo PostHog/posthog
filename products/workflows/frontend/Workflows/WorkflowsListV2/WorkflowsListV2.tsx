@@ -20,6 +20,8 @@ import { workflowsListV2Logic } from './workflowsListV2Logic'
 export function WorkflowsListV2(): JSX.Element {
     const {
         listLoaded,
+        listComplete,
+        loadingMoreWorkflows,
         workflowsLoading,
         loadFailed,
         loadErrorDetail,
@@ -49,6 +51,21 @@ export function WorkflowsListV2(): JSX.Element {
 
     const { loadBrowser, loadOtherFiles, moveSelectedFiles, clearSelectedFiles } = useActions(workflowFoldersLogic)
     const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
+    const renderWorkflowsLoadError = (title: string): JSX.Element => (
+        <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
+            <span className="font-semibold">{title}</span>
+            {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
+            <LemonButton
+                type="secondary"
+                size="small"
+                loading={workflowsLoading}
+                onClick={loadWorkflows}
+                data-attr="workflows-list-v2-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    )
     const renderLoadError = (): JSX.Element => {
         if (browserLoadFailed) {
             return (
@@ -61,21 +78,7 @@ export function WorkflowsListV2(): JSX.Element {
             )
         }
         if (loadFailed && !listLoaded) {
-            return (
-                <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-                    <span className="font-semibold">Couldn't load workflows</span>
-                    {loadErrorDetail && <span className="text-secondary">{loadErrorDetail}</span>}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        loading={workflowsLoading}
-                        onClick={loadWorkflows}
-                        data-attr="workflows-list-v2-retry"
-                    >
-                        Retry
-                    </LemonButton>
-                </div>
-            )
+            return renderWorkflowsLoadError("Couldn't load workflows")
         }
         return (
             <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
@@ -150,7 +153,13 @@ export function WorkflowsListV2(): JSX.Element {
                     ) : showsAutomationSetup ? (
                         <AutomationEmptyState />
                     ) : (
-                        <WorkflowFolderContents />
+                        <>
+                            {loadFailed && !listComplete && renderWorkflowsLoadError("Couldn't load all workflows")}
+                            <WorkflowFolderContents />
+                            {loadingMoreWorkflows && (
+                                <div className="text-xs text-secondary mt-1">Loading more workflows…</div>
+                            )}
+                        </>
                     )}
                 </div>
             </div>
