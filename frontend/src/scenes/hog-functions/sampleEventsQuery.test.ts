@@ -205,8 +205,9 @@ describe('performWideEventsQueryInTwoPhases', () => {
 
         it('does not mutate the intent query', async () => {
             emptyPreStage()
+            const intentClone: EventsQuery = JSON.parse(JSON.stringify(intent))
             const callerIntent = deepFreeze<EventsQuery>({
-                ...JSON.parse(JSON.stringify(intent)),
+                ...intentClone,
                 where: ['team_id = 1'],
                 properties: [
                     {
@@ -218,13 +219,14 @@ describe('performWideEventsQueryInTwoPhases', () => {
                 ],
             })
             const callerIntentCopy = JSON.parse(JSON.stringify(callerIntent))
+            const hydratedResponse = { results: [['hydrated']] }
             mockedPerformQuery
                 .mockResolvedValueOnce({
                     results: [['019eacd8-2ab7-76b0-8e40-604d7f8e6961', '2026-06-09T12:00:00.000000Z']],
                 })
-                .mockResolvedValueOnce({ results: [] })
+                .mockResolvedValueOnce(hydratedResponse)
 
-            await performWideEventsQueryInTwoPhases(callerIntent)
+            await expect(performWideEventsQueryInTwoPhases(callerIntent)).resolves.toBe(hydratedResponse)
 
             expect(callerIntent).toEqual(callerIntentCopy)
         })
