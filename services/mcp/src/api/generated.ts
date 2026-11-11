@@ -137920,6 +137920,7 @@ export namespace Schemas {
      * * `survey` - survey
      * * `early_access_feature` - early_access_feature
      * * `hog_flow` - hog_flow
+     * * `canvas` - canvas
      */
     export type SearchListEntitiesItem = typeof SearchListEntitiesItem[keyof typeof SearchListEntitiesItem];
 
@@ -137939,6 +137940,7 @@ export namespace Schemas {
       Survey: 'survey',
       EarlyAccessFeature: 'early_access_feature',
       HogFlow: 'hog_flow',
+      Canvas: 'canvas',
     } as const;
 
     export type SessionRecordingExternalReferencesListParams = {
