@@ -217,12 +217,14 @@ def _pair_comparison_event(
 def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEvent]:
     """One event per head of an experiment candidate's `vs_baseline` block. The per-seed AUC lists
     stay in `metadata.json`: an insight cannot chart a JSON array, so the event carries the gaps.
-    The non-dogfood macro delta also carries its team interval. A pair experiment's block gives one
+    The non-dogfood macro delta also carries its team interval, and an experiment that reads feature
+    groups carries each group's importance as `group_importance_<group>_<read>`. A pair experiment's block gives one
     event per head, scope and slice instead."""
     block = metadata.get("vs_baseline") or {}
     context = {key: metadata.get(key) for key in ("model_name", "model_version", "run_id", "recipe_hash")}
     if block.get("grain") == PAIR_GRAIN:
         return _pair_comparison_events(block, context)
+    importance = (block.get("group_importance") or {}).get("heads") or {}
     return [
         TrainingEvent(
             event=EXPERIMENT_COMPARED_EVENT,
@@ -238,6 +240,11 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
                         grade.get("within_team_non_dogfood_macro_team_interval") or {}
                     ).get(key)
                     for key in _INTERVAL_KEYS
+                },
+                **{
+                    f"group_importance_{group}_{read}": drop
+                    for group, reads in (importance.get(head) or {}).items()
+                    for read, drop in reads.items()
                 },
             },
         )
