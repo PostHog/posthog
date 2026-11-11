@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.core.cache import cache
 from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
@@ -60,26 +59,15 @@ def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | 
 
 
 AGENT_READ_DAYS_KEPT = 35
-AGENT_READ_ONCE_SECONDS = 24 * 60 * 60
 AGENT_READ_DELETE_BATCH = 10_000
 
 
 def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
-    day = now().astimezone(team.timezone_info).date()
-    key = f"insight_agent_read:{team.id}:{user_id}:{insight_id}:{day.isoformat()}"
-    if not cache.add(key, True, AGENT_READ_ONCE_SECONDS):
-        return
-    try:
-        _save_agent_read(team=team, user_id=user_id, insight_id=insight_id, day=day)
-    except Exception:
-        cache.delete(key)
-        raise
-
-
-def _save_agent_read(*, team: "Team", user_id: int, insight_id: int, day: date) -> None:
     team_id = team.parent_team_id or team.id
-    InsightAgentRead.objects.for_team(team_id, canonical=True).get_or_create(
-        team_id=team_id, user_id=user_id, insight_id=insight_id, day=day
+    day = now().astimezone(team.timezone_info).date()
+    InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
+        [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
+        ignore_conflicts=True,
     )
 
 

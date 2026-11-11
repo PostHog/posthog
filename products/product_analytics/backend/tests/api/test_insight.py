@@ -17,7 +17,6 @@ from unittest import mock
 from unittest.case import skip
 from unittest.mock import ANY, patch
 
-from django.core.cache import cache
 from django.db import connection
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -1810,7 +1809,6 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_agent_reads_are_recorded_for_the_reader(
         self, _name: str, headers: dict[str, str], by_short_id: bool, recorded: int
     ) -> None:
-        cache.clear()
         insight_id, insight_json = self.dashboard_api.create_insight({})
         path = (
             f"/api/projects/{self.team.id}/insights/?short_id={insight_json['short_id']}"

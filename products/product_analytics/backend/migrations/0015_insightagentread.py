@@ -6,7 +6,6 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
         ("posthog", "1431_squash_2026_11_02_schema_addons"),
         ("product_analytics", "0014_remove_metrics_insight_variable_values"),

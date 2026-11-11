@@ -5,8 +5,6 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.core.cache import cache
-from django.db import DatabaseError
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -18,7 +16,6 @@ from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.api import (
     create_insight_explanation,
     delete_agent_insight_reads_for_teams,
@@ -85,10 +82,6 @@ class TestRecordInsightView(BaseTest):
 
 
 class TestAgentInsightReads(BaseTest):
-    def setUp(self) -> None:
-        super().setUp()
-        cache.clear()
-
     def test_a_read_counts_once_a_day_and_deleted_insights_are_left_out(self) -> None:
         asked = Insight.objects.create(team=self.team, saved=True, short_id="asked")
         deleted = Insight.objects.create(team=self.team, saved=True, short_id="deleted", deleted=True)
@@ -153,15 +146,6 @@ class TestAgentInsightReads(BaseTest):
             sorted(InsightAgentRead.objects.for_team(self.team.id).values_list("day", flat=True)),
             [date(2026, 10, 6), date(2026, 11, 9)],
         )
-
-    def test_a_failed_write_lets_a_later_read_that_day_retry(self) -> None:
-        insight = Insight.objects.create(team=self.team, saved=True, short_id="asked")
-        with patch.object(logic, "_save_agent_read", side_effect=DatabaseError("unavailable")):
-            record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
-
-        record_agent_insight_read(team=self.team, user_id=self.user.id, insight_id=insight.pk)
-
-        self.assertEqual(InsightAgentRead.objects.for_team(self.team.id).filter(insight=insight).count(), 1)
 
 
 class TestInsightReads(BaseTest):
