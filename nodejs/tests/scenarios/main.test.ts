@@ -63,6 +63,14 @@ describe('runCards', () => {
             ['smoke: passed, every invariant held\n', 'scorecard: capture answered 503\n'],
         ],
         [
+            'the event was recorded but the scorecard files were not written',
+            { recorded: true, scorecardError: 'the scorecard files could not be written: EISDIR' },
+            [
+                'smoke: passed, every invariant held\n',
+                'scorecard: recorded; the scorecard files could not be written: EISDIR\n',
+            ],
+        ],
+        [
             'both the evidence and the scorecard write failed',
             {
                 status: 'invalid',
@@ -99,5 +107,7 @@ describe('runCards', () => {
         expect(jest.mocked(process.stderr.write)).toHaveBeenCalledWith(
             expect.stringContaining('Missing: SCENARIO_RUNS_PROJECT_ID, SCENARIO_RUNS_READ_KEY')
         )
+        const stderr = jest.mocked(process.stderr.write).mock.calls.map(([text]) => String(text))
+        expect(stderr.filter((text) => text.includes('The preflight test reached'))).toEqual([])
     })
 })

@@ -212,6 +212,12 @@ describe('scorecard', () => {
         expect(after !== before).toBe(changes)
     })
 
+    it('gives no fingerprint when the code versions are unknown', () => {
+        const unknown = { ...PROVENANCE, runnerVersion: null, generatorVersion: null, valvesVersion: null }
+
+        expect(scorecardOf(RESULT, SMOKE, unknown).fingerprint).toBeNull()
+    })
+
     describe('provenance', () => {
         let repo: string
         let scenarios: string

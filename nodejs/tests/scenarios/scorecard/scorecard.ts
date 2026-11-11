@@ -29,19 +29,12 @@ export function scorecardOf(
     { card, profile }: LoadedCard,
     provenance: Provenance
 ): ScorecardProperties {
-    const fingerprint = createHash('sha256')
-        .update(
-            JSON.stringify([
-                TARGET,
-                provenance.hostCpu,
-                provenance.hostMemoryGb,
-                provenance.runnerVersion,
-                provenance.generatorVersion,
-                provenance.valvesVersion,
-                card.seed,
-            ])
-        )
-        .digest('hex')
+    const versions = [provenance.runnerVersion, provenance.generatorVersion, provenance.valvesVersion]
+    const fingerprint = versions.includes(null)
+        ? null
+        : createHash('sha256')
+              .update(JSON.stringify([TARGET, provenance.hostCpu, provenance.hostMemoryGb, ...versions, card.seed]))
+              .digest('hex')
     return {
         schema_version: SCHEMA_VERSION,
         run_id: result.runId,

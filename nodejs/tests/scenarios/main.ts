@@ -67,9 +67,10 @@ export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: A
             const result = await runner.run(loaded, interrupt)
             process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
             process.stdout.write(`evidence: ${result.evidenceDir}\n`)
-            process.stdout.write(
-                `scorecard: ${result.recorded ? 'recorded' : (result.scorecardError ?? 'not written, no credentials set')}\n`
-            )
+            const recording = result.recorded ? ['recorded'] : []
+            const problems = result.scorecardError ? [result.scorecardError] : []
+            const scorecard = [...recording, ...problems].join('; ') || 'not written, no credentials set'
+            process.stdout.write(`scorecard: ${scorecard}\n`)
             code = Math.max(code, exitCodeOf(result))
             ran += 1
         }
