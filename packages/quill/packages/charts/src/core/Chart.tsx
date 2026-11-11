@@ -350,7 +350,7 @@ export function Chart<Meta = unknown>({
     const syncedCrosshairColor = theme.crosshairColor ?? resolveAxisLineColor(theme) ?? DEFAULT_AXIS_COLOR
     const drawSyncedCrosshair = useMemo(
         () =>
-            composeDrawHoverWithCrosshair(() => DRAW_NOTHING, {
+            composeDrawHoverWithCrosshair(DRAW_NOTHING, {
                 crosshairColor: syncedCrosshairColor,
                 crosshairDash: theme.crosshairDashPattern,
                 showCrosshair: true,
