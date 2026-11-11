@@ -769,6 +769,13 @@ describe('scenario environment', () => {
                     process.stderr.write(stderr)
                     process.exit(code)
                 }
+                if (Number(fs.readFileSync(path.join(__dirname, 'members'), 'utf8')) > 0) {
+                    process.stdout.write(
+                        'TOPIC  PARTITION  PRIOR-OFFSET  CURRENT-OFFSET  ERROR\\n' +
+                            topic + '  0          -1            -1              INVALID_OPERATION: seeking a non-empty group is not allowed.\\n'
+                    )
+                    process.exit(1)
+                }
                 const offsets = path.join(__dirname, 'offsets.json')
                 const groups = fs.existsSync(offsets) ? JSON.parse(fs.readFileSync(offsets, 'utf8')) : {}
                 groups[group] = { ...groups[group], [topic]: position }
@@ -1133,6 +1140,26 @@ describe('scenario environment', () => {
                 await forgetSesBucket(testRedis)
                 await close()
             }
+        }, 30_000)
+
+        it('waits for a stopped role to leave the events group before it moves the group to the end', async () => {
+            const { group, topic } = eventsGroup()
+            environment = environmentOf()
+            await environment.up()
+            answerMembers(1)
+            const answersBefore = answersSoFar()
+            let settled = false
+            const resetting = environment.reset({}).finally(() => {
+                settled = true
+            })
+            resetting.catch(() => undefined)
+
+            await waitForExpect(() => expect(answersSoFar() - answersBefore).toBeGreaterThan(1), 10_000)
+            expect({ settled, offsets: offsetsOf() }).toEqual({ settled: false, offsets: {} })
+            answerMembers(0)
+
+            await expect(resetting).resolves.toBeUndefined()
+            expect(offsetsOf()).toEqual({ [group]: { [topic]: 'end' } })
         }, 30_000)
 
         it.each<[string, { stdout: string; stderr: string; code: number }, string | null]>([
