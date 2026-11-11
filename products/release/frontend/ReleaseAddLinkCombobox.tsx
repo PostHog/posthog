@@ -27,8 +27,14 @@ interface CandidateGroup {
 }
 
 export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Element {
-    const { linkSearchResults, linkSearchResultsLoading, linkSuggestions, linkSearchFailed, lastLinkSearch } =
-        useValues(releaseLogic)
+    const {
+        linkSearchResults,
+        linkSearchResultsLoading,
+        linkSuggestions,
+        linkSearchFailed,
+        linkSearchIncomplete,
+        lastLinkSearch,
+    } = useValues(releaseLogic)
     const { searchLinks, addLink } = useActions(releaseLogic)
     const linked = new Set([
         ...row.flags.map((flag) => `flag:${flag.id}`),
@@ -92,6 +98,21 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
                         'No flag or broadcast matches that name.'
                     )}
                 </ComboboxEmpty>
+                {linkSearchIncomplete && !linkSearchResultsLoading && (
+                    <div className="flex items-center justify-between gap-2 px-2 py-1">
+                        <Text size="xs" variant="muted">
+                            Some results could not load.
+                        </Text>
+                        <Button
+                            size="xs"
+                            variant="link-muted"
+                            onClick={() => searchLinks(lastLinkSearch)}
+                            data-attr="release-add-link-retry-partial"
+                        >
+                            Try again
+                        </Button>
+                    </div>
+                )}
                 <ComboboxList>
                     {(group: CandidateGroup) => (
                         <ComboboxGroup key={group.key} items={group.items}>

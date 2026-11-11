@@ -18,10 +18,10 @@ import { experimentsList } from 'products/experiments/frontend/generated/api'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 import { featureFlagsList, scheduledChangesList } from 'products/feature_flags/frontend/generated/api'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
-import { hogFlowsList, hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
+import { hogFlowsSendCalendarRetrieve } from 'products/workflows/frontend/generated/api'
 import type { SendCalendarFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
+import { releasesBroadcastSearchRetrieve, releasesCreate, releasesList, releasesPartialUpdate } from './generated/api'
 import type {
     LinkedBroadcastDTOApi,
     LinkedSendDTOApi,
@@ -70,6 +70,7 @@ interface ReleaseLogicValues {
     broadcastSends: SendCalendarFlowApi[]
     broadcastRuns: Record<string, LinkedSendDTOApi[]>
     linkSearchFailed: boolean
+    linkSearchIncomplete: boolean
     lastLinkSearch: string
     linkSearchResults: LinkCandidate[]
     linkSearchResultsLoading: boolean
@@ -166,6 +167,7 @@ interface ReleaseLogicActions {
     loadBroadcastSendsSuccess: (broadcastSends: SendCalendarFlowApi[]) => { broadcastSends: SendCalendarFlowApi[] }
     loadBroadcastSendsFailure: (error: string) => { error: string }
     searchLinks: (search: string) => string
+    setLinkSearchIncomplete: (incomplete: boolean) => { incomplete: boolean }
     searchLinksSuccess: (linkSearchResults: LinkCandidate[]) => { linkSearchResults: LinkCandidate[] }
     searchLinksFailure: (error: string) => { error: string }
     loadLinkSuggestions: (releaseId: string) => string
@@ -189,7 +191,10 @@ function inRequestedOrder<T, K>(items: T[], ids: K[], idOf: (item: T) => K): T[]
     return [...items].sort((a, b) => (position.get(idOf(a)) ?? 0) - (position.get(idOf(b)) ?? 0))
 }
 
-async function findLinkCandidates(projectId: string, searches: string[]): Promise<LinkCandidate[]> {
+async function findLinkCandidates(
+    projectId: string,
+    searches: string[]
+): Promise<{ candidates: LinkCandidate[]; incomplete: boolean }> {
     const results = await Promise.allSettled(
         searches.flatMap((search) => [
             featureFlagsList(projectId, { search: search || undefined, limit: FLAG_SEARCH_LIMIT }).then((page) =>
@@ -202,12 +207,8 @@ async function findLinkCandidates(projectId: string, searches: string[]): Promis
                         label: flag.key,
                     }))
             ),
-            hogFlowsList(projectId, {
-                broadcast_eligible: true,
-                search: search || undefined,
-                limit: FLAG_SEARCH_LIMIT,
-            }).then((page) =>
-                (page.results ?? []).map((broadcast) => ({
+            releasesBroadcastSearchRetrieve(projectId, { search: search || undefined }).then((options) =>
+                options.map((broadcast) => ({
                     key: `broadcast:${broadcast.id}`,
                     kind: 'broadcast' as const,
                     id: broadcast.id,
@@ -224,7 +225,7 @@ async function findLinkCandidates(projectId: string, searches: string[]): Promis
     for (const candidate of values.flat()) {
         unique.set(candidate.key, candidate)
     }
-    return [...unique.values()]
+    return { candidates: [...unique.values()], incomplete: values.length < results.length }
 }
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -286,6 +287,7 @@ export const releaseLogic = kea<releaseLogicType>([
         reload: (force?: boolean) => ({ force: !!force }),
         setHiddenExperimentFlagIds: (flagIds: number[]) => ({ flagIds }),
         setHiddenEarlyAccessFlagIds: (flagIds: number[]) => ({ flagIds }),
+        setLinkSearchIncomplete: (incomplete: boolean) => ({ incomplete }),
         setResolvedFlagIds: (flagIds: number[]) => ({ flagIds }),
         setSearch: (search: string) => ({ search }),
         setStageFilter: (stage: ReleaseStage | null) => ({ stage }),
@@ -517,8 +519,11 @@ export const releaseLogic = kea<releaseLogicType>([
             {
                 searchLinks: async (search: string, breakpoint) => {
                     await breakpoint(250)
-                    const candidates = await findLinkCandidates(String(values.currentProjectId), [search])
+                    const { candidates, incomplete } = await findLinkCandidates(String(values.currentProjectId), [
+                        search,
+                    ])
                     breakpoint()
+                    actions.setLinkSearchIncomplete(incomplete)
                     return candidates
                 },
             },
@@ -532,7 +537,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     if (!release || !tokens.length) {
                         return []
                     }
-                    const candidates = await findLinkCandidates(String(values.currentProjectId), tokens)
+                    const { candidates } = await findLinkCandidates(String(values.currentProjectId), tokens)
                     breakpoint()
                     const linked = new Set([
                         ...release.feature_flag_ids.map((id) => `flag:${id}`),
@@ -611,6 +616,14 @@ export const releaseLogic = kea<releaseLogicType>([
             { searchLinks: () => false, searchLinksSuccess: () => false, searchLinksFailure: () => true },
         ],
         lastLinkSearch: ['', { searchLinks: (_, search) => search }],
+        linkSearchIncomplete: [
+            false,
+            {
+                searchLinks: () => false,
+                searchLinksFailure: () => false,
+                setLinkSearchIncomplete: (_, { incomplete }) => incomplete,
+            },
+        ],
         broadcastsFailed: [
             false,
             {

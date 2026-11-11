@@ -452,8 +452,25 @@ function sendEventsByBroadcast(messaging: ReleaseMessaging): Map<string, Release
         messaging.broadcasts.map((broadcast) => [broadcast.id, broadcast.name || 'Untitled broadcast'])
     )
     const events = new Map<string, ReleaseEvent[]>()
+    const runsByBroadcast = new Map<string, Map<string, LinkedSendDTOApi>>()
+    const addRuns = (broadcastId: string, runs: readonly LinkedSendDTOApi[]): void => {
+        const known = runsByBroadcast.get(broadcastId) ?? new Map<string, LinkedSendDTOApi>()
+        for (const run of runs) {
+            known.set(run.id, run)
+        }
+        runsByBroadcast.set(broadcastId, known)
+    }
     for (const [broadcastId, runs] of Object.entries(messaging.runs)) {
-        events.set(broadcastId, runEvents(broadcastId, names.get(broadcastId) ?? 'Untitled broadcast', runs))
+        addRuns(broadcastId, runs)
+    }
+    for (const flow of messaging.sends) {
+        addRuns(flow.id, flow.batch_jobs)
+    }
+    for (const [broadcastId, runs] of runsByBroadcast) {
+        events.set(
+            broadcastId,
+            runEvents(broadcastId, names.get(broadcastId) ?? 'Untitled broadcast', [...runs.values()])
+        )
     }
     for (const flow of messaging.sends) {
         events.set(flow.id, [...(events.get(flow.id) ?? []), ...upcomingSendEvents(flow, now)])

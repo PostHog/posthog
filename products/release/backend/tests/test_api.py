@@ -183,6 +183,7 @@ class TestReleaseAPI(APIBaseTest):
         [
             ("flags_only", ["feature_flag:read"], False),
             ("flags_and_workflows", ["feature_flag:read", "hog_flow:read"], True),
+            ("full_access", ["*"], True),
         ]
     )
     def test_broadcasts_follow_the_workflow_scope(self, _name: str, scopes: list[str], shown: bool) -> None:
@@ -196,6 +197,23 @@ class TestReleaseAPI(APIBaseTest):
 
         assert release["broadcast_ids"] == ([str(broadcast_id)] if shown else [])
         assert [broadcast["name"] for broadcast in release["broadcasts"]] == (["Launch email"] if shown else [])
+
+    def test_broadcast_search_returns_matching_broadcasts(self) -> None:
+        for name in ("Launch email", "Weekly digest"):
+            create_workflow_for_test(
+                team_id=self.team.id,
+                name=name,
+                trigger={"type": "batch"},
+                actions=[
+                    {"id": "trigger", "name": "trigger", "type": "trigger", "config": {"type": "batch"}},
+                    {"id": "email", "name": "email", "type": "function_email", "config": {}},
+                ],
+            )
+
+        response = self.client.get(self._url("broadcast_search/?search=launch"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [option["name"] for option in response.json()] == ["Launch email"]
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(

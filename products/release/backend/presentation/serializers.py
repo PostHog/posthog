@@ -8,6 +8,18 @@ from posthog.models import OrganizationMembership
 from ..facade.contracts import LinkedBroadcastDTO, LinkedSendDTO, ReleaseDTO
 
 
+class BroadcastSearchQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False, allow_blank=True, max_length=200, help_text="Part of the broadcast name to match."
+    )
+
+
+class BroadcastOptionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the broadcast.")
+    name = serializers.CharField(help_text="Name of the broadcast.")
+    status = serializers.CharField(help_text="Status of the broadcast, such as draft or active.")
+
+
 class LinkedSendSerializer(DataclassSerializer):
     class Meta:
         dataclass = LinkedSendDTO

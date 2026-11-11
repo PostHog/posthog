@@ -95,6 +95,15 @@ export interface PatchedUpdateReleaseApi {
     broadcast_ids?: string[]
 }
 
+export interface BroadcastOptionApi {
+    /** ID of the broadcast. */
+    id: string
+    /** Name of the broadcast. */
+    name: string
+    /** Status of the broadcast, such as draft or active. */
+    status: string
+}
+
 export type ReleasesListParams = {
     /**
      * Number of results to return per page.
@@ -105,4 +114,12 @@ export type ReleasesListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type ReleasesBroadcastSearchRetrieveParams = {
+    /**
+     * Part of the broadcast name to match.
+     * @maxLength 200
+     */
+    search?: string
 }

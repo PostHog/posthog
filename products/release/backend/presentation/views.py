@@ -14,9 +14,10 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.mixins import TypedRequest, validated_request
+from posthog.api.mixins import TypedRequest, ValidatedRequest, validated_request
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
@@ -26,18 +27,27 @@ from products.workflows.backend.facade.api import (
     get_recent_batch_jobs,
     get_workflow_summaries,
     get_workflow_view_access,
+    search_broadcast_summaries,
 )
 from products.workflows.backend.facade.contracts import WorkflowSummary
 
 from ..facade import api, contracts
-from .serializers import ReleaseSerializer, UpdateReleaseSerializer, WriteReleaseSerializer
+from .serializers import (
+    BroadcastOptionSerializer,
+    BroadcastSearchQuerySerializer,
+    ReleaseSerializer,
+    UpdateReleaseSerializer,
+    WriteReleaseSerializer,
+)
 
 RECENT_SENDS_LIMIT = 20
+BROADCAST_SEARCH_LIMIT = 50
 
 
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
     requires_resource_level_access = True
+    scope_object_read_actions = ["list", "retrieve", "broadcast_search"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
@@ -95,7 +105,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _can_read_workflows(self) -> bool:
         held = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return held is None or not scopes_not_covered(held, ["hog_flow:read"])
+        return held is None or "*" in held or not scopes_not_covered(held, ["hog_flow:read"])
 
     def _broadcast_summaries(
         self, shown: dict[str, UUID], names: dict[str, WorkflowSummary]
@@ -164,6 +174,23 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 {"broadcast_ids": f"These broadcasts do not exist in this project: {error.broadcast_ids}"}
             )
         return Response(ReleaseSerializer(dto).data)
+
+    @validated_request(
+        query_serializer=BroadcastSearchQuerySerializer,
+        responses={200: OpenApiResponse(response=BroadcastOptionSerializer(many=True))},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def broadcast_search(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Search the broadcasts a release can link, returning only their ID, name and status."""
+        if not self._can_read_workflows():
+            return Response([])
+        options = search_broadcast_summaries(
+            team_id=self.team_id,
+            search=request.validated_query_data.get("search", ""),
+            user_access_control=self.user_access_control,
+            limit=BROADCAST_SEARCH_LIMIT,
+        )
+        return Response(BroadcastOptionSerializer(options, many=True).data)
 
     @extend_schema(responses={204: None})
     def destroy(self, request: Request, pk: UUID, **kwargs) -> Response:
