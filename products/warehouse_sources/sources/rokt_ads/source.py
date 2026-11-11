@@ -4,14 +4,16 @@ from products.warehouse_sources.sources.rokt_ads._config import RoktAdsSourceCon
 from products.warehouse_sources.sources.rokt_ads.rokt_ads import (
     RoktAdsClient,
     RoktAdsResumeConfig,
+    rokt_ads_metadata_rows,
     rokt_ads_source,
     validate_credentials as validate_rokt_credentials,
 )
 from products.warehouse_sources.sources.rokt_ads.settings import (
-    ACCOUNTS_ENDPOINT,
     DESCRIPTIONS,
+    ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK_SECONDS,
+    METADATA_ENDPOINTS,
     PRIMARY_KEYS,
     SCHEMA_NAMES,
 )
@@ -137,6 +139,13 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
         endpoint_name = inputs.schema_name
 
         def items():
+            if endpoint_name in METADATA_ENDPOINTS:
+                return rokt_ads_metadata_rows(
+                    client=client,
+                    account_id=config.account_id,
+                    endpoint_name=endpoint_name,
+                    resumable_source_manager=resumable_source_manager,
+                )
             return rokt_ads_source(
                 client=client,
                 account_id=config.account_id,
@@ -149,7 +158,7 @@ class RoktAdsSource(ResumableSource[RoktAdsSourceConfig, RoktAdsResumeConfig]):
                 currency_code=config.currency_code or None,
             )
 
-        is_report = endpoint_name != ACCOUNTS_ENDPOINT
+        is_report = endpoint_name in ENDPOINTS
         return SourceResponse(
             name=endpoint_name,
             items=items,

@@ -12,6 +12,52 @@
             padding: 0.25rem;
         }
     }
+
+    // Tiles are always movable for editors, so the cell guides and the drop space only show mid-gesture.
+    .DashboardGridBackground {
+        display: none;
+    }
+
+    &.dashboard-layout-gesture {
+        .DashboardGridBackground {
+            display: block;
+        }
+
+        // Dragging is bounded to the grid's clientHeight, so padding (counted only under content-box)
+        // opens room below the last tile to drop it into a new row.
+        .dashboard-drop-space-end {
+            box-sizing: content-box;
+            padding-bottom: 40vh;
+        }
+
+        .dashboard-drop-space-between {
+            box-sizing: content-box;
+            padding-bottom: 6rem;
+        }
+    }
+
+    // A drag shows its own preview under the tile, so the grid's stacked placeholder would be a second outline.
+    // Toggling this class on the container restyles only what the selector's last part matches. Keep every rule
+    // under it ending on a narrow class: a rule that reaches tile content restyles the whole grid at drag start and drop.
+    &.dashboard-tile-drag .react-grid-item.react-grid-placeholder {
+        visibility: hidden;
+    }
+
+    .DashboardDragPreview {
+        position: absolute;
+        top: 0;
+        left: 0;
+        z-index: 2;
+        pointer-events: none;
+        background: color-mix(in sRGB, var(--color-accent) 8%, transparent);
+        border: 2px dashed var(--color-accent);
+        border-radius: var(--radius);
+        transition: transform 100ms ease;
+
+        @media (prefers-reduced-motion: reduce) {
+            transition: none;
+        }
+    }
 }
 
 .react-grid-layout {
@@ -64,7 +110,7 @@
     }
 
     /* Preserve the tile border transition while spacing changes animate. */
-    &.dashboard-view-mode .react-grid-item {
+    &.dashboard-layout-static .react-grid-item {
         transition: var(--dashboard-tile-transition);
     }
 
@@ -80,11 +126,11 @@
         transition: none;
     }
 
-    &.dashboard-edit-mode .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
+    &.dashboard-layout-editable .react-grid-item:not(:hover, .resizing, .react-draggable-dragging) > .handle {
         visibility: hidden;
     }
 
-    &.dashboard-edit-mode [data-attr='dashboard-edit-mode-from-card-edge'] {
+    &.dashboard-layout-editable [data-attr='dashboard-edit-mode-from-card-edge'] {
         display: none;
     }
 
@@ -146,13 +192,30 @@
         cursor: grab;
         user-select: none; // Prevent accidental text selection while dragging
     }
+
+    // The grid's drag `cancel` skips these, so they keep text selection instead of acting as a handle.
+    :is(p, h4, .LemonMarkdown) {
+        cursor: auto;
+        user-select: text;
+    }
 }
 
 .react-grid-item.react-draggable-dragging {
     z-index: 105;
     cursor: grabbing;
+
+    // See-through, so the drop preview and the tiles under it stay visible.
+    opacity: 0.8;
     transition: none;
     will-change: transform;
+}
+
+// The tile stays under the pointer, so its chart would show tooltips and hover states mid-drag. The tile itself
+// keeps pointer events, which also stops the tiles under it from reacting. The drag start handler sets this class
+// after the drag threshold. The grid adds `react-draggable-dragging` on mouse-down, and blocking pointer events
+// from then on would retarget the click that starts click-to-move.
+.react-grid-item.dashboard-tile-moving > * {
+    pointer-events: none;
 }
 
 .react-grid-item.dropping {
@@ -164,10 +227,19 @@
     z-index: 2;
     max-width: 100%;
     user-select: none;
-    border: 1px solid var(--color-accent);
+    background:
+        linear-gradient(var(--color-accent-highlight-secondary), var(--color-accent-highlight-secondary)),
+        var(--color-bg-surface-primary);
+    border: 2px dashed var(--color-accent);
     border-radius: var(--radius);
-    outline: 1px solid var(--color-accent);
     transition: 100ms ease;
+
+    // A resize preview sits under the tile, so a fill would hide its content.
+    &.placeholder-resizing {
+        background: none;
+        border: 1px solid var(--color-accent);
+        outline: 1px solid var(--color-accent);
+    }
 }
 
 .react-resizable-hide > .react-resizable-handle {
@@ -337,7 +409,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .react-grid-layout.dashboard-view-mode .react-grid-item,
+    .react-grid-layout.dashboard-layout-static .react-grid-item,
     .react-grid-layout .react-grid-item {
         transition: none;
     }

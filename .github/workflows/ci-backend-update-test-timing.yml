@@ -45,6 +45,14 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   token: ${{ steps.app-token.outputs.token }}
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      .github/scripts/depot_backend_runs.py
+                      .github/scripts/optimize_test_durations.py
+                      .python-version
+                      products
+                      uv.lock
+                  sparse-checkout-cone-mode: false
 
             - name: Install uv
               uses: ./.github/actions/setup-uv

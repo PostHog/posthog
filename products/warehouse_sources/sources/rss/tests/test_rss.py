@@ -4,7 +4,7 @@ import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.rss._config import RssSourceConfig
-from products.warehouse_sources.sources.rss.rss import RSS_BASE_URL, RssResumeConfig, validate_credentials
+from products.warehouse_sources.sources.rss.rss import PAGE_SIZE, RSS_BASE_URL, RssResumeConfig, validate_credentials
 from products.warehouse_sources.sources.rss.settings import ENDPOINTS, RSS_ENDPOINTS
 from products.warehouse_sources.sources.rss.source import RssSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -121,6 +121,139 @@ class TestEpisodesFanOut:
         assert state.fanout_state is None
 
 
+class TestPerPodcastFanOut:
+    @parameterized.expand([("collaborators",), ("keywords",)])
+    def test_unpaginated_child_is_one_request_per_podcast(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                _response([{"id": 1}, {"id": 2}]),
+                _response([{"id": "a"}, {"id": "b"}]),
+                _response([{"id": "a"}]),
+            ],
+        )
+
+        assert [(r["podcast_id"], r["id"]) for r in result.rows] == [(1, "a"), (1, "b"), (2, "a")]
+        assert all("_podcasts_id" not in r for r in result.rows)
+        assert [url.split("?")[0] for url in result.urls] == [
+            f"{RSS_BASE_URL}/podcasts",
+            f"{RSS_BASE_URL}/podcasts/1/{endpoint}",
+            f"{RSS_BASE_URL}/podcasts/2/{endpoint}",
+        ]
+        # These endpoints take no pagination params, so none are sent.
+        assert result.queries[1:] == [{}, {}]
+
+    @parameterized.expand([("collaborators",), ("keywords",)])
+    def test_empty_podcast_list_requests_no_child(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_response([])])
+
+        assert result.rows == []
+        assert result.urls == [f"{RSS_BASE_URL}/podcasts"]
+
+    @parameterized.expand([("collaborators",), ("keywords",)])
+    def test_resume_skips_completed_podcasts(self, endpoint: str) -> None:
+        result = _driver().run(
+            endpoint,
+            [_response([{"id": 1}, {"id": 2}]), _response([{"id": "b"}])],
+            resume_state=RssResumeConfig(
+                fanout_state={"completed": [f"/podcasts/1/{endpoint}"], "current": None, "child_state": None}
+            ),
+        )
+
+        assert [(r["podcast_id"], r["id"]) for r in result.rows] == [(2, "b")]
+        assert [url.split("?")[0] for url in result.urls] == [
+            f"{RSS_BASE_URL}/podcasts",
+            f"{RSS_BASE_URL}/podcasts/2/{endpoint}",
+        ]
+
+    @parameterized.expand([("collaborators",), ("keywords",)])
+    def test_non_list_child_body_raises_loudly(self, endpoint: str) -> None:
+        result = _driver().run(endpoint, [_response([{"id": 1}]), _response({"error": "unexpected"})])
+
+        assert isinstance(result.raised, ValueError)
+        assert "list response body" in str(result.raised)
+
+
+class TestMidrollsChainedFanOut:
+    def test_injects_podcast_and_episode_ids(self) -> None:
+        result = _driver().run(
+            "midrolls",
+            [
+                _response([{"id": 1}, {"id": 2}]),
+                _response(_episodes(10, 2)),
+                _response([{"id": 100, "start_time_ms": 5000}]),
+                _response([{"id": 101, "start_time_ms": 0}, {"id": 102, "start_time_ms": 9000}]),
+                _response(_episodes(20, 1)),
+                _response([{"id": 100, "start_time_ms": 1000}]),
+            ],
+        )
+
+        # Midroll ids are only unique within an episode, so both parent ids stay on every row.
+        assert [(r["podcast_id"], r["episode_id"], r["id"]) for r in result.rows] == [
+            (1, 10, 100),
+            (1, 11, 101),
+            (1, 11, 102),
+            (2, 20, 100),
+        ]
+        assert all(not key.startswith("_") for r in result.rows for key in r)
+        assert [url.split("?")[0] for url in result.urls] == [
+            f"{RSS_BASE_URL}/podcasts",
+            f"{RSS_BASE_URL}/podcasts/1/episodes",
+            f"{RSS_BASE_URL}/podcasts/1/episodes/10/midrolls",
+            f"{RSS_BASE_URL}/podcasts/1/episodes/11/midrolls",
+            f"{RSS_BASE_URL}/podcasts/2/episodes",
+            f"{RSS_BASE_URL}/podcasts/2/episodes/20/midrolls",
+        ]
+
+    def test_paginates_episodes_before_fetching_midrolls(self) -> None:
+        result = _driver().run(
+            "midrolls",
+            [
+                _response([{"id": 1}]),
+                _response(_episodes(0, PAGE_SIZE)),
+                *[_response([]) for _ in range(PAGE_SIZE)],
+                _response(_episodes(PAGE_SIZE, 1)),
+                _response([{"id": 7, "start_time_ms": 0}]),
+            ],
+        )
+
+        assert [(r["podcast_id"], r["episode_id"], r["id"]) for r in result.rows] == [(1, PAGE_SIZE, 7)]
+        episode_pages = [request.param("page") for request in result.requests if request.path.endswith("/episodes")]
+        assert episode_pages == ["1", "2"]
+        assert len([r for r in result.requests if r.path.endswith("/midrolls")]) == PAGE_SIZE + 1
+
+    def test_deleted_episode_404_is_skipped(self) -> None:
+        result = _driver().run(
+            "midrolls",
+            [
+                _response([{"id": 1}]),
+                _response(_episodes(10, 2)),
+                _response({"error": "not found"}, status=404),
+                _response([{"id": 100, "start_time_ms": 0}]),
+            ],
+        )
+
+        assert [(r["podcast_id"], r["episode_id"], r["id"]) for r in result.rows] == [(1, 11, 100)]
+        assert result.raised is None
+
+    def test_client_error_propagates(self) -> None:
+        result = _driver().run(
+            "midrolls",
+            [_response([{"id": 1}]), _response(_episodes(10, 1)), _response({"error": "forbidden"}, status=403)],
+        )
+
+        assert isinstance(result.raised, requests.HTTPError)
+
+    def test_chain_saves_no_resume_state(self) -> None:
+        result = _driver().run(
+            "midrolls",
+            [_response([{"id": 1}]), _response(_episodes(10, 1)), _response([{"id": 100, "start_time_ms": 0}])],
+        )
+
+        # A multi-level fan-out cannot checkpoint; a retry re-fetches and merge dedupes.
+        assert result.saved_states == []
+
+
 class TestRssSourceResponse:
     @parameterized.expand([(e,) for e in ENDPOINTS])
     def test_source_response_shape(self, endpoint: str) -> None:
@@ -133,7 +266,15 @@ class TestRssSourceResponse:
         # Episodes carry no stable creation timestamp, so no endpoint is partitioned.
         assert response.partition_mode is None
 
-    def test_episodes_key_includes_parent_id(self) -> None:
-        # Fan-out child rows aggregate every podcast's episodes into one table; the spec doesn't
-        # document episode ids as globally unique, so the key must include the parent id.
-        assert RSS_ENDPOINTS["episodes"].primary_keys == ["podcast_id", "id"]
+    @parameterized.expand(
+        [
+            ("episodes", ["podcast_id", "id"]),
+            ("collaborators", ["podcast_id", "id"]),
+            ("keywords", ["podcast_id", "id"]),
+            ("midrolls", ["podcast_id", "episode_id", "id"]),
+        ]
+    )
+    def test_fan_out_keys_include_parent_ids(self, endpoint: str, expected: list[str]) -> None:
+        # Fan-out child rows aggregate every parent's rows into one table; the spec doesn't document
+        # child ids as globally unique, so the key must include the parent ids.
+        assert RSS_ENDPOINTS[endpoint].primary_keys == expected

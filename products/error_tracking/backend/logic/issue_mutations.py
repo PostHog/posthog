@@ -54,7 +54,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingIssueMergeResult,
     sync_issues_to_clickhouse,
 )
-from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
+from products.error_tracking.backend.notifications import AssignmentActor, dispatch_issue_assigned_realtime
 
 
 class CohortNotFoundError(Exception):
@@ -598,7 +598,7 @@ def _assign_one(
         dispatch_issue_assigned_realtime(
             assignment=assignment_after,
             assignee=assignee,
-            assigner=user,
+            actor=AssignmentActor.from_user(user),
         )
 
         transition = prepare_issue_lifecycle_event(

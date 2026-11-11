@@ -18,9 +18,9 @@ def _email_action(action_id: str, from_value: dict) -> dict:
     }
 
 
-@patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+@patch("posthog.plugins.plugin_server_api.publish_message")
 class TestStripPlaceholderSenderOverrides(BaseTest):
-    def test_dry_run_changes_nothing(self, _mock_model_reload):
+    def test_dry_run_changes_nothing(self, _mock_publish):
         flow = HogFlow.objects.create(
             team=self.team,
             name="legacy",
@@ -32,10 +32,7 @@ class TestStripPlaceholderSenderOverrides(BaseTest):
         flow.refresh_from_db()
         assert flow.actions[0]["config"]["inputs"]["email"]["value"]["from"]["email"] == "default@example.com"
 
-    @patch(
-        "products.workflows.backend.management.commands.strip_placeholder_sender_overrides.reload_hog_flows_on_workers"
-    )
-    def test_live_run(self, mock_command_reload, _mock_model_reload):
+    def test_live_run(self, mock_publish):
         # The old sender picker wrote email: 'default@example.com' into from on every sender pick.
         # The live-run must remove exactly that key, everywhere it sits (live actions and the draft
         # blob), keep every other from key, and never touch an address a customer actually typed.
@@ -94,18 +91,17 @@ class TestStripPlaceholderSenderOverrides(BaseTest):
 
         # Workers cache the live flow config, so a flow whose live actions changed must be
         # reloaded; a draft-only change runs nothing and must not be.
-        mock_command_reload.assert_called_once_with(team_id=self.team.id, hog_flow_ids=[str(affected.id)])
+        mock_publish.assert_called_once_with(
+            "reload-hog-flows", {"teamId": self.team.id, "hogFlowIds": [str(affected.id)]}
+        )
 
         # Idempotent: a second live-run finds nothing to strip.
-        mock_command_reload.reset_mock()
+        mock_publish.reset_mock()
         with self.captureOnCommitCallbacks(execute=True):
             call_command("strip_placeholder_sender_overrides", "--live-run")
-        mock_command_reload.assert_not_called()
+        mock_publish.assert_not_called()
 
-    @patch(
-        "products.workflows.backend.management.commands.strip_placeholder_sender_overrides.reload_hog_flows_on_workers"
-    )
-    def test_live_run_preserves_a_save_landing_between_scan_and_write(self, _mock_command_reload, _mock_model_reload):
+    def test_live_run_preserves_a_save_landing_between_scan_and_write(self, _mock_publish):
         # The command must write the row it re-reads under lock, not the blob its scan saw.
         # Writing the scanned blob silently discards any workflow save that commits in between.
         flow = HogFlow.objects.create(

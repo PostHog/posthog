@@ -36,9 +36,11 @@ class Client:
         groups: dict[str, Any] | None = None,
         capture_analytics: bool = True,
         privacy_mode: bool = False,
+        max_retries: int | None = None,
     ):
         self.provider_key = provider_key
         self.config = config
+        self.max_retries = max_retries
         self.analytics = AnalyticsContext(
             distinct_id=distinct_id,
             trace_id=trace_id or str(uuid.uuid4()),
@@ -62,14 +64,14 @@ class Client:
     def complete(self, request: CompletionRequest) -> CompletionResponse:
         """Non-streaming completion."""
         self._validate_provider(request.provider)
-        provider = _get_provider(request.provider, self.provider_key)
+        provider = _get_provider(request.provider, self.provider_key, self.max_retries)
         api_key, base_url = self._resolve_credentials()
         return provider.complete(request, api_key, self.analytics, base_url)
 
     def stream(self, request: CompletionRequest) -> Generator[StreamChunk]:
         """Streaming completion."""
         self._validate_provider(request.provider)
-        provider = _get_provider(request.provider, self.provider_key)
+        provider = _get_provider(request.provider, self.provider_key, self.max_retries)
         api_key, base_url = self._resolve_credentials()
         yield from provider.stream(request, api_key, self.analytics, base_url)
 
@@ -101,7 +103,20 @@ class Client:
         return _get_provider(provider).recommended_models()
 
 
-def _get_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
+def _get_provider(
+    name: str, provider_key: "LLMProviderKey | None" = None, max_retries: int | None = None
+) -> "Provider":
+    from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
+    from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter
+
+    provider = _build_provider(name, provider_key)
+    # Gemini's SDK does not retry by default, so only these two need the override.
+    if max_retries is not None and isinstance(provider, OpenAIAdapter | AnthropicAdapter):
+        provider.max_retries = max_retries
+    return provider
+
+
+def _build_provider(name: str, provider_key: "LLMProviderKey | None" = None) -> "Provider":
     """Get provider by name. Anthropic, Azure and OpenAI-compatible read extra config from provider_key."""
     from typing import cast
 

@@ -61,7 +61,9 @@ class TestPagination:
         # The initial (skip=0) page is never fetched on resume.
         assert result.params("skip") == ["200"]
 
-    @parameterized.expand([("custom_fields",), ("email_template_folders",)])
+    @parameterized.expand(
+        [("custom_fields",), ("email_template_folders",), ("linkedin_accounts",), ("sequence_folders",)]
+    )
     def test_unpaginated_endpoint_fetches_bare_array_once_without_state(self, endpoint: str) -> None:
         result = _driver().run(endpoint, [_bare([{"id": 1}, {"id": 2}])])
 
@@ -76,17 +78,29 @@ class TestPagination:
 
         assert isinstance(result.raised, RESTClientRetryableError)
 
-    def test_email_activity_posts_all_time_filters_on_every_page(self) -> None:
-        result = _driver().run(
-            "email_activity",
-            [
-                _paged([{"contactId": 1, "emailAccountId": 9, "deliveryDate": "2026-01-01T10:00:00Z"}], has_more=True),
-                _paged([{"contactId": 2, "emailAccountId": 9, "deliveryDate": "2026-01-02T10:00:00Z"}], has_more=False),
-            ],
-        )
+    @parameterized.expand(
+        [
+            (
+                "email_activity",
+                "/v3/reporting/emails",
+                {"contactId": 1, "emailAccountId": 9, "deliveryDate": "2026-01-01T10:00:00Z"},
+                {"contactId": 2, "emailAccountId": 9, "deliveryDate": "2026-01-02T10:00:00Z"},
+            ),
+            (
+                "meetings",
+                "/v3/reporting/team-performance/meetings",
+                {"userId": 1, "source": "call", "contactFullName": "Ada Example", "bookedAt": "2026-01-01T10:00:00"},
+                {"userId": 2, "source": "linkedIn", "contactFullName": "Bo Example", "bookedAt": "2026-01-02T10:00:00"},
+            ),
+        ]
+    )
+    def test_report_posts_all_time_filters_on_every_page(
+        self, endpoint: str, path: str, first_row: dict[str, Any], second_row: dict[str, Any]
+    ) -> None:
+        result = _driver().run(endpoint, [_paged([first_row], has_more=True), _paged([second_row], has_more=False)])
 
-        assert [r["contactId"] for r in result.rows] == [1, 2]
-        assert [r.method for r in result.requests] == ["POST", "POST"]
+        assert result.rows == [first_row, second_row]
+        assert [(r.method, r.path) for r in result.requests] == [("POST", path), ("POST", path)]
         assert result.params("skip") == ["0", "1"]
         # Without a window the report returns only the last seven days.
         expected_body = {"filters": {"dateRangePreset": "allTime", "includeOutOfSequence": True}}
@@ -132,6 +146,34 @@ class TestPagination:
         assert result.raised is None
         assert [(r["sequenceId"], r["id"]) for r in result.rows] == [(7, 50), (7, 51)]
         assert all("_sequences_id" not in r for r in result.rows)
+
+    def test_sequence_folder_sequences_page_each_folder_and_carry_folder_id(self) -> None:
+        result = _driver().run(
+            "sequence_folder_sequences",
+            route(
+                {
+                    "/sequence-folders": [
+                        _bare([{"id": "folder-a", "name": "Sales"}, {"id": "folder-b", "name": "Old"}])
+                    ],
+                    "/sequence-folders/folder-a/sequences": [
+                        _paged([{"id": 7, "name": "Intro"}], has_more=True),
+                        _paged([{"id": 8, "name": "Follow up"}], has_more=False),
+                    ],
+                    # A folder deleted between the listing and its sequence fetch.
+                    "/sequence-folders/folder-b/sequences": [ScriptedResponse(status=404, json={})],
+                }
+            ),
+        )
+
+        assert result.raised is None
+        assert [(r["folderId"], r["id"]) for r in result.rows] == [("folder-a", 7), ("folder-a", 8)]
+        assert all("_sequence_folders_id" not in r for r in result.rows)
+        child_requests = [r for r in result.requests if r.path.endswith("/sequences")]
+        assert [(r.path, r.param("skip")) for r in child_requests] == [
+            ("/v3/sequence-folders/folder-a/sequences", "0"),
+            ("/v3/sequence-folders/folder-a/sequences", "1"),
+            ("/v3/sequence-folders/folder-b/sequences", "0"),
+        ]
 
     def test_fanout_resumes_after_finished_sequences(self) -> None:
         script = {

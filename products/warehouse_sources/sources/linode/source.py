@@ -76,7 +76,7 @@ Create a personal access token in the [Linode Cloud Manager](https://cloud.linod
 - Images
 - Databases
 """,
-            iconPath="/static/services/linode.svg",
+            iconPath="/static/services/linode.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linode",
             keywords=["cloud", "infrastructure", "hosting", "akamai"],
             fields=cast(

@@ -10,6 +10,7 @@ import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/
 import { createDeletionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 
+import { blockRefEncoder, decodeBlockRef } from './block-refs'
 import { ClickHouseCredential } from './clickhouse-credential'
 import { RecordingApiMetrics } from './metrics'
 import {
@@ -28,11 +29,15 @@ export interface GetBlockParams {
     startByte: number
     endByte: number
     decompress?: boolean
+    // A caller that already read the session key passes it, so the block is decrypted without a second lookup.
+    sessionKey?: SessionKey
 }
 
 export type RecordingDeletedResult = { ok: false; error: 'deleted'; deletedAt?: number; deletedBy: string }
 
 export type GetBlockResult = { ok: true; data: Buffer } | { ok: false; error: 'not_found' } | RecordingDeletedResult
+
+export type ListedBlock = RecordingBlock & { ref?: string }
 
 export type EncryptBlocksResult =
     | { ok: true; blocks: Buffer[] }
@@ -155,11 +160,9 @@ export class RecordingService {
                 bytesReceived: bodyContents.length,
             })
 
-            const { data, sessionState } = await this.decryptor.decryptBlock(
-                sessionId,
-                teamId,
-                Buffer.from(bodyContents)
-            )
+            const { data, sessionState } = params.sessionKey
+                ? this.decryptor.decryptBlockWithKey(sessionId, teamId, Buffer.from(bodyContents), params.sessionKey)
+                : await this.decryptor.decryptBlock(sessionId, teamId, Buffer.from(bodyContents))
 
             logger.debug('[RecordingService] Decrypted block', {
                 sessionId,
@@ -253,11 +256,43 @@ export class RecordingService {
         return rows.length > 0
     }
 
-    // The key store records a deletion at once, while the is_deleted marker reaches ClickHouse later through Kafka.
-    // Call it only for a session that has blocks: the key store caches a missing key as cleartext for a day, and a
-    // lookup before ingestion creates the key would make getBlock skip decryption for that whole day.
-    async getDeletion(sessionId: string, teamId: number): Promise<RecordingDeletedResult | null> {
-        return deletionOf(await this.keyStore.getKey(sessionId, teamId))
+    // Reports a deletion the key store recorded before ClickHouse learns of it through Kafka, and names each block of an
+    // encrypted session with a ref the browser can fetch and cache. Cleartext sessions have no key to derive refs from.
+    // Call it only for a session that has blocks; a session without any has no key worth reading yet.
+    async annotateBlocks(
+        sessionId: string,
+        teamId: number,
+        blocks: RecordingBlock[]
+    ): Promise<RecordingDeletedResult | ListedBlock[]> {
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        const deletion = deletionOf(sessionKey)
+        if (deletion) {
+            return deletion
+        }
+        if (sessionKey.sessionState !== 'ciphertext') {
+            return blocks
+        }
+        const encodeRef = blockRefEncoder(sessionKey.plaintextKey)
+        return blocks.map((block) => ({
+            ...block,
+            ref: encodeRef({ teamId, sessionId, key: block.key, startByte: block.start_byte, endByte: block.end_byte }),
+        }))
+    }
+
+    async getBlockByRef(teamId: number, sessionId: string, ref: string): Promise<GetBlockResult> {
+        const sessionKey = await this.keyStore.getKey(sessionId, teamId)
+        const deletion = deletionOf(sessionKey)
+        if (deletion) {
+            return deletion
+        }
+        const location =
+            sessionKey.sessionState === 'ciphertext'
+                ? decodeBlockRef(sessionKey.plaintextKey, ref, teamId, sessionId)
+                : null
+        if (!location || !this.validateS3Key(location.key)) {
+            return { ok: false, error: 'not_found' }
+        }
+        return this.getBlock({ sessionId, teamId, ...location, sessionKey })
     }
 
     async listBlocks(sessionId: string, teamId: number): Promise<RecordingBlock[]> {

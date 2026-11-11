@@ -104,12 +104,11 @@ impl AccessRows {
             .map(Self)
     }
 
-    fn processes(&self, team_id: i32) -> bool {
-        self.0.get(&team_id).is_some_and(|level| level.processes())
-    }
-
-    fn granted(&self) -> usize {
-        self.0.values().filter(|level| level.processes()).count()
+    fn granted(&self) -> impl Iterator<Item = i32> + '_ {
+        self.0
+            .iter()
+            .filter(|(_, level)| level.processes())
+            .map(|(&team_id, _)| team_id)
     }
 
     /// Puts back the `previous` row of each team whose row here is a change that
@@ -127,13 +126,49 @@ impl AccessRows {
     }
 }
 
-/// Answers whether a team processes, from the rows the poller stored last.
+/// The teams the pipeline processes after an accepted read: the env list united with the teams
+/// whose row is at `processing` or `serving`. Only an accepted read builds one, so a reader that
+/// holds one never runs on the env list alone.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ProcessingTeams(TeamAllowlist);
+
+impl ProcessingTeams {
+    /// An `off` row never removes a team that the env list names.
+    fn new(env: &TeamAllowlist, rows: &AccessRows) -> Self {
+        Self(match env {
+            TeamAllowlist::All => TeamAllowlist::All,
+            TeamAllowlist::Only(listed) => {
+                TeamAllowlist::Only(listed.iter().copied().chain(rows.granted()).collect())
+            }
+        })
+    }
+
+    pub fn scope(&self) -> &TeamAllowlist {
+        &self.0
+    }
+}
+
+/// One accepted read. The poller checks the next read against `rows`, and readers ask `processing`.
+#[derive(Debug)]
+struct Snapshot {
+    rows: AccessRows,
+    processing: Arc<ProcessingTeams>,
+}
+
+impl Snapshot {
+    fn new(env: &TeamAllowlist, rows: AccessRows) -> Self {
+        let processing = Arc::new(ProcessingTeams::new(env, &rows));
+        Self { rows, processing }
+    }
+}
+
+/// Answers whether a team processes, from the read the poller accepted last.
 #[derive(Debug)]
 pub struct TeamAccess {
     env: TeamAllowlist,
     /// `None` until the first accepted read. Until then no team processes, not even one the env list
     /// names: a reader that ran on the env list alone would treat every granted team as revoked.
-    rows: ArcSwapOption<AccessRows>,
+    snapshot: ArcSwapOption<Snapshot>,
 }
 
 impl TeamAccess {
@@ -141,7 +176,7 @@ impl TeamAccess {
         gauge!(LAST_SUCCESS).set(0.0);
         let access = Arc::new(Self {
             env,
-            rows: ArcSwapOption::empty(),
+            snapshot: ArcSwapOption::empty(),
         });
         let poller = TeamAccessPoller {
             access: access.clone(),
@@ -152,25 +187,30 @@ impl TeamAccess {
     /// A loaded reader whose one read granted `granted` at `processing`.
     #[cfg(feature = "test-util")]
     pub fn with_granted(env: TeamAllowlist, granted: impl IntoIterator<Item = i32>) -> Arc<Self> {
-        let rows = granted
-            .into_iter()
-            .map(|team_id| (team_id, Level::Processing))
-            .collect();
-        Arc::new(Self {
-            env,
-            rows: ArcSwapOption::from_pointee(AccessRows(rows)),
-        })
+        let (access, mut poller) = Self::new(env);
+        poller
+            .accept_granted(granted)
+            .expect("a first read has no previous rows to regress");
+        access
     }
 
     pub fn processes(&self, team_id: i32) -> bool {
-        self.rows
+        self.snapshot
             .load()
             .as_ref()
-            .is_some_and(|rows| self.env.includes(team_id) || rows.processes(team_id))
+            .is_some_and(|snapshot| snapshot.processing.scope().includes(team_id))
+    }
+
+    /// `None` until the first accepted read.
+    pub fn processing_teams(&self) -> Option<Arc<ProcessingTeams>> {
+        self.snapshot
+            .load()
+            .as_ref()
+            .map(|snapshot| snapshot.processing.clone())
     }
 
     pub fn is_loaded(&self) -> bool {
-        self.rows.load().is_some()
+        self.snapshot.load().is_some()
     }
 }
 
@@ -208,12 +248,13 @@ impl TeamAccessPoller {
     }
 
     fn accept(&mut self, mut read: AccessRows) -> Result<usize, PollError> {
-        let regressed = match self.access.rows.load().as_deref() {
-            Some(previous) => read.restore_regressed(previous),
+        let regressed = match self.access.snapshot.load().as_deref() {
+            Some(previous) => read.restore_regressed(&previous.rows),
             None => Vec::new(),
         };
-        let granted = read.granted();
-        self.access.rows.store(Some(Arc::new(read)));
+        let granted = read.granted().count();
+        let snapshot = Snapshot::new(&self.access.env, read);
+        self.access.snapshot.store(Some(Arc::new(snapshot)));
         if !regressed.is_empty() {
             return Err(PollError::RegressedRows(regressed));
         }
@@ -232,7 +273,7 @@ impl TeamAccessPoller {
 
         loop {
             let tick = async {
-                tokio::time::sleep(next_interval()).await;
+                tokio::time::sleep(next_poll_delay()).await;
                 self.poll(&pool).await
             };
             tokio::select! {
@@ -246,8 +287,24 @@ impl TeamAccessPoller {
     }
 }
 
-/// The jitter spreads the polls of many pods over time.
-fn next_interval() -> Duration {
+#[cfg(feature = "test-util")]
+impl TeamAccessPoller {
+    /// Accepts a read whose rows grant `granted` at `processing`, as a poll would.
+    pub fn accept_granted(
+        &mut self,
+        granted: impl IntoIterator<Item = i32>,
+    ) -> Result<usize, PollError> {
+        let rows = granted
+            .into_iter()
+            .map(|team_id| (team_id, Level::Processing))
+            .collect();
+        self.accept(AccessRows(rows))
+    }
+}
+
+/// `POLL_INTERVAL ± POLL_JITTER`. Every reader polls at this cadence, and the jitter spreads the
+/// polls of many pods over time.
+pub fn next_poll_delay() -> Duration {
     let max_jitter_ms = 2 * POLL_JITTER.as_millis() as u64;
     let jitter = Duration::from_millis(rand::thread_rng().gen_range(0..=max_jitter_ms));
     POLL_INTERVAL - POLL_JITTER + jitter
@@ -263,6 +320,8 @@ fn now_unix_seconds() -> f64 {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use super::*;
     use metrics_util::debugging::DebuggingRecorder;
 
@@ -297,29 +356,37 @@ mod tests {
 
         assert!(!access.is_loaded());
         assert!(!access.processes(2));
+        assert!(access.processing_teams().is_none());
     }
 
     #[test]
     fn processing_is_the_env_list_united_with_the_granted_rows() {
-        let (access, mut poller) = TeamAccess::new(env_only(&[2, 3]));
-        poller
-            .accept(rows(&[
-                (3, "off"),
-                (5, "processing"),
-                (6, "serving"),
-                (7, "off"),
-            ]))
-            .unwrap();
-
-        for (team_id, expected) in [
-            (2, true),
-            (3, true),
-            (5, true),
-            (6, true),
-            (7, false),
-            (8, false),
+        let read = [(3, "off"), (5, "processing"), (6, "serving"), (7, "off")];
+        for (env, expected_scope) in [
+            (
+                env_only(&[2, 3]),
+                TeamAllowlist::Only(HashSet::from([2, 3, 5, 6])),
+            ),
+            (TeamAllowlist::All, TeamAllowlist::All),
         ] {
-            assert_eq!(access.processes(team_id), expected, "team {team_id}");
+            let (access, mut poller) = TeamAccess::new(env.clone());
+            poller.accept(rows(&read)).unwrap();
+            let processing = access.processing_teams().unwrap();
+
+            assert_eq!(processing.scope(), &expected_scope, "env {env:?}");
+            for team_id in [2, 3, 5, 6, 7, 8] {
+                let expected = expected_scope.includes(team_id);
+                assert_eq!(
+                    access.processes(team_id),
+                    expected,
+                    "env {env:?}, team {team_id}"
+                );
+                assert_eq!(
+                    processing.scope().includes(team_id),
+                    expected,
+                    "env {env:?}, team {team_id}"
+                );
+            }
         }
     }
 

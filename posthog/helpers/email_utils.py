@@ -255,6 +255,19 @@ class EmailNormalizer:
         return email.translate(_ASCII_UPPER_TO_LOWER)
 
 
+def email_domain(email: str) -> str | None:
+    """The domain of `email`, or None when it carries no domain.
+
+    The domain follows the last `@`. A local part may hold an `@` of its own inside a quoted
+    string, which Django's `EmailValidator` accepts, so reading from the first `@` returns part of
+    the local part and then matches no configured domain.
+    """
+    _, separator, domain = email.rpartition("@")
+    if not separator or not domain:
+        return None
+    return domain
+
+
 def strip_email_alias(email: str) -> str:
     """
     Strip a Gmail-style '+suffix' from the local part of an email (e.g.
@@ -297,7 +310,7 @@ GMAIL_CANONICAL_LOCAL_EXPRESSION = Replace(
 
 def reject_plus_addressed_email(value: str) -> None:
     """Raise if the local part of `value` contains '+'."""
-    local = value.split("@", 1)[0]
+    local = value.rsplit("@", 1)[0]
     if "+" in local:
         raise serializers.ValidationError(
             "Email addresses with a '+' aren't supported. Please use your primary email address.",

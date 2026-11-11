@@ -7,7 +7,7 @@ use envconfig::Envconfig;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};
 use personhog_changelog_relay::consumer::{consumer_client_config, ChangelogConsumer};
 use personhog_changelog_relay::relay::Relay;
-use personhog_coordination::follow::Follower;
+use personhog_coordination::follow::{FollowStep, Follower};
 use personhog_coordination::types::{ChangelogConfig, Generation};
 use personhog_proto::personhog::types::v1::Person;
 use prost::Message as _;
@@ -293,12 +293,14 @@ async fn a_move_to_the_live_topic_relays_it_from_its_first_record() {
     assert_eq!(read(1).await.unwrap(), vec![person(1).uuid]);
 
     let flipped = ChangelogConfig {
+        cluster: None,
         topic: new.clone(),
         partitions: 1,
         epoch: 2,
         writer_group: "writer".to_string(),
         retire_groups: vec![group],
         draining: vec![Generation {
+            cluster: None,
             topic: old.clone(),
             partitions: 1,
             epoch: 1,
@@ -308,7 +310,7 @@ async fn a_move_to_the_live_topic_relays_it_from_its_first_record() {
         .follow_once(consumer.as_ref(), &flipped, |_| async { Ok(true) })
         .await
         .unwrap();
-    assert_eq!(moved, Some(old));
+    assert_eq!(moved, FollowStep::Moved(old));
 
     assert_eq!(read(2).await.unwrap(), vec![person(1).uuid, person(2).uuid]);
 

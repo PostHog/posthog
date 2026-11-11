@@ -8,6 +8,7 @@ import pyarrow as pa
 import deltalake
 import structlog
 import pyarrow.compute as pc
+import deltalake.exceptions
 
 from posthog.dataclasses import frozen
 
@@ -17,7 +18,17 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     pyarrow_schema_from_arrow_exportable,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     build_delta_table_uri,
     delta_storage_options,
@@ -558,30 +569,31 @@ def iter_parent_pages_with_positions(
     skips the wrong rows rather than raising.
     """
     page_size = max(1, min(page_size, MAX_PARENT_PAGE_SIZE))
-    delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
-    physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
-
-    resolved_row_filter: _ResolvedRowFilter | None = None
-    projected = list(dict.fromkeys(physical_by_api_name.values()))
-    if row_filter is not None:
-        resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
-        if resolved_row_filter.physical_column not in projected:
-            # The row check below needs the value even when the caller didn't ask for it as
-            # output — otherwise it reads as absent and every row would pass.
-            projected.append(resolved_row_filter.physical_column)
-
-    scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
-
-    dataset = delta_table.to_pyarrow_dataset()
-
-    # Enumerated here rather than through `dataset.get_fragments(filter=...)` so an index
-    # always names the same file: pushdown may prune fragments, and a pruned-away file must
-    # not shift the ones after it. Sorting is over paths — file metadata, never rows.
-    fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.path)
 
     rows_streamed = 0
     outcome = "failed"
     try:
+        delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
+        physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
+
+        resolved_row_filter: _ResolvedRowFilter | None = None
+        projected = list(dict.fromkeys(physical_by_api_name.values()))
+        if row_filter is not None:
+            resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
+            if resolved_row_filter.physical_column not in projected:
+                # The row check below needs the value even when the caller didn't ask for it as
+                # output — otherwise it reads as absent and every row would pass.
+                projected.append(resolved_row_filter.physical_column)
+
+        scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
+
+        dataset = delta_table.to_pyarrow_dataset()
+
+        # Enumerated here rather than through `dataset.get_fragments(filter=...)` so an index
+        # always names the same file: pushdown may prune fragments, and a pruned-away file must
+        # not shift the ones after it. Sorting is over paths — file metadata, never rows.
+        fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.path)
+
         for fragment_index, fragment in enumerate(fragments):
             if start_position is not None and fragment_index < start_position.fragment_index:
                 continue
@@ -616,6 +628,29 @@ def iter_parent_pages_with_positions(
         outcome = "completed"
     except GeneratorExit:
         outcome = "stopped"
+        raise
+    except (OSError, deltalake.exceptions.DeltaError) as e:
+        # The table opened fine (resolve_parent_table_ref already succeeded), but a refusal or
+        # blip reading one file's bytes surfaces here instead — same object store, same failure
+        # shapes every Delta read/write path in this package already classifies, just missed on
+        # this one because it opens its own handle and scans fragments directly. Without this, the
+        # raw error crashes the activity with the bucket and object key in the message.
+        if is_object_store_permission_denied(e):
+            logger.warning(
+                "data_imports.fanout_parent_scan_denied",
+                schema=schema_name,
+                parent=parent_name,
+                exc_info=True,
+            )
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+        if is_transient_object_store_error(e):
+            logger.warning(
+                "data_imports.fanout_parent_scan_transient",
+                schema=schema_name,
+                parent=parent_name,
+                exc_info=True,
+            )
+            raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
         raise
     finally:
         # In a `finally` because a consumer can stop early: a resumable child checkpoints

@@ -9,12 +9,17 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime
 from enum import StrEnum
+from typing import Final
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Min
 from django.utils import timezone
 
+import posthoganalytics
+
 from posthog.dataclasses import frozen
+from posthog.models.team.team import Team
 
 from products.alerts_platform.backend.facade.api import give_back_ownership, take_ownership, upsert_configuration
 from products.alerts_platform.backend.facade.contracts import Grouping, HandbackRefusal, PlatformOwnershipHandover
@@ -169,11 +174,19 @@ def in_an_environment(alert: LogsAlertConfiguration) -> bool:
     return alert.team.parent_team_id is not None
 
 
-def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping | None = None) -> bool:
+def hand_over(
+    alert: LogsAlertConfiguration,
+    at: datetime,
+    *,
+    grouping: Grouping | None = None,
+    shadow_from: datetime | None = None,
+) -> bool:
     """Copies a logs alert locked by the caller onto the platform and makes the platform its owner,
     on both rows. False, changing nothing, when the platform copy is inside a firing of its own.
 
-    `grouping` applies only to a copy this creates, because the logs row stores none."""
+    `grouping` applies only to a copy this creates, because the logs row stores none.
+    `shadow_from` is the logs row's `owner_changed_at`, where its shadow starts, and defaults to `at`.
+    The platform copy always takes `at`, because its check fence and firing check need the real time."""
     upsert = platform_upsert_of(alert)
     savepoint = transaction.savepoint_create()
     upsert_configuration(upsert if grouping is None else replace(upsert, grouping=grouping))
@@ -195,20 +208,56 @@ def hand_over(alert: LogsAlertConfiguration, at: datetime, *, grouping: Grouping
         return False
     transaction.savepoint_commit(savepoint)
     # `update()` rather than `save()`: a handover is not a user's edit, and `save()` would log one.
-    LogsAlertConfiguration.objects.filter(id=alert.id).update(owner=PlatformAlertOwner.PLATFORM, owner_changed_at=at)
+    owner_changed_at = shadow_from or at
+    LogsAlertConfiguration.objects.filter(id=alert.id).update(
+        owner=PlatformAlertOwner.PLATFORM, owner_changed_at=owner_changed_at
+    )
     alert.owner = PlatformAlertOwner.PLATFORM
-    alert.owner_changed_at = at
+    alert.owner_changed_at = owner_changed_at
     return True
 
 
-def takes_new_alert(team_id: int, *, new_alert_id: UUID) -> bool:
+def takes_new_alert(team_id: int, *, new_alert_id: UUID | None) -> bool:
     """Whether the platform owns a team's new logs alert: when it owns another of the team's alerts, or
     when the team has no other. A team whose alerts all stay with logs, such as one rolled back, keeps
     new ones on logs too."""
-    owners = set(
-        LogsAlertConfiguration.objects.filter(team_id=team_id)
-        .exclude(id=new_alert_id)
-        .values_list("owner", flat=True)
-        .distinct()
-    )
+    rows = LogsAlertConfiguration.objects.filter(team_id=team_id)
+    if new_alert_id is not None:
+        rows = rows.exclude(id=new_alert_id)
+    owners = set(rows.values_list("owner", flat=True).distinct())
     return not owners or PlatformAlertOwner.PLATFORM in owners
+
+
+def team_cutover_at(team_id: int, *, new_alert_id: UUID) -> datetime | None:
+    """When the platform took the earliest of a team's other logs alerts it still owns. None when it
+    owns none of them."""
+    return (
+        LogsAlertConfiguration.objects.filter(team_id=team_id, owner=PlatformAlertOwner.PLATFORM)
+        .exclude(id=new_alert_id)
+        .aggregate(at=Min("owner_changed_at"))["at"]
+    )
+
+
+# Turns on, per team, creates that make no logs row. Off until the logs rollback window closes, because
+# rollback hands an alert back through its logs row, so an alert created without one stays on the platform.
+NATIVE_CREATE_FLAG: Final = "logs-alerts-native-create"
+
+
+def creates_native_alert(team_id: int) -> bool:
+    """Whether a new logs alert of the team gets no logs row. A team whose alerts stay with logs, and an
+    environment, whose alert the platform cannot store, keep the logs row."""
+    team = Team.objects.only("id", "uuid", "organization_id", "parent_team_id").get(id=team_id)
+    if team.parent_team_id is not None:
+        return False
+    flag_on = posthoganalytics.feature_enabled(
+        NATIVE_CREATE_FLAG,
+        str(team.uuid),
+        groups={"organization": str(team.organization_id), "project": str(team.id)},
+        group_properties={
+            "organization": {"id": str(team.organization_id)},
+            # Both regions read flags from one PostHog project, and project ids repeat across regions.
+            "project": {"id": str(team.id), "uuid": str(team.uuid)},
+        },
+        send_feature_flag_events=False,
+    )
+    return bool(flag_on) and takes_new_alert(team_id, new_alert_id=None)

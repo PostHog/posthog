@@ -21,7 +21,10 @@ const MAX_CREDIT_CAP = 100_000_000
 // Pinned: the `placement` on the shared replay_vision_upsell_* events and the scanner's `entry_point`.
 export const REPLAY_FILTERS_ENTRY_POINT = 'replay_filters'
 
-function reportClicked(cta: 'open' | 'draft_with_ai' | 'set_up_manually', narrowsSessions?: boolean): void {
+function reportClicked(
+    cta: 'open' | 'draft_with_ai' | 'set_up_manually' | 'create_scanner',
+    narrowsSessions?: boolean
+): void {
     posthog.capture('replay_vision_upsell_clicked', {
         placement: REPLAY_FILTERS_ENTRY_POINT,
         cta,
@@ -67,6 +70,9 @@ export interface replayFiltersScannerLogicActions {
     ) => {
         handoff: ScannerHandoffFromFilters
         spend: GoalDraftSpend
+    }
+    createScanner: (handoff: ScannerHandoffFromFilters) => {
+        handoff: ScannerHandoffFromFilters
     }
     draftWithAi: (
         handoff: ScannerHandoffFromFilters,
@@ -125,6 +131,7 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
         setBudget: (budget: number | null) => ({ budget }),
         draftWithAi: (handoff: ScannerHandoffFromFilters, spend?: GoalDraftSpend) => ({ handoff, spend }),
         setUpManually: (handoff: ScannerHandoffFromFilters) => ({ handoff }),
+        createScanner: (handoff: ScannerHandoffFromFilters) => ({ handoff }),
         requestConsent: (spend: GoalDraftSpend) => ({ spend }),
         confirmConsent: (handoff: ScannerHandoffFromFilters, spend: GoalDraftSpend) => ({ handoff, spend }),
         cancelConsent: true,
@@ -236,6 +243,12 @@ export const replayFiltersScannerLogic = kea<replayFiltersScannerLogicType>([
         },
         setUpManually: ({ handoff }) => {
             reportClicked('set_up_manually', handoff.narrowsSessions)
+            recordCrossSellIntent()
+            router.actions.push(manualWizardUrl(handoff))
+        },
+        // The entry point experiment's control: the button opens the wizard with no popover in between.
+        createScanner: ({ handoff }) => {
+            reportClicked('create_scanner', handoff.narrowsSessions)
             recordCrossSellIntent()
             router.actions.push(manualWizardUrl(handoff))
         },

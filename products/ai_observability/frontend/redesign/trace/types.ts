@@ -1,9 +1,13 @@
 import type {
+    TraceAttachmentPartApi,
     TraceEvaluationResultOutcomeEnumApi,
     TraceFeedbackScoreApi,
     TraceFeedbackTextApi,
+    TraceMessageApi,
     TraceNodeApi,
+    TraceNodeContentApi,
     TraceNodeDetailApi,
+    TraceNodeRawApi,
     TraceNodeEvaluationRollupOutcomeEnumApi,
     TraceSummaryContentApi,
     TraceSurveyResponseApi,
@@ -14,8 +18,6 @@ export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
 export type TraceOpeningMode = 'summary' | null
-
-export type TraceViewChoice = 'new' | 'legacy'
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -32,34 +34,27 @@ export type NodeLoad =
     | { status: 'ready'; node: TraceNodeDetailApi }
     | { status: 'error'; failure: LoadFailure }
 
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
+export type RawLoad =
+    | { status: 'loading' }
+    | { status: 'ready'; raw: TraceNodeRawApi }
+    | { status: 'error'; failure: LoadFailure }
 
-export type AttachmentMediaType = 'image' | 'audio' | 'video' | 'file'
+export type MessageRole = TraceMessageApi['role']
 
-export type MessagePart =
-    | { kind: 'text'; text: string }
-    | { kind: 'thinking'; text: string }
-    | { kind: 'toolCall'; name: string; args: unknown; result?: unknown; isError?: boolean }
-    | {
-          kind: 'attachment'
-          mediaType: AttachmentMediaType
-          name: string | null
-          mimeType: string | null
-          url: string | null
-      }
+/** Which messages of a step open first: from the last user message on, or all of them. */
+export type MessagesOpening = 'lastTurn' | 'everything'
 
-export interface ThreadMessage {
-    id: string
-    role: MessageRole
-    parts: MessagePart[]
-    isInternal: boolean
-    sourceNodeId: string | null
-}
+export type AttachmentMediaType = TraceAttachmentPartApi['mediaType']
+
+export type MessagePart = TraceMessageApi['parts'][number]
+
+export type ThreadMessage = TraceMessageApi
 
 export interface ConversationTurn {
     id: string
     timestamp: string
-    messages: ThreadMessage[]
+    input: NodeSideContent
+    output: NodeSideContent
     error: string | null
 }
 
@@ -68,11 +63,14 @@ export type ConversationState =
     | { status: 'error'; message: string }
     | { status: 'ready'; turns: ConversationTurn[]; activeTurnId: string | null }
 
+export type NodeSideContent = TraceNodeContentApi['input']
+
 export type NodeContent =
-    | { kind: 'messages'; input: ThreadMessage[]; output: ThreadMessage[] }
-    | { kind: 'io'; input: unknown; output: unknown }
+    | { kind: 'loaded'; input: NodeSideContent; output: NodeSideContent }
     | { kind: 'loading' }
     | { kind: 'error'; message: string }
+
+export type LoadedNodeContent = Extract<NodeContent, { kind: 'loaded' }>
 
 export interface NodeProperties {
     timestamp: string | null

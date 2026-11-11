@@ -19,6 +19,7 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
+from posthog.models.event.new_events_schema import events_read_settings
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
@@ -569,7 +570,12 @@ FROM (
         + ")"
     )
     tag_queries(product=Product.WEB_ANALYTICS, feature=Feature.QUERY, query_type="web_overview_lazy_query")
-    rows = sync_execute(sql, params, settings=_READ_SETTINGS, team_id=runner.team.pk)
+    rows = sync_execute(
+        sql,
+        params,
+        settings={**_READ_SETTINGS, **events_read_settings(context.uses_new_events_schema())},
+        team_id=runner.team.pk,
+    )
     return list(rows[0]) if rows else [0, 0, 0, 0, 0]
 
 

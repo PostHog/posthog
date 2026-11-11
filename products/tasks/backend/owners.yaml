@@ -1,0 +1,11 @@
+version: 1
+owners: team-agent-infrastructure
+rules:
+    - match:
+          - '/sandbox/'
+          - '/logic/services/docker_sandbox.py'
+          - '/logic/services/hogland_sandbox.py'
+          - '/logic/services/modal_sandbox.py'
+          - '/logic/services/sandbox.py'
+          - '/logic/services/sandbox_config.py'
+      sensitive: true

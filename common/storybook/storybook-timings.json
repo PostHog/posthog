@@ -19,10 +19,6 @@
         "chromium": 10.087,
         "webkit": 3.018
     },
-    "frontend/src/layout/InternalFeedback/InternalFeedbackWidget.stories.tsx": {
-        "chromium": 5.5,
-        "webkit": 2.9
-    },
     "frontend/src/layout/SceneLoadError.stories.tsx": {
         "chromium": 5.832,
         "webkit": 2.732
@@ -1867,10 +1863,6 @@
         "chromium": 48.053,
         "webkit": 7.33
     },
-    "products/ai_observability/frontend/redesign/trace/components/TraceViewSwitch.stories.tsx": {
-        "chromium": 9.199,
-        "webkit": 4.287
-    },
     "products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene.stories.tsx": {
         "chromium": 24.229,
         "webkit": 4.535
@@ -3382,10 +3374,6 @@
     "products/workflows/frontend/Workflows/hogflows/steps/components/UtmTagFields.stories.tsx": {
         "chromium": 5.528,
         "webkit": 4.249
-    },
-    "products/workflows/frontend/Workflows/hogflows/tree/HogFlowTreeEditor.stories.tsx": {
-        "chromium": 44.712,
-        "webkit": 13.455
     },
     "products/workflows/frontend/Workflows/suggestions/WorkflowSuggestionEmailChange.stories.tsx": {
         "chromium": 1.63,

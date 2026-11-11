@@ -91,17 +91,17 @@ class TestExtractTextFromMessages:
                     "type": "image",
                     "source": {"type": "base64", "media_type": "image/png", "data": "[base64 image redacted]"},
                 },
-                "[image]",
+                "[image, not attached]",
                 id="anthropic_redacted",
             ),
             pytest.param(
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,[base64 image redacted]"}},
-                "[image]",
+                "[image, not attached]",
                 id="openai_redacted_data_uri",
             ),
             pytest.param(
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64," * 3 + "aGk="}},
-                "[image]",
+                "[image, not attached]",
                 id="nested_data_uri",
             ),
             pytest.param({"inline_data": {"mime_type": "image/png", "data": "aGk="}}, "[image 1]", id="gemini_inline"),
@@ -133,8 +133,12 @@ class TestExtractTextFromMessages:
                 "[audio 1]",
                 id="openai_audio_offloaded",
             ),
-            pytest.param({"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio]", id="openai_audio"),
-            pytest.param({"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file]", id="file"),
+            pytest.param(
+                {"type": "input_audio", "input_audio": {"data": "aGk="}}, "[audio, not attached]", id="openai_audio"
+            ),
+            pytest.param(
+                {"type": "document", "source": {"type": "base64", "data": "aGk="}}, "[file, not attached]", id="file"
+            ),
             pytest.param(
                 {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": "aGk="}},
                 "[file 1]",
@@ -151,7 +155,9 @@ class TestExtractTextFromMessages:
                 id="openai_responses_pdf",
             ),
             pytest.param(
-                {"type": "file", "file": {"file_id": "file-abc"}}, "[file]", id="openai_uploaded_file_without_bytes"
+                {"type": "file", "file": {"file_id": "file-abc"}},
+                "[file, not attached]",
+                id="openai_uploaded_file_without_bytes",
             ),
             pytest.param(
                 {"type": "file", "mediaType": "image/png", "file": f"phaiblob://v1/sha256/{'a' * 64}?mime=image%2Fpng"},
@@ -188,7 +194,7 @@ class TestExtractTextFromMessages:
             ),
             pytest.param(
                 {"type": "file", "mediaType": "image/png", "file": "raw files not supported"},
-                "[image]",
+                "[image, not attached]",
                 id="vercel_sdk_placeholder",
             ),
         ],

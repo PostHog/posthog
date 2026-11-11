@@ -57,6 +57,7 @@ from products.signals.backend.activity_summary.queue import (
     max_update_cost_usd,
     mcp_buffer_team_ids,
     organization_rollout_bucket,
+    read_enrolled_teams,
     seed_queue,
     select_pairs,
 )
@@ -553,17 +554,16 @@ class TestActivitySummaryQueue(BaseTest):
 
     @parameterized.expand(
         [
-            ("listed", {}, True, False, True, True),
-            ("disabled", {"enabled": False}, True, False, False, False),
-            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False, False, False),
-            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False, False, False),
-            ("team_skipped", {"skip_team_ids": ("own",)}, True, False, False, False),
-            ("not_approved", {}, False, False, False, False),
-            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, False, True, True),
+            ("listed", {}, True, False, True),
+            ("disabled", {"enabled": False}, True, False, False),
+            ("not_listed", {"organization_ids": ("00000000-0000-0000-0000-000000000001",)}, True, False, False),
+            ("invalid_listed_id", {"organization_ids": ("not-a-uuid",)}, True, False, False),
+            ("team_skipped", {"skip_team_ids": ("own",)}, True, False, False),
+            ("not_approved", {}, False, False, False),
+            ("all_approved", {"organization_ids": (), "enroll_all_approved": True}, True, False, True),
             (
                 "all_approved_not_approved",
                 {"organization_ids": (), "enroll_all_approved": True},
-                False,
                 False,
                 False,
                 False,
@@ -574,13 +574,11 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 False,
                 False,
-                False,
             ),
-            ("listed_and_denied", {"deny_organization_ids": ("own",)}, True, True, True, False),
+            ("listed_and_denied", {"deny_organization_ids": ("own",)}, True, True, False),
             (
                 "all_approved_and_denied",
                 {"enroll_all_approved": True, "deny_organization_ids": ("own",)},
-                True,
                 True,
                 True,
                 False,
@@ -590,14 +588,12 @@ class TestActivitySummaryQueue(BaseTest):
                 {"organization_ids": (), "self_driving_organization_percentage": 100.0},
                 True,
                 True,
-                False,
                 True,
             ),
             (
                 "rollout_without_source",
                 {"organization_ids": (), "self_driving_organization_percentage": 100.0},
                 True,
-                False,
                 False,
                 False,
             ),
@@ -607,14 +603,12 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 True,
                 False,
-                False,
             ),
             (
                 "rollout_disabled",
                 {"enabled": False, "organization_ids": (), "self_driving_organization_percentage": 100.0},
                 True,
                 True,
-                False,
                 False,
             ),
             (
@@ -627,7 +621,6 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 True,
                 False,
-                False,
             ),
             (
                 "rollout_team_skipped",
@@ -635,14 +628,12 @@ class TestActivitySummaryQueue(BaseTest):
                 True,
                 True,
                 False,
-                False,
             ),
             (
                 "rollout_not_approved",
                 {"organization_ids": (), "self_driving_organization_percentage": 100.0},
                 False,
                 True,
-                False,
                 False,
             ),
         ]
@@ -653,8 +644,7 @@ class TestActivitySummaryQueue(BaseTest):
         overrides: dict[str, Any],
         approved: bool,
         has_source: bool,
-        readable: bool,
-        generated: bool,
+        enrolled: bool,
     ) -> None:
         self.organization.is_ai_data_processing_approved = approved
         self.organization.save()
@@ -670,9 +660,10 @@ class TestActivitySummaryQueue(BaseTest):
         config = dataclasses.replace(self._config(), **overrides)
         team = Team.objects.get(id=self.team.id)
 
-        assert is_team_enrolled_for_read(config, team) is readable
-        assert is_team_enrolled_for_generation(config, team) is generated
-        assert (self.team.id in enrolled_team_ids(config)) is generated
+        assert is_team_enrolled_for_read(config, team) is enrolled
+        assert is_team_enrolled_for_generation(config, team) is enrolled
+        assert (self.team.id in enrolled_team_ids(config)) is enrolled
+        assert read_enrolled_teams(config, Team.objects.filter(id=self.team.id)).exists() is enrolled
         if config.self_driving_organization_percentage and not config.organization_ids:
             assert sourceless.id not in enrolled_team_ids(config)
 

@@ -147,6 +147,7 @@ export enum FeatureFlagsTab {
     FEEDBACK = 'feedback',
     EXPERIMENTS = 'experiments',
     TESTING = 'testing',
+    CODE = 'code',
 }
 
 export function isFeatureFlagsTab(tab: unknown): tab is FeatureFlagsTab {

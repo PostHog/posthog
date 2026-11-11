@@ -148,14 +148,29 @@ class TestParseNextUrl:
 
 class TestValidateCredentials:
     @pytest.mark.parametrize(
-        "status_code, expected_valid, expected_msg_substr",
+        "status_code, json_data, text, with_credentials, expected_valid, expected_msg_substr",
         [
-            (404, False, "REST API not found"),
+            (404, [], "", False, False, "REST API not found"),
+            (403, None, "<html>Access denied</html>", True, False, "firewall, security plugin or bot check"),
+            (403, None, "<html>Access denied</html>", False, False, "firewall, security plugin or bot check"),
+            (
+                403,
+                {"code": "rest_forbidden", "message": "x"},
+                "",
+                False,
+                False,
+                "firewall, security plugin or bot check",
+            ),
+            (403, {"code": "rest_forbidden", "message": "x"}, "", True, False, "Check the user's role"),
+            (202, None, "<html>Checking your browser</html>", False, False, "firewall, security plugin or bot check"),
         ],
     )
-    def test_status_code_mapping(self, status_code, expected_valid, expected_msg_substr):
-        with scripted_network(always(_response(status_code=status_code, json_data=[]))):
-            valid, msg = validate_credentials("https://example.com", None, None)
+    def test_status_code_mapping(
+        self, status_code, json_data, text, with_credentials, expected_valid, expected_msg_substr
+    ):
+        username, password = ("admin", "abcd efgh") if with_credentials else (None, None)
+        with scripted_network(always(_response(status_code=status_code, json_data=json_data, text=text))):
+            valid, msg = validate_credentials("https://example.com", username, password)
             assert valid is expected_valid
             if expected_msg_substr is None:
                 assert msg is None

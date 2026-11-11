@@ -147,6 +147,7 @@ from .credential_refresh import CredentialRefreshExitReason, run_credential_refr
 from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 DEAD_SANDBOX_ERROR_TYPES = ("SandboxNotRunningError", "SandboxNotFoundError")
+RUN_ENDING_FOLLOWUP_ERROR_TYPES = ("ActiveSessionCapError",)
 MAX_ACCEPTED_MESSAGE_IDS = 500
 _PATCH_ID_FAIL_RUN_ON_PRIMARY_CLONE_FAILURE = "tasks-fail-run-on-primary-clone-failure"
 _PATCH_ID_SHARED_STARTUP_TIMING = "tasks-shared-startup-timing"
@@ -652,6 +653,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.CI_FOLLOW_UP
 
     def _self_driving_quota_recheck_scheduled(self) -> bool:
+        if not self._self_driving_quota_checks_active or self._context is None:
+            return False
+        if (self.context.state or {}).get("self_driving_funding", {}).get("funding") == "trial" and workflow.patched(
+            "self-driving-trial-quota-rechecks"
+        ):
+            return True
         return (
             self._self_driving_quota_checks_active
             and self._context is not None
@@ -1411,10 +1418,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             # here as well so loop exit doesn't depend on signal delivery order.
                             if not self._task_completed:
                                 self._completion_status = "cancelled"
-                                self._completion_error = (
-                                    "Stopped automatically: the organization reached its "
-                                    "self-driving pull request limit."
-                                )
+                                self._completion_error = "Stopped automatically: the organization reached its self-driving pull request limit."
                                 self._task_completed = True
                     case TaskEvent.SANDBOX_GONE:
                         await self._mark_sandbox_gone()
@@ -3748,12 +3752,24 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     **error_properties,
                 },
             )
+            cause = e.cause if isinstance(e, temporalio.exceptions.ActivityError) else None
+            run_ending = (
+                isinstance(cause, temporalio.exceptions.ApplicationError)
+                and cause.type in RUN_ENDING_FOLLOWUP_ERROR_TYPES
+            )
+            if message_id and (run_ending or self.context.mode == "interactive"):
+                dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
+                if dedupe_key in self._accepted_message_id_set:
+                    self._accepted_message_id_set.discard(dedupe_key)
+                    self._accepted_message_ids.remove(dedupe_key)
+            if run_ending:
+                assert isinstance(cause, temporalio.exceptions.ApplicationError)
+                self._completion_status = "failed"
+                self._completion_error = cause.message
+                self._completion_error_type = cause.type
+                self._task_completed = True
+                return None
             if self.context.mode == "interactive":
-                if message_id:
-                    dedupe_key = _message_dedupe_key(message_id, actor_user_id, context)
-                    if dedupe_key in self._accepted_message_id_set:
-                        self._accepted_message_id_set.discard(dedupe_key)
-                        self._accepted_message_ids.remove(dedupe_key)
                 if user_originated:
                     # A user follow-up can arrive without a message_id, so the card can't hinge on
                     # one; the generated group still gives the user a failure notice instead of a

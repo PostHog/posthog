@@ -39,10 +39,11 @@ from posthog.auth import (
     is_mcp_request,
 )
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.exceptions import InsufficientScope
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models.integration import posthog_connect_base_url
 from posthog.oauth_provenance import SANDBOX_ORIGIN_HEADER, is_sandbox_origin_request
-from posthog.permissions import get_authenticator_scopes
+from posthog.permissions import DenyWorkloadAccessToken, get_authenticator_scopes
 from posthog.rate_limit import PostHogConnectionForwardThrottle
 from posthog.scopes import scopes_covered_by_legacy_fallback
 
@@ -113,9 +114,11 @@ def _enforce_caller_covers_connection_scopes(request: Request, integration: Inte
     # A legacy `task:*` key may use a connection granted the `inbox:*` scopes split off it, as the target accepts it.
     missing -= set(scopes_covered_by_legacy_fallback(caller_scopes, missing))
     if missing:
-        raise PermissionDenied(
-            "Your API key must carry the scopes this connection was granted to use it. "
-            f"Missing: {', '.join(sorted(missing))}."
+        missing_scopes = sorted(missing)
+        raise InsufficientScope(
+            missing_scopes,
+            detail="Your API key must carry the scopes this connection was granted to use it. "
+            f"Missing: {', '.join(missing_scopes)}.",
         )
 
 
@@ -292,6 +295,8 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     scope_object = "integration"
     serializer_class = PostHogConnectionForwardSerializer
+    # A connection replays requests with its creator's own grant, which a workload token must not borrow.
+    permission_classes = [DenyWorkloadAccessToken]
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("forward", "target"):

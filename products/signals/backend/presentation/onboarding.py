@@ -15,6 +15,7 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions import InsufficientScope
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
@@ -199,7 +200,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if "signal_scout:write" in allowed:
                 allowed.add("signal_scout:read")
             if not required.issubset(allowed):
-                raise PermissionDenied("Your API key does not have permission to access these scout choices.")
+                raise InsufficientScope(
+                    sorted(required - allowed),
+                    detail="Your API key does not have permission to access these scout choices.",
+                )
         canonical_team = self.team.parent_team or self.team
         user = cast(User, request.user)
         access = UserAccessControl(user=user, team=canonical_team)
@@ -241,7 +245,9 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if any(source["source_product"] == "signals_scout" for source in serializer.validated_data["sources"]):
             self._check_scout_access(request)
         if serializer.validated_data["automatic_implementation"] and not credential_may_start_tasks(request):
-            raise PermissionDenied("Turning on automatic implementation requires the task:write scope.")
+            raise InsufficientScope(
+                ["task:write"], detail="Turning on automatic implementation requires the task:write scope."
+            )
         try:
             return Response(self._service().complete(dict(serializer.data)))
         except InboxOnboardingPermissionError as error:

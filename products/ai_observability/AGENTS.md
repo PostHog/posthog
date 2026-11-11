@@ -1,7 +1,8 @@
 # AI observability agent guide
 
-Repo-wide conventions live in [`../../AGENTS.md`](../../AGENTS.md) — kea over hooks, generated
-API over `api.get`, `ph_scoped_capture` in Celery, etc. Read that first.
+Repo-wide conventions live in [`../../AGENTS.md`](../../AGENTS.md) and the guides it links,
+[`code-style.md`](../../.agents/code-style.md) and [`architecture.md`](../../.agents/architecture.md) — kea over hooks, generated
+API over `api.get`, `ph_scoped_capture` in Celery, etc. Read those first.
 
 This file is only for rules that are specific to `products/ai_observability/`
 (and to the query runners in `posthog/hogql_queries/ai/`).

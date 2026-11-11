@@ -168,6 +168,7 @@ export type Tool<TSchema extends z.ZodType = z.ZodType, TResult = unknown> = {
     name: string
     title: string
     description: string
+    searchKeywords?: string[]
     schema: TSchema
     /**
      * JSON Schema to advertise instead of deriving one from `schema`. Set for proxied

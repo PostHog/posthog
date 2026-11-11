@@ -41,7 +41,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.fan
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import (
+    WebhookFallback,
+    WebhookSourceManager,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     ACCOUNT_RESOURCE_NAME,
     APPLICATION_FEE_RESOURCE_NAME,
@@ -1029,6 +1032,41 @@ def _stripe_client(
     )
 
 
+def _lists_every_object(
+    resource: Union[StripeResource, StripeNestedResource],
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_earliest_value: Optional[Any],
+) -> bool:
+    """Whether a read lists every object, or only the objects created after the stored cursor."""
+    return (
+        not should_use_incremental_field
+        or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
+        or isinstance(resource, StripeNestedResource)
+    )
+
+
+def _webhook_fallback(
+    api_key: str,
+    endpoint: str,
+    should_use_incremental_field: bool,
+    db_incremental_field_last_value: Optional[Any],
+    db_incremental_field_earliest_value: Optional[Any],
+) -> Optional[WebhookFallback]:
+    """How `get_rows` reads a webhook-sync table whose webhook is missing, or None when it reads nothing."""
+    if endpoint in V2_LIST_PATHS:
+        return WebhookFallback.FULL_REFRESH
+    # Only the kind of resource matters here. Building the resources sends no request.
+    resource = _build_resources(StripeClient(api_key)).get(endpoint)
+    if resource is None:
+        return None
+    if _lists_every_object(
+        resource, should_use_incremental_field, db_incremental_field_last_value, db_incremental_field_earliest_value
+    ):
+        return WebhookFallback.FULL_REFRESH
+    return WebhookFallback.INCREMENTAL
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -1038,7 +1076,6 @@ def get_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[StripeResumeConfig],
     api_version: str,
-    skip_full_listing: bool = False,
     should_use_incremental_field: bool = False,
     warehouse_parent: Optional["ParentTableRef"] = None,
     include_zero_balance_customers: bool = False,
@@ -1090,19 +1127,11 @@ def get_rows(
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    if (
-        not should_use_incremental_field
-        or (db_incremental_field_last_value is None and db_incremental_field_earliest_value is None)
-        or isinstance(resource, StripeNestedResource)
+    # The isinstance check repeats one inside `_lists_every_object` so the type checker narrows
+    # `resource` to a flat resource on the incremental path below.
+    if isinstance(resource, StripeNestedResource) or _lists_every_object(
+        resource, should_use_incremental_field, db_incremental_field_last_value, db_incremental_field_earliest_value
     ):
-        if skip_full_listing:
-            logger.warning(
-                f"Stripe: skipped the {endpoint} sync. This table uses webhook sync, but the source has no "
-                "active webhook. Set up the webhook on the source's Webhook tab, or change the table to a "
-                "different sync method."
-            )
-            return
-
         logger.debug(f"Stripe: iterating all objects from resource")
         # Set only on the nested warehouse path; the final flush below is shared with flat
         # resources, which have no parent sweep to checkpoint.
@@ -1686,17 +1715,23 @@ def stripe_source(
     # re-enable — a poll could never rebuild the table.
     webhook_only = endpoint in WEBHOOK_ONLY_ENDPOINTS
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)(webhook_only=webhook_only)
-    # A webhook table with no webhook falls back to a poll. Only a poll that lists the whole table
-    # is skipped: a table that kept its `created` cursor still polls cheaply with `created[gt]`.
-    webhook_unregistered = (
-        not webhook_enabled and not webhook_only and async_to_sync(webhook_source_manager.webhook_unregistered)()
-    )
     warehouse_parent = _resolve_warehouse_parent(endpoint, team_id, source_id, use_warehouse_parent)
     warehouse_table_id: Optional[str] = None
     if not webhook_enabled:
         warehouse_parent, warehouse_table_id = _reconcile_warehouse_resume(
             endpoint, warehouse_parent, resumable_source_manager, logger
         )
+        # A webhook-only endpoint has no list to poll, so its run reads nothing and has no fallback.
+        if webhook_source_manager.webhook_missing and not webhook_only:
+            fallback = _webhook_fallback(
+                api_key,
+                endpoint,
+                should_use_incremental_field,
+                db_incremental_field_last_value,
+                db_incremental_field_earliest_value,
+            )
+            if fallback is not None:
+                async_to_sync(webhook_source_manager.record_webhook_fallback)(fallback)
 
     def items():
         if webhook_enabled:
@@ -1734,7 +1769,6 @@ def stripe_source(
             logger=logger,
             should_use_incremental_field=should_use_incremental_field,
             resumable_source_manager=resumable_source_manager,
-            skip_full_listing=webhook_unregistered,
             api_version=api_version,
             warehouse_parent=warehouse_parent,
             include_zero_balance_customers=include_zero_balance_customers,

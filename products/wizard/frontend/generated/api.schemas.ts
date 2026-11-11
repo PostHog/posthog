@@ -595,6 +595,17 @@ export interface WizardScanResultApi {
     created: boolean
 }
 
+export interface WizardDetectedWarehouseSourceApi {
+    /** The tool's kind in the wizard tool catalog, such as `Stripe`. */
+    kind: string
+    /** The data warehouse source type that imports this tool's data, such as `Stripe` or `Postgres`. */
+    warehouse_source_type: string
+    /** When a wizard scan first found the tool. */
+    first_seen_at: string
+    /** When a wizard scan last found the tool. */
+    last_seen_at: string
+}
+
 /**
  * The in-flight `wizard_ask` question. Typed rather than a free-form dict so the shape the
  * widget renders is enforced at the edge instead of trusted from the producer.
@@ -886,6 +897,7 @@ export const WizardRunPullRequestArtifactArtifactTypeEnumApi = {
 export type WizardRegistryListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
@@ -899,6 +911,10 @@ export type WizardRunsListParams = {
      * Only return runs created after this timestamp.
      */
     created_after?: string
+    /**
+     * Only return runs created by this user.
+     */
+    created_by_id?: number
     /**
      * Number of results to return per page.
      * @maximum 100
@@ -927,12 +943,20 @@ export const WizardRunsListStatusItem = {
 export type WizardRunsArtifactsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type WizardScansDetectedSourcesRetrieveParams = {
+    /**
+     * Only return sources a scan found at or after this time, such as the start of a wizard run.
+     */
+    seen_since?: string
 }
 
 export type WizardSessionsListParams = {

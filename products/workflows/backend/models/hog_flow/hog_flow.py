@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionSaved
 from products.workflows.backend.facade.enums import (
     HogFlowEmailSendingPausedBy,
     HogFlowExitCondition,
@@ -334,10 +334,14 @@ def defer_hog_flow_reloads() -> Iterator[None]:
         yield
     finally:
         _deferred_reloads.reset(token)
-        for team_id, hog_flow_ids in pending.items():
-            ordered = sorted(hog_flow_ids)
-            for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
-                _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+        transaction.on_commit(lambda: _reload_deferred_on_workers(pending))
+
+
+def _reload_deferred_on_workers(pending: dict[int, set[str]]) -> None:
+    for team_id, hog_flow_ids in pending.items():
+        ordered = sorted(hog_flow_ids)
+        for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
+            _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
 
 
 def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
@@ -389,7 +393,9 @@ def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, using
     if pending is not None:
         pending.setdefault(instance.team_id, set()).add(str(instance.id))
         return
-    reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+    team_id = instance.team_id
+    hog_flow_id = str(instance.id)
+    transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
 @receiver(post_delete, sender=HogFlow)
@@ -398,14 +404,13 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     hog_flow_id = str(instance.id)
     # post_delete fires inside the delete transaction, so publish only after commit; otherwise a
     # worker could re-read the still-live row and cache it as active for another TTL.
-    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
+    transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
-@receiver(post_save, sender=Action)
-def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
+def action_saved_for_hog_flows(event: ActionSaved) -> None:
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(action_id=instance.id)
+    refresh_affected_hog_flows.delay(action_id=event.action_id)
 
 
 @receiver(post_save, sender=Team)

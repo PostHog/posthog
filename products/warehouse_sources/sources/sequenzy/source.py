@@ -24,7 +24,7 @@ from products.warehouse_sources.sources.sequenzy.sequenzy import (
     sequenzy_source,
     validate_credentials as validate_sequenzy_credentials,
 )
-from products.warehouse_sources.sources.sequenzy.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sequenzy.settings import ENDPOINTS, INCREMENTAL_FIELDS, MERGE_ONLY_ENDPOINTS
 
 
 @SourceRegistry.register
@@ -58,7 +58,7 @@ class SequenzySource(ResumableSource[SequenzySourceConfig, SequenzyResumeConfig]
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY_ENDPOINTS)
 
     def validate_credentials(
         self,
@@ -85,6 +85,8 @@ class SequenzySource(ResumableSource[SequenzySourceConfig, SequenzyResumeConfig]
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
             company_id=config.company_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )
 
     @property

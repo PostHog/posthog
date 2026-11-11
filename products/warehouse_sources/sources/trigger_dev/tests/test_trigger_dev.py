@@ -1,7 +1,9 @@
+import time
 from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+import time_machine
 from unittest.mock import MagicMock, patch
 
 import requests
@@ -321,6 +323,60 @@ class TestFetchPageRetries:
         with pytest.raises(requests.HTTPError):
             trigger_dev._fetch_page(session, f"{BASE_URL}/api/v1/runs", {}, MagicMock())
         assert session.get.call_count == 1
+
+    def test_rate_limit_wait_comes_from_reset_header_not_blind_backoff(self) -> None:
+        # A 429 with a usable `x-ratelimit-reset` must wait for the bucket to actually refill
+        # instead of the short blind exponential backoff, which can retry before it does.
+        bad = MagicMock()
+        bad.status_code = 429
+        bad.headers = {"x-ratelimit-reset": str(int(time.time() * 1000) + 45_000)}
+        good = MagicMock()
+        good.status_code = 200
+        good.ok = True
+        good.json.return_value = {"data": []}
+        session = MagicMock()
+        session.get.side_effect = [bad, good]
+        sleep = MagicMock()
+
+        with patch.object(trigger_dev._fetch_page.retry, "sleep", sleep):  # type: ignore[attr-defined]
+            trigger_dev._fetch_page(session, f"{BASE_URL}/api/v1/runs", {}, MagicMock())
+
+        sleep.assert_called_once()
+        assert sleep.call_args[0][0] == pytest.approx(45.0, abs=1.0)
+
+
+class TestRateLimitWaitSeconds:
+    @pytest.fixture(autouse=True)
+    def _freeze_time(self):
+        with time_machine.travel("2026-01-01T00:00:00Z", tick=False):
+            yield
+
+    @parameterized.expand(
+        [
+            ("resets_soon", 45_000, 45.0),
+            ("already_past", -90_000, 0.0),
+        ]
+    )
+    def test_wait_matches_time_until_reset(self, _name: str, offset_ms: int, expected: float) -> None:
+        response = MagicMock()
+        response.headers = {"x-ratelimit-reset": str(int(time.time() * 1000) + offset_ms)}
+        assert trigger_dev._rate_limit_wait_seconds(response) == pytest.approx(expected, abs=0.01)
+
+    def test_far_future_reset_is_capped(self) -> None:
+        response = MagicMock()
+        response.headers = {"x-ratelimit-reset": "9999999999999"}
+        assert trigger_dev._rate_limit_wait_seconds(response) == trigger_dev.MAX_RATE_LIMIT_WAIT_SECONDS
+
+    @parameterized.expand(
+        [
+            ("missing_header", {}),
+            ("non_numeric", {"x-ratelimit-reset": "soon"}),
+        ]
+    )
+    def test_unusable_header_falls_back_to_zero(self, _name: str, headers: dict[str, str]) -> None:
+        response = MagicMock()
+        response.headers = headers
+        assert trigger_dev._rate_limit_wait_seconds(response) == 0.0
 
 
 class TestSourceResponseSortMode:

@@ -30,9 +30,11 @@ from products.stamphog.backend.facade.enums import (
     ReviewMode,
     ReviewRunStatus,
     ReviewVerdict,
+    RoutingMode,
 )
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
+from products.stamphog.backend.logic import gateway_tokens
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
@@ -83,6 +85,7 @@ REPO = "acme/widgets"
 INSTALLATION_ID = "2001"
 BASE_SHA = "base000"
 FINISHED_REVIEW_HOOKS = "products.stamphog.backend.temporal.activities.get_finished_review_hooks"
+ROUTING_AFTER_VERDICT_DELAY = "products.stamphog.backend.tasks.tasks.route_reviewers_after_verdict.delay"
 POLICY_DEFAULTS_DIR = Path(__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "defaults"
 
 
@@ -1086,7 +1089,7 @@ def test_hosted_review_fails_closed_when_the_scoped_token_mint_fails(team, stamp
     assert run.status == ReviewRunStatus.FAILED
     assert "gateway" in (run.error or "").lower()
     assert "HTTP 503" in (run.error or "")
-    assert mint.call_count == activities._MINT_ATTEMPTS
+    assert mint.call_count == gateway_tokens.MINT_ATTEMPTS
     _assert_no_review_ran(stamphog_chain)
     assert not (run.error or "").startswith("SandboxPhaseError")
 
@@ -1636,6 +1639,8 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     # stamphog_review_failed event next to the review-completed ones. The stored error is scrubbed to
     # its first line so raw exception text can't leak repo file content to stamphog:read.
     repo_config = _repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
@@ -1654,6 +1659,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     with (
         patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm,
         patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)),
+        patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay,
     ):
         mock_capture_cm.return_value.__enter__.return_value = capture_fn
         mock_capture_cm.return_value.__exit__.return_value = False
@@ -1663,6 +1669,7 @@ def test_mark_review_failed_captures_failure_event(team, stamphog_chain, raw_err
     assert run.status == ReviewRunStatus.FAILED
     assert run.error == expected_stored
     assert finished_hook.call_args.args[0].status == ReviewRunStatus.FAILED
+    assert routing_delay.call_args.kwargs["outcome"] == "failed"
     assert capture_fn.call_args.kwargs["event"] == "stamphog_review_failed"
     assert capture_fn.call_args.kwargs["distinct_id"] == "devex-dev"
     props = capture_fn.call_args.kwargs["properties"]
@@ -1716,6 +1723,8 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
     # approval nobody owns stands on the PR forever (including after a repo disable, which
     # supersedes active runs the same way).
     repo_config = _repo_config(team.id)
+    repo_config.routing_mode = RoutingMode.FALLBACK
+    repo_config.save()
     recorder = stamphog_chain.recorder
     head_sha = "sha116a"
     recorder.register_pr(REPO, 116, _pr_object(116, "devex-dev", head_sha), _pr_files())
@@ -1743,11 +1752,13 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
     with (
         patch.object(activities, "_comment_id", side_effect=_supersede_then_extract),
         patch(FINISHED_REVIEW_HOOKS, return_value=(finished_hook,)),
+        patch(ROUTING_AFTER_VERDICT_DELAY) as routing_delay,
     ):
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_superseded"}
     finished_hook.assert_not_called()
+    routing_delay.assert_not_called()
     approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
     dismissals = [w for w in recorder.github_writes if w["kind"] == "dismiss_review"]
     assert len(approvals) == 1
@@ -3154,9 +3165,9 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     _repo_config(team.id)
     event = _register_review(stamphog_chain, 120, "sha120a")
     mint = MagicMock(side_effect=[_mint_response(201, {"token": "phe_run"}), _mint_response(200, {"revoked": True})])
-    unpinned_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
-    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
-    error_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
+    unpinned_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get()
+    ok_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    error_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS, STAMPHOG_REVIEWER_TOKEN_ALLOWED_MODELS=["claude-sonnet-5-5"]),
@@ -3172,9 +3183,9 @@ def test_mint_fails_closed_when_the_gateway_ignores_the_model_pin(team, stamphog
     assert revoke_call.args == ("https://ai-gateway.test/v1/tokens/revoke",)
     assert revoke_call.kwargs["json"] == {"token": "phe_run"}
     # One mint counts once: unpinned, never ok or error as well.
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="unpinned")._value.get() == unpinned_before + 1
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="error")._value.get() == error_before
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -3190,7 +3201,7 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
             _mint_response(200, {"revoked": True}),
         ]
     )
-    ok_before = activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
+    ok_before = gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get()
 
     with (
         override_settings(**_GO_GATEWAY_SETTINGS),
@@ -3207,14 +3218,14 @@ def test_mint_retries_a_network_error_and_records_the_outcome(team, stamphog_cha
     ]
     assert all(call.kwargs["timeout"] == 3 for call in mint.call_args_list)
     sleep.assert_called_once()
-    assert activities.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
+    assert gateway_tokens.AI_GATEWAY_TOKEN_MINTS.labels(result="ok")._value.get() == ok_before + 1
 
 
 def test_product_tag_matches_the_engine_blob() -> None:
     # The mint pins the product and the shipped engine stamps the same word in its properties blob;
     # the two are hand-typed in different packages, so bind them here where both are visible.
     engine_gateway = Path(activities.__file__).resolve().parents[2] / "packages" / "pr-approval-agent" / "gateway.py"
-    assert f'AI_PRODUCT = "{activities.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
+    assert f'AI_PRODUCT = "{gateway_tokens.STAMPHOG_AI_PRODUCT}"' in engine_gateway.read_text()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

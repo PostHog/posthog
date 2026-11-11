@@ -195,6 +195,106 @@ database "posthog" {
     }
   }
 
+  table "email_status_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "distributed" {
+      cluster_name    = "aux"
+      remote_database = "posthog"
+      remote_table    = "email_status_events_data"
+    }
+  }
+
+  table "email_status_events_data" {
+    order_by     = ["team_id", "created_at", "message_id", "status_at"]
+    partition_by = "toYYYYMMDD(created_at)"
+    ttl          = "toDate(created_at) + toIntervalDay(31)"
+    settings = {
+      index_granularity   = "1024"
+      ttl_only_drop_parts = "1"
+    }
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "DateTime"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+    engine "replicated_merge_tree" {
+      zoo_path     = "/clickhouse/tables/noshard/posthog.email_status_events_data"
+      replica_name = "{replica}-{shard}"
+    }
+  }
+
   table "error_tracking_fingerprint_issue_state" {
     column "team_id" {
       type = "Int64"
@@ -947,6 +1047,50 @@ database "posthog" {
       collection           = "warpstream_cyclotron"
       topic_list           = "clickhouse_email_status"
       group_name           = "clickhouse_email_status"
+      format               = "JSONEachRow"
+      num_consumers        = 1
+      max_block_size       = 100000
+      skip_broken_messages = 100
+      poll_timeout_ms      = 10000
+      thread_per_consumer  = true
+    }
+  }
+
+  table "kafka_email_status_events" {
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    engine "kafka" {
+      collection           = "warpstream_cyclotron"
+      topic_list           = "clickhouse_email_status"
+      group_name           = "clickhouse_email_status_events"
       format               = "JSONEachRow"
       num_consumers        = 1
       max_block_size       = 100000
@@ -5383,6 +5527,67 @@ database "posthog" {
     }
   }
 
+  materialized_view "email_status_events_mv" {
+    to_table = "posthog.email_status_events_data"
+    query    = <<SQL
+SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  recipient,
+  function_id,
+  sending_domain,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status_events
+SQL
+
+    column "team_id" {
+      type = "Int64"
+    }
+    column "message_id" {
+      type = "UUID"
+    }
+    column "status" {
+      type = "LowCardinality(String)"
+    }
+    column "version" {
+      type = "UInt64"
+    }
+    column "created_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "status_at" {
+      type = "DateTime64(6, 'UTC')"
+    }
+    column "reason" {
+      type = "String"
+    }
+    column "recipient" {
+      type = "String"
+    }
+    column "function_id" {
+      type = "String"
+    }
+    column "sending_domain" {
+      type = "LowCardinality(String)"
+    }
+    column "_timestamp" {
+      type = "Nullable(DateTime)"
+    }
+    column "_offset" {
+      type = "UInt64"
+    }
+    column "_partition" {
+      type = "UInt64"
+    }
+  }
+
   materialized_view "email_status_mv" {
     to_table = "posthog.email_status_data"
     query    = <<SQL
@@ -5398,6 +5603,7 @@ SELECT
   _offset,
   _partition
 FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked')
 SQL
 
     column "team_id" {

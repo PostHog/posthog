@@ -781,12 +781,12 @@ export interface HogFunctionMaskedSecretApi {
 }
 
 /**
- * Map of hog function UUIDs to their new execution_order values.
+ * Map of hog function UUIDs to their new execution_order values, from 0 to 32767.
  */
 export type PatchedHogFunctionRearrangeApiOrders = { [key: string]: number }
 
 export interface PatchedHogFunctionRearrangeApi {
-    /** Map of hog function UUIDs to their new execution_order values. */
+    /** Map of hog function UUIDs to their new execution_order values, from 0 to 32767. */
     orders?: PatchedHogFunctionRearrangeApiOrders
 }
 
@@ -955,12 +955,12 @@ export type HogFunctionsMetricsRetrieveParams = {
      */
     interval?: HogFunctionsMetricsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string
@@ -1017,12 +1017,12 @@ export type HogFunctionsMetricsTotalsRetrieveParams = {
      */
     interval?: HogFunctionsMetricsTotalsRetrieveInterval
     /**
-     * Comma-separated metric kinds to filter by, e.g. 'success,failure'.
+     * Comma-separated metric kinds to filter by, up to 50, e.g. 'success,failure'. With breakdown_by=kind, each named kind is returned, as zeros when it has no rows.
      * @minLength 1
      */
     kind?: string
     /**
-     * Comma-separated metric names to filter by.
+     * Comma-separated metric names to filter by, up to 50. With breakdown_by=name, each named metric is returned, as zeros when it has no rows.
      * @minLength 1
      */
     name?: string

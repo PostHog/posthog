@@ -10,9 +10,16 @@ from products.warehouse_sources.sources.rokt_ads.rokt_ads import (
     ReportCapabilities,
     RoktAdsError,
     RoktAdsResumeConfig,
+    build_discovery_body,
     build_report_body,
 )
-from products.warehouse_sources.sources.rokt_ads.settings import CAMPAIGN_METRICS, ENDPOINTS, PRIMARY_KEYS, SCHEMA_NAMES
+from products.warehouse_sources.sources.rokt_ads.settings import (
+    CAMPAIGN_METRICS,
+    ENDPOINTS,
+    METADATA_ENDPOINTS,
+    PRIMARY_KEYS,
+    SCHEMA_NAMES,
+)
 from products.warehouse_sources.sources.rokt_ads.source import RoktAdsSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager
 from products.warehouse_sources.sources.sdk.testing import error_message_matches
@@ -94,6 +101,20 @@ class TestSourceForPipeline:
         assert response.partition_format == "month"
         assert response.partition_keys == ["datetime"]
 
+    @parameterized.expand(list(METADATA_ENDPOINTS))
+    def test_metadata_tables_use_the_metadata_transport_without_partitions(self, schema_name: str):
+        with (
+            patch(f"{SOURCE_MODULE}.RoktAdsClient"),
+            patch(f"{SOURCE_MODULE}.rokt_ads_source") as report_transport,
+            patch(f"{SOURCE_MODULE}.rokt_ads_metadata_rows") as metadata_transport,
+        ):
+            response = RoktAdsSource().source_for_pipeline(_config(), MagicMock(), _inputs(schema_name))
+            response.items()
+        assert metadata_transport.call_args.kwargs["endpoint_name"] == schema_name
+        report_transport.assert_not_called()
+        assert response.partition_mode is None
+        assert response.partition_keys is None
+
     def test_full_refresh_run_passes_no_cursor(self):
         with patch(f"{SOURCE_MODULE}.RoktAdsClient"), patch(f"{SOURCE_MODULE}.rokt_ads_source") as transport:
             response = RoktAdsSource().source_for_pipeline(
@@ -148,6 +169,20 @@ class TestNonRetryableErrors:
         # until it exhausts the budget.
         with pytest.raises(RoktAdsError) as raised:
             build_report_body("TransactionPerformance", MARCH_WINDOW, capabilities, None, None)
+
+        errors = RoktAdsSource().get_non_retryable_errors()
+        assert error_message_matches(str(raised.value), errors.keys())
+
+    @parameterized.expand(
+        [
+            # `audience_id` is not on Rokt's public dimension list, so some accounts may not grant it.
+            ("missing_audience_id", ReportCapabilities(dimensions={"campaign_id"}, metrics=ALL_METRICS)),
+            ("no_discovery_metric", ReportCapabilities(dimensions={"campaign_id", "audience_id"}, metrics={"cpa"})),
+        ]
+    )
+    def test_an_account_that_cannot_list_audience_ids_stops_retrying(self, _name, capabilities):
+        with pytest.raises(RoktAdsError) as raised:
+            build_discovery_body("AudienceMetadata", MARCH_WINDOW, capabilities)
 
         errors = RoktAdsSource().get_non_retryable_errors()
         assert error_message_matches(str(raised.value), errors.keys())

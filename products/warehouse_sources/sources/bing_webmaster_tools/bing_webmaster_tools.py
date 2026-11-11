@@ -282,14 +282,20 @@ def _page_query_stats_batches(
             items = _request(session, api_key, "GetPageQueryStats", {"siteUrl": site_url, "page": json.dumps(page)})
         except BingWebmasterToolsError as exc:
             # GetPageStats and GetPageQueryStats can disagree about which of a site's pages are
-            # valid: Bing rejects some pages GetPageStats itself just listed. Skip that one page
+            # valid: Bing rejects some pages GetPageStats itself just listed, either with an
+            # ApiFault or with a non-JSON (often empty) body for that one page. Skip that one page
             # rather than losing every other page's stats to a page Bing won't serve.
             # `_request_payload` appends the fault message verbatim (observed as the API's own
             # "ERROR!!! InvalidUrl" wording), so anchor on the suffix rather than a bare substring
-            # match that could also catch an unrelated fault mentioning a URL.
-            if not str(exc).endswith("InvalidUrl"):
+            # match that could also catch an unrelated fault mentioning a URL. The non-JSON message
+            # names the method literally, so an exact match is just as safe.
+            message = str(exc)
+            if not (
+                message.endswith("InvalidUrl")
+                or message == "Bing Webmaster Tools GetPageQueryStats returned a non-JSON response"
+            ):
                 raise
-            logger.warning("Bing Webmaster Tools rejected a page as invalid", site_url=site_url, page=page)
+            logger.warning("Bing Webmaster Tools rejected a page", site_url=site_url, page=page, reason=message)
             continue
         rows = _stats_rows(items, site_url, "page_query_stats", logger)
         for row in rows:

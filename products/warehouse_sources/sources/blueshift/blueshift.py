@@ -4,6 +4,9 @@ from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, ClassVar, Optional
 from urllib.parse import urlencode
 
+import requests
+from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+
 from products.warehouse_sources.sources.blueshift.settings import (
     BLUESHIFT_ENDPOINTS,
     BLUESHIFT_REGION_URLS,
@@ -27,11 +30,22 @@ from products.warehouse_sources.sources.sdk import (
     make_tracked_session,
     parse_datetime_value,
     rest_api_resource,
+    retry_with_deadline,
+    suspend_adapter_retries,
     validate_via_probe,
 )
 
 STATS_REQUEST_TIMEOUT = 120
 _ISO_UTC = "%Y-%m-%dT%H:%M:%S.000Z"
+# The v1 stats endpoint has no documented rate limit, but it 429s under heavy per-day polling
+# (one request per UTC day of backfill). It's fetched with a raw `session.get`, not
+# `rest_api_resource`, so it needs its own retry-with-backoff before giving up, same as every
+# other hand-rolled source transport in this tree.
+MAX_STATS_RETRY_ATTEMPTS = 5
+
+
+class BlueshiftRetryableError(Exception):
+    pass
 
 
 @frozen
@@ -107,6 +121,23 @@ def _stats_window(day: date) -> dict[str, str]:
     return {"start_time": start.strftime(_ISO_UTC), "end_time": end.strftime(_ISO_UTC)}
 
 
+@retry_with_deadline(
+    retry=retry_if_exception_type((BlueshiftRetryableError, requests.ReadTimeout, requests.ConnectionError)),
+    stop=stop_after_attempt(MAX_STATS_RETRY_ATTEMPTS),
+    wait=wait_exponential_jitter(initial=1, max=30),
+    reraise=True,
+)
+def _fetch_stats_day(session: requests.Session, url: str, headers: dict[str, str], day: date) -> dict[str, Any]:
+    # This function owns the retries. Leaving the session's own adapter retry on too would multiply
+    # the tries and the waits of both layers, and the adapter's waits have no safe point.
+    with suspend_adapter_retries():
+        response = session.get(url, params=_stats_window(day), headers=headers, timeout=STATS_REQUEST_TIMEOUT)
+    if response.status_code == 429 or response.status_code >= 500:
+        raise BlueshiftRetryableError(f"Blueshift API error (retryable): status={response.status_code}, url={url}")
+    response.raise_for_status()
+    return response.json()
+
+
 def _campaign_stats_rows(
     region: str,
     api_key: str,
@@ -117,6 +148,8 @@ def _campaign_stats_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield the per-campaign performance summary for each UTC day, oldest first, through today."""
     config = BLUESHIFT_ENDPOINTS["campaign_stats"]
+    assert config.data_selector is not None
+    data_selector = config.data_selector
     auth_value = _basic_auth_value(api_key)
     session = make_tracked_session(redact_values=(api_key, auth_value))
     headers = {"Authorization": auth_value, "Accept": "application/json"}
@@ -142,9 +175,8 @@ def _campaign_stats_rows(
         day = today - timedelta(days=STATS_BACKFILL_DAYS)
 
     while day <= today:
-        response = session.get(url, params=_stats_window(day), headers=headers, timeout=STATS_REQUEST_TIMEOUT)
-        response.raise_for_status()
-        campaigns = response.json().get(config.data_selector) or []
+        body = _fetch_stats_day(session, url, headers, day)
+        campaigns = body.get(data_selector) or []
         next_day = day + timedelta(days=1)
         if next_day <= today:
             resumable_source_manager.save_state(BlueshiftResumeConfig(next_date=next_day.isoformat()))

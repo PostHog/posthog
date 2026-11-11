@@ -95,10 +95,13 @@ class TraceNodeMetadata(Contract):
     prompt_version: float | None
 
 
-class TraceNodeEvent(Contract):
+class TraceNodeDetailEvent(Contract):
     name: str
     uuid: str
     timestamp: datetime
+
+
+class TraceNodeEvent(TraceNodeDetailEvent):
     properties: dict[str, Any] = Field(
         description="The event's properties as ingested, including its input and output values."
     )
@@ -107,12 +110,105 @@ class TraceNodeEvent(Contract):
     )
 
 
+TraceMessageRole = Literal["system", "user", "assistant", "tool"]
+# Unlike a bare Literal, a type alias becomes an OpenAPI component named after the alias. A bare Literal would take a
+# name derived from the field, `MediaTypeEnum`, which any other `media_type` field could collide with.
+type TraceAttachmentMediaType = Literal["image", "audio", "video", "file"]
+
+
+class TraceTextPart(Contract):
+    kind: Literal["text"]
+    text: str = Field(description="The text of the message, as captured.")
+
+
+class TraceThinkingPart(Contract):
+    kind: Literal["thinking"]
+    text: str = Field(description="The model's reasoning text.")
+
+
+class TraceToolCallPart(Contract):
+    kind: Literal["toolCall"]
+    name: str = Field(description="The name of the called tool, or an empty string when the event has none.")
+    args: Any = Field(
+        description="The call's arguments, parsed from JSON text when they parse. Otherwise the text as captured."
+    )
+    result: Any | None = Field(
+        description="The content of the tool message that answers this call, parsed from JSON text when no number "
+        "loses precision in a browser. Null when no tool message answers the call."
+    )
+
+
+class TraceAttachmentPart(Contract):
+    kind: Literal["attachment"]
+    media_type: TraceAttachmentMediaType = Field(description="The kind of media, which decides how it is shown.")
+    name: str | None = Field(
+        description="The file name, or the content item's type for an item that is not known media. Null otherwise."
+    )
+    mime_type: str | None = Field(description="The MIME type, such as `image/png`, or null when it is not known.")
+    url: str | None = Field(
+        description="A URL that loads the media: a link or data URI from the event, a project blob URL for offloaded "
+        "media, or a data URI built from base64 data. Null when the media cannot be shown or was redacted."
+    )
+
+
+TraceMessagePart = Annotated[
+    TraceTextPart | TraceThinkingPart | TraceToolCallPart | TraceAttachmentPart, Field(discriminator="kind")
+]
+
+
+class TraceMessage(Contract):
+    id: str = Field(description="An id that is unique within the node, made of the node id, the side and a position.")
+    role: TraceMessageRole
+    parts: list[TraceMessagePart] = Field(
+        description="The message's text, reasoning, tool calls and attachments, in order."
+    )
+    is_internal: bool = Field(
+        description="Whether the message is a tool message, or holds only reasoning and tool calls."
+    )
+    source_node_id: str | None = Field(
+        description="The id of the node whose input or output holds this message, or null when it is not known."
+    )
+
+
+class TraceMessagesSide(Contract):
+    kind: Literal["messages"]
+    messages: list[TraceMessage] = Field(
+        description="The conversation, normalized from the provider's format by the built-in parsers and the "
+        "project's custom parsers."
+    )
+
+
+class TraceJsonSide(Contract):
+    kind: Literal["json"]
+    value: Any = Field(
+        description="The side's value as captured, for a side that is not a conversation or that could not be "
+        "normalized."
+    )
+
+
+TraceSideContent = Annotated[TraceMessagesSide | TraceJsonSide, Field(discriminator="kind")]
+
+
+class TraceNodeContent(Contract):
+    input: TraceSideContent = Field(description="The node's input, as messages or as JSON.")
+    output: TraceSideContent = Field(description="The node's output, as messages or as JSON.")
+
+
 class TraceNodeDetail(Contract):
     id: str
     kind: TraceNodeKind
     error: str | None
     metadata: TraceNodeMetadata
-    event: TraceNodeEvent | None
+    event: TraceNodeDetailEvent | None
+    content: TraceNodeContent = Field(description="The node's input and output, ready to render.")
+
+
+class TraceNodeRaw(Contract):
+    id: str = Field(description="The node id: the event's uuid, or the trace id for the root node.")
+    kind: TraceNodeKind
+    event: TraceNodeEvent | None = Field(
+        description="The node's event as ingested, or null for a root node whose trace has no `$ai_trace` event."
+    )
 
 
 class EvaluationPassFilters(Contract):
@@ -292,6 +388,42 @@ class TraceFeedback(Contract):
     summary: TraceFeedbackSummary
 
 
+class TraceHumanReviewScore(Contract):
+    name: str = Field(description="The scorer's name.")
+    value: str = Field(
+        description="The saved score as a reviewer reads it: option labels joined by commas, a number, or the "
+        "scorer's yes or no label."
+    )
+    label: str = Field(description="The scorer's name and the score together, such as `Tone: 4.5`.")
+
+
+class TraceHumanReview(Contract):
+    reviewed_by: str | None = Field(
+        description="The display name of whoever last saved the review, or null when that user was removed."
+    )
+    reviewed_at: datetime = Field(description="When the review was last saved.")
+    comment: str | None = Field(description="The reviewer's reasoning, if any.")
+    scores: list[TraceHumanReviewScore] = Field(
+        description="Ordered by scorer name. Empty when the review only marks the trace as reviewed."
+    )
+
+
+class TraceReviewQueueAssignment(Contract):
+    id: str = Field(description="The review queue's id.")
+    name: str = Field(description="The review queue's name.")
+    item_id: str = Field(description="The queue item that holds the trace, for moving or removing it.")
+
+
+class TraceReviewStatus(Contract):
+    review: TraceHumanReview | None = Field(
+        description="The trace's human review, or null when it has none or the user may not see it."
+    )
+    queue: TraceReviewQueueAssignment | None = Field(
+        description="The review queue the trace waits in, or null when it waits in none the user may see. Saving a review "
+        "normally takes the trace out of its queue."
+    )
+
+
 class TraceSearchMatch(Contract):
     node_id: str = Field(description="A step whose stored data contains the query. The root's id is the trace id.")
     count: int = Field(
@@ -397,9 +529,8 @@ class TraceExportFile(Contract):
         description="True when the trace has more events than an export reads. The file then holds the earliest "
         "events only, and leaves out the later steps."
     )
-    nodes: list[TraceNodeDetail] = Field(
-        description="Every node with its event properties as ingested, inputs and outputs included: the root first, "
-        "then the tree in pre-order."
+    nodes: list[TraceNodeRaw] = Field(
+        description="Every node with its event as ingested: the root first, then the tree in pre-order."
     )
 
 

@@ -176,7 +176,9 @@ def _build_schema_snapshot(schema: ExternalDataSchema) -> dict[str, Any]:
 
     `post_import_job` reads `last_synced_at` back, and a CDC history lane's job adds
     `cdc_write_mode` for the jobs API. The rest is only ever read by a person: the schema audit log does not diff
-    `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with.
+    `sync_type_config`, so this is the one record of the cursor and reset flags a run ran with. A
+    webhook-sync run that polls the API because no webhook is enabled adds `webhook_fallback`
+    (see `WebhookSourceManager.record_webhook_fallback`), and keeps `sync_type` as it is.
     """
     sync_type_config = {
         key: value

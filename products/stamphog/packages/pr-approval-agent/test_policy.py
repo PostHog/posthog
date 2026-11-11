@@ -152,6 +152,7 @@ OLD_DENY_PATTERN_DEFS = {
         "paths": [
             "^agents\\.md$",
             "^claude\\.md$",
+            "^\\.agents/(agent-automation|architecture|ci|code-style|feature-usage-tracking)\\.md$",
             "^\\.github/pull_request_template\\.md$",
             "^\\.agents/skills/writing-pr-descriptions/",
             "^\\.claude/settings\\.json$",

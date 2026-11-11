@@ -161,7 +161,7 @@ class MaxioSource(ResumableSource[MaxioSourceConfig, MaxioResumeConfig]):
                 "**API keys** in your Maxio site."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/maxio",
-            iconPath="/static/services/maxio.png",
+            iconPath="/static/services/maxio.svg",
             keywords=["billing", "subscriptions", "revenue", "chargify", "advanced billing", "saasoptics"],
             fields=cast(
                 list[FieldType],

@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from itertools import batched
 from typing import Any, Optional
 
 import requests
@@ -9,8 +10,9 @@ from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_
 
 RKI_COVID_BASE_URL = "https://api.corona-zahlen.org"
 
-# Every dataset is bounded (the pandemic time series is a few thousand rows, districts ~400 rows),
-# so no history window cap is needed beyond the optional user-configured `history_days`.
+# The full per-district history is ~1M rows in one response, so rows are yielded in batches instead
+# of one list to avoid holding a second copy of every row in memory.
+ROW_BATCH_SIZE = 5000
 
 
 class RKICovidAPIError(Exception):
@@ -132,10 +134,11 @@ def get_rows(
     session = make_tracked_session()
 
     body = _fetch(session, build_url(config, history_days))
-    rows = list(parser(body, config))
-    logger.debug(f"RKI COVID-19: fetched {len(rows)} rows for {endpoint}")
-    if rows:
-        yield rows
+    row_count = 0
+    for batch in batched(parser(body, config), ROW_BATCH_SIZE, strict=False):
+        row_count += len(batch)
+        yield list(batch)
+    logger.debug(f"RKI COVID-19: fetched {row_count} rows for {endpoint}")
 
 
 def rki_covid_source(

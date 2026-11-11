@@ -351,9 +351,22 @@ def _get_inviter(user: User, organization: Organization) -> dict[str, str] | Non
     if inviter is None:
         return None
     return {
-        "name": inviter.first_name or (inviter.email.split("@", 1)[0] if inviter.email else "A teammate"),
+        "name": _inviter_display_name(inviter, user),
         "email": inviter.email,
     }
+
+
+def _inviter_display_name(inviter: User, invitee: User) -> str:
+    name = inviter.first_name or (inviter.email.split("@", 1)[0] if inviter.email else "A teammate")
+    if not invitee.first_name or name.strip().casefold() != invitee.first_name.strip().casefold():
+        return name
+    # The dialog reads "<inviter> invited you. Welcome, <invitee>!", so a shared first name looks
+    # like the user invited themselves. Widen to the full name, or the email when that collides too.
+    full_name = f"{inviter.first_name} {inviter.last_name}".strip()
+    invitee_full_name = f"{invitee.first_name} {invitee.last_name}".strip()
+    if inviter.last_name and full_name.casefold() != invitee_full_name.casefold():
+        return full_name
+    return inviter.email or name
 
 
 def _get_team_members(organization: Organization) -> list[dict[str, Any]]:

@@ -27,6 +27,9 @@ class RecordingBlock:
     end_byte: int
     start_timestamp: str
     end_timestamp: str
+    # recording-api's opaque name for the block, which the player can fetch directly. None for a recording from
+    # before encryption.
+    ref: str | None = None
 
 
 FIVE_SECONDS = 5
@@ -59,6 +62,7 @@ async def fetch_blocks_from_recording_api(session_id: str, team_id: int) -> list
             end_byte=b["end_byte"],
             start_timestamp=b["start_timestamp"],
             end_timestamp=b["end_timestamp"],
+            ref=b.get("ref"),
         )
         for b in raw_blocks
     ]

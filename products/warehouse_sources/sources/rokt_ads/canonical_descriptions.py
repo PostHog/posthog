@@ -1,6 +1,7 @@
 from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 
 QUERY_API_DOCS = "https://docs.rokt.com/developers/api-reference/reporting/query-api/"
+METADATA_API_DOCS = "https://docs.rokt.com/developer-reference/apis/reporting-apis/reporting-api/"
 
 # Shared advertiser metric columns. Every campaigns-resource table reports the same metric set, so
 # the descriptions are written once and spread into each table below.
@@ -108,6 +109,47 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "layout_impressions": "Advertisement impressions counted by layout.",
             "referrals": "Total positive engagements on ads.",
             "referral_rate": "Referrals per impression.",
+        },
+    },
+    "CampaignMetadata": {
+        "description": "Current settings of each campaign the account reported on, one row per campaign.",
+        "docs_url": METADATA_API_DOCS,
+        "columns": {
+            "accountId": "Identifier of the Rokt account that owns the campaign.",
+            "campaignId": "Identifier of the campaign.",
+            "campaignName": "Name of the campaign.",
+            "campaignType": "Type of the campaign.",
+            "campaignObjective": "Objective the campaign optimizes for.",
+            "countryCode": "Country the campaign runs in.",
+            "status": "Current status of the campaign.",
+        },
+    },
+    "CreativeMetadata": {
+        "description": "Current content of each creative the account reported on, one row per campaign and creative.",
+        "docs_url": METADATA_API_DOCS,
+        "columns": {
+            "accountId": "Identifier of the Rokt account that owns the creative.",
+            "campaignId": "Identifier of the campaign the creative belongs to.",
+            "creativeId": "Identifier of the creative.",
+            "name": "Name of the creative.",
+            "title": "Title text of the creative.",
+            "subtitle": "Subtitle text of the creative.",
+            "text": "Body text of the creative.",
+            "responses": "Response options the creative shows to the user.",
+            "status": "Current status of the creative.",
+        },
+    },
+    "AudienceMetadata": {
+        "description": "Targeting settings of each audience the account reported on, one row per campaign and audience.",
+        "docs_url": METADATA_API_DOCS,
+        "columns": {
+            "accountId": "Identifier of the Rokt account that owns the audience.",
+            "campaignId": "Identifier of the campaign the audience belongs to.",
+            "audienceId": "Identifier of the audience.",
+            "name": "Name of the audience.",
+            "ageRange": "Minimum and maximum age the audience targets.",
+            "device": "Device types the audience targets: desktop, tablet and mobile.",
+            "gender": "Gender the audience targets.",
         },
     },
 }

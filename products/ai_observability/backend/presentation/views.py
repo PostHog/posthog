@@ -3,7 +3,7 @@ from datetime import datetime
 from functools import partial
 from typing import Any
 
-from django.db import transaction
+from django.db import models, transaction
 from django.http import HttpResponseBase
 
 from drf_spectacular.types import OpenApiTypes
@@ -21,6 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.helpers.impersonation import is_impersonated
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission, get_authenticator_scopes
 from posthog.rate_limit import (
@@ -49,6 +50,22 @@ class TraceQuerySerializer(serializers.Serializer):
         if not api.is_usable_timestamp_hint(value):
             raise serializers.ValidationError("Timestamp hint is out of range.")
         return value
+
+
+class TraceAvailabilityRequestSerializer(serializers.Serializer):
+    trace_ids = serializers.ListField(
+        child=serializers.CharField(max_length=255, trim_whitespace=False),
+        min_length=1,
+        max_length=2,
+        help_text="Application and evaluator trace IDs to check without loading trace contents.",
+    )
+
+
+class TraceAvailabilitySerializer(serializers.Serializer):
+    available_trace_ids = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Requested trace IDs readable from AI events or the shared events table.",
+    )
 
 
 class TraceClustersQuerySerializer(serializers.Serializer):
@@ -113,14 +130,30 @@ class TraceExportErrorSerializer(serializers.Serializer):
     detail = serializers.CharField(help_text="Why the file cannot be downloaded yet.")
 
 
+class TraceExportContentPurpose(models.TextChoices):
+    DOWNLOAD = "download", "Download"
+    COPY = "copy", "Copy"
+
+
+class TraceExportContentQuerySerializer(serializers.Serializer):
+    purpose = serializers.ChoiceField(
+        choices=TraceExportContentPurpose.choices,
+        default=TraceExportContentPurpose.DOWNLOAD,
+        help_text="What the file is read for. Only a download is recorded as one.",
+    )
+
+
 class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "llm_analytics"
     scope_object_read_actions = [
         "retrieve",
+        "availability",
         "node",
+        "node_raw",
         "evaluations",
         "clusters",
         "feedback",
+        "review",
         "search",
         "summary",
         "exports",
@@ -140,6 +173,19 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         user = request.user if isinstance(request.user, User) else None
         with query_concurrency_slots(self.team):
             return read(user, request.validated_query_data.get("timestamp_hint"))
+
+    @validated_request(
+        request_serializer=TraceAvailabilityRequestSerializer,
+        responses={200: TraceAvailabilitySerializer, 429: THROTTLED_RESPONSE},
+        operation_id="ai_observability_traces_availability_create",
+    )
+    @action(detail=False, methods=["POST"])
+    def availability(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        trace_ids = self._read(
+            request,
+            lambda user, _hint: api.get_available_trace_ids(self.team, user, request.validated_data["trace_ids"]),
+        )
+        return Response(TraceAvailabilitySerializer(instance={"available_trace_ids": trace_ids}).data)
 
     @validated_request(
         query_serializer=TraceQuerySerializer,
@@ -177,19 +223,44 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     )
     @action(detail=True, methods=["GET"], url_path=r"nodes/(?P<node_id>[A-Za-z0-9_-]+)")
     def node(self, request: ValidatedRequest, pk: str, node_id: str, **kwargs: Any) -> Response:
-        """One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata."""
+        """One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read."""
+        return self._node_response(request, pk, node_id, api.load_trace_node_detail)
+
+    @validated_request(
+        query_serializer=TraceQuerySerializer,
+        parameters=[TRACE_ID_PARAMETER, NODE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceNodeRaw),
+            400: OpenApiResponse(description="The timestamp hint or an encoded id is malformed."),
+            404: OpenApiResponse(description="No node with this id in the trace."),
+            429: THROTTLED_RESPONSE,
+        },
+        operation_id="ai_observability_traces_nodes_raw_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path=r"nodes/(?P<node_id>[A-Za-z0-9_-]+)/raw")
+    def node_raw(self, request: ValidatedRequest, pk: str, node_id: str, **kwargs: Any) -> Response:
+        """One node of a trace as ingested: its event properties and the keys that hold its input, output and tools, with nothing normalized."""
+        return self._node_response(request, pk, node_id, api.load_trace_node_raw)
+
+    def _node_response(
+        self,
+        request: ValidatedRequest,
+        pk: str,
+        node_id: str,
+        load: Callable[[Team, User | None, str, str, datetime | None], Callable[[], contracts.Contract]],
+    ) -> Response:
         try:
             trace_id = decode_trace_id_segment(pk)
             decoded_node_id = decode_trace_id_segment(node_id)
         except MalformedTraceIdSegmentError:
             return Response({"detail": "Malformed encoded id."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            node = self._read(
-                request, lambda user, hint: api.get_trace_node(self.team, user, trace_id, decoded_node_id, hint)
-            )
+            build = self._read(request, lambda user, hint: load(self.team, user, trace_id, decoded_node_id, hint))
         except api.TraceNodeNotFoundError:
             return Response({"detail": "Node not found."}, status=status.HTTP_404_NOT_FOUND)
-        return Response(node.model_dump(mode="json", by_alias=True))
+        # Only the ClickHouse load holds the query slot. Building the node normalizes its content, which runs no ClickHouse
+        # query, so other reads of the organization do not wait on that work.
+        return Response(build().model_dump(mode="json", by_alias=True))
 
     @validated_request(
         parameters=[TRACE_ID_PARAMETER],
@@ -263,6 +334,25 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             lambda user, hint: api.get_trace_feedback(self.team, user, trace_id, hint, include_surveys=include_surveys),
         )
         return Response(feedback.model_dump(mode="json", by_alias=True))
+
+    @validated_request(
+        parameters=[TRACE_ID_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=contracts.TraceReviewStatus),
+            400: OpenApiResponse(description="The encoded trace id is malformed."),
+        },
+        operation_id="ai_observability_traces_review_retrieve",
+    )
+    @action(detail=True, methods=["GET"], url_path="review")
+    def review(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
+        """The trace's human review with its scores ready to render, and the review queue the trace waits in."""
+        try:
+            trace_id = decode_trace_id_segment(pk)
+        except MalformedTraceIdSegmentError:
+            return Response({"detail": "Malformed encoded trace id."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            api.get_trace_review_status(self.team, _user(request), trace_id).model_dump(mode="json", by_alias=True)
+        )
 
     @validated_request(
         query_serializer=TraceSearchQuerySerializer,
@@ -451,10 +541,10 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(export.model_dump(mode="json", by_alias=True))
 
     @extend_schema(
-        parameters=[TRACE_ID_PARAMETER, EXPORT_ID_PARAMETER],
+        parameters=[TRACE_ID_PARAMETER, EXPORT_ID_PARAMETER, TraceExportContentQuerySerializer],
         responses={
             (200, "application/json"): OpenApiResponse(response=contracts.TraceExportFile),
-            400: OpenApiResponse(description="The encoded trace id is malformed."),
+            400: OpenApiResponse(description="The encoded trace id or the purpose is malformed."),
             404: EXPORT_NOT_FOUND_RESPONSE,
             409: OpenApiResponse(
                 response=TraceExportErrorSerializer, description="The export is still being written, or failed."
@@ -465,6 +555,8 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @action(detail=True, methods=["GET"], url_path=r"exports/(?P<export_id>\d+)/content")
     def export_content(self, request: Request, pk: str, export_id: str, **kwargs: Any) -> HttpResponseBase:
         """Downloads a completed export as a JSON file."""
+        query = TraceExportContentQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
         try:
             export = self._trace_export(request, pk, export_id)
         except MalformedTraceIdSegmentError:
@@ -476,6 +568,8 @@ class TraceViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             detail = export.exception or "The export is still being prepared."
             return Response({"detail": detail}, status=status.HTTP_409_CONFLICT)
         response = get_export_asset_content_response(asset=asset, download=True)
+        if query.validated_data["purpose"] == TraceExportContentPurpose.COPY:
+            return response
         transaction.on_commit(
             partial(
                 report_user_action,

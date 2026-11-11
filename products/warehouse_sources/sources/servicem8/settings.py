@@ -20,6 +20,14 @@ ENDPOINT_PATHS: dict[str, str] = {
     "JobPayment": "jobpayment",
     "Note": "note",
     "Attachment": "attachment",
+    "Material": "material",
+    "TaxRate": "taxrate",
+    "StaffTimeEvent": "stafftimeevent",
+    "Feedback": "feedback",
+    "JobQueue": "queue",
+    "Badge": "badge",
+    "JobMaterialBundle": "jobmaterialbundle",
+    "JobContact": "jobcontact",
 }
 
 ENDPOINTS: tuple[str, ...] = tuple(ENDPOINT_PATHS)

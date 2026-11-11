@@ -31,6 +31,10 @@ API_PREFIX = "/wp-json/wp/v2"
 
 HOST_NOT_ALLOWED_ERROR = "WordPress site URL is not allowed"
 HTTP_NOT_ALLOWED_ERROR = "WordPress site URL must use HTTPS when credentials are provided"
+BLOCKED_REQUEST_ERROR = (
+    "A firewall, security plugin or bot check on your WordPress site blocked PostHog. "
+    "Allow PostHog's IP addresses through it, then try again."
+)
 
 # WordPress `after`/`modified_after` filter on the site-LOCAL post_date/post_modified columns, which
 # can be non-monotonic across a DST transition. We re-request a small overlap on each incremental run
@@ -274,6 +278,22 @@ def validate_credentials(
     if response.status_code == 401:
         return False, "Invalid WordPress username or application password"
 
+    # A WordPress REST error carries a JSON `code` and `message`. Anything else — a WAF, reverse
+    # proxy, or load balancer answering with a bare status line like "Bad Request" — gives the user
+    # nothing to act on, so replace it with an actionable message naming the status code rather
+    # than leaking the raw body.
+    try:
+        body = response.json()
+    except Exception:
+        body = None
+    is_wp_error = isinstance(body, dict) and bool(body.get("code"))
+    wp_message = body.get("message") if isinstance(body, dict) else None
+
+    # Any user, and an anonymous caller, can read published posts. So a 403 without a WordPress
+    # error body, or a 202 (a common bot-check page), comes from a layer in front of WordPress.
+    if response.status_code == 202 or (response.status_code == 403 and not (is_wp_error and has_credentials)):
+        return False, BLOCKED_REQUEST_ERROR
+
     if response.status_code == 403:
         return False, (
             "Your WordPress credentials lack permission to read this site. Check the user's role and try again."
@@ -281,16 +301,6 @@ def validate_credentials(
 
     if response.status_code == 404:
         return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"
-
-    # A WordPress REST error carries a JSON `message` worth surfacing. Anything else — a WAF,
-    # reverse proxy, or load balancer answering with a bare status line like "Bad Request" — gives
-    # the user nothing to act on, so replace it with an actionable message naming the status code
-    # rather than leaking the raw body.
-    try:
-        body = response.json()
-        wp_message = body.get("message") if isinstance(body, dict) else None
-    except Exception:
-        wp_message = None
 
     if wp_message:
         return False, wp_message

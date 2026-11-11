@@ -61,37 +61,6 @@ database "posthog" {
       replica_name = "{replica}"
     }
   }
-  table "metrics_kafka_metrics" {
-    order_by = ["_topic", "_partition"]
-    settings = {
-      index_granularity = "8192"
-    }
-    column "_partition" {
-      type = "UInt32"
-    }
-    column "_topic" {
-      type = "String"
-    }
-    column "max_offset" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    column "max_observed_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_timestamp" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_created_at" {
-      type = "SimpleAggregateFunction(max, DateTime64(9))"
-    }
-    column "max_lag" {
-      type = "SimpleAggregateFunction(max, UInt64)"
-    }
-    engine "replicated_aggregating_merge_tree" {
-      zoo_path     = "/clickhouse/tables/noshard/posthog.metrics_kafka_metrics"
-      replica_name = "{replica}"
-    }
-  }
 
   table "metrics" {
     column "time_bucket" {

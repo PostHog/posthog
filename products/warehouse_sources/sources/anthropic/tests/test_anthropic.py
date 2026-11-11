@@ -53,6 +53,32 @@ def _report_page(buckets: list[dict[str, Any]], *, has_more: bool, next_page: st
     return ScriptedResponse(json={"data": buckets, "has_more": has_more, "next_page": next_page})
 
 
+def _usage_page(
+    starting_at: str, ending_at: str, *, rows: int = 0, has_more: bool = True, next_page: str | None = None
+) -> ScriptedResponse:
+    # One bucket stands in for a page: the walk only reads where the last bucket of a page ends.
+    results = [{"workspace_id": f"wrkspc_{index}"} for index in range(rows)]
+    bucket = {"starting_at": starting_at, "ending_at": ending_at, "results": results}
+    return _report_page([bucket], has_more=has_more, next_page=next_page if has_more else None)
+
+
+_OVERFLOW = ScriptedResponse(status=400, json={"error": {"type": "invalid_request_error"}})
+_RATE_LIMITED = ScriptedResponse(status=429, headers={"Retry-After": "3600"})
+
+
+def _usage_requests(result: Any) -> list[tuple[str | None, str | None, str | None, int]]:
+    steps = [tuple(group_by) for group_by in USAGE_GROUP_BY_FALLBACKS]
+    return [
+        (
+            request.param("starting_at"),
+            request.param("page"),
+            request.param("limit"),
+            steps.index(tuple(request.query.get("group_by[]", ()))),
+        )
+        for request in result.requests
+    ]
+
+
 class TestReportParams:
     def test_cost_report_pages_at_the_bucket_max(self) -> None:
         # Every page is one request against a per-organization rate limit, so leaving the cost
@@ -70,7 +96,7 @@ class TestReportParams:
 class TestReportPagination:
     def test_follows_next_page_until_has_more_false(self) -> None:
         result = _driver().run(
-            "usage_report",
+            "cost_report",
             [
                 _report_page(
                     [{"starting_at": "d1", "ending_at": "d2", "results": [{"model": "a"}]}],
@@ -180,6 +206,8 @@ class TestUsageReportGroupByFallback:
                     next_page=None,
                 ),
             ],
+            incremental_field="starting_at",
+            db_incremental_field_last_value=datetime(2025, 8, 1, tzinfo=UTC),
         )
 
         assert result.raised is None
@@ -207,14 +235,19 @@ class TestUsageReportGroupByFallback:
     def test_error_propagates_instead_of_narrowing(
         self, _name: str, responses: list[ScriptedResponse], expected_requests: int
     ) -> None:
-        result = _driver().run("usage_report", responses)
+        result = _driver().run(
+            "usage_report",
+            responses,
+            incremental_field="starting_at",
+            db_incremental_field_last_value=datetime(2025, 8, 1, tzinfo=UTC),
+        )
 
         assert isinstance(result.raised, requests.HTTPError)
         assert len(result.requests) == expected_requests
 
     def test_rejection_after_rows_are_out_is_not_narrowed(self) -> None:
-        # Re-running at a coarser grain would re-emit the buckets already yielded under different
-        # synthesized ids, so once rows are out the 400 has to fail the sync instead.
+        # Narrowing mid-walk would mix two grains in the rows of one run, so once rows are out at the
+        # smallest page the 400 has to fail the sync instead.
         result = _driver().run(
             "usage_report",
             [
@@ -225,11 +258,126 @@ class TestUsageReportGroupByFallback:
                 ),
                 ScriptedResponse(status=400, json={"error": "bad request"}),
             ],
+            incremental_field="starting_at",
+            db_incremental_field_last_value=datetime(2025, 8, 1, tzinfo=UTC),
         )
 
         assert isinstance(result.raised, requests.HTTPError)
         assert [row["workspace_id"] for row in result.rows] == ["wrkspc_1"]
         assert len(result.requests) == 2
+
+    @parameterized.expand(
+        [
+            (
+                "first_walk_shrinks_the_page_where_it_was_rejected",
+                None,
+                [
+                    _usage_page("2023-01-01T00:00:00Z", "2023-02-01T00:00:00Z", next_page="P2"),
+                    _OVERFLOW,
+                    _usage_page("2023-02-01T00:00:00Z", "2023-02-08T00:00:00Z", rows=1, has_more=False),
+                ],
+                [
+                    ("2023-01-01T00:00:00Z", None, "31", 0),
+                    ("2023-01-01T00:00:00Z", "P2", "31", 0),
+                    ("2023-02-01T00:00:00Z", None, "7", 0),
+                ],
+                1,
+            ),
+            (
+                # Shrinking keeps the grain, so the buckets after the rejected page get the same ids.
+                "first_walk_shrinks_the_page_after_rows_are_out",
+                None,
+                [
+                    _usage_page("2023-01-01T00:00:00Z", "2023-02-01T00:00:00Z", rows=1, next_page="P2"),
+                    _OVERFLOW,
+                    _usage_page("2023-02-01T00:00:00Z", "2023-02-08T00:00:00Z", rows=1, has_more=False),
+                ],
+                [
+                    ("2023-01-01T00:00:00Z", None, "31", 0),
+                    ("2023-01-01T00:00:00Z", "P2", "31", 0),
+                    ("2023-02-01T00:00:00Z", None, "7", 0),
+                ],
+                2,
+            ),
+            (
+                "first_walk_narrows_the_group_by_once_the_page_is_small",
+                None,
+                [
+                    _usage_page("2023-01-01T00:00:00Z", "2023-02-01T00:00:00Z", next_page="P2"),
+                    _OVERFLOW,
+                    _OVERFLOW,
+                    _usage_page("2023-02-01T00:00:00Z", "2023-02-08T00:00:00Z", rows=1, has_more=False),
+                ],
+                [
+                    ("2023-01-01T00:00:00Z", None, "31", 0),
+                    ("2023-01-01T00:00:00Z", "P2", "31", 0),
+                    ("2023-02-01T00:00:00Z", None, "7", 0),
+                    ("2023-02-01T00:00:00Z", None, "7", 1),
+                ],
+                1,
+            ),
+            (
+                "incremental_walk_narrows_the_group_by_where_it_was_rejected",
+                datetime(2025, 8, 1, tzinfo=UTC),
+                [
+                    _usage_page("2025-08-01T00:00:00Z", "2025-08-08T00:00:00Z", next_page="P2"),
+                    _OVERFLOW,
+                    _usage_page("2025-08-08T00:00:00Z", "2025-08-15T00:00:00Z", rows=1, has_more=False),
+                ],
+                [
+                    ("2025-08-01T00:00:00Z", None, "7", 0),
+                    ("2025-08-01T00:00:00Z", "P2", "7", 0),
+                    ("2025-08-08T00:00:00Z", None, "7", 1),
+                ],
+                1,
+            ),
+        ]
+    )
+    def test_a_rejected_page_continues_from_where_the_walk_reached(
+        self,
+        _name: str,
+        watermark: datetime | None,
+        responses: list[ScriptedResponse],
+        expected_requests: list[tuple[str | None, str | None, str | None, int]],
+        expected_rows: int,
+    ) -> None:
+        # Restarting at the run's start re-walks every empty page before the first busy one, and the
+        # report's hour-long rate limit stops the run before it gets back there.
+        result = _driver().run(
+            "usage_report",
+            responses,
+            incremental_field="starting_at",
+            db_incremental_field_last_value=watermark,
+        )
+
+        assert result.raised is None
+        assert _usage_requests(result) == expected_requests
+        assert len(result.rows) == expected_rows
+
+    def test_a_retry_resumes_at_the_page_and_group_by_the_walk_reached(self) -> None:
+        first = _driver().run(
+            "usage_report",
+            [
+                _usage_page("2023-01-01T00:00:00Z", "2023-02-01T00:00:00Z", next_page="P2"),
+                _OVERFLOW,
+                _OVERFLOW,
+                _usage_page("2023-02-01T00:00:00Z", "2023-02-08T00:00:00Z", next_page="P3"),
+                _RATE_LIMITED,
+            ],
+            incremental_field="starting_at",
+        )
+        assert isinstance(first.raised, RESTClientRetryableError)
+
+        retry = _driver().run(
+            "usage_report",
+            [_usage_page("2023-02-08T00:00:00Z", "2023-02-15T00:00:00Z", rows=1, has_more=False)],
+            resume_state=first.final_state,
+            incremental_field="starting_at",
+        )
+
+        assert retry.raised is None
+        assert _usage_requests(retry) == [("2023-02-08T00:00:00Z", None, "7", 1)]
+        assert len(retry.rows) == 1
 
 
 class TestValidateCredentials:
@@ -264,7 +412,7 @@ class TestNonRetryableErrors:
             ),
         ]
     )
-    def test_exhausted_rate_limit_stays_retryable_with_sync_frequency_guidance(
+    def test_exhausted_rate_limit_stays_retryable_with_shared_limit_guidance(
         self, _name: str, observed_error: str
     ) -> None:
         source = AnthropicSource()
@@ -274,7 +422,7 @@ class TestNonRetryableErrors:
             for pattern, message in source.get_retry_exhausted_errors().items()
             if error_message_matches(observed_error, [pattern])
         ]
-        assert messages and "sync less often" in messages[0]
+        assert messages and "Pause other tools" in messages[0]
 
 
 def _cc_record(actor_email: str = "dev@example.com") -> dict[str, Any]:

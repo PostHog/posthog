@@ -3,8 +3,6 @@ import type { Experiment } from '~/types'
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
-export const EXPERIMENT_HEALTH_PANEL_ELEMENT_ID = 'experiment-health-panel'
-
 export const CONFIDENCE_LEVEL_OPTIONS = [
     { value: 0.9, label: '90%' },
     { value: 0.95, label: '95%' },

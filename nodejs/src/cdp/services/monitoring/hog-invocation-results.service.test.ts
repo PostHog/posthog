@@ -144,22 +144,29 @@ describe('HogInvocationResultsService', () => {
             expect(decoded).not.toContain('abc123')
         })
 
+        const send = {
+            content: { subject: 'Your login code', html: '<p>Your code is 482913</p>' },
+            tracking: { captureEngagement: false },
+        }
+        const messageData = { variables: { code: '482913' }, send }
+        const noMessageData = { variables: undefined, send: undefined }
+
         it.each([
-            ['an ordinary email', false, {}, { code: '482913' }],
-            ['a sensitive email', true, {}, undefined],
-            ['an ordinary push', false, {}, { code: '482913' }, 'function_push'],
-            ['a sensitive push', true, {}, undefined, 'function_push'],
-            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, undefined],
+            ['an ordinary email', false, {}, messageData],
+            ['a sensitive email', true, {}, noMessageData],
+            ['an ordinary push', false, {}, messageData, 'function_push'],
+            ['a sensitive push', true, {}, noMessageData, 'function_push'],
+            ['a recovery stub of a sensitive run', undefined, { sensitive: true }, noMessageData],
             [
                 'a recovery stub of an unstamped transactional run',
                 undefined,
                 { event: { event: '$transactional_email' } },
-                undefined,
+                noMessageData,
             ],
-            ['a recovery stub of an ordinary run', undefined, {}, { code: '482913' }],
+            ['a recovery stub of an ordinary run', undefined, {}, messageData],
         ])(
             'keeps the message data in a workflow snapshot only for %s',
-            async (_name, sensitive, state, variables, stepType = 'function_email') => {
+            async (_name, sensitive, state, expected, stepType = 'function_email') => {
                 const hogFlow =
                     sensitive === undefined
                         ? ({ id: 'flow-1' } as any)
@@ -181,7 +188,7 @@ describe('HogInvocationResultsService', () => {
                                   edges: [],
                               })
                               .build()
-                const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' } })
+                const invocation = createExampleHogFlowInvocation(hogFlow, { variables: { code: '482913' }, send })
                 // A step paused for a provider retry keeps the rendered message on its VM stack.
                 const vmState = { stack: [{ title: 'Your code is 482913' }] }
                 const person = { id: 'person-1', properties: { code: '482913' } }
@@ -198,9 +205,9 @@ describe('HogInvocationResultsService', () => {
                 const globals = (await decodeInvocationGlobals(
                     parseProducedRows(outputs)[0].invocation_globals
                 )) as Record<string, any>
-                expect(globals.variables).toEqual(variables)
-                expect(globals.currentAction.hogFunctionState.vmState).toEqual(variables && vmState)
-                expect(globals.currentAction.hogFunctionState.globals.person).toEqual(variables && person)
+                expect({ variables: globals.variables, send: globals.send }).toEqual(expected)
+                expect(globals.currentAction.hogFunctionState.vmState).toEqual(expected.variables && vmState)
+                expect(globals.currentAction.hogFunctionState.globals.person).toEqual(expected.variables && person)
             }
         )
 

@@ -23,7 +23,7 @@ class VespaSource(SimpleSource[VespaSourceConfig]):
             name=ExternalDataSourceType.VESPA,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Vespa",
-            iconPath="/static/services/vespa.png",
+            iconPath="/static/services/vespa.svg",
             keywords=["vector database", "search", "ai", "documents"],
             fields=cast(list[FieldType], []),
             unreleasedSource=True,

@@ -67,7 +67,7 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     keystroke while these two aggregations do not depend on the search.
     """
     # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
-    cache_key = f"workflows_email_sending_allowance_v2_{team_id}"
+    cache_key = f"workflows_email_sending_allowance_v3_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
@@ -77,10 +77,8 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     allowance = EmailSendingAllowance(
         tier=resolved.tier,
         max_tier=max_email_sending_tier(),
-        emails_per_hour=resolved.limits.per_hour,
         emails_per_day=resolved.limits.per_day,
         max_batch_audience=resolved.limits.max_batch_audience,
-        emails_sent_last_hour=_team_email_sends_since(team_id, now - timedelta(hours=1)),
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
     )

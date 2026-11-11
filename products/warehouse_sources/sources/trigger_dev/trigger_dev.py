@@ -1,3 +1,4 @@
+import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
@@ -7,7 +8,7 @@ from urllib.parse import urlencode, urlsplit
 import requests
 from dateutil import parser as dateutil_parser
 from structlog.types import FilteringBoundLogger
-from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
@@ -24,9 +25,44 @@ TRIGGER_DEV_DEFAULT_BASE_URL = "https://api.trigger.dev"
 # times out. Schedules and queues are small config tables, so this ceiling is far above any real size.
 MAX_CLASSIC_PAGES = 10_000
 
+# Upper bound on how long we'll honor the bucket's reported reset time, so a bogus or far-future
+# header can't pin a worker.
+MAX_RATE_LIMIT_WAIT_SECONDS = 120
+
+_EXPONENTIAL_WAIT = wait_exponential_jitter(initial=1, max=30)
+
 
 class TriggerDevRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: float = 0) -> None:
+        super().__init__(message)
+        # Seconds to wait before retrying, from a 429's `x-ratelimit-reset`; 0 when absent or
+        # unusable, which falls back to exponential backoff.
+        self.retry_after = retry_after
+
+
+def _rate_limit_wait_seconds(response: requests.Response) -> float:
+    """Seconds until Trigger.dev's token bucket resets, from the 429's `x-ratelimit-reset` header.
+
+    Trigger.dev documents this header as a unix timestamp in milliseconds. Its own SDK moved from
+    blind exponential backoff to honoring it for the same reason we do: a 429 means the bucket is
+    empty, and a blind backoff either retries before it refills or waits longer than necessary.
+    """
+    raw = response.headers.get("x-ratelimit-reset")
+    if raw is None:
+        return 0.0
+    try:
+        reset_at_seconds = float(raw) / 1000
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, min(reset_at_seconds - time.time(), MAX_RATE_LIMIT_WAIT_SECONDS))
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    # Honor Trigger.dev's rate-limit reset once; otherwise back off exponentially.
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, TriggerDevRetryableError) and exc.retry_after:
+        return exc.retry_after
+    return _EXPONENTIAL_WAIT(retry_state)
 
 
 @dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- pre-existing; new field shifts the backlog finding into diff
@@ -122,15 +158,20 @@ def _should_stop_desc(items: list[dict[str, Any]], incremental_field: str | None
         )
     ),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_retry_wait,
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> dict:
     response = session.get(url, headers=headers, timeout=60)
 
     # Trigger.dev rate-limits per API key with a token bucket and standard x-ratelimit-* headers;
-    # back off and retry on 429 and transient 5xx.
-    if response.status_code == 429 or response.status_code >= 500:
+    # back off and retry on 429 (honoring the bucket's reset time) and transient 5xx.
+    if response.status_code == 429:
+        raise TriggerDevRetryableError(
+            f"Trigger.dev API error (retryable): status={response.status_code}, url={url}",
+            retry_after=_rate_limit_wait_seconds(response),
+        )
+    if response.status_code >= 500:
         raise TriggerDevRetryableError(f"Trigger.dev API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:

@@ -14,5 +14,5 @@ staged=$(git diff --cached --name-only)
 
 if grep -q '^\.claude/hooks/' <<< "$staged"; then
     printf "\n\033[33mWarning: hooks in .claude/ are reserved for env bootstrapping (SessionStart only).\n"
-    printf "Prefer skills, AGENTS.md instructions, or lint-staged rules. See Agent automation in AGENTS.md.\033[0m\n\n"
+    printf "Prefer skills, AGENTS.md instructions, or lint-staged rules. See .agents/agent-automation.md.\033[0m\n\n"
 fi

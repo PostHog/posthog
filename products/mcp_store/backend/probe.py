@@ -33,10 +33,10 @@ from .oauth import (
     register_dcr_client,
     requested_oauth_scopes,
 )
+from .protocol_versions import LATEST_PROTOCOL_VERSION
 
 logger = structlog.get_logger(__name__)
 
-MCP_PROTOCOL_VERSION = "2025-06-18"
 MAX_AUTHORIZE_REDIRECTS = 3
 
 _AUTH_REQUIRED_STATUSES = (401, 403)
@@ -153,7 +153,7 @@ def _probe_initialize(url: str, result: ProbeResult) -> _InitializeOutcome:
         "id": 1,
         "method": "initialize",
         "params": {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
+            "protocolVersion": LATEST_PROTOCOL_VERSION,
             "capabilities": {},
             "clientInfo": {"name": "posthog-mcp-store-probe", "version": "1.0"},
         },

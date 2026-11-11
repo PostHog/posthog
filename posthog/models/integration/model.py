@@ -12,7 +12,8 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationRecord, creator_can_manage
+from posthog.integrations.references import IntegrationReference
 from posthog.models.user import User
 from posthog.rbac.decorators import field_access_control
 from posthog.sync import database_sync_to_async
@@ -185,6 +186,8 @@ class IntegrationQuerySet(models.QuerySet["Integration"]):
         kind = kwargs.get("kind") or (defaults or {}).get("kind") or (create_defaults or {}).get("kind")
         if defaults is not None and "config" in defaults:
             defaults = self._with_config_for_write(dict(defaults), kind)
+        if create_defaults is not None and "config" in create_defaults:
+            create_defaults = self._with_config_for_write(dict(create_defaults), kind)
         return super().update_or_create(defaults=defaults, create_defaults=create_defaults, **kwargs)
 
     def for_github_installation_id(self, installation_id: str | int) -> Self:
@@ -454,9 +457,11 @@ class Integration(models.Model):
         return f"ID: {self.integration_id}"
 
     def can_be_managed_by_creator(self, user_id: int | None) -> bool:
-        return (
-            user_id is not None and self.kind == self.IntegrationKind.GOOGLE_CALENDAR and self.created_by_id == user_id
-        )
+        return creator_can_manage(self.kind, self.created_by_id, user_id)
+
+    @property
+    def reference(self) -> str:
+        return str(IntegrationReference.from_legacy_id(self.id))
 
     @property
     def access_token(self) -> str | None:
@@ -475,7 +480,9 @@ def integration_model(record: IntegrationRecord) -> Integration:
     """The model behind a row of the integrations SDK.
 
     The SDK returns its rows as the read-only `IntegrationRecord`, and they are model instances at
-    runtime. Only the per-kind adapters next to the model use it, because they still write the row.
+    runtime. Only the per-kind adapters next to the model use it, because callers outside this package
+    still read model-only attributes (`team`, `pk`, `refresh_from_db()`) from `adapter.integration`.
+    The adapters write the row through the SDK (see `row_writes.py`), not with `save()`.
     """
     return cast(Integration, record)
 

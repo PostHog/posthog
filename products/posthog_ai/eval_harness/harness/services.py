@@ -115,7 +115,7 @@ def _ai_gateway_compose(*args: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def start_ai_gateway() -> Callable[[], None]:
+def start_ai_gateway(capture_url: str | None = None) -> Callable[[], None]:
     """Start the Go ai-gateway on a non-default port, in resolver mode.
 
     It shares the Postgres and Valkey containers of the gateway repo's compose file
@@ -154,6 +154,17 @@ def start_ai_gateway() -> Callable[[], None]:
             "AI_GATEWAY_LOG_LEVEL": "info",
         }
     )
+    if capture_url is not None:
+        env["AI_GATEWAY_CAPTURE_URL"] = capture_url
+        # The gateway emits to capture only signed events, so the local sink needs a secret too.
+        env["AI_GATEWAY_SIGNING_SECRET"] = secrets.token_urlsafe(32)
+    # Open-weight models such as DeepSeek run on Baseten. The host is declared only with a key,
+    # because the gateway refuses to boot a declared host that has no credential.
+    if baseten_api_key := os.environ.get("AI_GATEWAY_BASETEN_API_KEY"):
+        env["AI_GATEWAY_BASETEN_API_KEY"] = baseten_api_key
+        env["AI_GATEWAY_SERVED_HOSTS"] = json.dumps(
+            [{"id": "baseten", "kind": "baseten", "base_url": "https://inference.baseten.co/v1"}]
+        )
     binary = _ai_gateway_binary()
     migrate = subprocess.run([str(binary), "migrate"], env=env, capture_output=True, text=True, timeout=120)
     if migrate.returncode != 0:

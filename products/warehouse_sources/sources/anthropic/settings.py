@@ -149,11 +149,16 @@ _COST_GROUP_BY = ["workspace_id", "description"]
 # Time buckets per cost report page, at the documented `1d` maximum. The report endpoints are the
 # rate-limited part of this source — Anthropic supports polling them about once a minute for
 # sustained use — and every page is one request, so walking history at the API's default of 7
-# buckets spends more than four times the request budget for the same rows. The usage report keeps
-# the smaller page: its rows are already multiplied out by `group_by`, so a wider window there buys
-# fewer requests at the cost of a coarser breakdown.
+# buckets spends more than four times the request budget for the same rows.
 COST_REPORT_PAGE_BUCKETS = 31
+# The usage report multiplies each bucket out by `group_by`, and a page whose results overflow the
+# report's per-response cap is rejected with a 400. Its page stays at the API default of 7 buckets.
 USAGE_REPORT_PAGE_BUCKETS = 7
+# A run with no watermark walks all history from DEFAULT_STARTING_AT, and for most organizations
+# the early pages are empty. An empty page cannot overflow, so that walk starts at the `1d` maximum,
+# which cuts its request count about four times. The walk drops to USAGE_REPORT_PAGE_BUCKETS at the
+# first page that the API rejects.
+USAGE_REPORT_HISTORY_PAGE_BUCKETS = 31
 
 # One day of restated buckets is re-pulled on every incremental run. Anthropic notes usage/cost data
 # lands a few minutes after requests complete and a day's bucket keeps accumulating until it closes,

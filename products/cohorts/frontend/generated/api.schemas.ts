@@ -693,12 +693,26 @@ export interface CohortCalculationHistoryResponseApi {
     previous: string | null
 }
 
+export interface SerializedMatchedRecordingEventApi {
+    /** UUID of the matched event. */
+    uuid: string
+    /** When the matched event happened. */
+    timestamp: string
+    /** ID of the browser window the event was captured in. */
+    window_id: string
+}
+
+export interface SerializedMatchedRecordingApi {
+    /** ID of the session recording. */
+    session_id: string
+    /** Events of the recording that matched the query. */
+    events: SerializedMatchedRecordingEventApi[]
+}
+
 /**
  * The actor's properties.
  */
 export type SerializedPersonActorApiProperties = { [key: string]: unknown }
-
-export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
 
 export interface SerializedPersonActorApi {
     /** The person's UUID, or the group's key. */
@@ -711,7 +725,7 @@ export interface SerializedPersonActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -730,11 +744,8 @@ export interface SerializedPersonActorApi {
      * @nullable
      */
     last_seen_at: string | null
-    /**
-     * Whether the person has been identified.
-     * @nullable
-     */
-    is_identified: boolean | null
+    /** Whether the person has been identified. */
+    is_identified: boolean
 }
 
 export interface CohortPersonsResponseApi {

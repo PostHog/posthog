@@ -1,16 +1,20 @@
 import json
+import datetime as dt
 from typing import Any, Optional
 
 import pytest
+import time_machine
 from unittest import mock
 
 import requests
 import structlog
+from parameterized import parameterized
 
 from products.warehouse_sources.sources.rubygems._config import RubygemsSourceConfig
 from products.warehouse_sources.sources.rubygems.rubygems import (
     MAX_GEMS,
     RUBYGEMS_BASE_URL,
+    TIMEFRAME_PAGE_SIZE,
     RubyGemsRetryableError,
     _fetch,
     parse_gems,
@@ -169,3 +173,141 @@ class TestRubyGemsSource:
     def test_invalid_gems_raise(self):
         with pytest.raises(ValueError):
             rubygems_source("gems", "", structlog.get_logger())
+
+
+class TestPerGemTables:
+    @parameterized.expand(
+        [
+            (
+                "owners",
+                "owners.json",
+                [{"id": 1, "handle": "qrush", "role": "owner"}, {"handle": "no-id"}, "not-a-dict"],
+                [{"id": 1, "handle": "qrush", "role": "owner", "gem_name": "rails"}],
+            ),
+            (
+                "reverse_dependencies",
+                "reverse_dependencies.json",
+                ["jeweler", "", None, "soup"],
+                [
+                    {"gem_name": "rails", "dependent_name": "jeweler"},
+                    {"gem_name": "rails", "dependent_name": "soup"},
+                ],
+            ),
+        ]
+    )
+    def test_rows_are_stamped_with_the_gem_and_404_gems_are_skipped(self, endpoint, suffix, body, expected_rows):
+        driver = SourceDriver(RubygemsSource(), RubygemsSourceConfig(gems="rails\nnope"))
+
+        result = driver.run(endpoint, [ScriptedResponse(json=body), ScriptedResponse(status=404, json={})])
+
+        assert result.raised is None
+        assert result.paths == [f"/api/v1/gems/rails/{suffix}", f"/api/v1/gems/nope/{suffix}"]
+        assert result.rows == expected_rows
+
+
+class TestFeedTables:
+    @parameterized.expand(
+        [
+            (
+                "latest_gems",
+                "/api/v1/activity/latest.json",
+                [{"name": "brand-new", "version": "0.1.0"}, {"version": "no-name"}],
+                [{"name": "brand-new", "version": "0.1.0"}],
+            ),
+            (
+                "just_updated_gems",
+                "/api/v1/activity/just_updated.json",
+                [
+                    {"name": "nokogiri", "version": "1.18.0", "platform": "ruby"},
+                    {"name": "nokogiri", "version": "1.18.0", "platform": "java"},
+                    {"name": "nokogiri", "version": "1.18.0", "platform": None},
+                ],
+                [
+                    {"name": "nokogiri", "version": "1.18.0", "platform": "ruby"},
+                    {"name": "nokogiri", "version": "1.18.0", "platform": "java"},
+                ],
+            ),
+        ]
+    )
+    def test_one_request_ignores_configured_gems_and_drops_rows_without_a_key(self, endpoint, path, body, expected):
+        driver = SourceDriver(RubygemsSource(), RubygemsSourceConfig(gems="rails\nrspec"))
+
+        result = driver.run(endpoint, [ScriptedResponse(json=body)])
+
+        assert result.raised is None
+        assert result.paths == [path]
+        assert result.rows == expected
+
+
+def _timeframe_page(count: int, created_at: str = "2026-11-01T00:00:00.000Z") -> list[dict[str, Any]]:
+    return [{"name": f"gem{i}", "number": "1.0.0", "platform": "ruby", "created_at": created_at} for i in range(count)]
+
+
+class TestTimeframeVersions:
+    @pytest.fixture(autouse=True)
+    def _frozen_now(self):
+        with time_machine.travel(dt.datetime(2026, 11, 3, 12, tzinfo=dt.UTC), tick=False):
+            yield
+
+    @parameterized.expand(
+        [
+            ("incremental_watermark", True, "2026-11-01T06:30:00.000Z", None, "2026-11-01T06:30:00Z"),
+            (
+                "full_refresh_uses_history_start",
+                False,
+                "2026-11-01T06:30:00Z",
+                dt.datetime(2026, 10, 30, tzinfo=dt.UTC),
+                "2026-10-30T00:00:00Z",
+            ),
+            (
+                "incremental_without_watermark_uses_history_start",
+                True,
+                None,
+                dt.datetime(2026, 10, 30, tzinfo=dt.UTC),
+                "2026-10-30T00:00:00Z",
+            ),
+            ("no_bound_falls_back_to_lookback", False, None, None, "2026-10-27T12:00:00Z"),
+        ]
+    )
+    def test_start_of_the_read(self, _name, incremental, last_value, history_start, expected_from):
+        driver = SourceDriver(RubygemsSource(), RubygemsSourceConfig(gems="rails"))
+
+        result = driver.run(
+            "timeframe_versions",
+            [ScriptedResponse(json=[])],
+            should_use_incremental_field=incremental,
+            incremental_field="created_at",
+            db_incremental_field_last_value=last_value,
+            history_start=history_start,
+        )
+
+        assert result.raised is None
+        assert result.params("from") == [expected_from]
+        assert result.params("to") == ["2026-11-03T12:00:00Z"]
+
+    def test_walks_pages_and_seven_day_windows_to_now(self):
+        driver = SourceDriver(RubygemsSource(), RubygemsSourceConfig(gems="rails"))
+
+        result = driver.run(
+            "timeframe_versions",
+            [
+                # First window: a full page, then a short page ends it.
+                ScriptedResponse(json=_timeframe_page(TIMEFRAME_PAGE_SIZE)),
+                ScriptedResponse(json=[*_timeframe_page(2), {"name": "no-platform", "number": "1.0.0"}]),
+                # Second window: an empty first page ends it, and the walk stops at now.
+                ScriptedResponse(json=[]),
+            ],
+            should_use_incremental_field=True,
+            incremental_field="created_at",
+            db_incremental_field_last_value="2026-10-27T00:00:00Z",
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/api/v1/timeframe_versions.json"] * 3
+        assert result.params("from") == ["2026-10-27T00:00:00Z", "2026-10-27T00:00:00Z", "2026-11-03T00:00:00Z"]
+        assert result.params("to") == ["2026-11-03T00:00:00Z", "2026-11-03T00:00:00Z", "2026-11-03T12:00:00Z"]
+        assert result.params("page") == ["1", "2", "1"]
+        assert len(result.rows) == TIMEFRAME_PAGE_SIZE + 2
+        assert result.response is not None
+        assert result.response.sort_mode is None
+        assert result.response.partition_keys == ["created_at"]

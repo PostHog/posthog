@@ -6,8 +6,9 @@ import {
     useIsFetching,
     useQueryClient,
 } from '@tanstack/react-query'
+import { NetworkStateType } from 'expo-network'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { ViewabilityConfig, ViewToken } from 'react-native'
+import type { FlatListProps, ListViewToken } from 'react-native'
 
 import { isMissingFeature, type ProjectScope } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
@@ -25,10 +26,12 @@ import { createPrefetchQueue, type PrefetchQueue, prefetchRows, prefetchWindow }
 // window again on each refresh. The report screen refetches on open anyway.
 const PREFETCH_STALE_MS = 5 * 60_000
 
+type ViewabilityConfig = NonNullable<FlatListProps<InboxItem>['viewabilityConfig']>
+
 const VIEWABILITY_CONFIG: ViewabilityConfig = { itemVisiblePercentThreshold: 10 }
 
 export interface ReportPrefetchListProps {
-    onViewableItemsChanged: (info: { viewableItems: ViewToken<InboxItem>[]; changed: ViewToken<InboxItem>[] }) => void
+    onViewableItemsChanged: (info: { viewableItems: ListViewToken[]; changed: ListViewToken[] }) => void
     viewabilityConfig: ViewabilityConfig
 }
 
@@ -95,7 +98,11 @@ export function usePrefetchReports(items: InboxItem[] | undefined, focused: bool
     const accountRef = useRef(account)
     accountRef.current = account
     const active = useAppActive()
-    const connected = useConnectivity((state) => state.status === 'connected' && state.isConnectionExpensive === false)
+    const connected = useConnectivity(
+        (state) =>
+            state.status === 'connected' &&
+            (state.type === NetworkStateType.WIFI || state.type === NetworkStateType.ETHERNET)
+    )
     const foregroundFetching = useIsFetching({ predicate: (query) => query.getObserversCount() > 0 })
     const enabled = live && scope !== null && focused && active && connected && foregroundFetching === 0
     const scopeKey = scope ? JSON.stringify([scope.host, scope.projectId, account]) : ''
@@ -145,8 +152,8 @@ export function usePrefetchReports(items: InboxItem[] | undefined, focused: bool
         queueRef.current?.enqueue(idsRef.current)
     }, [enabled, scopeKey, idsKey])
 
-    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken<InboxItem>[] }): void => {
-        const indices = viewableItems.flatMap((token) => (token.index === null ? [] : [token.index]))
+    const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ListViewToken[] }): void => {
+        const indices = viewableItems.flatMap((token) => (token.index == null ? [] : [token.index]))
         const first = Math.min(...indices)
         const last = Math.max(...indices)
         const scopeKey = scopeKeyRef.current

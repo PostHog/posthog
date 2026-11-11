@@ -1,10 +1,12 @@
+import { z } from 'zod'
+
 import type { ApiKeyAccess, ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
 import { plural } from '@/core/text'
 import { ApiError } from '@/posthog/api'
-import { apiConnection, groupSlug, unwrap } from '@/posthog/api-tools'
+import { apiConnection, credentialAccess, groupSlug, unwrap } from '@/posthog/api-tools'
 
 const TOP_SCOPES = 10
 
@@ -24,7 +26,7 @@ async function reachesProject(
     }
     try {
         const api = await ctx.posthog()
-        const project = await api.get<{ organization: string }>(`/api/projects/${projectId}/`)
+        const project = await api.get(`/api/projects/${projectId}/`, z.looseObject({ organization: z.string() }))
         return access.scopedOrganizations.includes(project.organization)
     } catch (error) {
         // Without project:read the lookup fails for any project, so a 403 says nothing about the limit.
@@ -39,14 +41,14 @@ async function reachesProject(
 }
 
 export default defineCommand({
-    description: 'Show what the personal API key can reach, and the scopes that would unlock more tools',
+    description: 'Show what your credentials can reach, and the scopes that would unlock more tools',
     notes: 'Each missing scope counts the tools it blocks. A tool can need more than one scope.',
     examples: ['hog api access', 'hog api access -o json'],
 
     async run({ ctx }) {
         const library = await ctx.apiTools()
         const connection = await apiConnection(ctx)
-        const access = unwrap(await library.keyAccess(connection))
+        const access = unwrap(await credentialAccess(ctx, library, connection))
         const projectId = connection.projectId ?? ''
         const blocked = new Map<string, { tools: number; groups: Set<string> }>()
         let usable = 0

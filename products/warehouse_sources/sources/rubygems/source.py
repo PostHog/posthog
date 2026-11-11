@@ -1,7 +1,9 @@
+import datetime
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.rubygems._config import RubygemsSourceConfig
 from products.warehouse_sources.sources.rubygems.rubygems import (
+    TIMEFRAME_HISTORY_LOOKBACK,
     rubygems_source,
     validate_credentials as validate_rubygems_credentials,
 )
@@ -52,7 +54,9 @@ rspec
 devise
 ```
 
-Each sync fetches the current metadata and full version history for every configured gem. RubyGems.org has no server-side "changed since" filter, so all tables sync as a full refresh.""",
+Each sync fetches the current metadata, version history, owners and reverse dependencies for every configured gem. These tables sync as a full refresh, because RubyGems.org has no server-side "changed since" filter for them.
+
+The `latest_gems`, `just_updated_gems` and `timeframe_versions` tables cover all of RubyGems.org, not only your configured gems. `timeframe_versions` syncs incrementally, and its first sync reads the last 7 days.""",
             iconPath="/static/services/rubygems.png",
             docsUrl="https://posthog.com/docs/cdp/sources/rubygems",
             fields=cast(
@@ -70,6 +74,12 @@ Each sync fetches the current metadata and full version history for every config
                 ],
             ),
         )
+
+    def history_lookback_for_schema(
+        self, schema_name: str, config: RubygemsSourceConfig | None = None
+    ) -> datetime.timedelta | None:
+        # Only the ecosystem-wide release feed is bounded; the per-gem tables return every row.
+        return TIMEFRAME_HISTORY_LOOKBACK if schema_name == "timeframe_versions" else None
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         from products.warehouse_sources.sources.rubygems.canonical_descriptions import (
@@ -95,9 +105,9 @@ Each sync fetches the current metadata and full version history for every config
         schemas = [
             SourceSchema(
                 name=endpoint,
-                # RubyGems.org exposes no server-side timestamp filter, so no stream is truly
-                # incremental; re-fetching would only duplicate immutable history, so append is off too.
-                supports_incremental=False,
+                # Only `timeframe_versions` takes a server-side time filter; re-fetching the per-gem
+                # streams would only duplicate immutable history, so append is off too.
+                supports_incremental=RUBYGEMS_ENDPOINTS[endpoint].supports_incremental,
                 supports_append=False,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
                 should_sync_default=RUBYGEMS_ENDPOINTS[endpoint].should_sync_default,
@@ -124,4 +134,7 @@ Each sync fetches the current metadata and full version history for every config
             endpoint=inputs.schema_name,
             gems_raw=config.gems,
             logger=inputs.logger,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
+            history_start=inputs.history_start,
         )

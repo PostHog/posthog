@@ -1,4 +1,10 @@
-import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } from './hogqlAst'
+import {
+    type AstRange,
+    type SelectComparison,
+    compareParsedSelects,
+    innermostSelectRangeFromAst,
+    tablesAndColumnsFromAst,
+} from './hogqlAst'
 import { parseSelect } from './hogqlParserSingleton'
 import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
 
@@ -135,4 +141,18 @@ export async function analyzeTablesAndColumns(query: string): Promise<Record<str
     }
     const ast = await parseOnMainThread(query)
     return ast ? tablesAndColumnsFromAst(ast) : {}
+}
+
+const SELECT_COMPARISONS: ReadonlySet<unknown> = new Set<SelectComparison>(['same', 'different', 'unparsable'])
+
+export async function compareSelectQueries(query: string, other: string): Promise<SelectComparison> {
+    if (!workerUnavailable) {
+        try {
+            const result = await ask({ op: 'compareSelects', query, other })
+            if (SELECT_COMPARISONS.has(result)) {
+                return result
+            }
+        } catch {}
+    }
+    return compareParsedSelects(await parseSelect(query, true), await parseSelect(other, true))
 }

@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -16,6 +16,7 @@ from products.warehouse_sources.sources.sdk.testing import DriveResult, Scripted
 @pytest.fixture(autouse=True)
 def small_pages(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(scrunch, "PAGE_SIZE", 2)
+    monkeypatch.setattr(scrunch, "AGENT_TRAFFIC_PAGE_SIZE", 2)
 
 
 def page(rows: list[dict[str, Any]], total: int, status: int = 200) -> ScriptedResponse:
@@ -249,3 +250,152 @@ def test_invalid_watermark_fails_before_requests() -> None:
     assert isinstance(result.raised, ValueError)
     assert "watermark" in str(result.raised)
     assert result.requests == []
+
+
+SITE_A = "01AAAAAAAAAAAAAAAAAAAAAAAA"
+SITE_B = "01BBBBBBBBBBBBBBBBBBBBBBBB"
+
+
+def traffic(rows: list[dict[str, Any]]) -> ScriptedResponse:
+    return ScriptedResponse(json={"meta": {"start_date": "x", "end_date": "y", "time_bucket": "day"}, "data": rows})
+
+
+@pytest.mark.parametrize(
+    "inputs,expected_start",
+    [
+        ({}, None),
+        ({"history_start": datetime(2026, 1, 5, 12, tzinfo=UTC)}, "2026-01-05"),
+        (
+            {
+                "incremental_field": "date",
+                "db_incremental_field_last_value": "2026-08-01",
+                "history_start": datetime(2026, 1, 5, tzinfo=UTC),
+            },
+            "2026-08-01",
+        ),
+        ({"incremental_field": "date", "db_incremental_field_last_value": date(2026, 8, 1)}, "2026-08-01"),
+    ],
+)
+def test_agent_traffic_walks_active_sites_until_a_short_page(
+    inputs: dict[str, Any], expected_start: str | None
+) -> None:
+    today = datetime.now(UTC).date()
+    rows = [{"requests": n, "date": "2026-10-01", "path": f"/{n}", "agent_source": None} for n in range(3)]
+
+    result = run(
+        "agent_traffic",
+        [
+            page([{"id": 11}], 1),
+            page([{"id": SITE_A, "agent_traffic_active": False}, {"id": SITE_B, "agent_traffic_active": True}], 2),
+            traffic(rows[:2]),
+            traffic(rows[2:]),
+        ],
+        **inputs,
+    )
+
+    assert result.raised is None
+    assert result.rows == [{**row, "brand_id": 11, "site_id": SITE_B} for row in rows]
+    assert result.paths == ["/v1/brands", "/v1/11/sites", *[f"/v1/11/sites/{SITE_B}/agent-traffic"] * 2]
+    assert query(result, 1) == {}
+    start = expected_start or (today - timedelta(days=365)).isoformat()
+    for index, offset in ((2, "0"), (3, "2")):
+        assert query(result, index) == {
+            "offset": [offset],
+            "limit": ["2"],
+            "start_date": [start],
+            "end_date": [today.isoformat()],
+            "fields": ["date,site,path,agent_source,agent_type"],
+            "time_bucket": ["day"],
+        }
+
+
+def test_sitemap_page_metrics_explode_into_one_row_per_platform_bucket() -> None:
+    def metrics(**buckets: list[dict[str, Any]]) -> ScriptedResponse:
+        empty: dict[str, list[dict[str, Any]]] = {"citations": [], "ai_referrals": [], "agent_traffic": []}
+        return ScriptedResponse(json={"granularity": "daily", "metrics": empty | buckets})
+
+    result = run(
+        "sitemap_page_metrics",
+        [
+            page([{"id": 10}, {"id": 11}], 2),
+            ScriptedResponse(status=404, json={"detail": "No completed sitemap crawl found"}),
+            page([{"id": 5, "url": "https://example.com/a"}, {"id": 6, "url": "https://example.com/b"}], 2),
+            metrics(
+                citations=[{"date": "2026-10-01", "count_by_platform": {"OpenAI": 2, "Gemini": 1}}],
+                ai_referrals=[{"date": "2026-10-01", "count_by_platform": {}}],
+            ),
+            metrics(agent_traffic=[{"date": "2026-10-02", "count_by_platform": {"OpenAI": 7}}]),
+        ],
+    )
+
+    assert result.raised is None
+    page_a = {"brand_id": 11, "page_id": 5, "page_url": "https://example.com/a", "granularity": "daily"}
+    page_b = {"brand_id": 11, "page_id": 6, "page_url": "https://example.com/b", "granularity": "daily"}
+    assert result.rows == [
+        {**page_a, "metric": "citations", "date": "2026-10-01", "platform": "OpenAI", "count": 2},
+        {**page_a, "metric": "citations", "date": "2026-10-01", "platform": "Gemini", "count": 1},
+        {**page_b, "metric": "agent_traffic", "date": "2026-10-02", "platform": "OpenAI", "count": 7},
+    ]
+    assert result.paths[1:] == [
+        "/v1/10/sitemap/pages",
+        "/v1/11/sitemap/pages",
+        "/v1/11/sitemap/pages/5/metrics",
+        "/v1/11/sitemap/pages/6/metrics",
+    ]
+    assert query(result, 2) == {"offset": ["0"], "limit": ["2"]}
+    assert query(result, 3) == query(result, 4) == {}
+
+
+def test_site_audit_score_keeps_one_row_per_audited_brand() -> None:
+    score = {"brand_id": 11, "generated_at": "2026-10-01T00:00:00Z", "score": {"retrievability": 70, "citability": 50}}
+
+    result = run(
+        "site_audit_score",
+        [page([{"id": 11}, {"id": 22}], 2), ScriptedResponse(json=score), ScriptedResponse(body=b"null")],
+    )
+
+    assert result.raised is None
+    assert result.rows == [score]
+    assert result.paths == ["/v1/brands", "/v1/11/audit-scores/site", "/v1/22/audit-scores/site"]
+    assert query(result, 1) == query(result, 2) == {}
+
+
+@pytest.mark.parametrize(
+    "inputs,expected_days",
+    [
+        ({}, ["2026-08-03", "2026-08-02", "2026-08-01"]),
+        (
+            {"incremental_field": "detected_for_date", "db_incremental_field_last_value": "2026-08-02"},
+            ["2026-08-03", "2026-08-02"],
+        ),
+        (
+            {"incremental_field": "detected_for_date", "db_incremental_field_last_value": date(2026, 8, 2)},
+            ["2026-08-03", "2026-08-02"],
+        ),
+    ],
+)
+def test_signals_read_each_detection_day_on_its_own(inputs: dict[str, Any], expected_days: list[str]) -> None:
+    detections = {
+        "2026-08-03": [{"id": 3, "fingerprint": "f1"}, {"id": 4, "fingerprint": "f2"}, {"id": 5, "fingerprint": "f3"}],
+        "2026-08-02": [{"id": 2, "fingerprint": "f1"}],
+        "2026-08-01": [{"id": 1, "fingerprint": "f1"}],
+    }
+    script = [
+        page([{"id": 11}], 1),
+        ScriptedResponse(json={"dates": ["2026-08-03", "2026-08-02", "2026-08-01"]}),
+    ]
+    for day in expected_days:
+        rows = detections[day]
+        script += [page(rows[index : index + 2], len(rows)) for index in range(0, len(rows), 2)]
+
+    result = run("signals", script, **inputs)
+
+    assert result.raised is None
+    assert result.rows == [{**row, "brand_id": 11} for day in expected_days for row in detections[day]]
+    assert result.paths[1] == "/v1/11/signals/anchors"
+    assert query(result, 1) == {"limit": ["365"]}
+    signal_queries = [query(result, index) for index in range(2, len(result.requests))]
+    assert [(q["anchor_from"], q["anchor_to"], q["offset"]) for q in signal_queries] == [
+        ([day], [day], [str(offset)]) for day in expected_days for offset in range(0, len(detections[day]), 2)
+    ]
+    assert all(q["sort"] == ["detected_desc"] for q in signal_queries)

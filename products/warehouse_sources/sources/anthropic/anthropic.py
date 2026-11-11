@@ -1,5 +1,6 @@
 import hashlib
 from collections.abc import Callable, Iterable, Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
 from typing import Any, Optional
@@ -15,6 +16,8 @@ from products.warehouse_sources.sources.anthropic.settings import (
     RBAC_GROUPS_PATH,
     RBAC_ROLES_PATH,
     USAGE_GROUP_BY_FALLBACKS,
+    USAGE_REPORT_HISTORY_PAGE_BUCKETS,
+    USAGE_REPORT_PAGE_BUCKETS,
     AnalyticsWindowKind,
     AnthropicEndpointConfig,
     FanOutConfig,
@@ -108,6 +111,11 @@ class AnthropicResumeConfig:
     # query that minted it and expires when the underlying export refreshes, so replaying a whole
     # day costs one extra request set and can never hand the API a cursor it has since rejected.
     analytics_window_state: dict | None = None
+    # usage_report walk checkpoint: {"starting_at": RFC 3339, "group_by_step": int, "page_buckets": int},
+    # the start of the first page not yet yielded and the query shape the walk had reached there.
+    # A page cursor is not saved, because the walk can change its query mid-way and a cursor only
+    # addresses the query that minted it.
+    usage_report_walk: dict | None = None
 
 
 class AnthropicCursorPaginator(BasePaginator):
@@ -168,6 +176,32 @@ class AnthropicCursorPaginator(BasePaginator):
 
     def __str__(self) -> str:
         return f"AnthropicCursorPaginator(cursor_path={self.cursor_path}, cursor_param={self.cursor_param})"
+
+
+class UsageReportPaginator(AnthropicCursorPaginator):
+    """Report pagination whose resume state is where the next page starts, not the page token.
+
+    The start is the `ending_at` of the last bucket served. A new query at that start reads the same
+    buckets as the page token, so the walk can resume, or read a rejected page with another query,
+    without a token from a different query.
+    """
+
+    def __init__(self, starting_at: str) -> None:
+        super().__init__(cursor_path="next_page", cursor_param="page")
+        self.next_starting_at = starting_at
+
+    def update_state(self, response: Response, data: Optional[list[Any]] = None) -> None:
+        super().update_state(response, data)
+        last_bucket = data[-1] if data else None
+        ending_at = last_bucket.get("ending_at") if isinstance(last_bucket, dict) else None
+        if ending_at:
+            self.next_starting_at = str(ending_at)
+
+    def get_resume_state(self) -> Optional[dict[str, Any]]:
+        return {"starting_at": self.next_starting_at} if self._has_next_page else None
+
+    def __str__(self) -> str:
+        return f"UsageReportPaginator(next_starting_at={self.next_starting_at})"
 
 
 class ClaudeCodeDayPaginator(BasePaginator):
@@ -839,33 +873,122 @@ def _is_bad_request(exc: HTTPError) -> bool:
     return exc.response is not None and exc.response.status_code == 400
 
 
-def _iter_narrowing_group_by(
-    build_resource: Callable[[list[str], Optional[dict[str, Any]]], Any],
-    group_by_fallbacks: list[list[str]],
-    initial_paginator_state: Optional[dict[str, Any]],
-) -> Iterator[list[dict[str, Any]]]:
-    """Yield the endpoint's pages, retrying with a narrower `group_by` when the API rejects the query.
+@frozen
+class UsageReportPosition:
+    """Where a usage report walk reads next, and the query shape it reads with."""
 
-    The usage report answers 400 for a query that groups more finely than it will serve, which fails
-    the whole sync rather than returning coarser rows. Each fallback is tried in turn until one is
-    accepted, so the sync lands on the finest breakdown that org's report serves.
+    starting_at: str
+    # Index into USAGE_GROUP_BY_FALLBACKS.
+    group_by_step: int
+    page_buckets: int
 
-    Narrowing happens only while no page has been yielded yet: once rows are out, re-running at a
-    coarser grain would re-emit the same buckets under different synthesized ids. A narrowed query
-    also starts from its own first page, since a resume cursor minted by the wider query no longer
-    addresses anything.
+
+def _usage_report_start(db_incremental_field_last_value: Optional[Any]) -> UsageReportPosition:
+    if db_incremental_field_last_value is None:
+        # All history, so the first pages are usually empty and cannot overflow.
+        return UsageReportPosition(
+            starting_at=_format_rfc3339(DEFAULT_STARTING_AT),
+            group_by_step=0,
+            page_buckets=USAGE_REPORT_HISTORY_PAGE_BUCKETS,
+        )
+    return UsageReportPosition(
+        starting_at=_format_rfc3339(db_incremental_field_last_value),
+        group_by_step=0,
+        page_buckets=USAGE_REPORT_PAGE_BUCKETS,
+    )
+
+
+def _saved_usage_report_position(resume: Optional[AnthropicResumeConfig]) -> Optional[UsageReportPosition]:
+    saved = resume.usage_report_walk if resume is not None else None
+    if not isinstance(saved, dict) or not saved.get("starting_at"):
+        return None
+    return UsageReportPosition(
+        starting_at=str(saved["starting_at"]),
+        group_by_step=min(int(saved.get("group_by_step") or 0), len(USAGE_GROUP_BY_FALLBACKS) - 1),
+        page_buckets=int(saved.get("page_buckets") or USAGE_REPORT_PAGE_BUCKETS),
+    )
+
+
+def _usage_report_fallback(rejected: UsageReportPosition, rows_out: bool) -> Optional[UsageReportPosition]:
+    """The query to read a rejected page with next, or None when no smaller query is left.
+
+    A smaller page comes first, because it keeps the grain and so the ids of the rows. A narrower
+    `group_by` changes the grain, so it is used only while this run has yielded no rows: after that,
+    one run would hold rows of two grains.
     """
-    for index, group_by in enumerate(group_by_fallbacks):
-        resume_state = initial_paginator_state if index == 0 else None
-        yielded = False
-        try:
-            for page in build_resource(group_by, resume_state):
-                yielded = True
-                yield page
-            return
-        except HTTPError as exc:
-            if yielded or index == len(group_by_fallbacks) - 1 or not _is_bad_request(exc):
-                raise
+    if rejected.page_buckets > USAGE_REPORT_PAGE_BUCKETS:
+        return replace(rejected, page_buckets=USAGE_REPORT_PAGE_BUCKETS)
+    if rows_out or rejected.group_by_step + 1 >= len(USAGE_GROUP_BY_FALLBACKS):
+        return None
+    return replace(rejected, group_by_step=rejected.group_by_step + 1)
+
+
+class UsageReportWalk:
+    """Yields the usage report's pages, and reads a rejected page again with a smaller query.
+
+    The usage report answers 400 for a page whose results overflow its response cap, which fails the
+    whole sync rather than returning a truncated page, and the cap is not documented. The walk reads
+    the rejected page again with fewer buckets, then with each narrower `group_by` in turn, so the
+    sync lands on the finest breakdown that org's report serves.
+
+    The walk continues from the rejected page, not from the start of the run. A history walk can
+    pass hundreds of empty pages before the first busy one, and they yield no rows. A restart would
+    walk them again on every attempt, and the report's hour-long rate limit can stop each attempt
+    before it gets back to the busy page.
+    """
+
+    def __init__(
+        self,
+        build_resource: Callable[
+            [UsageReportPosition, Optional[dict[str, Any]], Callable[[Optional[dict[str, Any]]], None]], Any
+        ],
+        start: UsageReportPosition,
+        start_cursor_state: Optional[dict[str, Any]],
+        resumable_source_manager: ResumableSourceManager[AnthropicResumeConfig],
+    ) -> None:
+        self._build_resource = build_resource
+        self._position = start
+        self._start_cursor_state = start_cursor_state
+        self._manager = resumable_source_manager
+
+    def _save(self) -> None:
+        self._manager.save_state(
+            AnthropicResumeConfig(
+                usage_report_walk={
+                    "starting_at": self._position.starting_at,
+                    "group_by_step": self._position.group_by_step,
+                    "page_buckets": self._position.page_buckets,
+                }
+            )
+        )
+
+    def _page_done(self, state: Optional[dict[str, Any]]) -> None:
+        # The framework calls this once a page is handed on, empty pages included, with the state of
+        # the page after it. The client copies the paginator, so this is how the walk sees it.
+        if state and state.get("starting_at"):
+            self._position = replace(self._position, starting_at=str(state["starting_at"]))
+            self._save()
+
+    def pages(self) -> Iterator[list[dict[str, Any]]]:
+        cursor_state = self._start_cursor_state
+        rows_out = False
+        while True:
+            try:
+                for page in self._build_resource(self._position, cursor_state, self._page_done):
+                    rows_out = True
+                    yield page
+                return
+            except HTTPError as exc:
+                if not _is_bad_request(exc):
+                    raise
+                fallback = _usage_report_fallback(self._position, rows_out)
+                if fallback is None:
+                    raise
+            self._position = fallback
+            cursor_state = None
+            self._save()
+            # No row of the rejected page was yielded, so a resume from it loses nothing.
+            self._manager.safe_point()
 
 
 def anthropic_source(
@@ -1110,28 +1233,12 @@ def anthropic_source(
             if state and state.get("cursor"):
                 resumable_source_manager.save_state(AnthropicResumeConfig(cursor=state["cursor"]))
 
-        def build_resource(group_by: list[str], resume_state: Optional[dict[str, Any]]) -> Any:
-            if is_report:
-                # Report endpoints: `starting_at` is required. On an incremental run start from the
-                # watermark (already shifted back by the pipeline's lookback); otherwise fall back to
-                # the Anthropic launch date to pull all history.
-                params: dict[str, Any] = {"bucket_width": config.bucket_width}
-                if config.limit is not None:
-                    params["limit"] = config.limit
-                if group_by:
-                    # requests encodes a list value as one repeated query param per element.
-                    params["group_by[]"] = group_by
-                params["starting_at"] = {
-                    "type": "incremental",
-                    "cursor_path": "starting_at",
-                    "initial_value": DEFAULT_STARTING_AT,
-                    "convert": _format_rfc3339,
-                }
-                paginator: BasePaginator = AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page")
-            else:
-                params = {"limit": ENTITY_PAGE_SIZE, **config.extra_params}
-                paginator = _list_paginator(config)
-
+        def build_resource(
+            params: dict[str, Any],
+            paginator: BasePaginator,
+            resume_state: Optional[dict[str, Any]],
+            resume_hook: Callable[[Optional[dict[str, Any]]], None] = save_checkpoint,
+        ) -> Any:
             endpoint_resource: EndpointResource = {
                 "name": endpoint,
                 "endpoint": {
@@ -1152,26 +1259,67 @@ def anthropic_source(
                 team_id,
                 job_id,
                 db_incremental_field_last_value,
-                resume_hook=save_checkpoint,
+                resume_hook=resume_hook,
                 initial_paginator_state=resume_state,
             )
 
+        def report_params(group_by: list[str]) -> dict[str, Any]:
+            params: dict[str, Any] = {"bucket_width": config.bucket_width}
+            if config.limit is not None:
+                params["limit"] = config.limit
+            if group_by:
+                # requests encodes a list value as one repeated query param per element.
+                params["group_by[]"] = group_by
+            return params
+
         if endpoint == "usage_report":
-            resource = build_resource(USAGE_GROUP_BY_FALLBACKS[0], initial_paginator_state)
-            # The fallback loop hands each page on unchanged and holds no rows. As a `Resource` it
-            # keeps the framework's checkpoints, so a run that waits on a rate limit can hand off.
-            narrowing = Resource(
-                partial(_iter_narrowing_group_by, build_resource, USAGE_GROUP_BY_FALLBACKS, initial_paginator_state),
-                name=endpoint,
-                hints=resource._hints,
+            saved_position = _saved_usage_report_position(resume)
+            start = saved_position or _usage_report_start(db_incremental_field_last_value)
+            start_cursor_state: Optional[dict[str, Any]] = None
+            if saved_position is None and initial_paginator_state is not None:
+                # A page cursor saved before the walk tracked its position belongs to the first
+                # step's query at the original page size, so it resumes with exactly that query.
+                start = replace(start, page_buckets=USAGE_REPORT_PAGE_BUCKETS)
+                start_cursor_state = initial_paginator_state
+
+            def build_usage_report(
+                position: UsageReportPosition,
+                cursor_state: Optional[dict[str, Any]],
+                resume_hook: Callable[[Optional[dict[str, Any]]], None],
+            ) -> Any:
+                params = report_params(USAGE_GROUP_BY_FALLBACKS[position.group_by_step])
+                params["limit"] = position.page_buckets
+                params["starting_at"] = position.starting_at
+                return build_resource(params, UsageReportPaginator(position.starting_at), cursor_state, resume_hook)
+
+            walk = UsageReportWalk(build_usage_report, start, start_cursor_state, resumable_source_manager)
+            resource = build_usage_report(start, start_cursor_state, save_checkpoint)
+            # The walk hands each page on unchanged and holds no rows. As a `Resource` it keeps the
+            # framework's checkpoints, so a run that waits on a rate limit can hand off.
+            usage_walk = Resource(walk.pages, name=endpoint, hints=resource._hints)
+
+            def usage_report_items() -> Iterable[list[dict[str, Any]]]:
+                return usage_walk
+
+            items = usage_report_items
+        elif is_report:
+            # `starting_at` is required. On an incremental run start from the watermark (already
+            # shifted back by the pipeline's lookback); otherwise fall back to the Anthropic launch
+            # date to pull all history.
+            params = report_params(config.group_by)
+            params["starting_at"] = {
+                "type": "incremental",
+                "cursor_path": "starting_at",
+                "initial_value": DEFAULT_STARTING_AT,
+                "convert": _format_rfc3339,
+            }
+            resource = build_resource(
+                params, AnthropicCursorPaginator(cursor_path="next_page", cursor_param="page"), initial_paginator_state
             )
-
-            def narrowed_items() -> Iterable[list[dict[str, Any]]]:
-                return narrowing
-
-            items = narrowed_items
         else:
-            resource = build_resource(config.group_by, initial_paginator_state)
+            resource = build_resource(
+                {"limit": ENTITY_PAGE_SIZE, **config.extra_params}, _list_paginator(config), initial_paginator_state
+            )
 
     return SourceResponse(
         name=endpoint,

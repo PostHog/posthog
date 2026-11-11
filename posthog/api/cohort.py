@@ -38,10 +38,10 @@ from posthog.schema import ActorsQuery, HogQLQuery, ProductKey
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.constants import CSV_EXPORT_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import BaseHogQLError, TableAccessDeniedError
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
+from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
-from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -66,6 +66,7 @@ from posthog.helpers.trigram_search import (
 )
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.hogql_cohort_query import (
+    FLAG_CALL_READS_COMPILE_ERRORS,
     FlagCallReads,
     HogQLCohortQuery,
     batch_flag_call_reads,
@@ -89,7 +90,7 @@ from posthog.models.activity_logging.activity_page import (
     parse_activity_page_params,
 )
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT, FLAG_EVALUATIONS_TTL_DAYS
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_RETENTION_DAYS, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.models.person.util import get_person_by_uuid, validate_person_uuids_exist
 from posthog.models.property.parse import expand_cohort_properties, parse_property_group_data
 from posthog.models.property.property import (
@@ -1022,7 +1023,7 @@ _FLAG_CALL_CRITERION_TYPE_REASON = (
     'Only "Completed event", "Did not complete event" and "Completed an event multiple times" can use this event.'
 )
 _FLAG_CALL_WINDOW_REASON = (
-    f"PostHog keeps this event for {FLAG_EVALUATIONS_TTL_DAYS} days, so pick a range relative to today that goes back "
+    f"PostHog keeps this event for {FLAG_EVALUATIONS_RETENTION_DAYS} days, so pick a range relative to today that goes back "
     f'{_MAX_FLAG_CALL_LOOKBACK_HOURS // 24} days or less, such as "Last 30 days".'
 )
 _FLAG_CALL_KEY_REASON = (
@@ -1102,7 +1103,7 @@ def _flag_call_reads_or_none(criteria: Sequence[Property], team: Team) -> FlagCa
     values = [{**prop.to_dict(), "negation": False} for prop in criteria]
     try:
         return batch_flag_call_reads(Cohort(team=team, filters={"properties": {"type": "OR", "values": values}}), team)
-    except (BaseHogQLError, ValidationError, ValueError):
+    except FLAG_CALL_READS_COMPILE_ERRORS:
         return None
     except Exception as error:
         # A malformed filter value can fail an assert in the HogQL printer. The guard refuses the save, so the API

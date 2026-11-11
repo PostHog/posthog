@@ -118,7 +118,7 @@ print(result.id)`,
                 <li>
                     Authenticate with a{' '}
                     <Link to={urls.settings('environment-secret-api-keys')}>project secret API key</Link> that has the{' '}
-                    <code>hog_flow:write</code> scope. Keep it on your server in{' '}
+                    <code>transactional_email:write</code> scope. Keep it on your server in{' '}
                     <code>POSTHOG_PROJECT_SECRET_API_KEY</code>.
                 </li>
                 <li>

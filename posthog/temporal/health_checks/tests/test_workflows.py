@@ -10,7 +10,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from temporalio import activity, workflow
-from temporalio.client import WorkflowExecutionStatus
+from temporalio.client import WorkflowExecutionStatus, WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -45,12 +46,19 @@ async def fake_run_health_check_batch(team_ids: list[int], kind: str, dry_run: b
     return dataclasses.asdict(BatchResult(batch_size=len(team_ids), teams_healthy=len(team_ids)))
 
 
+@activity.defn(name="run_health_check_batch")
+async def fake_skip_every_batch(team_ids: list[int], kind: str, dry_run: bool) -> dict:
+    return dataclasses.asdict(BatchResult(batch_size=len(team_ids), teams_skipped=len(team_ids)))
+
+
 @activity.defn(name="push_health_check_metrics_activity")
 async def fake_push_health_check_metrics(kind: str, totals_dict: dict, success: bool) -> None:
     pushed_totals.append(totals_dict)
 
 
-async def _run_workflow(served_pages: dict[int, TeamIdPage]) -> tuple[dict, WorkflowExecutionStatus | None]:
+async def _run_workflow(
+    served_pages: dict[int, TeamIdPage], run_batch=fake_run_health_check_batch
+) -> tuple[dict, WorkflowExecutionStatus | None]:
     logging.getLogger("temporalio.workflow").setLevel(logging.INFO)
     logging.getLogger("temporalio.activity").setLevel(logging.INFO)
     pages.clear()
@@ -64,7 +72,7 @@ async def _run_workflow(served_pages: dict[int, TeamIdPage]) -> tuple[dict, Work
             env.client,
             task_queue=task_queue,
             workflows=[HealthCheckWorkflow],
-            activities=[fake_get_team_id_page, fake_run_health_check_batch, fake_push_health_check_metrics],
+            activities=[fake_get_team_id_page, run_batch, fake_push_health_check_metrics],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -115,6 +123,17 @@ class TestHealthCheckWorkflow:
         assert sorted(processed_team_ids) == [1, 2, 3]
         assert pushed_totals == []
         assert result["stopped_by_kill_switch"] is True
+
+    @pytest.mark.asyncio
+    async def test_threshold_breach_fails_the_run_instead_of_retrying_until_timeout(self):
+        with pytest.raises(WorkflowFailureError) as exc_info:
+            await _run_workflow(PAGES, run_batch=fake_skip_every_batch)
+
+        cause = exc_info.value.cause
+        assert isinstance(cause, ApplicationError)
+        assert cause.type == "HealthCheckThresholdExceeded"
+        assert "6/6 teams not processed" in cause.message
+        assert len(pushed_totals) == 1
 
 
 @pytest.mark.django_db

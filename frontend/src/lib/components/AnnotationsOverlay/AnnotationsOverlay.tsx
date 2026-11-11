@@ -2,18 +2,20 @@ import './AnnotationsOverlay.scss'
 
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import React, { useEffect, useRef, useState } from 'react'
+import React, { Suspense, useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { LazyTextContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { dayjs } from 'lib/dayjs'
+import { useKeepMountedWhileOpen } from 'lib/hooks/useKeepMountedWhileOpen'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { pluralize } from 'lib/utils/strings'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -21,12 +23,16 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { annotationsModel } from '~/models/annotationsModel'
 import { AnnotationType, DatedAnnotationType, IntervalType } from '~/types'
 
-import { AnnotationModal } from 'products/annotations/frontend/components/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'products/annotations/frontend/logics/annotationModalLogic'
 
 import { AnnotationsOverlayLogicProps, annotationsOverlayLogic } from './annotationsOverlayLogic'
 import { useAnnotationPopoverHover } from './useAnnotationPopoverHover'
 import { AnnotationsChartGeometry, useAnnotationsPositioning } from './useAnnotationsPositioning'
+
+// The modal carries a markdown editor, which a chart needs only once someone adds or edits an annotation.
+const AnnotationModal = lazyWithRetry(() =>
+    import('products/annotations/frontend/components/AnnotationModal').then((m) => ({ default: m.AnnotationModal }))
+)
 
 const MIN_BADGE_SPACING_PX = 24
 /** Clusters anchor on their starting badge (leftPx) so a chain of near-adjacent badges
@@ -75,6 +81,7 @@ export interface AnnotationsOverlayProps {
     /** Forwarded to the kea logic key so multiple overlays on the same insight don't
      *  collide. Used by compare-against-previous bar charts to show one overlay per period. */
     kind?: string
+    annotationsScope?: AnnotationsOverlayLogicProps['annotationsScope']
 }
 
 interface AnnotationsOverlayCSSProperties extends React.CSSProperties {
@@ -89,6 +96,7 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
     dates,
     insightNumericId,
     kind,
+    annotationsScope,
 }: AnnotationsOverlayProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { tickIntervalPx, firstTickLeftPx, getDataPointX } = useAnnotationsPositioning(geometry)
@@ -114,11 +122,15 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
         dates,
         ticks: prevTicksRef.current,
         kind,
+        annotationsScope,
     }
     const logic = annotationsOverlayLogic(annotationsOverlayLogicProps)
     const { activeDate, tickDates, annotationBadgeDataIndices, groupedAnnotations, readOnly } = useValues(logic)
     const { closePopover, deactivateDate } = useActions(logic)
     const { closeModal } = useActions(annotationModalLogic)
+    const { isModalOpen } = useValues(annotationModalLogic)
+    // Grace-extended so the modal's exit animation finishes before its lazy subtree unmounts.
+    const shouldRenderAnnotationModal = useKeepMountedWhileOpen(isModalOpen)
     const hover = useAnnotationPopoverHover(deactivateDate)
 
     useEffect(() => {
@@ -237,10 +249,14 @@ export const AnnotationsOverlay = React.memo(function AnnotationsOverlay({
                         hover={hover}
                     />
                 )}
-                <AnnotationModal
-                    contentRef={(el) => (modalContentRef.current = el)}
-                    overlayRef={(el) => (modalOverlayRef.current = el)}
-                />
+                {shouldRenderAnnotationModal ? (
+                    <Suspense fallback={null}>
+                        <AnnotationModal
+                            contentRef={(el) => (modalContentRef.current = el)}
+                            overlayRef={(el) => (modalOverlayRef.current = el)}
+                        />
+                    </Suspense>
+                ) : null}
             </div>
         </BindLogic>
     )
@@ -499,7 +515,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 {isSystemAnnotation && (
                     <LemonBadge status="primary" size="small" className="flex-shrink-0" content="PostHog" />
                 )}
-                <TextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
+                <LazyTextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
             </div>
             {!isSystemAnnotation && (
                 <div className="leading-6 mt-2 flex flex-row items-center justify-between">

@@ -21,6 +21,7 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
@@ -172,6 +173,11 @@ export interface ExecInnerCallProperties {
     output_tokens?: number
     input?: Record<string, unknown>
     /**
+     * The handler's result before formatting. Analytics redacts it by key, which the
+     * formatted text below would hide credential fields from.
+     */
+    result?: unknown
+    /**
      * The payload returned to the client, exactly as serialized. Consumed by the
      * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
      * result (e.g. which metrics a catalog lookup returned), not just its size.
@@ -292,12 +298,16 @@ export interface ExecToolOptions {
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
- * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
- * line ranges, empty queries — so type them to keep them out of the `internal`
+ * Lookup misses and plain errors out of the learn catalog are agent mistakes, such as unknown
+ * names, bad line ranges and empty queries. Typing them keeps them out of the `internal`
  * bucket ops alerts on. Anything that already carries its own class (an API
  * failure, a source outage, an exec error) propagates untouched.
  */
 function classifyLearnError(error: unknown): unknown {
+    if (error instanceof LearnLookupError) {
+        return new ExecCommandError(error.message, 'unknown_learn_topic')
+    }
+
     if (!(error instanceof Error) || error.constructor !== Error) {
         return error
     }
@@ -688,6 +698,9 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     ),
     'loops-run-create': () =>
         'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    // Self-managed tables (reading a bucket in place) can no longer be created.
+    'warehouse-tables-create': () =>
+        'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
     'loops-runs-retrieve': () =>
         'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }
@@ -1124,13 +1137,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing or wrong-type
- *  parameter rejection, so a tool with a long field description cannot inflate
+/** Bound on the parameter description echoed back with a missing, wrong-type or
+ *  too-long parameter rejection, so a tool with a long field description cannot inflate
  *  the analytics error message. */
 const MAX_PARAM_HINT = 200
 
 /**
- * The parameter's own description, appended to a missing or wrong-type rejection.
+ * The parameter's own description, appended to a missing, wrong-type or too-long rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1266,13 +1279,28 @@ function bestUnionBranch(branches: readonly (readonly z.core.$ZodIssue[])[]): re
         selector === undefined
             ? populated.filter((branch) => pinnedValues(branch).size === 0)
             : populated.filter((branch) => !rejectedValueKeys(branch).has(selector))
+    const candidates = named.length > 0 ? named : populated
+    // A nullable field — `union([array(metric), null])` on the experiment metrics
+    // — rejects a malformed array with the null branch's single complaint,
+    // "expected null, received array", as the shortest list, burying the real
+    // error inside the array branch. A branch with an issue below the root
+    // engaged with the value's contents, so when one exists, a branch that only
+    // rejects the whole value's type restates what the caller already knows.
+    const engaged = candidates.filter((branch) => !rejectsWholeValueType(branch))
     let best: readonly z.core.$ZodIssue[] | undefined
-    for (const branch of named.length > 0 ? named : populated) {
+    for (const branch of engaged.length > 0 ? engaged : candidates) {
         if (best === undefined || branch.length < best.length) {
             best = branch
         }
     }
     return best
+}
+
+/** True when the branch's every issue says the whole value is the wrong type,
+ *  with nothing about its contents — the shape of a `null` branch rejecting an
+ *  array, or a scalar branch rejecting an object. */
+function rejectsWholeValueType(branch: readonly z.core.$ZodIssue[]): boolean {
+    return branch.every((issue) => issue.code === 'invalid_type' && issue.path.length === 0)
 }
 
 /** The accepted values, when every branch of a union rejects the same enum
@@ -1414,7 +1442,7 @@ export function formatInputValidationError(
         // is only present under `reportInput: true`; without it, or for
         // non-string origins, fall through to zod's limit-naming default.
         if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
-            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})${parameterHint(issue.path, schema)}`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
@@ -1718,6 +1746,17 @@ function missingScopeRecovery(context: Context | undefined, oauthClientId: strin
     }
 }
 
+export function missingToolScopeError(
+    tool: ScopeGatedTool,
+    context: Context | undefined,
+    oauthClientId: string | undefined
+): ExecCommandError {
+    return new ExecCommandError(
+        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
+        'missing_scope'
+    )
+}
+
 function findTool(
     tools: Tool<ZodObjectAny>[],
     scopeGatedTools: ScopeGatedTool[],
@@ -1739,10 +1778,7 @@ function findTool(
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
-            throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
-                'missing_scope'
-            )
+            throw missingToolScopeError(scopeGatedTool, context, oauthClientId)
         }
         if (isNotGranted(name)) {
             throw new ExecCommandError(
@@ -2262,6 +2298,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            result,
                             output: outputText,
                             ...resultShape,
                         })
@@ -2313,6 +2350,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            result,
                             output: payload,
                             ...resultShape,
                         })
@@ -2339,6 +2377,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        result,
                         output: outputText,
                         ...resultShape,
                     })

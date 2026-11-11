@@ -113,8 +113,14 @@ function InboxListView(): JSX.Element {
         <div className="flex flex-col min-h-0 flex-1 min-w-0">
             {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
             {!onboarding && !pending && (
-                <div className="border-b border-primary pl-5 pr-6 shrink-0">
+                <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar />
+                    {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
+                    {activeTab === 'reports' && (
+                        <div className="ml-auto shrink-0 @2xl/inbox:hidden">
+                            <InboxTriageButton compact />
+                        </div>
+                    )}
                 </div>
             )}
             <div className="flex-1 overflow-auto min-h-0">
@@ -261,11 +267,13 @@ export function InboxScene(): JSX.Element {
     const headerActions = !tabUnlocked ? undefined : activeTab === 'scouts' ? (
         <ScoutsRosterActions />
     ) : activeTab === 'reports' ? (
-        <InboxTriageButton />
+        <div className="hidden @2xl/inbox:contents">
+            <InboxTriageButton />
+        </div>
     ) : undefined
 
     return (
-        <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
+        <SceneContent className="@container/inbox gap-y-0 border-b-0 flex-1 min-h-0">
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Self-driving inbox"

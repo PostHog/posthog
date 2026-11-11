@@ -291,6 +291,11 @@ def test_no_false_positive(files: list[str]) -> None:
             id="egress-agents-md-matches-lowercased",
         ),
         pytest.param(
+            [".agents/code-style.md"],
+            "agent_steering",
+            id="root-agents-topic-guide",
+        ),
+        pytest.param(
             ["posthog/ingress/verify/hmac.py"],
             "devex_guardrails",
             id="ingress-shared-verify",

@@ -12,6 +12,7 @@ import structlog
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CH_TRANSIENT_ERRORS, InternalCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.hogql_queries.utils.caller_context import map_in_caller_context
 from posthog.models import Team, User
 from posthog.ph_client import get_client
 from posthog.utils import get_instance_region
@@ -29,7 +30,8 @@ from products.workflows.backend.services.audience_suggestions.audience import (
     EMAIL_PROPERTY,
     activity_counts,
     cohort_filters,
-    reachable_count,
+    reachable_counts,
+    sample_denominator,
 )
 from products.workflows.backend.services.audience_suggestions.planner import AudienceIdea, suggest_audiences
 from products.workflows.backend.services.data_suggestions.builder import clean_copy
@@ -44,7 +46,7 @@ CACHE_TTL_SECONDS = 24 * 60 * 60
 FAILURE_CACHE_TTL_SECONDS = 5 * 60
 _GENERATION_LOCK_SECONDS = 15 * 60
 MAX_SUGGESTIONS = 3
-_MAX_IDEAS = 6
+_MAX_IDEAS = 4
 # A smaller audience is better written to one by one than broadcast to.
 MIN_REACHABLE = 10
 # Broadcast audiences often come from feature use, which busy telemetry events push down a volume ranking, so the
@@ -69,7 +71,7 @@ def get_audience_suggestions(*, team: Team) -> AudienceSuggestionsResult:
     if unavailable is not None:
         return unavailable
     if cache.get(_lock_key(team.id)) is not None:
-        return _GENERATING
+        return _in_progress(team.id)
     return _read_cache(team.id) or _UNAVAILABLE
 
 
@@ -88,7 +90,7 @@ def start_audience_suggestions(
         return cached
     lock_token = str(uuid.uuid4())
     if not cache.add(_lock_key(team.id), lock_token, _GENERATION_LOCK_SECONDS):
-        return _GENERATING
+        return _in_progress(team.id)
     try:
         enqueue(lock_token)
     except Exception:
@@ -110,7 +112,7 @@ def run_audience_suggestions(*, team_id: int, user_id: int, lock_token: str) -> 
         previous = _read_cache(team_id)
         try:
             with _analytics_client() as analytics_client:
-                result = _suggest(team=team, user=user, analytics_client=analytics_client)
+                result = _suggest(team=team, user=user, lock_token=lock_token, analytics_client=analytics_client)
         except _COUNT_ERRORS:
             logger.warning("workflows.audience_suggestions.query_failed", team_id=team_id, exc_info=True)
             result = _UNAVAILABLE
@@ -118,10 +120,11 @@ def run_audience_suggestions(*, team_id: int, user_id: int, lock_token: str) -> 
             # Without a cached failure, the next request would rerun the queries and the model at once.
             logger.exception("workflows.audience_suggestions.generation_failed", team_id=team_id)
             result = _UNAVAILABLE
+        complete = result.status == "ready" and all(item.reachable_count is not None for item in result.suggestions)
         # A failed refresh keeps the working cards, so a click on one still finds it.
-        if result.status != "ready" and previous is not None and previous.status == "ready":
+        if not complete and previous is not None and previous.status == "ready":
             return
-        ttl = CACHE_TTL_SECONDS if result.status == "ready" and result.suggestions else FAILURE_CACHE_TTL_SECONDS
+        ttl = CACHE_TTL_SECONDS if complete and result.suggestions else FAILURE_CACHE_TTL_SECONDS
         if cache.get(_lock_key(team_id)) != lock_token:
             return
         cache.set(_cache_key(team_id), _to_cache(result), ttl)
@@ -137,31 +140,36 @@ def get_audience_suggestion(*, team: Team, suggestion_id: str) -> AudienceSugges
     return match
 
 
-def _suggest(*, team: Team, user: User, analytics_client: Any) -> AudienceSuggestionsResult:
-    counts = {**weekly_counts(team), **_activity_counts_or_empty(team, user)}
+def _suggest(*, team: Team, user: User, lock_token: str, analytics_client: Any) -> AudienceSuggestionsResult:
+    project_counts, activity = map_in_caller_context(
+        lambda count: count(), [lambda: weekly_counts(team), lambda: _activity_counts_or_empty(team, user)]
+    )
+    counts = {**project_counts, **activity}
     events = prompt_events(counts)
     if not events:
         return AudienceSuggestionsResult(status="ready", suggestions=())
     ideas = suggest_audiences(team=team, user=user, events=events, analytics_client=analytics_client)
     if not ideas:
         return _UNAVAILABLE
-    sized: list[AudienceSuggestion] = []
-    failed = 0
-    # Each idea costs a ClickHouse count, and the prompt asks for at most this many.
-    for idea in ideas[:_MAX_IDEAS]:
-        # One audience too costly to count drops that idea only, not the cards that counted fine.
-        try:
-            suggestion = _sized(team, user, idea, counts)
-        except _COUNT_ERRORS:
-            logger.warning(
-                "workflows.audience_suggestions.count_failed", team_id=team.id, kind=idea.kind, exc_info=True
-            )
-            failed += 1
-            continue
-        if suggestion is not None:
-            sized.append(suggestion)
-    if failed and not sized:
-        return _UNAVAILABLE
+    drafts = [draft for idea in ideas if (draft := _draft(idea, counts)) is not None][:_MAX_IDEAS]
+    if not drafts:
+        return AudienceSuggestionsResult(status="ready", suggestions=())
+    # The cards are worth showing while the count runs. A click on one needs only its rule.
+    if cache.get(_lock_key(team.id)) == lock_token:
+        cache.set(
+            _in_progress_key(team.id),
+            _to_cache(AudienceSuggestionsResult(status="generating", suggestions=_pick(drafts))),
+            _GENERATION_LOCK_SECONDS,
+        )
+    try:
+        sizes = reachable_counts(team, drafts, denominator=sample_denominator(drafts, counts), user=user)
+    except _COUNT_ERRORS:
+        # The cards are still good ideas without a number, and the broadcast counts its audience when it is made.
+        logger.warning("workflows.audience_suggestions.count_failed", team_id=team.id, exc_info=True)
+        return AudienceSuggestionsResult(status="ready", suggestions=_pick(drafts))
+    sized = [
+        dataclasses.replace(draft, reachable_count=size) for draft, size in zip(drafts, sizes) if size >= MIN_REACHABLE
+    ]
     return AudienceSuggestionsResult(status="ready", suggestions=_pick(sized))
 
 
@@ -191,7 +199,7 @@ def prompt_events(counts: dict[str, int]) -> tuple[tuple[str, int], ...]:
     return tuple([*lifecycle, *(item for item in eligible if item[0] not in chosen)][:_PROMPT_EVENTS_LIMIT])
 
 
-def _sized(team: Team, user: User, idea: AudienceIdea, counts: dict[str, int]) -> AudienceSuggestion | None:
+def _draft(idea: AudienceIdea, counts: dict[str, int]) -> AudienceSuggestion | None:
     # The schema limits the names to the listed events. The checks below catch a plan that does not fit its kind.
     if idea.event not in counts:
         return None
@@ -206,15 +214,12 @@ def _sized(team: Team, user: User, idea: AudienceIdea, counts: dict[str, int]) -
         "window_days": idea.window_days,
         "min_count": min_count,
     }
-    size = reachable_count(team, user=user, **shape)
-    if size < MIN_REACHABLE:
-        return None
     return AudienceSuggestion(
         id=str(uuid.uuid4()),
         name=clean_copy(idea.name)[:50],
         description=clean_copy(idea.description)[:300],
         reason=clean_copy(idea.reason)[:200],
-        reachable_count=size,
+        reachable_count=None,
         cohort_filters=cohort_filters(**shape),
         **shape,
     )
@@ -261,8 +266,17 @@ def _lock_key(team_id: int) -> str:
     return f"workflows:audience_suggestions:lock:{team_id}"
 
 
+def _in_progress_key(team_id: int) -> str:
+    return f"workflows:audience_suggestions:in_progress:{team_id}"
+
+
+def _in_progress(team_id: int) -> AudienceSuggestionsResult:
+    return _parse(cache.get(_in_progress_key(team_id))) or _GENERATING
+
+
 def _release(team_id: int, lock_token: str) -> None:
     if cache.get(_lock_key(team_id)) == lock_token:
+        cache.delete(_in_progress_key(team_id))
         cache.delete(_lock_key(team_id))
 
 
@@ -271,7 +285,10 @@ def _to_cache(result: AudienceSuggestionsResult) -> dict[str, Any]:
 
 
 def _read_cache(team_id: int) -> AudienceSuggestionsResult | None:
-    raw = cache.get(_cache_key(team_id))
+    return _parse(cache.get(_cache_key(team_id)))
+
+
+def _parse(raw: Any) -> AudienceSuggestionsResult | None:
     if not isinstance(raw, dict):
         return None
     try:

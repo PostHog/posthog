@@ -40,6 +40,7 @@ class DebugbearSource(SimpleSource[DebugbearSourceConfig]):
         return {
             "401 Client Error": "Your DebugBear API key is invalid or expired. Please generate a new key and reconnect.",
             "403 Client Error": "Your DebugBear API key doesn't have permission for this request. Use an Admin API key (Account settings > API Keys) and reconnect.",
+            "410 Client Error: Gone for url: https://www.debugbear.com": "DebugBear no longer serves this API endpoint, or the account behind this API key was removed. Please contact support to move this source to a supported DebugBear API version.",
             # Raised by `_iter_rum_metrics_for_project` after DebugBear 400s on a project with no
             # RUM data; the raw message already names the project and the likely fix.
             "DebugBear rejected the RUM metrics request": None,

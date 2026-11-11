@@ -1,14 +1,20 @@
 import re
+import datetime as dt
 from collections.abc import Callable, Iterator
-from typing import Any
-from urllib.parse import quote
+from typing import Any, Optional
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.sources.rubygems.settings import RUBYGEMS_ENDPOINTS, RubyGemsEndpointConfig
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session, retry_with_deadline
+from products.warehouse_sources.sources.sdk import (
+    SourceResponse,
+    make_tracked_session,
+    parse_datetime_value,
+    retry_with_deadline,
+)
 
 RUBYGEMS_BASE_URL = "https://rubygems.org/api/v1"
 
@@ -25,6 +31,13 @@ _HEADERS = {"Accept": "application/json"}
 # never forces one oversized in-memory Arrow conversion downstream. The pipeline batches on top of
 # this, so the exact value only caps the per-yield list size.
 MAX_ROWS_PER_BATCH = 5000
+
+# `timeframe_versions` rejects a `from`..`to` range longer than 7 days and pages 30 versions at a time.
+TIMEFRAME_MAX_WINDOW = dt.timedelta(days=7)
+TIMEFRAME_PAGE_SIZE = 30
+# A first sync, or one with no recorded history start, reads this far back. The feed covers every gem
+# on RubyGems.org, so the whole history would take hundreds of thousands of requests.
+TIMEFRAME_HISTORY_LOOKBACK = dt.timedelta(days=7)
 
 
 class RubyGemsRetryableError(Exception):
@@ -70,13 +83,43 @@ def _versions_url(gem: str) -> str:
     return f"{RUBYGEMS_BASE_URL}/versions/{quote(gem, safe='')}.json"
 
 
+def _owners_url(gem: str) -> str:
+    return f"{RUBYGEMS_BASE_URL}/gems/{quote(gem, safe='')}/owners.json"
+
+
+def _reverse_dependencies_url(gem: str) -> str:
+    return f"{RUBYGEMS_BASE_URL}/gems/{quote(gem, safe='')}/reverse_dependencies.json"
+
+
+def _timeframe_versions_url(start: dt.datetime, end: dt.datetime, page: int) -> str:
+    params = {"from": _iso8601(start), "to": _iso8601(end), "page": page}
+    return f"{RUBYGEMS_BASE_URL}/timeframe_versions.json?{urlencode(params)}"
+
+
+def _iso8601(value: dt.datetime) -> str:
+    return value.astimezone(dt.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_PER_GEM_URLS: dict[str, Callable[[str], str]] = {
+    "gems": _gem_url,
+    "versions": _versions_url,
+    "owners": _owners_url,
+    "reverse_dependencies": _reverse_dependencies_url,
+}
+
+_FEED_URLS: dict[str, str] = {
+    "latest_gems": f"{RUBYGEMS_BASE_URL}/activity/latest.json",
+    "just_updated_gems": f"{RUBYGEMS_BASE_URL}/activity/just_updated.json",
+}
+
+
 @retry_with_deadline(
     retry=retry_if_exception_type((RubyGemsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(MAX_RETRY_ATTEMPTS),
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch(session: requests.Session, url: str, gem: str, logger: FilteringBoundLogger) -> Any | None:
+def _fetch(session: requests.Session, url: str, label: str, logger: FilteringBoundLogger) -> Any | None:
     """Fetch a single JSON document.
 
     Returns ``None`` for a 404 (gem not found) so a typo'd or unpublished gem is skipped rather
@@ -86,7 +129,7 @@ def _fetch(session: requests.Session, url: str, gem: str, logger: FilteringBound
     response = session.get(url, headers=_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS)
 
     if response.status_code == 404:
-        logger.warning(f"RubyGems: gem {gem!r} not found, skipping")
+        logger.warning(f"RubyGems: {label!r} not found, skipping")
         return None
 
     if response.status_code == 429 or response.status_code >= 500:
@@ -126,9 +169,34 @@ def _version_rows(gem: str, versions: list[Any]) -> Iterator[dict[str, Any]]:
         yield row
 
 
+def _owner_rows(gem: str, owners: list[Any]) -> Iterator[dict[str, Any]]:
+    """One row per owner of a gem, stamped with the parent `gem_name`."""
+    for owner in owners:
+        if not isinstance(owner, dict) or owner.get("id") is None:
+            continue
+        row = dict(owner)
+        row["gem_name"] = gem
+        yield row
+
+
+def _reverse_dependency_rows(gem: str, dependents: list[Any]) -> Iterator[dict[str, Any]]:
+    """One row per dependent gem. The API returns bare gem names, so wrap each in a row."""
+    for dependent in dependents:
+        if not isinstance(dependent, str) or not dependent:
+            continue
+        yield {"gem_name": gem, "dependent_name": dependent}
+
+
+def _keyed_rows(rows: list[Any], primary_keys: list[str]) -> list[dict[str, Any]]:
+    # A row missing a primary key component would merge with a null key, so drop it.
+    return [row for row in rows if isinstance(row, dict) and all(row.get(key) for key in primary_keys)]
+
+
 _ROW_BUILDERS: dict[str, Callable[[str, Any], Iterator[dict[str, Any]]]] = {
     "gems": _gem_rows,
     "versions": _version_rows,
+    "owners": _owner_rows,
+    "reverse_dependencies": _reverse_dependency_rows,
 }
 
 
@@ -166,16 +234,13 @@ def get_rows(
     session = make_tracked_session()
 
     for gem in gems:
+        document = _fetch(session, _PER_GEM_URLS[endpoint](gem), gem, logger)
+        if document is None:
+            continue
         if endpoint == "gems":
-            document = _fetch(session, _gem_url(gem), gem, logger)
-            if document is None:
-                continue
             source_data: Any = document
         else:
-            versions = _fetch(session, _versions_url(gem), gem, logger)
-            if versions is None:
-                continue
-            source_data = versions if isinstance(versions, list) else []
+            source_data = document if isinstance(document, list) else []
 
         build_rows = _ROW_BUILDERS[endpoint]
         # Stream the builder into bounded chunks: a gem with a very large version history is never
@@ -191,13 +256,64 @@ def get_rows(
             yield chunk
 
 
+def get_feed_rows(endpoint: str, logger: FilteringBoundLogger) -> Iterator[list[dict[str, Any]]]:
+    document = _fetch(make_tracked_session(), _FEED_URLS[endpoint], endpoint, logger)
+    rows = _keyed_rows(document if isinstance(document, list) else [], RUBYGEMS_ENDPOINTS[endpoint].primary_keys)
+    if rows:
+        yield rows
+
+
+def get_timeframe_version_rows(
+    start: dt.datetime,
+    logger: FilteringBoundLogger,
+) -> Iterator[list[dict[str, Any]]]:
+    """Walk 7-day windows from ``start`` to now, paging each window until a short page."""
+    session = make_tracked_session()
+    end = dt.datetime.now(dt.UTC)
+    primary_keys = RUBYGEMS_ENDPOINTS["timeframe_versions"].primary_keys
+
+    window_start = start
+    while window_start < end:
+        window_end = min(window_start + TIMEFRAME_MAX_WINDOW, end)
+        page = 1
+        while True:
+            versions = _fetch(
+                session, _timeframe_versions_url(window_start, window_end, page), "timeframe_versions", logger
+            )
+            if not isinstance(versions, list) or not versions:
+                break
+            rows = _keyed_rows(versions, primary_keys)
+            if rows:
+                yield rows
+            if len(versions) < TIMEFRAME_PAGE_SIZE:
+                break
+            page += 1
+        window_start = window_end
+
+
+def timeframe_start(
+    should_use_incremental_field: bool,
+    last_value: Any,
+    history_start: Optional[dt.datetime],
+) -> dt.datetime:
+    if should_use_incremental_field and last_value is not None:
+        watermark = parse_datetime_value(last_value)
+        if watermark is not None:
+            return watermark
+    if history_start is not None:
+        return history_start
+    return dt.datetime.now(dt.UTC) - TIMEFRAME_HISTORY_LOOKBACK
+
+
 def rubygems_source(
     endpoint: str,
     gems_raw: str | None,
     logger: FilteringBoundLogger,
+    should_use_incremental_field: bool = False,
+    db_incremental_field_last_value: Any = None,
+    history_start: Optional[dt.datetime] = None,
 ) -> SourceResponse:
     config: RubyGemsEndpointConfig = RUBYGEMS_ENDPOINTS[endpoint]
-    gems = parse_gems(gems_raw)
 
     partition_kwargs: dict[str, Any] = {}
     if config.partition_key is not None:
@@ -209,9 +325,27 @@ def rubygems_source(
             "partition_keys": [config.partition_key],
         }
 
+    if endpoint == "timeframe_versions":
+        start = timeframe_start(should_use_incremental_field, db_incremental_field_last_value, history_start)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: get_timeframe_version_rows(start=start, logger=logger),
+            primary_keys=config.primary_keys,
+            # The API returns each window oldest first in practice, but does not document an order.
+            sort_mode=None,
+            **partition_kwargs,
+        )
+
+    gems = parse_gems(gems_raw) if config.per_gem else []
+
+    def items() -> Iterator[list[dict[str, Any]]]:
+        if config.per_gem:
+            return get_rows(endpoint=endpoint, gems=gems, logger=logger)
+        return get_feed_rows(endpoint=endpoint, logger=logger)
+
     return SourceResponse(
         name=endpoint,
-        items=lambda: get_rows(endpoint=endpoint, gems=gems, logger=logger),
+        items=items,
         primary_keys=config.primary_keys,
         # No server-side ordering to rely on; rows are grouped per gem as fetched.
         sort_mode="asc",

@@ -54,7 +54,7 @@ class FlyIoSource(SimpleSource[FlyIoSourceConfig]):
             caption="""Sync your Fly.io apps, machines, and volumes into the PostHog Data warehouse.
 
 Create an organization-scoped token with `fly tokens create org` (or from the **Tokens** section of your Fly.io dashboard) and paste it below. A read-only org token is sufficient.""",
-            iconPath="/static/services/fly_io.png",
+            iconPath="/static/services/fly_io.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/fly-io",
             keywords=["fly", "machines", "infrastructure", "cloud"],
             fields=cast(

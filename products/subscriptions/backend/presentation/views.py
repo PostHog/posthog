@@ -209,12 +209,14 @@ class DeliveryConfigSerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text=(
-            "Slack insight and dashboard subscriptions only: when true, upload all insight images "
-            "together in the main Slack message instead of posting the first image in the main "
-            "message and the rest as threaded replies. Defaults to false. The request is rejected "
-            "when target_type is not 'slack', when the subscription sets prompt instead of insight "
-            "or dashboard, or when the Slack integration does not hold the files:write permission. "
-            "Omit it unless the user asks for one combined message."
+            "Slack subscriptions only. Insight and dashboard subscriptions: when true, upload all insight "
+            "images together in the main Slack message instead of posting the first image in the main "
+            "message and the rest as threaded replies. Prompt subscriptions: when true, post the chart "
+            "images in the main message with the summary; when false, post them in the first thread "
+            "reply. Defaults to false. The request is rejected when target_type is not 'slack', or when "
+            "an insight or dashboard subscription's Slack integration does not hold the files:write "
+            "permission. "
+            "Omit it unless the user asks for all images or charts in the main message."
         ),
     )
     include_images = serializers.BooleanField(
@@ -1397,6 +1399,8 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "subscription"
     serializer_class = SubscriptionDeliverySerializer
     pagination_class = SubscriptionDeliveryCursorPagination
+    # subscription is not an access-control resource, and a delivery has no access rules of its own.
+    records_have_object_access_rules = False
 
     def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()
@@ -1432,9 +1436,9 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
         )
 
-    def retrieve(self, request: Request, **kwargs: object) -> Response:
+    def read_object(self) -> contracts.SubscriptionDeliveryRecord:
         try:
-            delivery = api.get_subscription_delivery(
+            return api.get_subscription_delivery(
                 team_id=self.team_id,
                 subscription_id=self.kwargs.get("parent_lookup_subscription_id"),
                 delivery_id=self.kwargs["pk"],
@@ -1444,6 +1448,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise Http404
         except contracts.SubscriptionNotFoundError:
             raise Http404("No SubscriptionDelivery matches the given query.")
-        # A delivery has no access rules of its own, so the object checks pass it as they pass the row.
-        self.check_object_permissions(request, delivery)
-        return Response(self.get_serializer(delivery).data)
+
+    def retrieve(self, request: Request, **kwargs: object) -> Response:
+        return Response(self.get_serializer(self.get_object()).data)

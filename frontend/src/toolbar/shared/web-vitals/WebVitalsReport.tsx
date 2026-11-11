@@ -33,7 +33,7 @@ export function WebVitalsReport({
 }: WebVitalsReportProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            {!autocaptureEnabled && !inStorybookTestRunner() && !inStorybook() && (
+            {!autocaptureEnabled && !inStorybook() && (
                 <LemonBanner type="warning">
                     Web vitals are not enabled for this project so you won't see any data here. Enable it on the{' '}
                     <Link to={settingsUrl} target="_blank">

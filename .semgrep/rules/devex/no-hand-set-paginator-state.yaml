@@ -1,0 +1,42 @@
+rules:
+    - id: no-hand-set-paginator-state
+      message: |
+          Do not set a paginator's state from outside the paginator. A paginator sets `limit`,
+          `offset`, `count`, `page` and `request` in its own `paginate_queryset`. Code that sets
+          them by hand skips the bounds, ordering and links that the shared bases add.
+
+          Use a base from posthog/api/pagination.py instead:
+          - a queryset list: return `self.get_paginated_response(...)` after `self.paginate_queryset(...)`
+          - a facade list: `pagination_class = FacadeLimitOffsetPagination` and `facade_page_response(self, fetch)`
+          - a cursor facade list: subclass `FacadeCursorPagination` and return `facade_cursor_page_response(self, fetch)`
+          - a precounted SQL page: `PrecountedLimitOffsetPagination.set_count(...)`
+
+          If the shared bases cannot express the list, add the behavior to posthog/api/pagination.py.
+          See "How do lists page?" in products/architecture.md.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'common/**/*.py'
+              - 'ee/**/*.py'
+              - 'posthog/**/*.py'
+              - 'products/**/*.py'
+          exclude:
+              - 'posthog/api/pagination.py'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'
+      patterns:
+          - pattern-either:
+                - pattern: $VIEW.paginator.$ATTR = $VALUE
+                - patterns:
+                      - pattern: $PAGINATOR.$ATTR = $VALUE
+                      - metavariable-regex:
+                            metavariable: $PAGINATOR
+                            regex: ^\w*(paginator|pagination)$
+          - metavariable-regex:
+                metavariable: $ATTR
+                regex: ^(count|limit|offset|request|page|page_size|has_next|has_previous|cursor|current_cursor|ordering|base_url|display_page_controls)$
+      metadata:
+          category: maintainability
+          confidence: HIGH

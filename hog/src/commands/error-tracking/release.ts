@@ -45,7 +45,7 @@ export default defineCommand({
         if (!resolved) {
             return null
         }
-        const client = new SymbolSetClient(ctx.runtime, await ctx.credentials())
+        const client = new SymbolSetClient(ctx.runtime, await ctx.session())
         if (options.dryRun) {
             const existing = await findRelease(client, resolved.name, resolved.version)
             const { id, hash_id, version, project } = existing ?? {

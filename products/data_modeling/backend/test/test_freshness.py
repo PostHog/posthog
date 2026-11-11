@@ -15,11 +15,13 @@ from products.data_modeling.backend.logic.freshness import (
     clamp_to_source_floor,
     compute_effective_cadences,
     compute_target_bounds,
+    descendants_broken_by_pin,
     find_invalid_targets,
     intersect_target_bounds,
     max_data_age,
     normalize_seed_target,
     validate_declared_target,
+    validate_pin,
 )
 
 M5 = timedelta(minutes=5)
@@ -71,10 +73,30 @@ class TestComputeEffectiveCadences(TestCase):
                 {"a": H1},
                 {"a": H1, "b": None},
             ),
+            # a pinned node keeps its own target, and the node above it sees that target, not c's 15min
+            (
+                "pinned_middle_holds_and_cuts_demand",
+                {"a", "b", "c"},
+                [("src", "a"), ("a", "b"), ("b", "c")],
+                {"b": H1, "c": M15},
+                {"a": H1, "b": H1, "c": M15},
+                {"b"},
+            ),
+            # a 15min view over a fresh parent and a parent pinned hourly: only the pinned one stays hourly
+            (
+                "pinned_parent_of_a_fast_join",
+                {"contacts", "signups"},
+                [("s3", "signups"), ("crm", "contacts"), ("contacts", "signups")],
+                {"contacts": H1, "signups": M15},
+                {"contacts": H1, "signups": M15},
+                {"contacts"},
+            ),
         ]
     )
-    def test_effective_cadence(self, _name, nodes, edges, targets, expected):
-        self.assertEqual(compute_effective_cadences(nodes=nodes, edges=edges, declared_targets=targets), expected)
+    def test_effective_cadence(self, _name, nodes, edges, targets, expected, pinned=frozenset()):
+        self.assertEqual(
+            compute_effective_cadences(nodes=nodes, edges=edges, declared_targets=targets, pinned=pinned), expected
+        )
 
     def test_deep_chain_does_not_overflow(self):
         # prod DAGs can chain far past Python's recursion limit; propagation must stay iterative
@@ -114,12 +136,43 @@ class TestValidateFrequencyTarget(TestCase):
                 {"src": H6},
                 False,
             ),
+            # a pinned node may run slower than its consumers
+            ("pinned_above_descendant_ceiling_ok", "a", DAY, [("a", "ep")], {"ep": M15}, {}, True, {"a"}),
+            # but never faster than its sources
+            ("pinned_below_imported_floor", "a", M15, [("src", "a")], {}, {"src": H6}, False, {"a"}),
+            # one fresh parent keeps a 15min join legal under a parent pinned hourly
+            (
+                "fresh_parent_beside_a_pinned_one_ok",
+                "signups",
+                M15,
+                [("s3", "signups"), ("crm", "contacts"), ("contacts", "signups")],
+                {"contacts": H1},
+                {"s3": STREAMING, "crm": STREAMING},
+                True,
+                {"contacts"},
+            ),
+            # every parent pinned hourly: nothing feeds the join more often than that
+            (
+                "every_parent_pinned_slower",
+                "signups",
+                M15,
+                [("crm", "contacts"), ("crm", "accounts"), ("contacts", "signups"), ("accounts", "signups")],
+                {"contacts": H1, "accounts": H6},
+                {"crm": STREAMING},
+                False,
+                {"contacts", "accounts"},
+            ),
         ]
     )
-    def test_validate(self, _name, node_id, target, edges, targets, source_intervals, ok):
+    def test_validate(self, _name, node_id, target, edges, targets, source_intervals, ok, pinned=frozenset()):
         if ok:
             validate_declared_target(
-                node_id=node_id, target=target, edges=edges, declared_targets=targets, source_intervals=source_intervals
+                node_id=node_id,
+                target=target,
+                edges=edges,
+                declared_targets=targets,
+                source_intervals=source_intervals,
+                pinned=pinned,
             )
         else:
             with self.assertRaises(UnsatisfiableFrequencyError):
@@ -129,7 +182,24 @@ class TestValidateFrequencyTarget(TestCase):
                     edges=edges,
                     declared_targets=targets,
                     source_intervals=source_intervals,
+                    pinned=pinned,
                 )
+
+    def test_refusal_under_pinned_parents_names_the_pinned_view(self):
+        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
+            validate_declared_target(
+                node_id="signups",
+                target=M15,
+                edges=[("crm", "contacts"), ("contacts", "signups")],
+                declared_targets={"contacts": H1},
+                source_intervals={"crm": STREAMING},
+                names={"contacts": "org_universe"},
+                pinned={"contacts"},
+            )
+        self.assertEqual(
+            str(raised.exception),
+            "Can't refresh every 15 minutes: org_universe is pinned to refresh every 1 hour. Pick 1 hour instead.",
+        )
 
     @parameterized.expand(
         [
@@ -314,6 +384,74 @@ class TestIntersectTargetBounds(TestCase):
         self.assertTrue(all(option.allowed for option in options.values()))
 
 
+class TestPinBreaksDescendants(TestCase):
+    @parameterized.expand(
+        [
+            ("chain_child_reads_only_the_pinned_view", [("src", "up"), ("up", "maps")], {"maps": H6}, ["maps"]),
+            (
+                "fan_in_child_keeps_a_fresh_input",
+                [("src", "up"), ("up", "maps"), ("src", "maps")],
+                {"maps": H6},
+                [],
+            ),
+            # maps is already finer than the slow source it reads through up, so the pin is not to blame
+            (
+                "already_invalid_child_does_not_block",
+                [("slow", "up"), ("up", "maps")],
+                {"maps": M15},
+                [],
+            ),
+            # middle already breaks its consumer ceiling (fast wants 15m) but still meets its own 1h
+            # target at runtime; the pin's floor is what would take that away
+            (
+                "existing_ceiling_violation_does_not_hide_a_new_floor_violation",
+                [("src", "up"), ("up", "middle"), ("middle", "fast"), ("src", "fast")],
+                {"middle": H1, "fast": M15},
+                ["middle"],
+            ),
+        ]
+    )
+    def test_descendants_broken_by_pin(self, _name, edges, child_targets, expected):
+        broken = descendants_broken_by_pin(
+            node_id="up",
+            target=DAY,
+            edges=edges,
+            declared_targets={"up": H1, **child_targets},
+            source_intervals={"src": STREAMING, "slow": H6},
+            pinned=set(),
+        )
+        self.assertEqual([invalid.node_id for invalid in broken], expected)
+
+    @parameterized.expand(
+        [
+            (
+                "named",
+                {"maps": "maps"},
+                "Can't pin this view to 1 day: downstream view maps refreshes every 6 hours and has no "
+                "fresher input than this view. Slow down maps first, or pin a faster cadence.",
+            ),
+            (
+                "withheld",
+                {},
+                "Can't pin this view to 1 day: a downstream view refreshes every 6 hours and has no "
+                "fresher input than this view. Slow down that view first, or pin a faster cadence.",
+            ),
+        ]
+    )
+    def test_refusal_names_the_downstream_view_it_would_strand(self, _name, names, message):
+        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
+            validate_pin(
+                node_id="up",
+                target=DAY,
+                edges=[("src", "up"), ("up", "maps")],
+                declared_targets={"up": DAY, "maps": H6},
+                source_intervals={"src": STREAMING},
+                pinned=set(),
+                names=names,
+            )
+        self.assertEqual(str(raised.exception), message)
+
+
 class TestFindInvalidTargets(TestCase):
     @parameterized.expand(
         [
@@ -352,11 +490,32 @@ class TestFindInvalidTargets(TestCase):
                 {"src": STREAMING},
                 [],
             ),
+            # pinned slower than its consumer is deliberate, and its ancestor answers to the pin, not the consumer
+            (
+                "pinned_slower_than_consumer_is_valid",
+                [("src", "up"), ("up", "a"), ("a", "ep"), ("src", "ep")],
+                {"up": H1, "a": H1, "ep": M15},
+                {"src": STREAMING},
+                [],
+                {"a"},
+            ),
+            # every parent pinned slower than the child: the child cannot be served at its target
+            (
+                "every_parent_pinned_slower_flags_the_child",
+                [("src", "p1"), ("src", "p2"), ("p1", "c"), ("p2", "c")],
+                {"p1": H1, "p2": H6, "c": M15},
+                {"src": STREAMING},
+                [InvalidTarget(node_id="c", declared=M15, source_floor=H1, consumer_ceiling=None)],
+                {"p1", "p2"},
+            ),
         ]
     )
-    def test_find_invalid_targets(self, _name, edges, targets, source_intervals, expected):
+    def test_find_invalid_targets(self, _name, edges, targets, source_intervals, expected, pinned=frozenset()):
         self.assertEqual(
-            find_invalid_targets(edges=edges, declared_targets=targets, source_intervals=source_intervals), expected
+            find_invalid_targets(
+                edges=edges, declared_targets=targets, source_intervals=source_intervals, pinned=pinned
+            ),
+            expected,
         )
 
 
@@ -391,6 +550,15 @@ class TestClampToSourceFloor(TestCase):
             self.assertEqual(changes[0].demanded, effective["a"])
             self.assertEqual(changes[0].source_floor, source_intervals["src"])
             self.assertEqual(changes[0].clamped_to, expected_clamped_to)
+
+    def test_a_child_of_only_pinned_parents_runs_no_faster_than_the_fastest_pin(self):
+        clamped, _ = clamp_to_source_floor(
+            {"p1": H1, "p2": H6, "c": M15},
+            edges=[("src", "p1"), ("src", "p2"), ("p1", "c"), ("p2", "c")],
+            source_intervals={"src": STREAMING},
+            pinned={"p1", "p2"},
+        )
+        self.assertEqual(clamped, {"p1": H1, "p2": H6, "c": H1})
 
 
 class TestNormalizeSeedTarget(TestCase):

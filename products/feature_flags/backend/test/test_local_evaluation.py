@@ -16,6 +16,7 @@ from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
+from posthog.storage import object_storage
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
@@ -412,6 +413,24 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
+    def test_team_delete_clears_definitions_cache_in_redis_and_s3(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        update_flag_definitions_cache(self.team)
+        cache_key = flag_definitions_hypercache.get_cache_key(self.team)
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is not None
+        assert object_storage.read(cache_key, missing_ok=True) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self.team.delete()
+
+        assert flag_definitions_hypercache.cache_client.get(cache_key) is None
+        assert object_storage.read(cache_key, missing_ok=True) is None
+
     @parameterized.expand(["create", "soft_delete", "delete"])
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())

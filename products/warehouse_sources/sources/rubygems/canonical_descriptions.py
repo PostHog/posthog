@@ -55,4 +55,56 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "spec_sha": "SHA-256 checksum of this version's gemspec.",
         },
     },
+    "owners": {
+        "description": "Every user who can push to each configured gem, one row per gem and owner.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "gem_name": "Gem the owner belongs to (injected by the connector).",
+            "id": "RubyGems.org user id of the owner.",
+            "handle": "RubyGems.org handle of the owner.",
+            "email": "Email address of the owner, present only when the user made it public.",
+            "role": "Role of the user on the gem: owner or maintainer.",
+        },
+    },
+    "reverse_dependencies": {
+        "description": "Gems whose latest version depends on a configured gem, one row per gem and dependent.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "gem_name": "Configured gem that is depended on (injected by the connector).",
+            "dependent_name": "Name of a gem whose latest version depends on `gem_name`, at runtime or in development.",
+        },
+    },
+    "latest_gems": {
+        "description": "The 50 gems most recently added to RubyGems.org for the first time, across all gems.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "name": "Gem name, as registered on RubyGems.org.",
+            "version": "Latest published version number.",
+            "version_created_at": "Timestamp the latest version was published.",
+            "downloads": "Total cumulative downloads of the gem across all versions and platforms.",
+        },
+    },
+    "just_updated_gems": {
+        "description": "The 50 most recently pushed gem versions on RubyGems.org, across all gems.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "name": "Gem name, as registered on RubyGems.org.",
+            "version": "Version number that was pushed.",
+            "platform": "Build platform of the pushed version (e.g. ruby, java, x86_64-linux).",
+            "version_created_at": "Timestamp the version was pushed.",
+        },
+    },
+    "timeframe_versions": {
+        "description": "Every gem version pushed to RubyGems.org, across all gems, one row per version and platform.",
+        "docs_url": _API_DOCS,
+        "columns": {
+            "name": "Gem the version belongs to.",
+            "number": "Version number (e.g. 1.2.3).",
+            "platform": "Build platform this version was published for (e.g. ruby, java, x86_64-linux).",
+            "created_at": "Timestamp the version was published; used as the incremental cursor and partition key.",
+            "downloads_count": "Cumulative downloads of this specific version.",
+            "prerelease": "Whether this version is a prerelease.",
+            "sha": "SHA-256 checksum of this version's `.gem` file.",
+        },
+    },
 }

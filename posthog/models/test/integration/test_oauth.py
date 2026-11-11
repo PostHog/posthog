@@ -33,12 +33,15 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
+    LinearIntegration,
     OauthClientCredentials,
     OauthIntegration,
     oauth_refresh_failure_reason,
     oauth_refresh_terminal_counter,
     refresh_backoff_active,
 )
+from posthog.models.integration.oauth import posthog_slack_scope
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 
 
 def get_db_field_value(field, model_id):
@@ -56,6 +59,26 @@ def test_slack_oauth_requests_the_recently_approved_scopes_on_every_instance():
     requested = set(POSTHOG_SLACK_SCOPE.split(","))
 
     assert {"assistant:write", "im:history", "canvases:write", "files:write", "channels:manage"} <= requested
+
+
+@pytest.mark.parametrize(
+    "debug, cloud_deployment, requests_in_review",
+    [
+        (False, "US", False),
+        (False, "EU", False),
+        (False, None, False),
+        (False, "DEV", True),
+        (True, None, True),
+    ],
+)
+def test_slack_oauth_requests_in_review_scopes_only_on_dev_and_local(
+    debug: bool, cloud_deployment: str | None, requests_in_review: bool
+) -> None:
+    with override_settings(DEBUG=debug, CLOUD_DEPLOYMENT=cloud_deployment):
+        requested = set(posthog_slack_scope().split(","))
+
+    assert {scope.value for scope in SlackIntegrationScope} <= requested
+    assert ({scope.value for scope in SlackIntegrationScopeInReview} <= requested) is requests_in_review
 
 
 class TestOauthIntegrationModel(BaseTest):
@@ -577,6 +600,37 @@ class TestOauthIntegrationModel(BaseTest):
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
+    def test_only_a_reconnect_moves_a_linear_connection_past_the_webhooks_date(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        # The token exchange pops fields from the body, so each request needs its own copy.
+        mock_post.return_value.json.side_effect = lambda: {
+            "access_token": "FAKES_ACCESS_TOKEN",
+            "refresh_token": "FAKE_REFRESH_TOKEN",
+            "expires_in": 3600,
+            "data": {"viewer": {"organization": {"id": "linear-org-1", "name": "Acme", "urlKey": "acme"}}},
+        }
+        params = {"code": "code", "state": "next=/projects/test"}
+
+        with self.settings(**self.mock_settings):
+            with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
+                connected = OauthIntegration.integration_from_oauth_response("linear", self.team.id, self.user, params)
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T12:00:00Z", tick=False):
+                OauthIntegration(connected).refresh_access_token()
+            connected.refresh_from_db()
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T13:00:00Z", tick=False):
+                reconnected = OauthIntegration.integration_from_oauth_response(
+                    "linear", self.team.id, self.user, params
+                )
+
+        assert reconnected.id == connected.id
+        assert LinearIntegration(reconnected).authorized_before_webhooks() is False
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
     def test_refresh_access_token(self, mock_post, mock_reload):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
@@ -818,6 +872,33 @@ class TestOauthIntegrationModel(BaseTest):
         assert mock_post.call_count == 2
         assert integration.errors == ""
         assert integration.sensitive_config["access_token"] == "fallback-token"
+
+    @parameterized.expand(
+        [
+            ("row_still_stores_the_held_token", False, True, "REFRESHED_ACCESS_TOKEN"),
+            ("another_worker_stored_a_newer_token", True, False, "NEWER_TOKEN"),
+        ]
+    )
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_refresh_access_token_spends_the_refresh_token_once(
+        self, _name, other_worker_refreshed, calls_provider, expected_token, mock_post, mock_reload
+    ):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"access_token": "REFRESHED_ACCESS_TOKEN", "expires_in": 1000}
+        integration = self.create_integration(kind="hubspot", sensitive_config={"access_token": "HELD_TOKEN"})
+        held = Integration.objects.get(id=integration.id)
+        if other_worker_refreshed:
+            integration.sensitive_config = {**integration.sensitive_config, "access_token": "NEWER_TOKEN"}
+            integration.save()
+
+        oauth = OauthIntegration(held)
+        with self.settings(**self.mock_settings):
+            returned = oauth.refresh_access_token()
+
+        assert mock_post.called == calls_provider
+        for record in (returned, oauth.integration, held, Integration.objects.get(id=integration.id)):
+            assert record.access_token == expected_token
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")

@@ -4,9 +4,10 @@ import { create } from 'zustand'
 
 export interface Connectivity {
     status: 'unknown' | 'connected' | 'offline'
+    type: NetworkStateType
 }
 
-export const useConnectivity = create<Connectivity>(() => ({ status: 'unknown' }))
+export const useConnectivity = create<Connectivity>(() => ({ status: 'unknown', type: NetworkStateType.UNKNOWN }))
 
 export class OfflineError extends Error {
     constructor() {
@@ -46,7 +47,9 @@ export function monitorConnectivity(setOnline: (online: boolean) => void): () =>
                 : state.isConnected === false && state.type !== NetworkStateType.UNKNOWN
                   ? 'offline'
                   : 'unknown'
-        if (status !== useConnectivity.getState().status) useConnectivity.setState({ status })
+        const type = state.type ?? NetworkStateType.UNKNOWN
+        if (status !== useConnectivity.getState().status || type !== useConnectivity.getState().type)
+            useConnectivity.setState({ status, type })
         setOnline(status !== 'offline')
     }
     const refresh = (): void => {
