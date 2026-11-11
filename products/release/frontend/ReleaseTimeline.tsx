@@ -39,8 +39,15 @@ export function ReleaseTimeline(): JSX.Element {
     const [viewHeight, setViewHeight] = useState(0)
 
     useEffect(() => {
-        setViewHeight(scrollRef.current?.clientHeight ?? 0)
-    }, [filteredRows.length])
+        const element = scrollRef.current
+        if (!element) {
+            return
+        }
+        setViewHeight(element.clientHeight)
+        const observer = new ResizeObserver(() => setViewHeight(element.clientHeight))
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [])
 
     useEffect(() => {
         if (scrollRef.current) {

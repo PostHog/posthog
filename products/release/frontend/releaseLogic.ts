@@ -259,17 +259,20 @@ export const releaseLogic = kea<releaseLogicType>([
             {
                 loadExperiments: async (_, breakpoint) => {
                     const projectId = String(values.currentProjectId)
-                    const queries = linkedFlagIds(values.releases).flatMap((id) => [
-                        { feature_flag_id: id, archived: false },
-                        { feature_flag_id: id, archived: true },
-                    ])
+                    const flagsWithExperiments = values.flags.filter((flag) => flag.experiment_set?.length)
+                    const listFor = (flagId: number, archived: boolean): Promise<ExperimentBasicApi[]> =>
+                        allPages((offset) =>
+                            experimentsList(projectId, { feature_flag_id: flagId, archived, limit: PAGE_SIZE, offset })
+                        )
                     const pages = valuesOrThrow(
                         await inBatches(
-                            queries,
-                            (query) =>
-                                allPages((offset) =>
-                                    experimentsList(projectId, { ...query, limit: PAGE_SIZE, offset })
-                                ),
+                            flagsWithExperiments,
+                            async (flag) => {
+                                const active = await listFor(flag.id, false)
+                                return active.length < flag.experiment_set.length
+                                    ? [...active, ...(await listFor(flag.id, true))]
+                                    : active
+                            },
                             breakpoint
                         )
                     )
@@ -499,7 +502,6 @@ export const releaseLogic = kea<releaseLogicType>([
                             actions.loadReleases()
                         } else if (cache.relinkAfterSaves) {
                             actions.loadFlags()
-                            actions.loadExperiments()
                             actions.loadScheduledChanges()
                         }
                         cache.refetchAfterSaves = false
@@ -528,11 +530,11 @@ export const releaseLogic = kea<releaseLogicType>([
             }
         },
         loadFlagsSuccess: () => {
+            actions.loadExperiments()
             actions.loadEarlyAccessFeatures()
         },
         loadReleasesSuccess: () => {
             actions.loadFlags()
-            actions.loadExperiments()
             actions.loadScheduledChanges()
         },
         closeSchedule: () => {

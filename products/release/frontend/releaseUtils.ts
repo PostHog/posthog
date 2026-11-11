@@ -315,6 +315,7 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     const label = scheduledChangeLabel(change)
     const href = urls.featureFlag(Number(change.record_id))
     const denied = hasDeniedApprovalRequest(change as never)
+    const live = !isSchedulePaused(change as never) && !denied
     const base = { kind: 'schedule' as const, href }
 
     if (change.is_recurring) {
@@ -327,6 +328,9 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
                 title: `Last run: ${label}`,
                 detail: flagKey,
             })
+        }
+        if (!change.executed_at && !live) {
+            return events
         }
         events.push(
             change.executed_at
@@ -350,6 +354,9 @@ function scheduleEvents(change: ScheduledChangeApi, flagKey: string | undefined)
     }
 
     if (!change.executed_at) {
+        if (!live) {
+            return []
+        }
         const pending = change.change_request?.state === 'pending'
         const retrying = !!change.failure_reason
         return [
@@ -439,11 +446,6 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
         .filter((item) => item.stage !== 'archived')
     const changes = flags
         .flatMap((flag) => index.changesByFlagId.get(String(flag.id)) ?? [])
-        .filter(
-            (change) =>
-                !!change.executed_at ||
-                (!isSchedulePaused(change as never) && !hasDeniedApprovalRequest(change as never))
-        )
         .sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))
     const firstFlagCreated = flags.map((flag) => flag.created_at).sort()[0] ?? null
 
