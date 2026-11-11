@@ -427,7 +427,6 @@ export interface broadcastWizardLogicValues {
     missingRecipientEmail: MissingRecipientEmailBannerProps | null
     movingToDraft: boolean
     name: string
-    opensEmailEditorOnDraftUrl: boolean
     push: BroadcastPushValue
     pushUnavailableReason: "Couldn't check your push setup" | "Your project doesn't have push set up yet" | null
     rateLimitedSendDuration: string
@@ -437,6 +436,7 @@ export interface broadcastWizardLogicValues {
     recurringRepeating: boolean
     recurringStartsAt: string | null
     saving: boolean
+    savingForEmailEditor: boolean
     scheduleMode: BroadcastScheduleMode
     scheduleState: ScheduleState
     scheduleSummary: string
@@ -716,9 +716,6 @@ export interface broadcastWizardLogicActions {
     setName: (name: string) => {
         name: string
     }
-    setOpensEmailEditorOnDraftUrl: (opens: boolean) => {
-        opens: boolean
-    }
     setPush: (push: BroadcastPushValue) => {
         push: BroadcastPushValue
     }
@@ -730,6 +727,9 @@ export interface broadcastWizardLogicActions {
     }
     setRecurringStartsAtFromPicker: (pickerDate: string | null) => {
         pickerDate: string | null
+    }
+    setSavingForEmailEditor: (saving: boolean) => {
+        saving: boolean
     }
     setScheduleMode: (mode: BroadcastScheduleMode) => {
         mode: BroadcastScheduleMode
@@ -916,7 +916,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         setEmail: (email: BroadcastEmailValue) => ({ email }),
         setChannel: (channel: BroadcastChannel) => ({ channel }),
         requestChannel: (channel: BroadcastChannel) => ({ channel }),
-        setOpensEmailEditorOnDraftUrl: (opens: boolean) => ({ opens }),
+        setSavingForEmailEditor: (saving: boolean) => ({ saving }),
         setPush: (push: BroadcastPushValue) => ({ push }),
         brandApplied: (content: Pick<BroadcastEmailValue, 'html' | 'design'>) => ({ content }),
         applyAiEmailDraft: (draft: MessageDraft) => ({ draft }),
@@ -1368,14 +1368,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 launchBroadcastFinished: () => false,
             },
         ],
-        opensEmailEditorOnDraftUrl: [
+        savingForEmailEditor: [
             false,
             {
-                setOpensEmailEditorOnDraftUrl: (_, { opens }) => opens,
-                saveBroadcastFinished: (state, { broadcast }) => (broadcast ? state : false),
-                setStep: () => false,
-                nextStep: () => false,
-                prevStep: () => false,
+                setSavingForEmailEditor: (_, { saving }) => saving,
             },
         ],
         hasLoadedBatchJobs: [
@@ -1902,26 +1898,37 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 actions.setStep('content')
                 return
             }
-            if (values.launching || values.opensEmailEditorOnDraftUrl || !values.currentProjectId) {
-                return
-            }
-            actions.setOpensEmailEditorOnDraftUrl(true)
-            if (!values.broadcastId || !values.broadcast) {
-                actions.ensureDraft()
+            if (values.launching || values.savingForEmailEditor || !values.currentProjectId) {
                 return
             }
             const projectId = String(values.currentProjectId)
+            cache.openEmailEditorOnDraftUrl = true
+            actions.setSavingForEmailEditor(true)
             try {
+                const savedEditGeneration = cache.emailEditGeneration
                 actions.draftAutosaved(
-                    await getSaveQueue(cache, values).run(() => saveDraftSchedule(projectId, values.broadcast!, values))
+                    await getSaveQueue(cache, values).run(() => saveDraftAndSchedule(projectId, values, actions))
                 )
+                if (cache.emailEditGeneration === savedEditGeneration) {
+                    cache.emailEditPending = false
+                }
                 actions.showSavedDraftUrl()
             } catch (error: any) {
-                actions.setOpensEmailEditorOnDraftUrl(false)
-                lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
+                cache.openEmailEditorOnDraftUrl = false
+                if (error instanceof EditedElsewhereError) {
+                    actions.applyExternalEdit(error.latest, values.broadcast)
+                    lemonToast.info(EDITED_ELSEWHERE_MESSAGE)
+                } else {
+                    lemonToast.error(
+                        `Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`
+                    )
+                }
+            } finally {
+                actions.setSavingForEmailEditor(false)
             }
         },
         setStep: ({ step }) => {
+            cache.openEmailEditorOnDraftUrl = false
             if (step === 'review') {
                 // A fresh preview mints the confirm token launch needs and shows an up-to-date count.
                 actions.loadBlastRadius()
@@ -1932,6 +1939,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         nextStep: () => {
+            cache.openEmailEditorOnDraftUrl = false
             // Listeners run after reducers, so this sees the step just navigated to.
             if (values.currentStep === 'review') {
                 actions.loadBlastRadius()
@@ -1942,6 +1950,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             actions.reportReviewVisit()
         },
         prevStep: () => {
+            cache.openEmailEditorOnDraftUrl = false
             actions.reportReviewVisit()
         },
         reportReviewVisit: async (_, breakpoint) => {
@@ -2008,7 +2017,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 })
                 actions.showSavedDraftUrl()
             } catch (error: any) {
-                actions.setOpensEmailEditorOnDraftUrl(false)
                 lemonToast.error(`Couldn't save the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
             }
         },
@@ -2028,8 +2036,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     saveEntrySource(values.broadcastId, values.entrySource)
                 }
                 const draftUrl = urls.broadcast(values.broadcastId)
-                if (values.opensEmailEditorOnDraftUrl) {
-                    actions.setOpensEmailEditorOnDraftUrl(false)
+                if (cache.openEmailEditorOnDraftUrl) {
+                    cache.openEmailEditorOnDraftUrl = false
                     router.actions.replace(draftUrl, { step: 'content' })
                     router.actions.push(draftUrl, withEmailEditorOpen({ step: 'content' }))
                 } else {
@@ -2270,14 +2278,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             try {
                 const saved = await saves.run(async () => {
                     savedEditGeneration = cache.emailEditGeneration
-                    const draft = values.broadcastId
-                        ? await saveWithoutClobbering(projectId, values.broadcastId, values)
-                        : await createDraft(projectId, values)
-                    // Store the draft before its schedule, so a failed schedule save can't make the next Continue
-                    // create a second draft. The draft URL reloads the wizard from the server, which forgets
-                    // a send time that only the page held.
-                    actions.draftAutosaved(draft)
-                    return await saveDraftSchedule(projectId, draft, values)
+                    return await saveDraftAndSchedule(projectId, values, actions)
                 })
                 actions.saveBroadcastFinished(saved)
                 // This save carried the email edits made before it started. A later one keeps its own autosave.
@@ -2787,6 +2788,23 @@ function wizardSchedule(values: broadcastWizardLogicType['values']): Partial<Hog
         // The wizard has no variables step, so keep any overrides the old schedule carried.
         ...(values.broadcast?.schedules?.[0]?.variables ? { variables: values.broadcast.schedules[0].variables } : {}),
     }
+}
+
+/**
+ * Saves the wizard to its draft, creating the draft when there is none, then stores its send time.
+ * Store the draft before its schedule, so a failed schedule save can't make the next save create a second
+ * draft. The draft URL reloads the wizard from the server, which forgets a send time that only the page held.
+ */
+async function saveDraftAndSchedule(
+    projectId: string,
+    values: broadcastWizardLogicType['values'],
+    actions: broadcastWizardLogicType['actions']
+): Promise<HogFlowApi> {
+    const draft = values.broadcastId
+        ? await saveWithoutClobbering(projectId, values.broadcastId, values)
+        : await createDraft(projectId, values)
+    actions.draftAutosaved(draft)
+    return await saveDraftSchedule(projectId, draft, values)
 }
 
 /**

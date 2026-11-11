@@ -576,10 +576,17 @@ describe('broadcastWizardLogic', () => {
         editor.unmount()
     })
 
-    it('stores the send time before modify content opens the editor on a draft whose schedule save failed', async () => {
+    it('saves the draft and its send time before modify content retries after a failed schedule save', async () => {
         const createdSchedules: Record<string, any>[] = []
+        const savedDrafts: string[] = []
         let failSchedules = 1
         useMocks({
+            patch: {
+                '/api/projects/:team_id/hog_flows/:id/': async ({ request }) => {
+                    savedDrafts.push(JSON.stringify(await request.json()))
+                    return [200, savedBroadcast({ name: '', subject: '', updatedAt: '2026-09-24T10:00:05Z' })]
+                },
+            },
             post: {
                 '/api/projects/:team_id/hog_flows/:id/schedules/': async ({ request }) => {
                     if (failSchedules > 0) {
@@ -601,11 +608,14 @@ describe('broadcastWizardLogic', () => {
         releaseCreate()
         await expectLogic(logic).toFinishAllListeners()
         expect(router.values.location.pathname).toContain('/broadcasts/new')
+        expect(logic.values.savingForEmailEditor).toBe(false)
+        logic.actions.setAudienceProperties(LOCAL_AUDIENCE)
 
         logic.actions.editEmailContent()
         logic.actions.editEmailContent()
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(savedDrafts).toEqual([expect.stringContaining('"plan"')])
         expect(createdSchedules).toEqual([expect.objectContaining({ starts_at: sendAt })])
         expect(router.values.location.pathname).toContain('/broadcasts/broadcast-1')
         expect(router.values.searchParams).toEqual({ step: 'content', editor: 'email' })

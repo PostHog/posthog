@@ -34,7 +34,7 @@ export function BroadcastEmailPreview({
     /** Adds the content step's hover overlay, so the email opens for editing from the preview. */
     onModifyContent?: () => void
 }): JSX.Element {
-    const { email, opensEmailEditorOnDraftUrl } = useValues(broadcastWizardLogic)
+    const { email, savingForEmailEditor } = useValues(broadcastWizardLogic)
     const {
         persons,
         personsLoading,
@@ -124,7 +124,7 @@ export function BroadcastEmailPreview({
                         <div
                             className={clsx(
                                 'pointer-events-none absolute inset-0 flex items-center justify-center p-2 transition-opacity focus-within:opacity-100 group-hover/email-preview:opacity-100',
-                                opensEmailEditorOnDraftUrl ? 'opacity-100' : 'opacity-0'
+                                savingForEmailEditor ? 'opacity-100' : 'opacity-0'
                             )}
                         >
                             <div className="absolute inset-0 rounded bg-surface-primary opacity-50" />
@@ -133,7 +133,7 @@ export function BroadcastEmailPreview({
                                 size="small"
                                 className="pointer-events-auto"
                                 onClick={onModifyContent}
-                                loading={opensEmailEditorOnDraftUrl}
+                                loading={savingForEmailEditor}
                                 data-attr="broadcast-review-modify-content"
                             >
                                 Click to modify content
