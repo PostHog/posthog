@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
-from collections.abc import Callable, Iterable
-from datetime import timedelta
+from collections.abc import Callable
 
 from django.db import connection, transaction
 
@@ -12,13 +10,10 @@ from posthog.models.scoping import team_scope
 
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags, release_flag_creator_id
 
-from ..facade.contracts import ImportCandidateDTO, ImportFlag, ImportReason
-from ..models import Release, ReleaseImportState
+from ..facade.contracts import ImportFlag
+from ..models import Release, ReleaseAutoLinkedFlag, ReleaseImportState
 
-RELATED_WINDOW = timedelta(days=14)
-MIN_PREFIX_LENGTH = 3
 MAX_NAME_LENGTH = 255
-MAX_GROUP_SIZE = 100
 
 _SEPARATORS = re.compile(r"[-_.:/\s]+")
 
@@ -46,25 +41,37 @@ def _lock_team(team_id: int) -> None:
 
 
 def _insert_unlinked(team_id: int, releases: list[tuple[str, list[int]]]) -> list[Release]:
-    linked = linked_flag_ids(team_id, sorted({flag_id for _, flag_ids in releases for flag_id in flag_ids}))
+    requested = sorted({flag_id for _, flag_ids in releases for flag_id in flag_ids})
+    linked = linked_flag_ids(team_id, requested) | set(
+        ReleaseAutoLinkedFlag.objects.filter(team_id=team_id, feature_flag_id__in=requested).values_list(
+            "feature_flag_id", flat=True
+        )
+    )
     rows: list[Release] = []
     for name, flag_ids in releases:
         unlinked = [flag_id for flag_id in dict.fromkeys(flag_ids) if flag_id not in linked]
         if unlinked:
             rows.append(Release(team_id=team_id, name=name, feature_flag_ids=unlinked, auto_named=True))
             linked.update(unlinked)
-    return Release.objects.bulk_create(rows)
+    created = Release.objects.bulk_create(rows)
+    ReleaseAutoLinkedFlag.objects.bulk_create(
+        [
+            ReleaseAutoLinkedFlag(team_id=team_id, feature_flag_id=flag_id)
+            for row in rows
+            for flag_id in row.feature_flag_ids
+        ],
+        ignore_conflicts=True,
+    )
+    return created
 
 
-def run_initial_import(team_id: int, candidates: Callable[[], list[ImportCandidateDTO]]) -> int:
+def run_initial_import(team_id: int, load_flags: Callable[[], list[ImportFlag]]) -> int:
     team_id = root_team_id(team_id)
     with team_scope(team_id), transaction.atomic():
         _lock_team(team_id)
         if ReleaseImportState.objects.filter(team_id=team_id).exists():
             return 0
-        created = _insert_unlinked(
-            team_id, [(candidate.name, list(candidate.feature_flag_ids)) for candidate in candidates()]
-        )
+        created = _insert_unlinked(team_id, [(humanize(flag.key), [flag.id]) for flag in load_flags()])
         ReleaseImportState.objects.create(team_id=team_id)
     return len(created)
 
@@ -91,69 +98,20 @@ def humanize(key: str) -> str:
     return (text[:1].upper() + text[1:])[:MAX_NAME_LENGTH]
 
 
-def _common_prefix(keys: list[list[str]]) -> list[str]:
-    prefix = keys[0]
-    for tokens in keys[1:]:
-        length = 0
-        while length < min(len(prefix), len(tokens)) and prefix[length] == tokens[length]:
-            length += 1
-        prefix = prefix[:length]
-    return prefix
+def project_imported(team_id: int) -> bool:
+    return ReleaseImportState.objects.unscoped().filter(team_id=team_id).exists()
 
 
-def _candidate(reason: ImportReason, name: str, flags: list[ImportFlag]) -> ImportCandidateDTO:
-    return ImportCandidateDTO(
-        key=f"{reason.value}:{flags[0].id}",
-        name=name[:MAX_NAME_LENGTH],
-        reason=reason,
-        feature_flag_ids=[flag.id for flag in flags],
-        flag_keys=[flag.key for flag in flags],
-        created_at=max(flag.created_at for flag in flags),
+def _already_handled(team_id: int, flag_id: int) -> bool:
+    return (
+        ReleaseAutoLinkedFlag.objects.unscoped().filter(team_id=team_id, feature_flag_id=flag_id).exists()
+        or Release.objects.unscoped().filter(team_id=team_id, feature_flag_ids__contains=[flag_id]).exists()
     )
-
-
-def _related_groups(flags: list[ImportFlag]) -> list[list[ImportFlag]]:
-    buckets: dict[tuple[str, int | None], list[ImportFlag]] = defaultdict(list)
-    singles: list[list[ImportFlag]] = []
-    for flag in flags:
-        tokens = _tokens(flag.key)
-        if len(tokens) > 1 and len(tokens[0]) >= MIN_PREFIX_LENGTH:
-            buckets[(tokens[0], flag.created_by_id)].append(flag)
-        else:
-            singles.append([flag])
-    groups: list[list[ImportFlag]] = []
-    for bucket in buckets.values():
-        current: list[ImportFlag] = []
-        for flag in sorted(bucket, key=lambda item: (item.created_at, item.id)):
-            if current and flag.created_at - current[0].created_at > RELATED_WINDOW:
-                groups.append(current)
-                current = []
-            current.append(flag)
-        groups.append(current)
-    return groups + singles
-
-
-def group_import_candidates(flags: Iterable[ImportFlag], linked: set[int]) -> list[ImportCandidateDTO]:
-    candidates: list[ImportCandidateDTO] = []
-    loose = [flag for flag in flags if flag.id not in linked]
-    groups = [
-        group[start : start + MAX_GROUP_SIZE]
-        for group in _related_groups(loose)
-        for start in range(0, len(group), MAX_GROUP_SIZE)
-    ]
-    for group in groups:
-        if len(group) == 1:
-            candidates.append(_candidate(ImportReason.FLAG, humanize(group[0].key), group))
-        else:
-            prefix = _common_prefix([_tokens(flag.key) for flag in group])
-            candidates.append(_candidate(ImportReason.RELATED_FLAGS, humanize(" ".join(prefix)), group))
-    candidates.sort(key=lambda item: item.created_at, reverse=True)
-    return candidates
 
 
 def create_release_for_new_flag(flag_id: int, team_id: int, releases_enabled: Callable[..., bool]) -> None:
     team = Team.objects.filter(id=team_id).first()
-    if team is None:
+    if team is None or _already_handled(root_team_id(team_id), flag_id):
         return
     creator_id = release_flag_creator_id(flag_id=flag_id, team_id=team_id)
     creator = User.objects.filter(id=creator_id).first() if creator_id else None

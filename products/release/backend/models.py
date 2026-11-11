@@ -39,3 +39,14 @@ class ReleaseImportState(TeamScopedRootMixin):
         "posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False, primary_key=True
     )
     imported_at = models.DateTimeField(auto_now_add=True)
+
+
+class ReleaseAutoLinkedFlag(TeamScopedRootMixin):
+    id = models.UUIDField(primary_key=True, default=uuid7, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    feature_flag_id = models.IntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "feature_flag_id"], name="release_auto_linked_flag_unique")
+        ]

@@ -51,8 +51,8 @@ export function ReleaseAutoImport(): JSX.Element {
                 </EmptyMedia>
                 <EmptyTitle>Setting up your releases</EmptyTitle>
                 <EmptyDescription>
-                    Creating a release for each experiment, early access feature and group of related flags you have
-                    today. This takes a few seconds.
+                    Creating a release for each active feature flag. Experiments and early access features show inside
+                    the release of their flag. This takes a few seconds.
                 </EmptyDescription>
             </EmptyHeader>
         </Empty>

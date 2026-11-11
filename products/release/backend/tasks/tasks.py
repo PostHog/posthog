@@ -13,6 +13,8 @@ def create_release_for_new_flag(flag_id: int, team_id: int) -> None:
 
 
 def queue_release_for_new_flag(flag_id: int, team_id: int) -> None:
+    if not api.project_uses_releases(team_id):
+        return
     transaction.on_commit(
         lambda: create_release_for_new_flag.apply_async((flag_id, team_id), countdown=OWNERSHIP_DELAY)
     )

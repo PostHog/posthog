@@ -1,8 +1,6 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from django.utils import timezone
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -318,7 +316,7 @@ class TestReleaseAPI(APIBaseTest):
 
         created = api.import_all(
             environment.id,
-            lambda: [ImportFlag(id=flag_id, key="quiet-theme", created_at=timezone.now(), created_by_id=None)],
+            lambda: [ImportFlag(id=flag_id, key="quiet-theme")],
         )
         release_id = self.client.get(self._url()).json()["results"][0]["id"]
         self.client.delete(self._url(f"{release_id}/"))
@@ -349,16 +347,34 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    def test_a_deleted_automatic_release_stays_deleted_when_its_flag_returns(self) -> None:
+        self.client.post(self._url("import_all/"))
+        with patch(FLAG_PATCH, return_value=True), self.captureOnCommitCallbacks(execute=True):
+            flag_id = self._flag("quiet-theme")
+        release_id = self.client.get(self._url()).json()["results"][0]["id"]
+        self.client.delete(self._url(f"{release_id}/"))
+
+        for active in (False, True):
+            with patch(FLAG_PATCH, return_value=True), self.captureOnCommitCallbacks(execute=True):
+                self.client.patch(
+                    f"/api/projects/{self.team.id}/feature_flags/{flag_id}/", {"active": active}, format="json"
+                )
+
+        assert self.client.get(self._url()).json()["results"] == []
+
     @parameterized.expand(
         [
-            ("enabled", True, False, ["Quiet theme"]),
-            ("disabled", False, False, []),
-            ("activated_later", True, True, ["Quiet theme"]),
+            ("enabled", True, False, True, ["Quiet theme"]),
+            ("disabled", False, False, True, []),
+            ("activated_later", True, True, True, ["Quiet theme"]),
+            ("project_never_opened_releases", True, False, False, []),
         ]
     )
     def test_a_new_flag_gets_its_own_release(
-        self, _name: str, enabled: bool, starts_inactive: bool, expected: list[str]
+        self, _name: str, enabled: bool, starts_inactive: bool, imported: bool, expected: list[str]
     ) -> None:
+        if imported:
+            self.client.post(self._url("import_all/"))
         with patch(FLAG_PATCH, return_value=enabled), self.captureOnCommitCallbacks(execute=True):
             flag_id = self._flag("quiet-theme", active=not starts_inactive)
         if starts_inactive:

@@ -150,10 +150,11 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
 
 
 def import_all(team_id: int, load_flags: Callable[[], list[contracts.ImportFlag]]) -> int:
-    root_id = imports.root_team_id(team_id)
-    return imports.run_initial_import(
-        root_id, lambda: imports.group_import_candidates(load_flags(), imports.linked_flag_ids(root_id))
-    )
+    return imports.run_initial_import(team_id, load_flags)
+
+
+def project_uses_releases(team_id: int) -> bool:
+    return imports.project_imported(team_id)
 
 
 def create_release_for_new_flag(flag_id: int, team_id: int) -> None:

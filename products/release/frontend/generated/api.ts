@@ -142,7 +142,7 @@ export const getReleasesImportAllCreateUrl = (projectId: string) => {
 }
 
 /**
- * Set up releases for the whole project once: one per group of related active flags. Later calls create nothing.
+ * Set up releases for the whole project once: one per active flag. Later calls create nothing.
  */
 export const releasesImportAllCreate = async (
     projectId: string,

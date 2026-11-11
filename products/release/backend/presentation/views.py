@@ -199,7 +199,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)
     def import_all(self, request: Request, **kwargs) -> Response:
-        """Set up releases for the whole project once: one per group of related active flags. Later calls create nothing."""
+        """Set up releases for the whole project once: one per active flag. Later calls create nothing."""
         created_count = api.import_all(self.team_id, self._import_flags)
         return Response(
             ImportAllResponseSerializer({"created_count": created_count}).data, status=status.HTTP_201_CREATED
@@ -207,12 +207,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _import_flags(self) -> "builtins.list[api.ImportFlag]":
         return [
-            api.ImportFlag(
-                id=flag.id,
-                key=flag.key,
-                created_at=flag.created_at,
-                created_by_id=flag.created_by_id,
-            )
+            api.ImportFlag(id=flag.id, key=flag.key)
             for flag in list_release_import_flags(
                 team_id=self.team_id, project_id=self.team.project_id, access_control=None
             )

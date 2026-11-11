@@ -363,6 +363,7 @@ rules:
                               |QuickFilterContext
                               |Release
                               |ReleaseImportState
+                              |ReleaseAutoLinkedFlag
                               |ReplayHighlightFeedEntry
                               |ReplayHighlightFeedState
                               |ReplayObservation
@@ -882,6 +883,7 @@ rules:
                         |QuickFilterContext
                         |Release
                         |ReleaseImportState
+                        |ReleaseAutoLinkedFlag
                         |ReplayHighlightFeedEntry
                         |ReplayHighlightFeedState
                         |ReplayObservation

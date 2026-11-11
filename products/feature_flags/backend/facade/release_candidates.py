@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from django.db.models import Q, QuerySet
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save
 
 from posthog.scopes import APIScopeObject
 
@@ -85,24 +85,14 @@ def list_release_import_flags(
     ]
 
 
-ACTIVATED_ATTR = "_release_activated"
-
-
-def on_flag_activated(handler: Callable[[int, int], None]) -> None:
-    uid = f"on_flag_activated:{handler.__module__}.{handler.__qualname__}"
-
-    def remember(sender: Any, instance: FeatureFlag, raw: bool = False, **kwargs: Any) -> None:
-        if raw or instance.pk is None or not instance.active:
-            return
-        was_active = FeatureFlag.objects.filter(pk=instance.pk).values_list("active", flat=True).first()
-        setattr(instance, ACTIVATED_ATTR, was_active is False)
-
-    def receiver(sender: Any, instance: FeatureFlag, created: bool, raw: bool = False, **kwargs: Any) -> None:
-        if raw:
-            return
-        if (created and instance.active) or getattr(instance, ACTIVATED_ATTR, False):
-            setattr(instance, ACTIVATED_ATTR, False)
+def on_active_flag_saved(handler: Callable[[int, int], None]) -> None:
+    def receiver(sender: Any, instance: FeatureFlag, raw: bool = False, **kwargs: Any) -> None:
+        if not raw and instance.active and not instance.deleted:
             handler(instance.id, instance.team_id)
 
-    pre_save.connect(remember, sender=FeatureFlag, weak=False, dispatch_uid=f"{uid}:pre")
-    post_save.connect(receiver, sender=FeatureFlag, weak=False, dispatch_uid=uid)
+    post_save.connect(
+        receiver,
+        sender=FeatureFlag,
+        weak=False,
+        dispatch_uid=f"on_active_flag_saved:{handler.__module__}.{handler.__qualname__}",
+    )
