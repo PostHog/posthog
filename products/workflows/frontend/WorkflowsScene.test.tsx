@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { DndContext, useDndContext } from '@dnd-kit/core'
+import { DndContext, MouseSensor, useSensor, useSensors } from '@dnd-kit/core'
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
@@ -440,29 +440,32 @@ describe('WorkflowsScene', () => {
 
     describe('project folders', () => {
         let files: FileSystemEntry[]
-        let droppables: ReturnType<typeof useDndContext>['droppableContainers'] | null
+        let moveRequests: { id: string; newPath: string }[]
 
-        function DroppableProbe(): null {
-            droppables = useDndContext().droppableContainers
-            return null
+        function MouseDragContext({ children }: { children: JSX.Element }): JSX.Element {
+            const sensors = useSensors(useSensor(MouseSensor, { activationConstraint: { distance: 10 } }))
+            return <DndContext sensors={sensors}>{children}</DndContext>
         }
+        let holdMoves: boolean
+        let releaseHeldMoves: (() => void)[]
 
         const renderFolder = async (folder: string, visibleWorkflow: string, filters = ''): Promise<void> => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
             router.actions.push(urls.workflows(), { q: `in:${folder}${filters}` })
             render(
                 <Provider>
-                    <DndContext>
-                        <DroppableProbe />
+                    <MouseDragContext>
                         <WorkflowsScene />
-                    </DndContext>
+                    </MouseDragContext>
                 </Provider>
             )
             await waitFor(() => expect(shownRowNames()).toContain(visibleWorkflow))
         }
 
         beforeEach(() => {
-            droppables = null
+            moveRequests = []
+            holdMoves = false
+            releaseHeldMoves = []
             files = [
                 { id: 'billing', path: 'Billing', type: 'folder' },
                 { id: 'cards', path: 'Billing/Cards', type: 'folder' },
@@ -487,6 +490,22 @@ describe('WorkflowsScene', () => {
                     },
                 },
                 post: {
+                    '/api/projects/:team_id/file_system/:id/count/': () => [200, { count: 1 }],
+                    '/api/projects/:team_id/file_system/:id/move/': async ({ request, params }) => {
+                        const { new_path: newPath } = (await request.json()) as { new_path: string }
+                        moveRequests.push({ id: String(params.id), newPath })
+                        if (holdMoves) {
+                            await new Promise<void>((resolve) => releaseHeldMoves.push(resolve))
+                        }
+                        const moved = files.find((file) => file.id === params.id)!
+                        const oldPath = moved.path
+                        for (const file of files) {
+                            if (file.path === oldPath || file.path.startsWith(`${oldPath}/`)) {
+                                file.path = newPath + file.path.slice(oldPath.length)
+                            }
+                        }
+                        return [200, moved]
+                    },
                     '/api/projects/:team_id/file_system/': async ({ request }) => {
                         const body = (await request.json()) as { path: string; type: string }
                         const created = { id: `created-${body.path}`, ...body }
@@ -577,25 +596,54 @@ describe('WorkflowsScene', () => {
             )
         })
 
-        it('keeps sidebar folders, breadcrumbs and the up row as separate drop targets', async () => {
+        // jsdom lays nothing out, so the drag gets real boxes only for the dragged row and the one drop target.
+        const box = (left: number, top: number, width: number, height: number): DOMRect =>
+            ({ x: left, y: top, left, top, width, height, right: left + width, bottom: top + height }) as DOMRect
+        const dragOnto = async (handle: Element, target: () => Element): Promise<void> => {
+            jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
+                // The sidebar tree's drag overlay is a fixed box the size of the dragged row.
+                if (this.classList.contains('cursor-grab') || (this as HTMLElement).style?.position === 'fixed') {
+                    return box(0, 0, 100, 30)
+                }
+                // TreeNodeDroppable's own wrapper is the node dnd-kit measures for a drop target.
+                return this === target().closest('.z-2') ? box(400, 400, 100, 30) : box(0, 0, 0, 0)
+            })
+            fireEvent.mouseDown(handle, { button: 0, clientX: 10, clientY: 10 })
+            fireEvent.mouseMove(document, { clientX: 30, clientY: 10 })
+            await act(async () => {})
+            fireEvent.mouseMove(document, { clientX: 410, clientY: 410 })
+            await act(async () => {})
+            fireEvent.mouseUp(document, { clientX: 410, clientY: 410 })
+        }
+
+        it.each([
+            ['a sidebar folder', () => document.querySelector('nav [aria-label="tree item: Billing"]')!],
+            [
+                'a breadcrumb',
+                () =>
+                    [
+                        ...document.querySelectorAll(
+                            '[data-attr="workflows-folder-toolbar"] button, [data-attr="workflows-folder-toolbar"] a'
+                        ),
+                    ].find((element) => element.textContent === 'Billing')!,
+            ],
+            [
+                'the up row',
+                () =>
+                    [...document.querySelectorAll('[data-attr="workflows-folder-row"]')].find(
+                        (element) => element.textContent === '..'
+                    )!,
+            ],
+        ])('moves a workflow dragged by its name onto %s', async (_, target) => {
             await renderFolder('Billing/Cards', 'Renewal reminder')
-            const targets = [...(droppables?.values() ?? [])].map((droppable) => ({
-                folder: droppable.data.current?.treeId,
-                inSidebar: !!droppable.node.current?.closest('[role="tree"]'),
-                inBreadcrumbs: !!droppable.node.current?.closest('[data-attr="workflows-folder-toolbar"]'),
-            }))
-            const countOf = (folder: string, inSidebar: boolean, inBreadcrumbs: boolean): number =>
-                targets.filter(
-                    (target) =>
-                        target.folder === folder &&
-                        target.inSidebar === inSidebar &&
-                        target.inBreadcrumbs === inBreadcrumbs
-                ).length
-            expect(countOf('project://', true, false)).toBe(1)
-            expect(countOf('project://Billing', true, false)).toBe(1)
-            expect(countOf('project://', false, true)).toBe(1)
-            expect(countOf('project://Billing', false, true)).toBe(1)
-            expect(countOf('project://Billing', false, false)).toBe(1)
+            const name = [...document.querySelectorAll('[data-attr="workflows-list-v2-name"]')].find(
+                (element) => element.textContent === 'Renewal reminder'
+            )!
+            await dragOnto(name, target)
+            jest.restoreAllMocks()
+            await waitFor(() => expect(moveRequests).toEqual([{ id: 'renewal', newPath: 'Billing/Renewal reminder' }]))
+            act(() => router.actions.push(urls.workflows(), { q: 'in:Billing' }))
+            await waitFor(() => expect(shownRowNames()).toContain('Renewal reminder'))
         })
 
         it('lists a subfolder in the open folder after naming it inline', async () => {
