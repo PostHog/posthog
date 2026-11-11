@@ -181,6 +181,7 @@ export function buildSizeBoundedPayloads(
 export class MetricRulesEmission {
     private readonly aggregator: MetricRulesWindowAggregator
     private idleTimer: NodeJS.Timeout | null = null
+    private idleFlush: Promise<void> | null = null
 
     constructor(
         private readonly emitter: Pick<LogsMetricsEmitter, 'emit'> | undefined,
@@ -213,6 +214,8 @@ export class MetricRulesEmission {
 
     public async flushAll(): Promise<void> {
         this.clearIdleTimer()
+        // The timer may already hold the expired window; shutdown must not close the HTTP agents under its sends.
+        await this.idleFlush
         await this.sendFlushes(this.aggregator.takeAll())
     }
 
@@ -225,7 +228,9 @@ export class MetricRulesEmission {
         this.idleTimer = setTimeout(
             () => {
                 this.idleTimer = null
-                void this.flushExpired()
+                this.idleFlush = this.flushExpired().finally(() => {
+                    this.idleFlush = null
+                })
             },
             Math.max(0, closesAtMs - nowMs)
         )

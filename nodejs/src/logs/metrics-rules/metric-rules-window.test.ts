@@ -206,6 +206,42 @@ describe('MetricRulesEmission', () => {
         }
     })
 
+    it('waits for an idle flush still sending when shutdown starts', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.setSystemTime(WINDOW_START_MS)
+            let release!: () => void
+            const gate = new Promise<void>((resolve) => (release = resolve))
+            const sentTeams: number[] = []
+            const emitter = {
+                emit: async (_token: string, teamId: number) => {
+                    await gate
+                    sentTeams.push(teamId)
+                    return true
+                },
+            }
+            const emission = new MetricRulesEmission(emitter, () => true, 60_000)
+            await emission.emitBatch(
+                new Map([
+                    [TEAM, batch([rule()], [record()], WINDOW_START_MS)],
+                    [OTHER_TEAM, batch([rule()], [record()], WINDOW_START_MS)],
+                ])
+            )
+            await jest.advanceTimersByTimeAsync(60_000)
+
+            let stopped = false
+            const stopping = emission.flushAll().then(() => (stopped = true))
+            await Promise.resolve()
+            expect(stopped).toBe(false)
+
+            release()
+            await stopping
+            expect(sentTeams).toEqual([TEAM, OTHER_TEAM])
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
     it('splits a window too large for one request and sends every label set once', () => {
         const routes = Array.from({ length: 40 }, (_, i) => `/route-${i}`)
         const records = routes.map((route) => record({ attributes: { route: JSON.stringify(route) } }))
