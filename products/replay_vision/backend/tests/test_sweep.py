@@ -70,7 +70,10 @@ from products.replay_vision.backend.temporal.constants import (
     SWEEP_READ_BUDGET_BYTES_24H,
 )
 from products.replay_vision.backend.temporal.snapshots import BackfillScannerSnapshot
-from products.replay_vision.backend.temporal.sweep_cadence import SWEEP_PAUSE_RECHECK, SWEEP_PAUSE_RECHECK_SOON
+from products.replay_vision.backend.temporal.sweep_cadence import (
+    SWEEP_PAUSE_RECHECK,
+    SWEEP_PAUSE_RECHECK_EXPERIMENT_PAUSED,
+)
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
@@ -244,7 +247,7 @@ class TestFindScannerCandidatesActivity:
             assert result.swept_through is not None and result.deep_swept_through is not None
             assert abs(result.swept_through - settled_now) < dt.timedelta(minutes=1)
             assert result.deep_swept_through == result.swept_through
-            recheck = SWEEP_PAUSE_RECHECK_SOON if state == "paused" else SWEEP_PAUSE_RECHECK
+            recheck = SWEEP_PAUSE_RECHECK_EXPERIMENT_PAUSED if state == "paused" else SWEEP_PAUSE_RECHECK
             assert scanner.sweep_pause_reason == SweepPauseReason.EXPERIMENT_NOT_RUNNING
             assert scanner.sweep_paused_until is not None
             assert abs(scanner.sweep_paused_until - (timezone.now() + recheck)) < dt.timedelta(minutes=1)

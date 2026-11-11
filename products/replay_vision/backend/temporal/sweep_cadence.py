@@ -29,8 +29,10 @@ WARM_WINDOW = dt.timedelta(hours=6)
 # the unblocking change does not save the scanner, such as an org buying credits or an experiment
 # resuming, because a save already resumes the sweep at once.
 SWEEP_PAUSE_RECHECK = dt.timedelta(hours=6)
-# For blocks that can lift at any moment and save no scanner: a paused experiment resuming, or an org raising its limit.
+# For blocks that can lift at any moment and save no scanner, such as an org raising its limit.
 SWEEP_PAUSE_RECHECK_SOON = dt.timedelta(hours=1)
+# A resumed experiment's sweep starts from the paused tick's watermark, so this bounds how much of the pause it reads.
+SWEEP_PAUSE_RECHECK_EXPERIMENT_PAUSED = dt.timedelta(minutes=15)
 
 
 @frozen
