@@ -299,25 +299,25 @@ class TestOIDCAuthentication(APILicensedTest):
             with self.assertRaises(AuthFailed):
                 self.backend.user_data("example-access-token")
 
-    @parameterized.expand([("missing", None), ("false", False), ("string", "true")])
-    def test_oidc_requires_verified_email_from_userinfo(self, _name, email_verified):
+    @parameterized.expand([("missing", None), ("non_string", 123)])
+    def test_oidc_requires_email_from_userinfo(self, _name: str, email: object) -> None:
+        self.backend.id_token = cast(Any, {"sub": "example-user"})
+        userinfo: dict[str, Any] = {"sub": "example-user", "email_verified": True}
+        if email is not None:
+            userinfo["email"] = email
+        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
+            with self.assertRaises(AuthFailed):
+                self.backend.user_data("example-access-token")
+
+    @parameterized.expand([("missing", None), ("false", False), ("string", "true"), ("true", True)])
+    def test_oidc_accepts_email_regardless_of_verified_claim(self, _name: str, email_verified: object) -> None:
         self.backend.id_token = cast(Any, {"sub": "example-user"})
         userinfo: dict[str, Any] = {"sub": "example-user", "email": "member@example.com"}
         if email_verified is not None:
             userinfo["email_verified"] = email_verified
         with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
-            with self.assertRaises(AuthFailed):
-                self.backend.user_data("example-access-token")
-
-    def test_oidc_accepts_verified_email_from_userinfo(self):
-        self.backend.id_token = cast(Any, {"sub": "example-user"})
-        userinfo = {
-            "sub": "example-user",
-            "email": "member@example.com",
-            "email_verified": True,
-        }
-        with patch("posthog.api.oidc.OpenIdConnectAuth.user_data", return_value=userinfo):
             response = self.backend.user_data("example-access-token")
+        self.assertEqual(response, userinfo)
         self.assertEqual(self.backend.get_user_id({}, response), f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(self.backend.extra_data(None, "uid", response, {}), {})
 
