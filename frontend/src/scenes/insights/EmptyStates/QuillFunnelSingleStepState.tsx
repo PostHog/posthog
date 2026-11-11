@@ -16,8 +16,17 @@ export function QuillFunnelSingleStepState({
         <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
             <EmptyHeader>
                 <QuillInsightEmptyStateIcon icon={<IconFunnels />} />
-                <EmptyTitle>Add a second step</EmptyTitle>
-                <EmptyDescription>A funnel needs at least two steps before it can calculate.</EmptyDescription>
+                <EmptyTitle>Add another step!</EmptyTitle>
+                <EmptyDescription>
+                    <span className="block">
+                        You're almost there! Funnels require at least two steps before calculating.
+                    </span>
+                    {actionable && (
+                        <span className="block">
+                            Once you have two steps defined, additional changes will recalculate automatically.
+                        </span>
+                    )}
+                </EmptyDescription>
             </EmptyHeader>
             <EmptyContent className="flex-row flex-wrap justify-center">
                 {actionable && (
@@ -36,7 +45,7 @@ export function QuillFunnelSingleStepState({
                         />
                     }
                 >
-                    Learn more about funnels
+                    Learn more about funnels in PostHog docs
                 </Button>
             </EmptyContent>
         </Empty>
