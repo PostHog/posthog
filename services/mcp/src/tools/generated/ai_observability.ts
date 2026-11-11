@@ -1490,6 +1490,15 @@ const llmaEvaluationTestHog = (): ToolBase<
     handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaEvaluationTestHogSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
+        if (params.conditions !== undefined) {
+            body['conditions'] = params.conditions
+        }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.output_type !== undefined) {
             body['output_type'] = params.output_type
         }
@@ -1505,14 +1514,8 @@ const llmaEvaluationTestHog = (): ToolBase<
         if (params.allows_na !== undefined) {
             body['allows_na'] = params.allows_na
         }
-        if (params.conditions !== undefined) {
-            body['conditions'] = params.conditions
-        }
-        if (params.target !== undefined) {
-            body['target'] = params.target
-        }
-        if (params.target_config !== undefined) {
-            body['target_config'] = params.target_config
+        if (params.sample_ids !== undefined) {
+            body['sample_ids'] = params.sample_ids
         }
         const result = await context.api.request<Schemas.TestHogResponse>({
             method: 'POST',

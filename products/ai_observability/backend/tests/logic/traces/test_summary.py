@@ -1,8 +1,9 @@
 from datetime import UTC, datetime, timedelta
+from typing import get_args
 
 from parameterized import parameterized
 
-from products.ai_observability.backend.facade.contracts import TraceSummaryJob
+from products.ai_observability.backend.facade.contracts import TraceSummaryFailureReason, TraceSummaryJob
 from products.ai_observability.backend.logic.traces.summary import (
     ATTEMPT_DEADLINE,
     JOB_DEADLINE,
@@ -91,3 +92,10 @@ def test_a_lost_job_expires_before_it_can_be_requested_again() -> None:
     assert JOB_DEADLINE >= MAX_ATTEMPTS * ATTEMPT_DEADLINE
     assert WORKFLOW_DEADLINE > JOB_DEADLINE
     assert ttl_for(PENDING) > WORKFLOW_DEADLINE
+
+
+@parameterized.expand([(reason,) for reason in get_args(TraceSummaryFailureReason)])
+def test_a_failed_summary_is_retryable_unless_a_new_request_would_fail_the_same_way(
+    reason: TraceSummaryFailureReason,
+) -> None:
+    assert FailedSummary(reason=reason, failed_at=T0).retryable is (reason not in {"too_large", "trace_not_found"})

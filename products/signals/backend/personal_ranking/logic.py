@@ -87,7 +87,7 @@ _PART_HASH_CHARS = 16
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
 # What started a build, on the build event and the trace, so cost can be split by it.
-BuildTrigger = Literal["on_demand", "tick"]
+BuildTrigger = Literal["on_demand", "tick", "first_summary"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
@@ -499,6 +499,7 @@ def _capture(
                 distinct_id=user.distinct_id or PIPELINE_DISTINCT_ID,
                 event=BUILT_EVENT,
                 properties={
+                    **({"$update_person_last_seen_at": False} if trigger != "on_demand" else {}),
                     "team_id": team.id,
                     "user_id": user.id,
                     "ranking_id": build.ranking_id,
