@@ -219,6 +219,24 @@ describe('ReportExpectedImpact', () => {
         expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
     })
 
+    it('starts Monitoring from the follow-up checks section', async () => {
+        const stateRequests: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/:id/state/': async ({ request }) => {
+                    stateRequests.push(await request.json())
+                    return [200, {}]
+                },
+            },
+        })
+        logic.actions.loadReportChecksSuccess([check])
+        render(<ReportChecksSection report={{ ...report, monitoring_started_at: null }} />)
+
+        await userEvent.setup().click(screen.getByText('Start monitoring now'))
+
+        await waitFor(() => expect(stateRequests).toEqual([{ state: 'monitoring' }]))
+    })
+
     it('caps visible measurements after skipping malformed check configs', () => {
         renderMeasurements([
             { ...check, id: 'malformed', config: { instructions: 'Legacy malformed metric check' } },

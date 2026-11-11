@@ -37,6 +37,7 @@ function TabsWithMenu({ activeSectionKey }: { activeSectionKey: string }): JSX.E
                 copyToDestinations={[{ dashboard: { id: 42, name: 'Example dashboard' } as DashboardBasicType }]}
                 onCopyGroupToDashboard={() => {}}
                 onChangeGroupDisplay={() => {}}
+                onAddGroup={() => {}}
             >
                 <div className="h-20 rounded border bg-surface-primary" />
             </DashboardTileGroupTabs>
