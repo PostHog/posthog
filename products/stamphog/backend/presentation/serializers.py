@@ -84,7 +84,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
         help_text=(
             "The caller's access level on the stamphog resource, resolved for the team that owns this "
             "row. 'editor' can turn reviews on. 'manager' is required to turn them off or to change "
-            "review_mode, trigger_label, routing_mode or routing_fork_labels."
+            "review_mode, trigger_label, routing_mode, routing_fork_labels or review_on_clean_external_review."
         ),
     )
 
@@ -151,6 +151,7 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
             "trigger_label",
             "routing_mode",
             "routing_fork_labels",
+            "review_on_clean_external_review",
             "user_access_level",
             "created_at",
             "updated_at",
@@ -185,6 +186,17 @@ class StamphogRepoConfigSerializer(DataclassSerializer):
                 "required": False,
                 "help_text": (
                     "Pull request label that triggers a review when review_mode is 'label'. Defaults to 'stamphog'."
+                ),
+            },
+            "review_on_clean_external_review": {
+                "read_only": True,
+                "help_text": (
+                    "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a "
+                    "silent stamphog review of that head, whatever review_mode says. A silent review posts only an "
+                    "approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode "
+                    "'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting "
+                    "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
+                    "review before routing. Defaults to false."
                 ),
             },
         }
@@ -571,9 +583,13 @@ class ReviewRunSerializer(DataclassSerializer):
         help_text="Branch name of the PR head.",
     )
     trigger = serializers.ChoiceField(
-        choices=[(t.value, t.name) for t in ReviewTrigger],
+        choices=ReviewTrigger.choices,
         read_only=True,
-        help_text="What caused this run to exist: self-driving inbox provenance, a manual request through the API, the repo's trigger label, or the repo reviewing every PR event.",
+        help_text=(
+            "What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean "
+            "PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo "
+            "reviewing every PR event."
+        ),
     )
     status = serializers.ChoiceField(
         choices=[(s.value, s.name) for s in ReviewRunStatus],
@@ -850,9 +866,12 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
     """
 
     provider = serializers.CharField(
-        required=False, help_text="SCM provider this config talks to. Defaults to 'github'."
+        required=False,
+        help_text="SCM provider this config talks to. Defaults to 'github'. Set on create only, an update ignores it.",
     )
-    repository = serializers.CharField(help_text="Repository full name, e.g. 'PostHog/posthog'.")
+    repository = serializers.CharField(
+        help_text="Repository full name, e.g. 'PostHog/posthog'. Set on create only, an update ignores it."
+    )
     enabled = serializers.BooleanField(
         required=False, help_text="Whether stamphog actively reviews pull requests for this repo."
     )
@@ -889,6 +908,17 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             "outside author cannot notify it. Keys are owners.yaml team slugs such as 'team-devex', values are "
             "GitHub label names. A team with no entry gets a review request as usual. Sending the field replaces "
             "the whole map, and an empty object removes every label."
+        ),
+    )
+    review_on_clean_external_review = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether a clean PostHog Review run on a pull request that opened or was marked ready starts a "
+            "silent stamphog review of that head, whatever review_mode says. A silent review posts only an "
+            "approval: any other verdict is stored and nothing is written to the pull request. Only for review_mode "
+            "'label' in a repository where PostHog Review runs automatic reviews: 'all' refuses it, and setting "
+            "review_mode to 'all' turns it off. With routing_mode 'fallback', a head waits for that silent "
+            "review before routing. Defaults to false."
         ),
     )
 
@@ -930,10 +960,29 @@ class StamphogRepoConfigWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Trigger label cannot be blank.")
         return value
 
+    def _validate_clean_review_switch(self, attrs: dict[str, Any]) -> None:
+        # In 'all' mode every pull request gets a visible review already, so the switch would only
+        # make fallback routing wait for a silent review that never comes.
+        review_mode = attrs.get("review_mode", self.current.review_mode if self.current else ReviewMode.LABEL)
+        if review_mode != ReviewMode.ALL:
+            return
+        if attrs.get("review_on_clean_external_review"):
+            raise serializers.ValidationError(
+                {
+                    "review_on_clean_external_review": (
+                        "This setting works only when review_mode is 'label', because 'all' reviews every pull "
+                        "request already."
+                    )
+                }
+            )
+        if "review_mode" in attrs:
+            attrs["review_on_clean_external_review"] = False
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        attrs = super().validate(attrs)
+        self._validate_clean_review_switch(attrs)
         # The digest reports what stamphog approved, so it has nothing to report without the review
         # path running.
-        attrs = super().validate(attrs)
         enabled = attrs.get("enabled", self.current.enabled if self.current else True)
         if enabled:
             return attrs
@@ -1039,8 +1088,10 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
         read_only=True,
         help_text=(
             "What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), "
-            "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved and the owner "
-            "is not pinned) or 'already_requested' (an earlier run asked this pinned owner)."
+            "'refused' (GitHub refused the request or the label), 'cut', 'not_requested' (stamphog approved, and routing "
+            "would have asked this owner without the approval; on an older run whose llm_skipped is 'stamphog_approved' "
+            "it means only that the owner owns changed code) or 'already_requested' (an earlier run asked this pinned "
+            "owner)."
         ),
     )
     reason = serializers.ChoiceField(
@@ -1050,7 +1101,7 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
             "Why: 'sensitive' or 'new_path' (pinned, never cut), 'largest_owner' (a pull request keeps "
             "at least one reviewer), 'diff_not_seen' (the model did not see all of the owner's diff), "
             "'cut_skipped' (no model call, see llm_skipped on the run), 'model_kept', 'model_cut' or "
-            "'stamphog_approved'."
+            "'stamphog_approved' (older runs only)."
         ),
     )
     pins = RoutingPinSerializer(

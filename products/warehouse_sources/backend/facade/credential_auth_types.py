@@ -424,6 +424,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "email-octopus": "token",
     "emarsys": "credentials",
     "embrace": "credentials",
+    "emplifi": "credentials",
     "employment-hero": "credentials",
     "encharge": "credentials",
     "entsoe": "credentials",
