@@ -3287,10 +3287,31 @@ describe('Cyclotron V2', () => {
                     10
                 )
 
-                const stopStarted = Date.now()
-                await janitor.stop()
-                expect(Date.now() - stopStarted).toBeLessThan(1_800)
+                jest.useFakeTimers({
+                    doNotFake: [
+                        'Date',
+                        'hrtime',
+                        'nextTick',
+                        'performance',
+                        'queueMicrotask',
+                        'setImmediate',
+                        'clearImmediate',
+                        'setInterval',
+                        'clearInterval',
+                    ],
+                })
+                let stopped = false
+                const stopping = janitor.stop().then(() => {
+                    stopped = true
+                })
+                await jest.advanceTimersByTimeAsync(999)
+                expect(stopped).toBe(false)
+                await jest.advanceTimersByTimeAsync(1)
+                await new Promise((resolve) => setImmediate(resolve))
+                expect(stopped).toBe(true)
+                await stopping
             } finally {
+                jest.useRealTimers()
                 await release()
                 await started
                 await dropJanitorRunHold()
