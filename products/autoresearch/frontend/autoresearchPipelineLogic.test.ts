@@ -341,6 +341,46 @@ describe('autoresearchPipelineLogic', () => {
         })
     })
 
+    describe('lowest probability bucket', () => {
+        const RARE_TARGET = [940, 31, 12, 6, 4, 3, 2, 1, 1, 0]
+        const BIMODAL = [30, 1, 4, 3, 0, 1, 3, 2, 3, 81]
+        const ALL_LOWEST = [128, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+
+        async function mountWithDistribution(
+            usersPerDecile: number[]
+        ): Promise<ReturnType<typeof autoresearchPipelineLogic.build>> {
+            jest.clearAllMocks()
+            initKeaTests()
+            mockRetrieve.mockResolvedValue({ id: 'pipeline-1', name: 'Model' })
+            const logic = autoresearchPipelineLogic({ id: 'pipeline-1' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadProbabilityDistributionSuccess(
+                usersPerDecile.map((users, decile) => ({ lower: decile / 10, users }))
+            )
+            return logic
+        }
+
+        it.each([
+            ['a rare target', RARE_TARGET, true, true],
+            ['a bimodal model', BIMODAL, true, false],
+            ['a model with everyone in the lowest bucket', ALL_LOWEST, false, false],
+        ])('sets the switch and its default for %s', async (_name, users, offered, hidden) => {
+            const logic = await mountWithDistribution(users)
+            expect(logic.values.lowestBucket != null).toBe(offered)
+            expect(logic.values.lowestBucketHidden).toBe(hidden)
+            expect(logic.values.scoredPeopleCount).toEqual(users.reduce((sum, n) => sum + n, 0))
+            logic.unmount()
+        })
+
+        it('keeps the choice of the person over the default', async () => {
+            const logic = await mountWithDistribution(RARE_TARGET)
+            logic.actions.setHideLowestBucket(false)
+            expect(logic.values.lowestBucketHidden).toBe(false)
+            logic.unmount()
+        })
+    })
+
     describe('scoringCoverage', () => {
         it.each([
             ['a rolling run', [makeScoringRun({})], { scored: 45000, eligible: 250000, rescoreDays: 6 }],

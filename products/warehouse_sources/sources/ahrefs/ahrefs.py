@@ -52,7 +52,7 @@ RESPONSE_ACTIONS.extend(
 )
 
 
-def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+def validate_credentials(api_key: str, project_id: str) -> tuple[bool, str | None]:
     client = RESTClient(
         base_url=API_BASE_URL,
         auth=BearerTokenAuth(token=api_key),
@@ -70,6 +70,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
                 hooks=create_response_hooks(RESPONSE_ACTIONS),
             )
         )
+        # A key can pass the probe above and still get 403 on project data. Without this check,
+        # the source is created and every project table fails on its first sync.
+        list(_lookup(api_key, "site-audit/projects", {"project_id": project_id}, "healthscores", client))
     except ValueError as error:
         message = CREDENTIAL_ERRORS.get(str(error))
         if message is None:
@@ -100,8 +103,10 @@ class RankRangePaginator(BasePaginator):
         request.params = {**(request.params or {}), "from": self.start, "to": end}
 
 
-def _lookup(api_key: str, path: str, params: dict[str, str], data_selector: str) -> Iterator[dict[str, Any]]:
-    client = RESTClient(base_url=API_BASE_URL, auth=BearerTokenAuth(token=api_key), request_timeout=(10, 60))
+def _lookup(
+    api_key: str, path: str, params: dict[str, str], data_selector: str, client: RESTClient | None = None
+) -> Iterator[dict[str, Any]]:
+    client = client or RESTClient(base_url=API_BASE_URL, auth=BearerTokenAuth(token=api_key), request_timeout=(10, 60))
     for page in client.paginate(
         path=path,
         params={"output": "json", **params},
