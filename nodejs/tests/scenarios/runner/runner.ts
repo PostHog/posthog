@@ -122,7 +122,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
             const evidenceDir = path.join(stateDir, runId)
             const writeLogTails = keepLogTails(stateDir)
             const edgeUrl = environment.edgeUrl()
-            const specs = roleSpecs(env, edgeUrl, secretsOf(env), profile.settings)
+            const specs = roleSpecs(env, edgeUrl, secretsOf(env), stateDir, profile.settings)
             const [
                 {
                     topics: [eventsTopic],

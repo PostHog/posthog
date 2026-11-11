@@ -33,7 +33,7 @@ import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
 import { LoadedCard, Profile, load } from '../cards'
-import { Environment } from '../environment/environment'
+import { Environment, defaultStateDir } from '../environment/environment'
 import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
@@ -362,7 +362,7 @@ describe('runner through seed, drive and judge', () => {
                     ? undefined
                     : await startDeliveringRoles(
                           cdp,
-                          roleSpecs(env, edge.url, secretsOf(env), settings),
+                          roleSpecs(env, edge.url, secretsOf(env), defaultStateDir(env), settings),
                           delivering !== 'all'
                       )
         },

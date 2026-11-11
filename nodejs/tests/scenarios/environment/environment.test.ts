@@ -30,8 +30,11 @@ import { createSupervisor } from './supervisor'
 const SELF = 100
 const REPO = '/work/posthog'
 const NODEJS = `${REPO}/nodejs`
-const MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=1']
+const STATE_DIR = '/home/dev/.cache/posthog-scenarios'
+const MARKED_ENV = ['PATH=/usr/bin', `SCENARIO_RUNNER=${STATE_DIR}`]
 const PLAIN_ENV = ['PATH=/usr/bin']
+const OTHER_CHECKOUT = '/work/posthog-other/nodejs'
+const OTHER_MARKED_ENV = ['PATH=/usr/bin', 'SCENARIO_RUNNER=/home/other/.cache/posthog-scenarios']
 const modeEnv = (mode: string): string[] => [...PLAIN_ENV, `PLUGIN_SERVER_MODE=${mode}`]
 const NODEJS_DIR = path.resolve(__dirname, '..', '..', '..')
 
@@ -119,6 +122,14 @@ describe('scenario environment', () => {
                 { groups: [200], pids: [], strangers: [] },
             ],
             [
+                'a role group another runner marked for its own state dir, from another checkout, is a stranger and survives',
+                [
+                    proc(210, 210, 'sh node_modules/.bin/tsx src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+                    proc(211, 210, 'node src/index.ts', OTHER_MARKED_ENV, OTHER_CHECKOUT),
+                ],
+                { groups: [], pids: [], strangers: [210, 211] },
+            ],
+            [
                 'an unmarked combined posthog-node started by path from anywhere is a stranger',
                 [proc(300, 300, `bash ${REPO}/bin/posthog-node`, PLAIN_ENV, '/home/dev')],
                 { groups: [], pids: [], strangers: [300] },
@@ -204,13 +215,18 @@ describe('scenario environment', () => {
                 { groups: [], pids: [500], strangers: [] },
             ],
         ])('%s', (_name, entries, expected) => {
-            const plan = planCleanup([runner, ...entries], SELF, NODEJS)
+            const plan = planCleanup([runner, ...entries], SELF, NODEJS, STATE_DIR)
 
             expect({ ...plan, strangers: plan.strangers.map((entry) => entry.pid) }).toEqual(expected)
         })
 
         it('never targets the runner itself, even when it carries the marker', () => {
-            const plan = planCleanup([proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)], SELF, NODEJS)
+            const plan = planCleanup(
+                [proc(SELF, SELF, 'node scenarios run smoke', MARKED_ENV)],
+                SELF,
+                NODEJS,
+                STATE_DIR
+            )
 
             expect(plan).toEqual({ groups: [], pids: [], strangers: [] })
         })
@@ -228,7 +244,7 @@ describe('scenario environment', () => {
 
     describe('roleSpecs', () => {
         const base = { PATH: '/usr/bin', AWS_PROFILE: 'prod-admin', HTTP_SERVER_PORT: '6738' }
-        const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}))
+        const specs = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
 
         it('gives every role its own port, cdp-api the one Django calls', () => {
             const ports = Object.fromEntries(specs.map((spec) => [spec.role, spec.env.HTTP_SERVER_PORT]))
@@ -247,7 +263,7 @@ describe('scenario environment', () => {
                 NODE_ENV: 'dev',
                 PLUGIN_SERVER_MODE: role,
                 SES_ENDPOINT: 'http://127.0.0.1:4566',
-                SCENARIO_RUNNER: '1',
+                SCENARIO_RUNNER: STATE_DIR,
             })
         })
 
@@ -267,7 +283,7 @@ describe('scenario environment', () => {
                 SCENARIO_RUNNER: '0',
                 KAFKA_CONSUMER_GROUP_ID: 'scenario-events',
             }
-            const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), settings)
+            const [spec] = roleSpecs(base, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR, settings)
 
             expect(spec.env).not.toHaveProperty('KAFKA_CONSUMER_GROUP_ID')
             expect(spec.env).toMatchObject({
@@ -282,12 +298,12 @@ describe('scenario environment', () => {
                 PLUGIN_SERVER_MODE: spec.role,
                 HTTP_SERVER_PORT: String(ROLE_PORTS[spec.role]),
                 PGAPPNAME: `scenario-${spec.role}`,
-                SCENARIO_RUNNER: '1',
+                SCENARIO_RUNNER: STATE_DIR,
             })
         })
 
         it('drops an inherited consumer group id, so the events role joins the group a reset moves', () => {
-            const specs = roleSpecs({ KAFKA_CONSUMER_GROUP_ID: 'dev-group' }, 'http://edge', secretsOf({}))
+            const specs = roleSpecs({ KAFKA_CONSUMER_GROUP_ID: 'dev-group' }, 'http://edge', secretsOf({}), STATE_DIR)
 
             expect(specs.filter(({ env }) => 'KAFKA_CONSUMER_GROUP_ID' in env)).toEqual([])
         })
@@ -296,7 +312,8 @@ describe('scenario environment', () => {
             const [spec] = roleSpecs(
                 {},
                 'http://edge',
-                secretsOf({ ENCRYPTION_SALT_KEYS: 'run-key', WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt' })
+                secretsOf({ ENCRYPTION_SALT_KEYS: 'run-key', WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: 'run-jwt' }),
+                STATE_DIR
             )
 
             expect(spec.env).toMatchObject({
@@ -358,7 +375,7 @@ describe('scenario environment', () => {
             [{ group: 'scenario-events', topics: ['scenario_events_json'] }],
         ],
     ])('moves %s', (_name, env, settings, groups) => {
-        expect(consumerGroupsOf(roleSpecs(env, 'http://edge', secretsOf({}), settings))).toEqual(groups)
+        expect(consumerGroupsOf(roleSpecs(env, 'http://edge', secretsOf({}), STATE_DIR, settings))).toEqual(groups)
     })
 
     it.each<[string, string, string[]]>([
@@ -532,12 +549,13 @@ describe('scenario environment', () => {
         })
 
         it('kills the whole group of a marked role and leaves an unmarked sibling running', async () => {
-            const [roleEnv] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            const stateDir = path.join(os.tmpdir(), `scenario-leftovers-${process.pid}`)
+            const [roleEnv] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), stateDir)
             const { SCENARIO_RUNNER: _marker, ...plainEnv } = process.env
             const marked = await launch(roleEnv.env)
             const unmarked = await launch(plainEnv)
 
-            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
+            const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR, stateDir)
             expect(plan.groups).toContain(marked.pid)
             expect([...plan.groups, ...plan.pids]).not.toContain(unmarked.pid)
 
@@ -596,7 +614,7 @@ describe('scenario environment', () => {
         afterEach(() => supervisor.stop())
 
         it('stops a running role without recording its exit or starting it again', async () => {
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
             await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
             expect(tagged()).toHaveLength(1)
 
@@ -615,7 +633,7 @@ describe('scenario environment', () => {
                 graceMs: 1000,
                 restartBackoffMs: 20,
             })
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
             try {
                 await missing.start([spec])
 
@@ -636,7 +654,7 @@ describe('scenario environment', () => {
                 graceMs: 1000,
                 restartBackoffMs: 50,
             })
-            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}))
+            const [spec] = roleSpecs(process.env, 'http://127.0.0.1:4566', secretsOf({}), STATE_DIR)
             try {
                 await exiting.start([spec])
                 rmdirSync(cwd)
@@ -832,7 +850,7 @@ describe('scenario environment', () => {
                 cyclotronUrl
             )
         const eventsGroup = (): { group: string; topic: string } => {
-            const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({})))
+            const [{ group, topics }] = consumerGroupsOf(roleSpecs(process.env, 'http://edge', secretsOf({}), STATE_DIR))
             return { group, topic: topics[0] }
         }
         const offsetsOf = (): Record<string, Record<string, string>> =>
@@ -856,6 +874,27 @@ describe('scenario environment', () => {
         const holdPort = async (role: Role, answersAfter: Promise<unknown> = Promise.resolve()): Promise<void> => {
             portHolder = http.createServer((_request, response) => void answersAfter.then(() => response.end()))
             await new Promise<void>((resolve) => portHolder!.listen(ROLE_PORTS[role], '127.0.0.1', resolve))
+        }
+        const bindWithoutListening = async (role: Role): Promise<() => void> => {
+            const holder = spawn(
+                'python3',
+                [
+                    '-c',
+                    "import socket,sys,time; s=socket.socket(); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); s.bind(('127.0.0.1', int(sys.argv[1]))); s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0); print('bound', flush=True); time.sleep(60)",
+                    String(ROLE_PORTS[role]),
+                ],
+                { stdio: ['ignore', 'pipe', 'inherit'] }
+            )
+            const said = await new Promise<string>((resolve, reject) => {
+                holder.once('error', reject)
+                holder.once('exit', (code) => reject(new Error(`python3 exited with ${code} before it bound the port`)))
+                holder.stdout!.once('data', (chunk) => resolve(String(chunk).trim()))
+            })
+            if (said !== 'bound') {
+                holder.kill('SIGKILL')
+                throw new Error(`python3 said ${said} instead of bound`)
+            }
+            return () => holder.kill('SIGKILL')
         }
         const answerMembers = (members: number): void => writeFileSync(path.join(fakes, 'members'), String(members))
         const answersSoFar = (): number =>
@@ -1108,17 +1147,34 @@ describe('scenario environment', () => {
             30_000
         )
 
-        it('refuses a role port another server already answers on, naming the port and how to see its holder', async () => {
-            await holdPort('cdp-processed-events')
-            environment = environmentOf()
+        it.each<[string, (role: Role) => Promise<() => void>]>([
+            [
+                'answers on',
+                async (role) => {
+                    await holdPort(role)
+                    return () => undefined
+                },
+            ],
+            ['binds without listening on', bindWithoutListening],
+        ])(
+            'refuses a role port another process %s, naming the port and how to see its holder',
+            async (_name, hold) => {
+                const release = await hold('cdp-processed-events')
+                try {
+                    environment = environmentOf()
 
-            await expect(environment.up()).rejects.toMatchObject({
-                exitCode: 2,
-                message: expect.stringMatching(
-                    /6760 \(cdp-processed-events\)\. Find the processes that hold them with `ss -ltnp 'sport = :6760'`, stop them, then run the scenario again\.$/
-                ),
-            })
-        }, 30_000)
+                    await expect(environment.up()).rejects.toMatchObject({
+                        exitCode: 2,
+                        message: expect.stringMatching(
+                            /6760 \(cdp-processed-events\)\. Find the processes that hold them with `ss -ltnp 'sport = :6760'`, stop them, then run the scenario again\.$/
+                        ),
+                    })
+                } finally {
+                    release()
+                }
+            },
+            30_000
+        )
 
         it.each<[string, () => Promise<void>]>([
             ['', async () => {}],
