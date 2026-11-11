@@ -182,6 +182,7 @@ export class HogExecutorService {
         // Starts from the values the function config holds, so an error raised while the inputs are
         // still resolving is masked too; the resolved values are added once the build succeeds.
         let sensitiveValues: string[] = getConfiguredSensitiveValues(invocation.hogFunction)
+        let inputsBuilt = false
 
         try {
             let globals: HogFunctionInvocationGlobalsWithInputs
@@ -226,6 +227,7 @@ export class HogExecutorService {
 
                 throw e
             }
+            inputsBuilt = true
 
             sensitiveValues = [...sensitiveValues, ...this.getSensitiveValues(invocation.hogFunction, globals.inputs)]
             const invocationInput = invocation.state.vmState ?? invocation.hogFunction.bytecode
@@ -390,6 +392,9 @@ export class HogExecutorService {
                 addLog('debug', messages.join(' '))
             }
         } catch (err) {
+            if (!inputsBuilt && err?.isRetriable === true) {
+                throw err
+            }
             result.error = redactSensitiveValues(err.message, sensitiveValues)
             result.finished = true // Explicitly set to true to prevent infinite loops
         }

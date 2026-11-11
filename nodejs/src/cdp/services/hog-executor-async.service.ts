@@ -237,11 +237,68 @@ export class HogExecutorAsyncService {
      */
     async execute(
         invocation: CyclotronJobInvocationHogFunction,
-        options: HogExecutorExecuteOptions = {},
+        options: HogExecutorExecuteAsyncOptions = {},
         previousResult: HogExecutorPreviousResult = {},
         // Callers outside executeWithAsyncFunctions' loop (e.g. the source-webhooks consumer)
         // run at most one async step per execute() call already, so a no-op budget is safe there.
         consumeInlineAsyncBudget: () => void = () => {}
+    ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        try {
+            const result = await this.executeHog(invocation, options, previousResult, consumeInlineAsyncBudget)
+            result.invocation.state.attempts = 0
+            return result
+        } catch (error) {
+            if (error?.isRetriable !== true) {
+                throw error
+            }
+            return this.retryInputsLater(invocation, previousResult, options)
+        }
+    }
+
+    private retryInputsLater(
+        invocation: CyclotronJobInvocationHogFunction,
+        previousResult: HogExecutorPreviousResult,
+        options: HogExecutorExecuteAsyncOptions
+    ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction> {
+        const result = createInvocationResult<CyclotronJobInvocationHogFunction>(
+            invocation,
+            {
+                queuePriority: invocation.queuePriority,
+                queueMetadata: invocation.queueMetadata,
+                queueParameters: invocation.queueParameters,
+            },
+            { ...previousResult, finished: false }
+        )
+        const attempts = invocation.state.attempts + 1
+        result.invocation.state.attempts = attempts
+        const maxRetries = options.maxFetchRetries ?? this.config.fetchRetries
+        const addLog = createAddLogFunction(result.logs)
+
+        if (attempts >= maxRetries) {
+            const message = `Could not load the inputs of this function after ${attempts} ${attempts === 1 ? 'attempt' : 'attempts'}, because a service was temporarily unavailable. Rerun the invocation once the service recovers.`
+            addLog('error', message)
+            result.error = message
+            result.finished = true
+            return result
+        }
+
+        const backoffMs = Math.min(
+            this.config.fetchBackoffBaseMs * attempts + Math.floor(Math.random() * this.config.fetchBackoffBaseMs),
+            this.config.fetchBackoffMaxMs
+        )
+        addLog(
+            'warn',
+            `Could not load the inputs of this function, because a service was temporarily unavailable. Retrying in ${Math.ceil(backoffMs / 1000)}s (attempt ${attempts} of ${maxRetries}).`
+        )
+        result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: backoffMs })
+        return result
+    }
+
+    private executeHog(
+        invocation: CyclotronJobInvocationHogFunction,
+        options: HogExecutorExecuteOptions,
+        previousResult: HogExecutorPreviousResult,
+        consumeInlineAsyncBudget: () => void
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         return this.hogExecutor.execute(
             invocation,
