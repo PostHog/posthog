@@ -217,7 +217,11 @@ export function getCollapsedTileGroupKeys({
     groups: Record<string, DashboardTileGroupApi> | undefined
     choices: Record<string, boolean> | undefined
 }): string[] {
-    const groupKeys = new Set(tiles.map((tile) => tile.group_key).filter((groupKey): groupKey is string => !!groupKey))
+    // A group with no tiles still shows a band to editors, so it can be closed too.
+    const groupKeys = new Set([
+        ...tiles.map((tile) => tile.group_key).filter((groupKey): groupKey is string => !!groupKey),
+        ...Object.keys(groups ?? {}),
+    ])
     return [...groupKeys].filter((groupKey) => {
         if (choices && Object.hasOwn(choices, groupKey)) {
             return choices[groupKey]

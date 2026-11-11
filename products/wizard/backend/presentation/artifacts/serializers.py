@@ -8,7 +8,7 @@ from products.wizard.backend.facade.contracts import (
     WizardRunGitDiffArtifactDTO,
     WizardRunPullRequestArtifactDTO,
 )
-from products.wizard.backend.facade.enums import WizardRunArtifactType
+from products.wizard.backend.facade.enums import WizardPullRequestState, WizardRunArtifactType
 
 
 class WizardRunArtifactSerializer(serializers.Serializer):
@@ -46,6 +46,20 @@ class WizardRunPullRequestArtifactSerializer(WizardRunArtifactSerializer):
     head_branch = serializers.CharField(read_only=True, help_text="Branch containing the setup agent's changes.")
     base_branch = serializers.CharField(read_only=True, help_text="Branch that the pull request targets.")
     created_at = serializers.DateTimeField(read_only=True, help_text="Time when the artifact was stored.")
+    state = serializers.ChoiceField(
+        read_only=True,
+        allow_null=True,
+        choices=WizardPullRequestState.choices,
+        help_text="Last known state of the pull request on GitHub. Null when no state has been recorded.",
+    )
+    merged_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="Time when the pull request was merged, if it was."
+    )
+    closed_at = serializers.DateTimeField(
+        read_only=True,
+        allow_null=True,
+        help_text="Time when the pull request was closed or merged. Null while it is open.",
+    )
 
 
 WizardRunArtifactSchema = PolymorphicProxySerializer(
