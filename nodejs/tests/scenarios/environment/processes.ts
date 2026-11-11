@@ -11,6 +11,7 @@ export const MARKER = 'SCENARIO_RUNNER=1'
 
 const PROC_ROOT = '/proc'
 const HOLDER_READ_TIMEOUT_MS = 2000
+const LISTENING = '00010000'
 
 export type ProcEntry = { pid: number; pgid: number; cmdline: string; cwd: string | null; environ: string[] | null }
 
@@ -144,10 +145,32 @@ function holderOf(address: string): Promise<string> {
     })
 }
 
+function listenerOf(address: string): string | undefined {
+    const path = `@${address.slice(1)}`
+    const inode = readFileSync(`${PROC_ROOT}/net/unix`, 'utf8')
+        .split('\n')
+        .map((line) => line.trim().split(/\s+/))
+        .find((fields) => fields[7] === path && fields[3] === LISTENING)?.[6]
+    const socket = `socket:[${inode}]`
+    return inode === undefined
+        ? undefined
+        : readdirSync(PROC_ROOT)
+              .filter((name) => /^\d+$/.test(name))
+              .find((pid) => {
+                  try {
+                      return readdirSync(`${PROC_ROOT}/${pid}/fd`).some(
+                          (fd) => readlinkSync(`${PROC_ROOT}/${pid}/fd/${fd}`) === socket
+                      )
+                  } catch {
+                      return false
+                  }
+              })
+}
+
 export const lockAddress = (stateDir: string): string =>
     `\0posthog-scenarios-${createHash('sha256').update(realpathSync(stateDir)).digest('hex').slice(0, 16)}`
 
-export async function holdRunLock(stateDir: string): Promise<() => Promise<void>> {
+export async function holdRunLock(stateDir: string, retried = false): Promise<() => Promise<void>> {
     const address = lockAddress(stateDir)
     const server = net.createServer((socket) => {
         socket.on('error', () => undefined)
@@ -163,12 +186,26 @@ export async function holdRunLock(stateDir: string): Promise<() => Promise<void>
             throw error
         }
         const holder = await holderOf(address)
-        if (!holder) {
-            throw new Error(
-                `Another scenario runner holds ${stateDir}; wait for it to finish, then run the scenario again.`
+        if (holder) {
+            throw new StackConflictError(
+                `Scenario runner ${holder} is already running from ${stateDir}.`,
+                `kill ${holder}`
             )
         }
-        throw new StackConflictError(`Scenario runner ${holder} is already running from ${stateDir}.`, `kill ${holder}`)
+        const silent = listenerOf(address)
+        if (silent) {
+            throw new StackConflictError(
+                `Scenario runner ${silent} holds ${stateDir} but does not answer; it may be suspended (resume it with fg).`,
+                `kill -CONT ${silent}; kill ${silent}`
+            )
+        }
+        if (retried) {
+            throw new StackConflictError(
+                `Another scenario runner holds ${stateDir} and does not answer.`,
+                'ss -xlp | grep posthog-scenarios'
+            )
+        }
+        return holdRunLock(stateDir, true)
     }
     server.unref()
     return () => new Promise((resolve) => server.close(() => resolve()))
