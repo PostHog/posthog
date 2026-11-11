@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from products.managed_warehouse.backend import client
+from products.managed_warehouse.backend.duckgres_availability import classify_duckgres_refusal
 from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehouseTrinoConnectionUnavailable,
     TrinoExpansionMode,
@@ -56,6 +57,7 @@ __all__ = [
     "ServiceCredential",
     "ServiceCredentialUnavailable",
     "ManagedWarehouseTrinoConnectionUnavailable",
+    "classify_duckgres_refusal",
     "compile_hogql_to_ducklake_sql",
     "compile_hogql_to_trino_sql",
     "connect_managed_warehouse_trino",

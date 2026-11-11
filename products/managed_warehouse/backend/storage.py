@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import re
 import dataclasses
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urlparse
 
 import psycopg
@@ -781,6 +781,7 @@ def connect_to_duckgres(
     *,
     application_name: str = "posthog",
     options: str | None = None,
+    connect_timeout: int | None = None,
 ) -> psycopg.Connection:
     """Open a psycopg connection to a duckgres server.
 
@@ -790,7 +791,10 @@ def connect_to_duckgres(
 
     ``options`` is forwarded as the libpq startup options for caller-specific
     Duckgres settings.
+
+    ``connect_timeout`` is in seconds. ``None`` leaves libpq's default.
     """
+    timeout_kwargs: dict[str, Any] = {} if connect_timeout is None else {"connect_timeout": connect_timeout}
     return psycopg.connect(
         host=server.host,
         port=server.port,
@@ -800,6 +804,7 @@ def connect_to_duckgres(
         autocommit=True,
         application_name=application_name,
         options=options,
+        **timeout_kwargs,
     )
 
 
