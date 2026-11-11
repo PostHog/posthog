@@ -519,6 +519,43 @@ def _pinned_cluster_kwargs(workload: Workload) -> dict[str, Any] | None:
     return None
 
 
+def _events_cluster_workload(workload: Workload, team_id: int | None) -> Workload | None:
+    if team_id is None:
+        return None
+    if workload == Workload.DEFAULT:
+        workload = _default_workload
+    if workload not in (Workload.ONLINE, Workload.OFFLINE):
+        return None
+    # Deferred: importing it loads the posthog.models package, which imports this module.
+    from posthog.models.event.new_events_schema import use_new_events_schema  # noqa: PLC0415
+
+    return workload if use_new_events_schema(team_id) else None
+
+
+def events_cluster_host(workload: Workload, team_id: int | None) -> str | None:
+    """The events cluster host for a project's query, or None to keep the workload's own host.
+
+    The same switch picks the events table, so a project that reads events_json connects to the cluster that
+    stores it. A query with no team_id keeps its own host.
+    """
+    match _events_cluster_workload(workload, team_id):
+        case Workload.ONLINE:
+            return settings.CLICKHOUSE_EVENTS_ONLINE_HOST
+        case Workload.OFFLINE:
+            return settings.CLICKHOUSE_EVENTS_OFFLINE_HOST
+    return None
+
+
+def events_cluster_http_url(workload: Workload, team_id: int | None) -> str | None:
+    """The HTTP URL of events_cluster_host, for callers that build their own HTTP client."""
+    match _events_cluster_workload(workload, team_id):
+        case Workload.ONLINE:
+            return settings.CLICKHOUSE_EVENTS_ONLINE_HTTP_URL
+        case Workload.OFFLINE:
+            return settings.CLICKHOUSE_EVENTS_OFFLINE_HTTP_URL
+    return None
+
+
 def get_kwargs_for_client(
     workload: Workload = Workload.DEFAULT,
     team_id=None,
@@ -548,6 +585,9 @@ def get_kwargs_for_client(
             "user": settings.READONLY_CLICKHOUSE_USER,
             "password": settings.READONLY_CLICKHOUSE_PASSWORD,
         }
+
+    if events_host := events_cluster_host(workload, team_id):
+        return {**base_kwargs, "host": events_host}
 
     if (
         workload == Workload.OFFLINE or workload == Workload.DEFAULT and _default_workload == Workload.OFFLINE

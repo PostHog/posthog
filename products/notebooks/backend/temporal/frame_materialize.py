@@ -62,6 +62,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import (
     ClickHouseCredentials,
     ClickHouseUser,
+    events_cluster_http_url,
     get_clickhouse_creds,
     get_kwargs_for_client,
     is_file_backed_user,
@@ -860,12 +861,16 @@ def materialize_frame(inputs: FrameMaterializeInputs) -> str:
             query_id=inputs.query_id,
         )
     mode = "ch_writes" if ch_writes else "streaming"
-    ch_url = settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
+    ch_url = events_cluster_http_url(Workload.OFFLINE if offline else Workload.ONLINE, inputs.team_id) or (
+        settings.CLICKHOUSE_OFFLINE_HTTP_URL if offline else settings.CLICKHOUSE_HTTP_URL
+    )
     # Reports where the query actually went, not what the flag asked for, and the two paths
     # answer that differently: sync_execute keys on the offline host being set at all, while
     # the HTTP client's URL collapses to the online one under TEST/DEBUG as well.
     pool_offline = (
-        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None if ch_writes else ch_url != settings.CLICKHOUSE_HTTP_URL
+        settings.CLICKHOUSE_OFFLINE_CLUSTER_HOST is not None
+        if ch_writes
+        else offline and ch_url != settings.CLICKHOUSE_HTTP_URL
     )
     FRAME_MATERIALIZATIONS_STARTED_COUNTER.labels(
         ch_user="notebooks" if not resolved_default_user else "default",

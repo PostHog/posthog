@@ -24,11 +24,13 @@ from posthog.hogql.escape_sql import backquote_clickhouse_identifier
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
-from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials
+from posthog.clickhouse.client.connection import MAX_QUERY_SIZE_BYTES, ClickHouseCredentials, events_cluster_http_url
 from posthog.clickhouse.client.deferred_setup import clickhouse_test_setup
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.clickhouse.workload import Workload
 from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.security.outbound_proxy import internal_requests_session
+from posthog.sync import database_sync_to_async
 
 if typing.TYPE_CHECKING:
     from posthog.clickhouse.client.execute import ClickHouseExternalTable
@@ -1173,7 +1175,8 @@ async def get_client(
     http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
     if clickhouse_url is None:
-        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
+        events_url = await database_sync_to_async(events_cluster_http_url)(Workload.OFFLINE, team_id)
+        url = events_url or settings.CLICKHOUSE_OFFLINE_HTTP_URL
     else:
         url = clickhouse_url
 
