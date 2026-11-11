@@ -19,9 +19,13 @@ on:
     push:
         branches:
             - master
+    schedule:
+        # Nightly webkit run against master. It runs before the 04:00 UTC timing refresh in
+        # ci-storybook-update-test-timing.yml, which reads its webkit JUnit artifacts.
+        - cron: '27 2 * * *'
 
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -106,6 +110,7 @@ jobs:
             frontend: >-
                 ${{
                     github.event_name == 'push'
+                    || github.event_name == 'schedule'
                     || (steps.filter.outputs.frontend == 'true'
                         && steps.exclude.outputs.outside_node_product_workspaces == 'true'
                         && fromJSON(steps.filter.outputs.frontend_count || '0')
@@ -145,7 +150,7 @@ jobs:
                   private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
-              if: github.event_name != 'push' # Run all tests on master push
+              if: github.event_name == 'pull_request' # Master pushes and the nightly run test everything
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
@@ -217,45 +222,35 @@ jobs:
             # above is inline YAML — paths-filter takes one or the other. The exclude-only
             # filter is true only when some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
             - uses: ./.github/actions/paths-filter
               id: exclude
-              if: github.event_name != 'push'
+              if: github.event_name == 'pull_request'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
-            # WebKit runs wherever a break can still be stopped: on master pushes, and on the
-            # merge-queue run that gates the merge. No story opts into webkit snapshots (see
+            # Pull requests, merge-queue runs and master pushes run chromium. WebKit runs only in
+            # the nightly scheduled run. No story opts into webkit snapshots (see
             # common/storybook/.storybook/test-runner.ts), so webkit adds render-error coverage
-            # only. That coverage is worth a batched queue run, because a webkit-only break then
-            # fails the queue instead of master. It is not worth every push of every frontend PR,
-            # so author PRs stay chromium-only. Flake verification still renders changed stories in webkit.
+            # only, and in the queue it failed more often on flakes than on real breaks. Flake
+            # verification still renders a PR's changed stories in webkit before it merges.
             - name: Build matrix
               id: matrix
-              env:
-                  MERGE_QUEUE: >-
-                      ${{
-                          github.event_name == 'pull_request'
-                          && github.event.pull_request.head.repo.full_name == github.repository
-                          && startsWith(github.head_ref, 'trunk-merge/')
-                      }}
               run: |
                   shards() {
                     jq -cn --arg browser "$1" --argjson count "$2" \
                       '[range(1; $count + 1) | {browser: $browser, shard_count: $count, shard: .}]'
                   }
 
-                  CHROMIUM=$(shards chromium "$CHROMIUM_SHARDS")
-                  if [ "${{ github.event_name }}" = "pull_request" ] && [ "$MERGE_QUEUE" != "true" ]; then
-                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" '{include: $c}')
+                  if [ "${{ github.event_name }}" = "schedule" ]; then
+                    SHARDS=$(shards webkit "$WEBKIT_SHARDS")
                   else
-                    WEBKIT=$(shards webkit "$WEBKIT_SHARDS")
-                    MATRIX=$(jq -cn --argjson c "$CHROMIUM" --argjson w "$WEBKIT" '{include: ($c + $w)}')
+                    SHARDS=$(shards chromium "$CHROMIUM_SHARDS")
                   fi
-                  echo "matrix=$MATRIX" >> $GITHUB_OUTPUT
+                  echo "matrix=$(jq -cn --argjson s "$SHARDS" '{include: $s}')" >> "$GITHUB_OUTPUT"
 
     build-storybook:
         name: Build Storybook (depot-ubuntu-24.04)
@@ -644,8 +639,8 @@ jobs:
             # Shard counts and worker config (maxWorkers in common/storybook/package.json)
             # are tuned for runner CPU — consult #team-devex before changing.
             # PRs may use chromium shards running only affected story files.
-            # Forced-full PRs fall back to changes.outputs.matrix (full chromium),
-            # while master pushes and merge-queue runs add webkit.
+            # Forced-full PRs, merge-queue runs and master pushes fall back to
+            # changes.outputs.matrix (full chromium); the nightly run uses it for webkit.
             matrix: ${{ fromJson(needs.select-stories.outputs.matrix || needs.changes.outputs.matrix) }}
         env:
             NODE_OPTIONS: --max-old-space-size=16384
