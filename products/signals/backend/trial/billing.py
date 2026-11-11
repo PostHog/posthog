@@ -3,6 +3,7 @@ from datetime import date
 from decimal import Decimal
 from typing import cast
 
+from django.conf import settings
 from django.core.cache import cache
 from django.db import models
 from django.utils import timezone
@@ -129,6 +130,9 @@ class TrialBilling:
 
 
 def trial_billing_status(team: Team, *, use_cache: bool = False) -> TrialBillingStatus:
+    # LOCAL ONLY, do not commit: no billing customer exists locally, so pretend a fresh unpaid org.
+    if settings.DEBUG:
+        return TrialBillingStatus(ready=True, continuation=TrialContinuation.PAYMENT)
     try:
         organization = team.organization
         if organization.is_active is not True:
