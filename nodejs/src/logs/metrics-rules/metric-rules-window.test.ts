@@ -190,21 +190,38 @@ describe('MetricRulesEmission', () => {
         ])
     })
 
-    it('sends an expired window when no further batch arrives', async () => {
-        jest.useFakeTimers()
-        try {
-            jest.setSystemTime(WINDOW_START_MS)
-            const { sent, emission } = setup()
-            await emission.emitBatch(new Map([[TEAM, batch([rule()], [record(), record()], WINDOW_START_MS)]]))
-            await jest.advanceTimersByTimeAsync(59_999)
-            expect(sent).toEqual([])
+    it.each([0, 30_000])(
+        'sends an expired window when no further batch arrives, after %d ms of other exports',
+        async (exportMs) => {
+            jest.useFakeTimers()
+            try {
+                jest.setSystemTime(WINDOW_START_MS)
+                const sent: SentPayload[] = []
+                const slowEmitter = {
+                    emit: (_token: string, teamId: number, payload: Record<string, unknown>) => {
+                        jest.setSystemTime(Date.now() + exportMs)
+                        sent.push({ teamId, payload })
+                        return Promise.resolve(true)
+                    },
+                }
+                const mixed = new MetricRulesEmission(slowEmitter, (teamId) => teamId === TEAM, 60_000)
+                await mixed.emitBatch(
+                    new Map([
+                        [TEAM, batch([rule()], [record(), record()], WINDOW_START_MS)],
+                        [OTHER_TEAM, batch([rule()], [record()], WINDOW_START_MS)],
+                    ])
+                )
+                sent.length = 0
+                await jest.advanceTimersByTimeAsync(59_999 - exportMs)
+                expect(sent).toEqual([])
 
-            await jest.advanceTimersByTimeAsync(1)
-            expect(points(sent).map((p) => [p.timeMs, p.dp.asDouble])).toEqual([[WINDOW_START_MS, 2]])
-        } finally {
-            jest.useRealTimers()
+                await jest.advanceTimersByTimeAsync(1)
+                expect(points(sent).map((p) => [p.timeMs, p.dp.asDouble])).toEqual([[WINDOW_START_MS, 2]])
+            } finally {
+                jest.useRealTimers()
+            }
         }
-    })
+    )
 
     it('waits for an idle flush still sending when shutdown starts', async () => {
         jest.useFakeTimers()

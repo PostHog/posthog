@@ -193,6 +193,7 @@ export class MetricRulesEmission {
     }
 
     public async emitBatch(byTeam: Map<number, MetricRuleTeamTallies>, nowMs: number = Date.now()): Promise<void> {
+        const startedAtMs = Date.now()
         // Take the closed window before adding, so this batch's counts open the next window.
         const closed = this.aggregator.takeClosed(nowMs)
         for (const [teamId, batch] of byTeam) {
@@ -202,7 +203,8 @@ export class MetricRulesEmission {
                 await this.send(teamId, batch.token, batch.rules, batch.tallies, nowMs)
             }
         }
-        this.scheduleIdleFlush(nowMs)
+        // Exports for teams outside the window took time, and the timer must still fire when the window ends.
+        this.scheduleIdleFlush(nowMs + (Date.now() - startedAtMs))
         await this.sendFlushes(closed)
     }
 
