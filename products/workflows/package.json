@@ -36,7 +36,6 @@
         "fast-equals": "catalog:",
         "fuse.js": "*",
         "react": "*",
-        "react-toastify": "*",
         "rrule": "*"
     }
 }
