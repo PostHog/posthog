@@ -15,6 +15,7 @@ from posthog.models.user import User
 from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
+from products.workflows.backend.tests.fakes.ses_endpoint import FakeSesEndpoint
 
 
 def _flag(enabled: bool):
@@ -46,19 +47,18 @@ class TestWorkflowEmailSandbox(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert _sandbox_rows(self.team.id) == []
 
-    @patch("boto3.client")
-    def test_provision_creates_one_row_without_calling_the_email_provider(self, boto3_client) -> None:
-        with _flag(True):
+    def test_provision_creates_one_row_without_calling_the_email_provider(self) -> None:
+        with _flag(True), FakeSesEndpoint().installed() as ses:
             first = self.client.post(self._url("provision"))
             second = self.client.post(self._url("provision"))
 
-        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert [first.status_code, second.status_code] == [status.HTTP_200_OK, status.HTTP_200_OK], first.json()
         rows = _sandbox_rows(self.team.id)
         assert [row.id for row in rows] == [first.json()["integration_id"]] == [second.json()["integration_id"]]
         assert rows[0].integration_id == "posthog-managed-sandbox"
         assert rows[0].config == {}
         assert rows[0].created_by_id == self.user.id
-        boto3_client.assert_not_called()
+        assert ses.requests == []
 
     def test_provision_reuses_a_row_another_request_created(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@example.com", "testtest")
