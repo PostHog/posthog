@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<!-- On an idle dev stack, merges of ClickHouse's own log tables use more CPU than the event data does.
+     PostHog reads none of these tables. query_log keeps the flush interval from config.xml, because the
+     ClickHouse query debug panel reads it without SYSTEM FLUSH LOGS. hobby.xml turns off the same tables
+     for hobby installs. -->
+<clickhouse>
+    <query_views_log remove="1"/>
+    <query_thread_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <text_log remove="1"/>
+    <trace_log remove="1"/>
+    <total_memory_profiler_step>0</total_memory_profiler_step>
+</clickhouse>
