@@ -1,6 +1,6 @@
 from collections.abc import Collection
 
-from django.db.models import Q
+from django.db.models import Q, QuerySet
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -8,9 +8,7 @@ from products.dashboards.backend.models.dashboard import Dashboard
 
 def hidden_dashboard_ids(
     *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl, include_deleted: bool
-) -> set[int]:
-    if not dashboard_ids:
-        return set()
+) -> QuerySet:
     manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
     dashboards = manager.filter(team_id=team_id, id__in=dashboard_ids)
     has_resource_access = user_access_control.has_resource_access("dashboard")
@@ -24,4 +22,4 @@ def hidden_dashboard_ids(
     if not (user_access_control.is_organization_admin or has_resource_access):
         allowed_ids = user_access_control.allowlisted_resource_ids_by_scope.get("dashboard", frozenset())
         viewable = viewable.filter(Q(id__in=allowed_ids) | Q(created_by=user_access_control.user))
-    return set(dashboards.exclude(id__in=viewable.values("id")).values_list("id", flat=True))
+    return dashboards.exclude(id__in=viewable.values("id")).values_list("id", flat=True)

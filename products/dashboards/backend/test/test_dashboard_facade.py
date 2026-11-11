@@ -234,17 +234,21 @@ class TestDashboardReadsUnderAccessControl(APIBaseTest):
         other_project = Team.objects.create(organization=self.organization)
         elsewhere = create_dashboard(team_id=other_project.id)
 
-        hidden = api.hidden_dashboard_ids(
-            team_id=self.team.id,
-            dashboard_ids=[*dashboards.values(), elsewhere],
-            user_access_control=access,
-            include_deleted=include_deleted,
+        hidden = set(
+            api.hidden_dashboard_ids(
+                team_id=self.team.id,
+                dashboard_ids=[*dashboards.values(), elsewhere],
+                user_access_control=access,
+                include_deleted=include_deleted,
+            )
         )
-        bounded = api.hidden_dashboard_ids(
-            team_id=self.team.id,
-            dashboard_ids=[dashboards["visible"], dashboards["own"]],
-            user_access_control=access,
-            include_deleted=include_deleted,
+        bounded = set(
+            api.hidden_dashboard_ids(
+                team_id=self.team.id,
+                dashboard_ids=[dashboards["visible"], dashboards["own"]],
+                user_access_control=access,
+                include_deleted=include_deleted,
+            )
         )
 
         assert hidden == {dashboards[name] for name in expected}
@@ -562,6 +566,13 @@ class TestTilePlacements(APIBaseTest):
             dashboard__in=dashboard_manager.filter(team_id=self.team.id, id__in=bound), insight_id__in=asked
         ).values_list("insight_id", "dashboard_id")
         assert {(p.insight_id, p.dashboard_id) for p in placements} == set(replaced)
+        placing = api.dashboard_ids_placing_insights(
+            team_id=self.team.id,
+            dashboard_ids=bound,
+            insight_ids=Insight.objects_including_soft_deleted.filter(id__in=asked).values("id"),
+            include_deleted=include_deleted,
+        )
+        assert set(placing) == {p.dashboard_id for p in placements}
 
     def test_insight_ids_on_template_dashboards_needs_both_prefixes_on_a_template_dashboard(self) -> None:
         generated = create_dashboard(

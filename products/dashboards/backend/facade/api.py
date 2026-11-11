@@ -976,11 +976,13 @@ def widget_type_label(widget_type: str) -> str | None:
 
 def hidden_dashboard_ids(
     *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl, include_deleted: bool
-) -> set[int]:
-    """Which of these dashboards of this team the user may not view. A soft-deleted one counts only with `include_deleted`.
+) -> QuerySet:
+    """Which of these dashboards of this team the user may not view, as a subquery for `id__in`.
 
-    Without dashboard resource access, every dashboard is hidden except the ones granted to the user
-    and the ones the user created. Org admins see every dashboard.
+    A soft-deleted dashboard counts only with `include_deleted`. Without dashboard resource access,
+    every dashboard is hidden except the ones granted to the user and the ones the user created.
+    Org admins see every dashboard. The query that embeds the subquery reads the dashboards, so a
+    dashboard restored after this call counts.
     """
     return visibility_logic.hidden_dashboard_ids(
         team_id=team_id,
@@ -1003,6 +1005,19 @@ def insight_placements(
     A tile of a soft-deleted insight counts either way.
     """
     return tiles_logic.insight_placements(
+        team_id=team_id, dashboard_ids=dashboard_ids, insight_ids=insight_ids, include_deleted=include_deleted
+    )
+
+
+def dashboard_ids_placing_insights(
+    *, team_id: int, dashboard_ids: Collection[int], insight_ids: Collection[int] | QuerySet, include_deleted: bool
+) -> QuerySet:
+    """Which of these dashboards of this team have a tile of one of these insights, as a subquery for `id__in`.
+
+    `insight_ids` can be a subquery. Tiles count as in `insight_placements`. The query that embeds
+    the subquery reads the tiles, so a tile added after this call counts.
+    """
+    return tiles_logic.dashboard_ids_placing_insights(
         team_id=team_id, dashboard_ids=dashboard_ids, insight_ids=insight_ids, include_deleted=include_deleted
     )
 
@@ -1030,6 +1045,7 @@ __all__ = [
     "create_dashboard_from_tiles",
     "dashboard_access_ref",
     "dashboard_exists",
+    "dashboard_ids_placing_insights",
     "dashboard_insight_tile",
     "dashboard_insights",
     "dashboard_refs",

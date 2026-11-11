@@ -3,12 +3,14 @@
 A subscription delivers the content of its insight, dashboard, selected tiles and report contexts,
 so a user who cannot view one of those may not see the subscription either. The insight rules
 compose SQL subqueries over the insight table. The dashboard rules read first which dashboards the
-filtered rows point at, then ask the dashboards facade which of those the user may not view and
-which place an insight the user may not view, so their cost follows the rows, not the project.
+filtered rows point at, then ask the dashboards facade for subqueries over those dashboards: the
+ones the user may not view, and the ones that place an insight the user may not view. Their cost
+follows the rows, not the project.
 
-The dashboard rules are allow lists: a row is visible only when every dashboard it points at is one
-the first read saw and the user may view. The read and the filter are two queries, and a row written
-between them can point at a dashboard the read never saw. An allow list hides that row.
+The read and the filter are two queries, so a row written between them can point at a dashboard the
+read never saw. The filter therefore keeps a row only when every dashboard it points at is one the
+read saw. Whether such a dashboard is restricted comes from the subqueries, which the filter query
+reads itself, so a tile added between the two queries still hides the row.
 """
 
 from collections.abc import Iterator
@@ -199,14 +201,6 @@ class _CandidateDashboards:
     refs: frozenset[str]
 
 
-@frozen
-class _RestrictedDashboards:
-    """Among the candidate dashboards, the ones the user may not view and the ones with a tile of an insight the user may not view."""
-
-    hidden: frozenset[int]
-    with_hidden_insights: frozenset[int]
-
-
 def _candidate_dashboards(candidates: QuerySet, targets: _TargetLookups) -> _CandidateDashboards:
     candidates = candidates.order_by().prefetch_related(None)
     dashboard_ids = {
@@ -231,34 +225,6 @@ def _candidate_dashboards(candidates: QuerySet, targets: _TargetLookups) -> _Can
     return _CandidateDashboards(ids=frozenset(dashboard_ids), refs=frozenset(dashboard_refs))
 
 
-def _restricted_dashboards(
-    user_access_control: UserAccessControl,
-    team_id: int,
-    targets: _TargetLookups,
-    target_insights: QuerySet,
-    dashboard_ids: frozenset[int],
-) -> _RestrictedDashboards:
-    if not dashboard_ids:
-        return _RestrictedDashboards(hidden=frozenset(), with_hidden_insights=frozenset())
-    hidden = dashboards_api.hidden_dashboard_ids(
-        team_id=team_id,
-        dashboard_ids=dashboard_ids,
-        user_access_control=user_access_control,
-        include_deleted=targets.include_deleted_dashboards,
-    )
-    placements = dashboards_api.insight_placements(
-        team_id=team_id, dashboard_ids=dashboard_ids, include_deleted=targets.include_deleted_dashboards
-    )
-    tile_insights = target_insights.filter(id__in={placement.insight_id for placement in placements})
-    blocked_tile_insights = set(
-        blocked_target_ids(user_access_control, tile_insights, "insight").values_list("id", flat=True)
-    )
-    with_hidden_insights = frozenset(
-        placement.dashboard_id for placement in placements if placement.insight_id in blocked_tile_insights
-    )
-    return _RestrictedDashboards(hidden=frozenset(hidden), with_hidden_insights=with_hidden_insights)
-
-
 def _target_filter(
     user_access_control: UserAccessControl, team_id: int, targets: _TargetLookups, candidates: QuerySet
 ) -> Q:
@@ -275,39 +241,67 @@ def _target_filter(
     target_insights = targets.insights.filter(team_id=team_id)
     blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
     candidate = _candidate_dashboards(candidates, targets)
-    restricted = _restricted_dashboards(user_access_control, team_id, targets, target_insights, candidate.ids)
-    viewable_dashboards = sorted(candidate.ids - restricted.hidden)
-    viewable_context_dashboards = candidate.ids - restricted.hidden - restricted.with_hidden_insights
+    seen_dashboards = sorted(candidate.ids)
+    hidden_dashboards = dashboards_api.hidden_dashboard_ids(
+        team_id=team_id,
+        dashboard_ids=candidate.ids,
+        user_access_control=user_access_control,
+        include_deleted=targets.include_deleted_dashboards,
+    )
+    dashboards_with_hidden_insights = dashboards_api.dashboard_ids_placing_insights(
+        team_id=team_id,
+        dashboard_ids=candidate.ids,
+        insight_ids=blocked_insights,
+        include_deleted=targets.include_deleted_dashboards,
+    )
 
     points_at_viewable_dashboards = Q(
-        Q(**{targets.dashboard_is_null: True}) | Q(**{targets.dashboard_in: viewable_dashboards}),
+        Q(**{targets.dashboard_is_null: True})
+        | (Q(**{targets.dashboard_in: seen_dashboards}) & ~Q(**{targets.dashboard_in: hidden_dashboards})),
         ~Exists(
             # Unscoped: the subquery is correlated to a row of this team and must see every context of that row.
             SubscriptionContext.objects.unscoped()
             .filter(subscription_id=OuterRef(targets.subscription), dashboard_id__isnull=False)
-            .exclude(dashboard_id__in=sorted(viewable_context_dashboards))
+            .filter(
+                ~Q(dashboard_id__in=seen_dashboards)
+                | Q(dashboard_id__in=hidden_dashboards)
+                | Q(dashboard_id__in=dashboards_with_hidden_insights)
+            )
         ),
     )
-    if targets.context_refs is not None and targets.rendered_snapshot is not None:
-        viewable_refs = sorted(
-            ref
-            for ref in candidate.refs
-            if (dashboard_id := _referenced_dashboard_id(ref)) is None or dashboard_id in viewable_context_dashboards
-        )
+    if (
+        targets.context_refs is not None
+        and targets.context_ref_overlap is not None
+        and targets.rendered_snapshot is not None
+    ):
         points_at_viewable_dashboards &= ~Q(
             _matches_jsonpath(
                 Func(F(targets.context_refs), function="to_jsonb", output_field=JSONField()),
                 '$[*] ? (@ starts with "dashboard:" && !(@ == $ids[*]))',
-                Value(viewable_refs, output_field=ArrayField(TextField())),
+                Value(sorted(candidate.refs), output_field=ArrayField(TextField())),
                 TextField(),
             )
+        )
+        points_at_viewable_dashboards &= ~Q(
+            **{targets.context_ref_overlap: _context_ref_subquery("dashboard", hidden_dashboards)}
+        )
+        points_at_viewable_dashboards &= ~Q(
+            **{targets.context_ref_overlap: _context_ref_subquery("dashboard", dashboards_with_hidden_insights)}
         )
         # The subscription can point somewhere else now, so also check the dashboard the delivery rendered.
         points_at_viewable_dashboards &= ~Q(
             _matches_jsonpath(
                 F(targets.rendered_snapshot),
                 '$.dashboard.id ? (@.type() == "number" && @ == @.floor() && !(@ == $ids[*]))',
-                Value(viewable_dashboards, output_field=ArrayField(BigIntegerField())),
+                Value(seen_dashboards, output_field=ArrayField(BigIntegerField())),
+                BigIntegerField(),
+            )
+        )
+        points_at_viewable_dashboards &= ~Q(
+            _matches_jsonpath(
+                F(targets.rendered_snapshot),
+                "$.dashboard ? (@.id == $ids[*])",
+                ArraySubquery(hidden_dashboards),
                 BigIntegerField(),
             )
         )
@@ -315,7 +309,7 @@ def _target_filter(
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
     renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(
-        **{targets.dashboard_in: sorted(restricted.with_hidden_insights)}
+        **{targets.dashboard_in: dashboards_with_hidden_insights}
     )
     references_a_blocked_insight = Q(**{targets.live_context_insight_lookup: blocked_insights})
     if targets.context_ref_overlap is not None:

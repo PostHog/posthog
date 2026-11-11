@@ -4589,6 +4589,20 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         )
         return visible.exists()
 
+    def _restricted_tile_added_to_a_context_dashboard_after_the_read(self, viewer: UserAccessControl) -> bool:
+        dashboard = self._dashboard_with_tiles(self.open_insight)
+        subscription = self._ai_sub_with_contexts(dashboard)
+        visible = viewable_subscriptions(Subscription.objects.filter(pk=subscription.pk), viewer, self.team.id)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        return visible.exists()
+
+    def _restricted_tile_added_to_a_rendered_dashboard_after_the_read(self, viewer: UserAccessControl) -> bool:
+        dashboard = self._dashboard_with_tiles(self.open_insight)
+        subscription = self._subscription_for(dashboard=dashboard)
+        visible = viewable_subscriptions(Subscription.objects.filter(pk=subscription.pk), viewer, self.team.id)
+        DashboardTile.objects.create(dashboard=dashboard, insight=self.restricted_insight)
+        return visible.exists()
+
     @parameterized.expand(
         [
             (
@@ -4600,6 +4614,14 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
                 "_subscription_repointed_at_a_restricted_dashboard_after_the_read",
             ),
             ("a context on a restricted dashboard", "_context_on_a_restricted_dashboard_added_after_the_read"),
+            (
+                "a restricted tile on a context dashboard",
+                "_restricted_tile_added_to_a_context_dashboard_after_the_read",
+            ),
+            (
+                "a restricted tile on a dashboard that renders every tile",
+                "_restricted_tile_added_to_a_rendered_dashboard_after_the_read",
+            ),
         ]
     )
     def test_a_row_written_between_the_dashboard_read_and_the_filter_stays_hidden(self, _name, write_after_the_read):
