@@ -349,6 +349,27 @@ describe('workflowsListV2Logic', () => {
             succeeded: 0,
             failed: 0,
         })
+
+        let answerRefreshedMetrics: () => void = () => {}
+        const refreshedMetricsSent = new Promise<void>((markSent) => {
+            metricsResponse = () =>
+                new Promise((resolve) => {
+                    answerRefreshedMetrics = () =>
+                        resolve([200, [{ workflow_id: 'wf-renewal', succeeded: 9, failed: 0 }]])
+                    markSent()
+                })
+        })
+        await expectLogic(logic, () => logic.actions.refreshWorkflows()).toDispatchActions(['loadWorkflowsSuccess'])
+        expect(logic.values.metricsLoading).toBe(true)
+        await refreshedMetricsSent
+        expect(logic.values.rows.find((row) => row.id === 'wf-renewal')?.last7Days).toEqual({ succeeded: 3, failed: 2 })
+
+        answerRefreshedMetrics()
+        await expectLogic(logic).toDispatchActions(['loadMetricsSuccess'])
+        expect(logic.values.rows.find((row) => row.id === 'wf-renewal')).toMatchObject({
+            health: 'healthy',
+            last7Days: { succeeded: 9, failed: 0 },
+        })
     })
 
     it('keeps the list and skips the error toast when the metrics fail', async () => {

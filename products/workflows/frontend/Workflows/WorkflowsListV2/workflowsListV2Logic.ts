@@ -367,7 +367,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
     connect(() => ({ values: [teamLogic, ['currentTeamId'], userLogic, ['user']] })),
     actions({
         loadWorkflows: true,
-        /** Reloads the rows and the server search, for workflows created outside this list. */
+        /** Reloads the rows, the metrics and the server search, for workflows created or run outside this list. */
         refreshWorkflows: true,
         loadMetrics: true,
         setValue: (value: FacetSearchValue) => ({ value }),
@@ -630,6 +630,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         return {
             refreshWorkflows: () => {
                 actions.loadWorkflows()
+                // The loader keeps the previous counts until the new ones arrive.
+                actions.loadMetrics()
                 // A new workflow has a new id, so a server search from before it existed can't match it.
                 const text = values.value.text.trim()
                 if (text.length >= MIN_SERVER_SEARCH_LENGTH) {
