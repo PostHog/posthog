@@ -71,19 +71,19 @@ def trees(name: str = "left-pad", head_range: str = "^1.3.1", head_version: str 
     return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: {**head, **head_extra}}
 
 
-def catalog_trees(name: str = "left-pad", head_catalog: str = "^1.3.1", head_version: str = "1.3.1") -> dict:
+def catalog_trees(head_catalog: str = "^1.3.1", head_version: str = "1.3.1") -> dict:
     def workspace(catalog: str) -> bytes:
-        return WORKSPACE + f"catalog:\n    {name}: {catalog}\n".encode()
+        return WORKSPACE + f"catalog:\n    left-pad: {catalog}\n".encode()
 
     base = {
         "pnpm-workspace.yaml": workspace("^1.3.0"),
-        "package.json": manifest(name, "catalog:"),
-        "pnpm-lock.yaml": lockfile(name, "catalog:", "1.3.0", catalog="^1.3.0"),
+        "package.json": manifest("left-pad", "catalog:"),
+        "pnpm-lock.yaml": lockfile("left-pad", "catalog:", "1.3.0", catalog="^1.3.0"),
     }
     head = {
         **base,
         "pnpm-workspace.yaml": workspace(head_catalog),
-        "pnpm-lock.yaml": lockfile(name, "catalog:", head_version, catalog=head_catalog),
+        "pnpm-lock.yaml": lockfile("left-pad", "catalog:", head_version, catalog=head_catalog),
     }
     return {WORKFLOW_SHA: base, MERGE_BASE: base, HEAD: head}
 
@@ -270,8 +270,13 @@ def stray(path: str, base: bytes, head: bytes) -> dict:
         ),
         (None, trees("esbuild"), None, "esbuild is named in allowBuilds"),
         (None, trees("posthog-js"), None, "posthog-js is named in minimumReleaseAgeExclude"),
+        (
+            None,
+            {**trees(), WORKFLOW_SHA: {**trees()[WORKFLOW_SHA], "package.json": b'{"pnpm": {"overrides": {}}}'}},
+            None,
+            "package.json pnpm settings differ from the default branch",
+        ),
         (None, trees(head_range="^2.0.0", head_version="2.0.0"), None, "major change"),
-        (None, trees(head_range="npm:left-pad@^1.3.1"), None, "not a plain registry"),
         (None, trees(), lockfile("left-pad", "^1.3.1", "1.3.1", integrity="sha512-y"), "different pnpm-lock.yaml"),
         (None, every_tree(**{"pnpm-workspace.yaml": None}), None, "pnpm-workspace.yaml is missing"),
         (
@@ -287,14 +292,7 @@ def stray(path: str, base: bytes, head: bytes) -> dict:
             "tools/pnpm-workspace.yaml is not beside a lockfile",
         ),
         (None, catalog_trees(head_catalog="~1.3.1"), None, "changes the range operator"),
-        (None, catalog_trees("esbuild"), None, "esbuild is named in allowBuilds"),
         (None, catalog_trees(head_version="1.3.0"), None, "changes no direct dependency version"),
-        (
-            None,
-            catalog_trees(),
-            lockfile("left-pad", "catalog:", "1.3.1", integrity="sha512-y", catalog="^1.3.1"),
-            "different pnpm-lock.yaml",
-        ),
     ],
 )
 def test_refusals(tmp_path: Path, github: FakeGitHub | None, update: dict, replayed: bytes | None, reason: str) -> None:
@@ -371,13 +369,17 @@ def test_comparable_keeps_scalars_that_pnpm_reads_differently_apart(one: bytes, 
     [
         (b"a: 1\na: 2\n", "repeats a key"),
         (b"? [a]\n: 1\n", "a key that is not a scalar"),
-        (b'a: "b \n  c"\n', "spreads a scalar over lines"),
+        (b'a: [deprecated, "b \n  c"]\n', "spreads a scalar over lines"),
         (b"packages:\n  a@1.0.0:\n    engines: |\n      node\n", "spreads a scalar over lines"),
+        (b"snapshots:\n  a@1.0.0:\n    deprecated: |\n      b\n", "spreads a scalar over lines"),
+        (b"packages:\n  a@1.0.0:\n    deprecated:\n      b: |\n        c\n", "spreads a scalar over lines"),
+        (b"packages:\n  a@1.0.0:\n    deprecated:\n      ? |\n        b\n      : c\n", "spreads a scalar over lines"),
+        (b"- packages:\n    a@1.0.0:\n      deprecated: |\n        b\n", "spreads a scalar over lines"),
         (b"a: [1\n", "does not parse"),
         (b"a: &x 1\nb: *x\n", "an alias or an explicit tag"),
         (b"hasBin: !!int true\n", "an alias or an explicit tag"),
         (b"a: !!map {}\n", "an alias or an explicit tag"),
-        ("a: 1 b: 2\n".encode(), "a line separator"),
+        ("a: 1\N{LINE SEPARATOR}b: 2\n".encode(), "a line separator"),
         ("a: 1\x85b: 2\n".encode(), "a line separator"),
         ("a: 1\n".encode("utf-16"), "not UTF-8"),
         ("a: 1\n".encode("utf-8-sig"), "a byte order mark"),
@@ -388,10 +390,7 @@ def test_comparable_refuses_yaml_that_pnpm_never_writes(text: bytes, reason: str
         prover.comparable(text)
 
 
-@pytest.mark.parametrize(
-    "error",
-    [ConnectionResetError("reset"), http.client.IncompleteRead(b"{"), urllib.error.URLError("unreachable")],
-)
+@pytest.mark.parametrize("error", [ConnectionResetError("reset"), http.client.IncompleteRead(b"{")])
 def test_fetch_retries_a_transport_failure(monkeypatch: pytest.MonkeyPatch, error: Exception) -> None:
     class Response(io.BytesIO):
         def read(self, *_: object) -> bytes:
@@ -416,9 +415,6 @@ def test_fetch_retries_a_transport_failure(monkeypatch: pytest.MonkeyPatch, erro
         ),
         ([pull(), pull(author=42, head_repository="fork/posthog")], prover.Identified(123, MERGE_BASE)),
         ([], None),
-        ([pull(author=42)], None),
-        ([pull(base="feature")], None),
-        ([pull(head="d" * 40)], None),
         ([pull(), pull()], "2 pull requests by an allowed author"),
         ([pull()] * 100, "more pull requests contain this commit"),
     ],

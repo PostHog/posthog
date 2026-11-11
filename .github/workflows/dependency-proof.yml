@@ -166,8 +166,8 @@ jobs:
                       unproved=true
                       title="The dependency update could not be proved"
                   fi
-                  pr="${IDENTIFY_PR:-0}"
-                  merge_base="${IDENTIFY_MERGE_BASE:-}"
+                  pr="$IDENTIFY_PR"
+                  merge_base="$IDENTIFY_MERGE_BASE"
                   [[ "$pr" =~ ^[0-9]+$ ]] || pr=0
                   [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
                   marker="$(jq -cn --argjson files "$files" --argjson blobs "$blobs" --argjson pr "$pr" \

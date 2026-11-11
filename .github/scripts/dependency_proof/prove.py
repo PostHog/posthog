@@ -29,7 +29,7 @@ REGISTRY = "https://registry.npmjs.org/"
 RELEASE_AGE_LOOKUPS = 50
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PULL_REQUEST_NUMBER = re.compile(r"[1-9][0-9]*")
-PULL_REQUEST_PAGE = 100
+PAGE_SIZE = 100
 PROVER_FILES = (
     ".github/actions/setup-uv/action.yml",
     ".github/scripts/dependency_proof/__init__.py",
@@ -56,22 +56,39 @@ class Unquoted:
 
 
 class StrictLoader(YAML_LOADER):  # type: ignore[misc,valid-type]
-    """Reads YAML without converting a scalar, and refuses repeated keys and aliases.
+    """Reads YAML without converting a scalar, and refuses what two parsers can read differently.
 
     The replay and the head lockfile are compared as the structures this loader builds, so it must
     not read two different texts as one structure. Type coercion would, because `1.10` and `1.1` are
     one float. Reading every scalar as a string would too, because pnpm reads `true` as a boolean and
     `"true"` as a string. So a string stays a `str`, a null stays `None`, and any other scalar becomes
     an `Unquoted` that holds its text. A repeated key is refused, because this parser keeps the last
-    value and pnpm's may not.
+    value and pnpm's may not. A scalar that spans lines is refused, because pnpm's parser joins the
+    lines with other whitespace. pnpm writes one only for the `deprecated` note of a lockfile package,
+    which `comparable` drops, so that one place is read.
     """
+
+    def construct_document(self, node: yaml.Node) -> Any:
+        pending: list[tuple[yaml.Node, tuple[Any, ...]]] = [(node, ())]
+        while pending:
+            child, path = pending.pop()
+            if isinstance(child, yaml.MappingNode):
+                for key, value in child.value:
+                    pending += [(key, (*path, None)), (value, (*path, key.value))]
+            elif isinstance(child, yaml.SequenceNode):
+                pending += [(item, (*path, None)) for item in child.value]
+            elif child.start_mark.line != child.end_mark.line and not (
+                len(path) == 3 and path[0] == "packages" and path[2] == "deprecated"
+            ):
+                raise Refused("a YAML file spreads a scalar over lines")
+        return super().construct_document(node)
 
     def construct_mapping(self, node: yaml.MappingNode, deep: bool = False) -> dict[Any, Any]:
         if not all(isinstance(key, yaml.ScalarNode) for key, _ in node.value):
             raise Refused("a YAML file uses a key that is not a scalar")
         keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
         if len(set(keys)) != len(keys):
-            raise Refused("a lockfile repeats a key")
+            raise Refused("a YAML file repeats a key")
         return super().construct_mapping(node, deep=deep)
 
 
@@ -154,8 +171,8 @@ class GitHub:
 
     def pull_requests(self, head_sha: str, base_branch: str) -> list[dict[str, Any]]:
         """The open pull requests into the base branch whose head is this commit."""
-        listed = self.get(f"commits/{head_sha}/pulls?per_page={PULL_REQUEST_PAGE}")
-        if len(listed) >= PULL_REQUEST_PAGE:
+        listed = self.get(f"commits/{head_sha}/pulls?per_page={PAGE_SIZE}")
+        if len(listed) >= PAGE_SIZE:
             raise Refused("more pull requests contain this commit than this proof reads")
         return [
             pr
@@ -166,7 +183,7 @@ class GitHub:
     def pusher_id(self, branch: str, head_sha: str) -> int | None:
         """The account whose push last put the branch at this commit, or None when no listed push did."""
         ref = urllib.parse.quote(f"refs/heads/{branch}", safe="")
-        pushes = self.get(f"activity?ref={ref}&per_page={PULL_REQUEST_PAGE}")
+        pushes = self.get(f"activity?ref={ref}&per_page={PAGE_SIZE}")
         return next(((push.get("actor") or {}).get("id") for push in pushes if push["after"] == head_sha), None)
 
     def merge_base(self, base_branch: str, head_sha: str) -> str:
@@ -254,7 +271,7 @@ def replay_lockfile(
 ) -> bytes:
     """The lockfile pnpm writes in the merge-base tree once the head manifests and workspace file are in place.
 
-    `check_workspace` holds the head workspace file to the default branch's settings, so pnpm
+    `check_workspace_text` holds the head workspace file to the default branch's settings, so pnpm
     runs with those settings and the pull request's catalog.
 
     Each command sees the registry as Renovate saw it at the head commit. pnpm counts
@@ -292,14 +309,14 @@ def identify(env: Mapping[str, str], github: GitHub) -> Identified | None:
     return Identified(pr["number"], github.merge_base(base_branch, head))
 
 
-def handed_over(env: Mapping[str, str]) -> Identified:
-    """What the identification job handed over, refused unless every value has its exact shape."""
-    pr, merge_base = env["PULL_REQUEST"], env["MERGE_BASE"]
-    if not PULL_REQUEST_NUMBER.fullmatch(pr):
+def handed_over(env: Mapping[str, str]) -> str:
+    """The merge base the identification job handed over, refused unless every value has its exact shape."""
+    merge_base = env["MERGE_BASE"]
+    if not PULL_REQUEST_NUMBER.fullmatch(env["PULL_REQUEST"]):
         raise Refused("the pull request number is not a positive integer")
     if not COMMIT_SHA.fullmatch(merge_base):
         raise Refused("the merge base is not a commit id")
-    return Identified(int(pr), merge_base)
+    return merge_base
 
 
 def prove(
@@ -312,7 +329,7 @@ def prove(
     """The proof for the pull request named in ``env``, or a Refused saying what stops it."""
     started = time.monotonic()
     head, workflow_sha = env["HEAD_SHA"], env["WORKFLOW_SHA"]
-    merge_base = handed_over(env).merge_base
+    merge_base = handed_over(env)
 
     git.fetch(merge_base, head)
     files = policy.eligible_paths(git.changed_files(merge_base, head))
@@ -326,7 +343,7 @@ def prove(
     def release_age_minutes() -> int:
         # pnpm reads its own clock when it runs, which is later than `now` by the time spent since the start.
         since_head = (now - committed).total_seconds() + time.monotonic() - started
-        return int(since_head // 60) + 1 + int(policy.MINIMUM_RELEASE_AGE.total_seconds() // 60)
+        return int(since_head // 60) + 1 + policy.MINIMUM_RELEASE_AGE_MINUTES
 
     pinned = set(PROVER_FILES)
     for directory, manifests in groups.items():
@@ -357,9 +374,6 @@ def lockfile_groups(files: list[str], git: Git, merge_base: str) -> dict[str, li
             manifests.append(path)
         elif name == WORKSPACE_FILE and path != join(directory, WORKSPACE_FILE):
             raise Refused(f"{path} is not beside a lockfile")
-    for directory in groups:
-        if join(directory, LOCKFILE) not in files:
-            raise Refused(f"{join(directory, LOCKFILE)} did not change")
     return groups
 
 
@@ -377,13 +391,18 @@ def prove_group(
     release_age_minutes: Callable[[], int],
 ) -> set[str]:
     """Proves one lockfile directory and returns the settings paths its proof read."""
+
+    def read(ref: str, path: str) -> bytes:
+        blob = git.show(ref, path)
+        if blob is None:
+            raise Refused(f"{path} is missing")
+        return blob
+
     lockfile, root_manifest = join(directory, LOCKFILE), join(directory, MANIFEST)
     workspace_path = join(directory, WORKSPACE_FILE)
     # A lockfile directory without a workspace file is refused, because pnpm would then read the
     # settings of a workspace file above it, and this proof judges the directory's own.
-    default_text, base_text, head_text = (
-        require(git.show(ref, workspace_path), workspace_path) for ref in (workflow_sha, merge_base, head)
-    )
+    default_text, base_text, head_text = (read(ref, workspace_path) for ref in (workflow_sha, merge_base, head))
     policy.check_workspace_text(workspace_path, default_text, head_text)
     workspace = load_yaml(default_text)
     moved = policy.check_workspace(workspace_path, workspace, load_yaml(base_text), load_yaml(head_text))
@@ -391,56 +410,44 @@ def prove_group(
     for path in settings:
         if path != workspace_path and git.blob(head, path) != git.blob(workflow_sha, path):
             raise Refused(f"{path} differs from the default branch")
-    default_manifest = policy.load_manifest(require(git.show(workflow_sha, root_manifest), root_manifest))
-    if policy.load_manifest(require(git.show(head, root_manifest), root_manifest)).get("pnpm") != default_manifest.get(
-        "pnpm"
-    ):
+    default_manifest = policy.load_manifest(read(workflow_sha, root_manifest))
+    if policy.load_manifest(read(head, root_manifest)).get("pnpm") != default_manifest.get("pnpm"):
         raise Refused(f"{root_manifest} pnpm settings differ from the default branch")
     only_built = workspace.get("onlyBuiltDependenciesFile")
-    only_built_text = (
-        require(git.show(workflow_sha, join(directory, str(only_built))), str(only_built)) if only_built else None
-    )
     blocked = policy.blocked_patterns(
-        workspace, default_manifest, None if only_built_text is None else only_built_text.decode()
+        workspace,
+        default_manifest,
+        read(workflow_sha, join(directory, str(only_built))).decode() if only_built else None,
     )
 
-    base_lock_text, head_lock_text = (
-        require(git.show(merge_base, lockfile), lockfile),
-        require(git.show(head, lockfile), lockfile),
-    )
-    base_lock, head_lock = load_yaml(base_lock_text), load_yaml(head_lock_text)
-    head_files = {workspace_path: head_text, **{path: require(git.show(head, path), path) for path in manifests}}
+    base_lock, head_lock = load_yaml(read(merge_base, lockfile)), comparable(read(head, lockfile))
+    head_files = {workspace_path: head_text, **{path: read(head, path) for path in manifests}}
     for path in manifests:
         policy.check_member(path, directory, base_lock)
         policy.check_manifest(
-            path,
-            policy.load_manifest(require(git.show(merge_base, path), path)),
-            policy.load_manifest(head_files[path]),
+            path, policy.load_manifest(read(merge_base, path)), policy.load_manifest(head_files[path])
         )
     changes = policy.direct_changes(base_lock, head_lock)
     packages = {f"{change.name}@{change.new}" for change in changes} | set(policy.new_packages(base_lock, head_lock))
     for spec in sorted(packages):
         if reason := policy.blocked_reason(spec, blocked):
             raise Refused(reason)
-    releases = sorted({(change.name, change.new) for change in changes if change.old != change.new})
+    bumped = [change for change in changes if change.old != change.new]
+    releases = sorted({(change.name, change.new) for change in bumped})
     if not releases:
         raise Refused(f"{lockfile} changes no direct dependency version")
     if len(releases) > RELEASE_AGE_LOOKUPS:
         raise Refused(f"{len(releases)} packages change, more than the {RELEASE_AGE_LOOKUPS} this proof checks")
-    for name, version in releases:
-        if reason := policy.release_age_reason(name, version, registry(name), now):
+    version = policy.pnpm_version(root_manifest, policy.load_manifest(read(merge_base, root_manifest)))
+    for name, release in releases:
+        if reason := policy.release_age_reason(name, release, registry(name), now):
             raise Refused(reason)
 
-    version = policy.pnpm_version(
-        root_manifest, policy.load_manifest(require(git.show(merge_base, root_manifest), root_manifest))
-    )
     run(["npm", "install", "--global", "--no-audit", "--no-fund", f"pnpm@{version}"], worktree)
-    updates = sorted(
-        {f"{change.name}@{change.new}" for change in changes if change.old != change.new and not change.range_changed}
-    )
+    updates = sorted({f"{change.name}@{change.new}" for change in bumped if not change.range_changed})
     commands = replay_commands(updates, bool(manifests or moved), bool(workspace.get("packages")))
     replayed = replay_lockfile(worktree, directory, head_files, commands, release_age_minutes, run)
-    if comparable(replayed) != comparable(head_lock_text):
+    if comparable(replayed) != head_lock:
         raise Refused(f"pnpm writes a different {lockfile} for this update")
     return set(settings)
 
@@ -452,36 +459,20 @@ def load_yaml(text: bytes) -> dict[str, Any]:
     except UnicodeDecodeError as error:
         raise Refused("a YAML file is not UTF-8") from error
     # PyYAML drops a byte order mark and ends a line at U+0085, U+2028 and U+2029. pnpm's parser does neither.
-    if any(character in decoded for character in ("﻿", "\x85", " ", " ")):
+    if any(character in decoded for character in "\N{BYTE ORDER MARK}\x85\N{LINE SEPARATOR}\N{PARAGRAPH SEPARATOR}"):
         raise Refused("a YAML file uses a byte order mark or a line separator that pnpm does not read")
     # pnpm never writes an alias or an explicit tag, and either would let two texts build one
     # structure. The C parser skips a Python compose hook, so the event stream is read for them.
     try:
-        previous = None
         for event in yaml.parse(decoded, Loader=StrictLoader):
             if isinstance(event, yaml.AliasEvent) or getattr(event, "tag", None) is not None:
                 raise Refused("a YAML file uses an alias or an explicit tag")
-            # pnpm's parser joins the lines of a scalar with other whitespace than this one does.
-            # pnpm writes one only for `deprecated`, which `comparable` drops.
-            if (
-                isinstance(event, yaml.ScalarEvent)
-                and event.start_mark.line != event.end_mark.line
-                and previous != "deprecated"
-            ):
-                raise Refused("a YAML file spreads a scalar over lines")
-            previous = getattr(event, "value", None)
         loaded = yaml.load(decoded, Loader=StrictLoader) or {}
     except yaml.YAMLError as error:
         raise Refused("a YAML file does not parse") from error
     if not isinstance(loaded, dict):
-        raise Refused("a settings file is not a mapping")
+        raise Refused("a YAML file is not a mapping")
     return loaded
-
-
-def require(blob: bytes | None, path: str) -> bytes:
-    if blob is None:
-        raise Refused(f"{path} is missing")
-    return blob
 
 
 def printable(text: str) -> str:
@@ -525,7 +516,3 @@ def main() -> int:
     with open(env["GITHUB_STEP_SUMMARY"], "a") as handle:
         handle.write(f"### Dependency proof\n\n{printable(summary)}\n")
     return 0
-
-
-if __name__ == "__main__":
-    sys.exit(main())
