@@ -5,11 +5,16 @@ import { register } from 'prom-client'
 import { v4 as uuidv4, v7 as uuidv7 } from 'uuid'
 
 import * as posthogUtils from '~/common/utils/posthog'
+import { PubSub } from '~/common/utils/pubsub'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
+import { createHogFunction, createIntegration } from '../../_tests/fixtures'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { EncryptedFields } from '../../utils/encryption-utils'
-import { markServerResolvedIntegration, signIntegrationRef } from '../../utils/integration-input-refs'
+import { markServerResolvedIntegration } from '../../utils/integration-input-refs'
+import { HogInputsService } from '../hog-inputs.service'
+import { IntegrationManagerService } from '../managers/integration-manager.service'
+import { IntegrationSource } from '../managers/integration-source'
 import { CONSUMER_STOP_DEADLINE_MS, CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 
 describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
@@ -56,8 +61,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     let locks: Lock[]
     let proxies: StallableProxy[]
 
-    // Other suites and runs share this database and consume the literal email queue, so every test gets the
-    // Cyclotron tables in a schema of its own.
     const dbUrl = (host: string, port: number): string => {
         const url = new URL(`postgres://posthog:posthog@${host}:${port}/${CYCLOTRON_DB.database}`)
         url.searchParams.set('options', `-c search_path=${schema},public`)
@@ -218,14 +221,19 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
     const lockJobRow = (id: string): Promise<Lock> =>
         lock('SELECT 1 FROM cyclotron_jobs WHERE id = $1 FOR UPDATE', [id])
 
-    // A move into the email queue first takes the team's next email sequence number, so
-    // locking that row holds the move without touching the job row itself.
     async function lockEmailSequence(): Promise<Lock> {
         await db.query(
             'INSERT INTO cyclotron_email_team_seq (team_id, counter) VALUES ($1, 1) ON CONFLICT (team_id) DO NOTHING',
             [teamId]
         )
         return lock('SELECT 1 FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [teamId])
+    }
+
+    const releaseStaleClaimAsTheJanitorDoes = async (id: string): Promise<void> => {
+        await db.query(
+            `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL WHERE id = $1`,
+            [id]
+        )
     }
 
     const unlock = async (held: Lock): Promise<void> => {
@@ -250,8 +258,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         await db.query('SELECT pg_terminate_backend($1)', [await writeWaitingOn(held)])
     }
 
-    // Proves a promise pending only for this window, which is long enough for a write
-    // nobody waits on to finish against a local database.
     const PENDING_WINDOW_MS = 250
     const stillPending = (promise: Promise<unknown>): Promise<boolean> =>
         Promise.race([
@@ -304,7 +310,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         return { returned: () => returned, stopped }
     }
 
-    // Each bounded step left after the deadline still waits one timer turn, which runs 1 ms later.
     const TIMER_SLACK_MS = 5
 
     const useFakeClock = (): void => {
@@ -345,8 +350,6 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         }
     )
 
-    // The held write takes the team's email sequence number first, so it waits on the
-    // sequence lock; the failing one belongs to another team and waits on its own job row.
     it.each([
         {
             write: 'result',
@@ -423,7 +426,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         ['on', true],
         ['off', false],
     ])(
-        'hands a deferred send with files back with its files, its queue metadata and its integration inputs as stored, with integration refs %s',
+        'hands a deferred send with files back with its files, its queue metadata and integration inputs that still resolve, with integration refs %s',
         async (_name, integrationRefsOn) => {
             jest.spyOn(posthogUtils, 'isFeatureFlagEnabled').mockResolvedValue(integrationRefsOn)
             const queue = await startQueue()
@@ -490,19 +493,45 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                     attachmentDueAt: firstDueAt,
                 },
             })
-            expect(again.state!.currentAction.hogFunctionState.globals.inputs.oauth).toEqual(
-                integrationRefsOn
-                    ? {
-                          $integration_ref: 11,
-                          $integration_ref_sig: signIntegrationRef(
-                              new EncryptedFields(ENCRYPTION_SALT_KEYS),
-                              teamId,
-                              'oauth',
-                              11
-                          ),
-                      }
-                    : { $integration_id: 11, access_token_raw: accessToken }
+            const integrationStore: IntegrationSource = {
+                name: 'test',
+                load: (references) =>
+                    Promise.resolve(
+                        Object.fromEntries(
+                            references
+                                .filter((reference) => reference === '11')
+                                .map((reference) => [
+                                    reference,
+                                    {
+                                        reference,
+                                        integration: createIntegration({
+                                            id: 11,
+                                            team_id: teamId,
+                                            kind: 'oauth',
+                                            sensitive_config: { access_token: accessToken },
+                                        }),
+                                        decryptFailures: [],
+                                    },
+                                ])
+                        )
+                    ),
+            }
+            const worker = new HogInputsService(
+                new IntegrationManagerService({ on: () => undefined } as unknown as PubSub, integrationStore),
+                undefined,
+                new EncryptedFields(ENCRYPTION_SALT_KEYS)
             )
+            const sendStep = createHogFunction({
+                team_id: teamId,
+                inputs_schema: [{ key: 'oauth', type: 'integration', required: true }],
+                inputs: { oauth: { value: 11 } },
+            })
+            const resolved = await worker.resolveIntegrationRefs(
+                sendStep,
+                again.state!.currentAction.hogFunctionState.globals.inputs
+            )
+
+            expect(resolved.oauth).toMatchObject({ $integration_id: 11, access_token_raw: accessToken })
             expect(rows[0].state.toString('utf-8').includes(accessToken)).toBe(!integrationRefsOn)
         }
     )
@@ -651,11 +680,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             const emailSequence = await lockEmailSequence()
             const written = release(queue, earlier)
             await writeWaitingOn(emailSequence)
-            // What the janitor does to a job whose claim stopped heartbeating.
-            await db.query(
-                `UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL, last_heartbeat = NULL WHERE id = $1`,
-                [id]
-            )
+            await releaseStaleClaimAsTheJanitorDoes(id)
             const [, later] = await consumer.claimed(2)
             await unlock(emailSequence)
             await written
