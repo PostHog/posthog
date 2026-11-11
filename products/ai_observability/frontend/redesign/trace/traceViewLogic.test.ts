@@ -14,12 +14,14 @@ import {
     makeEvaluationResult,
     makeEvaluationResults,
     makeNodeDetail,
+    makeRawNode,
     makeTraceResource,
-} from './adapter/testFixtures'
+} from './testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
+const RAW_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/raw/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
 const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
@@ -44,6 +46,8 @@ describe('traceViewLogic', () => {
     let requestedHint: string | null = null
     let requestedPath: string | null = null
     let nodeRequests: string[] = []
+    let rawRequests: string[] = []
+    let rawStatus = 200
     let nodeHints: (string | null)[] = []
     let nodeStatus = 200
     let nodeGate: Promise<void> = Promise.resolve()
@@ -53,6 +57,8 @@ describe('traceViewLogic', () => {
         requestedHint = null
         requestedPath = null
         nodeRequests = []
+        rawRequests = []
+        rawStatus = 200
         nodeHints = []
         nodeStatus = 200
         nodeGate = Promise.resolve()
@@ -72,6 +78,13 @@ describe('traceViewLogic', () => {
                         return [404, { detail: 'Node not found.' }]
                     }
                     return nodeStatus === 200 ? [200, makeNodeDetail({ id: nodeId })] : [nodeStatus, { detail: 'nope' }]
+                },
+                [RAW_URL]: ({ params }) => {
+                    const nodeId = decodeIdSegment(String(params.node_id))
+                    rawRequests.push(nodeId)
+                    return rawStatus === 200
+                        ? [200, makeRawNode({ id: nodeId, properties: { $ai_model: 'gpt-4o' } })]
+                        : [rawStatus, { detail: 'nope' }]
                 },
                 [TRACE_URL]: ({ request }) => {
                     const url = new URL(request.url)
@@ -97,33 +110,26 @@ describe('traceViewLogic', () => {
         return logic
     }
 
-    it('loads the trace by its encoded id with the link timestamp as the hint and derives the summary', async () => {
+    it('loads the trace by its encoded id with the link timestamp as the hint', async () => {
         const logic = traceViewLogic({ traceId: 'a/b', timestampHint: '2026-09-01T10:15:00Z' })
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready', traceName: 'Untitled trace' })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'ready' })
         expect(requestedPath).toMatch(/\/traces\/YS9i\/$/)
         expect(requestedHint).toEqual('2026-09-01T10:15:00Z')
-        expect(logic.values.personLabel).toBe('ada@example.com')
-        expect(logic.values.summary?.person).toEqual({
-            label: 'ada@example.com',
-            href: expect.stringContaining('user-1'),
-        })
         expect(logic.values.tree[0].children.map((child) => child.id)).toEqual(['span-1', 'gen-1', 'gen-2'])
     })
 
     it.each([
-        ['the trace is not found', 404, 'It may have been deleted, or it is outside the retention period.'],
-        ['the request fails', 500, 'Something went wrong while loading it. Try again in a moment.'],
-    ])('status is error when %s', async (_description, statusCode, expectedMessage) => {
+        ['the trace is not found', 404, 'not_found'],
+        ['the request fails', 500, 'failed'],
+    ])('status is error when %s', async (_description, statusCode, expectedFailure) => {
         silenceKeaLoadersErrors()
         useMocks({ get: { [TRACE_URL]: () => [statusCode, { detail: 'nope' }] } })
         const logic = traceViewLogic({ traceId: 'trace-1', timestampHint: null })
         logic.mount()
 
-        await expectLogic(logic)
-            .toFinishAllListeners()
-            .toMatchValues({ status: 'error', errorMessage: expectedMessage })
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ status: 'error', loadFailure: expectedFailure })
     })
 
     it.each([
@@ -395,6 +401,47 @@ describe('traceViewLogic', () => {
                 trigger: 'selection',
                 waited_ms: 6000,
             })
+        })
+    })
+
+    describe('raw reads', () => {
+        it('reads a step raw event once, however many times it is asked for', async () => {
+            const logic = await mountedLogic()
+
+            logic.actions.loadRawNode('span-1')
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(rawRequests).toEqual(['span-1'])
+        })
+
+        it('stores the raw event once it arrives', async () => {
+            const logic = await mountedLogic()
+
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.rawNodes['span-1']).toMatchObject({
+                status: 'ready',
+                raw: { id: 'span-1', event: { properties: { $ai_model: 'gpt-4o' } } },
+            })
+        })
+
+        it('stores not_found for a missing step and reads it again on the next request', async () => {
+            silenceKeaLoadersErrors()
+            const logic = await mountedLogic()
+            rawStatus = 404
+
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.rawNodes['span-1']).toEqual({ status: 'error', failure: 'not_found' })
+
+            rawStatus = 200
+            logic.actions.loadRawNode('span-1')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.rawNodes['span-1']).toMatchObject({ status: 'ready' })
         })
     })
 })

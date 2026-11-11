@@ -55,6 +55,7 @@ describe('createAiConsumer', () => {
                 IngestionConsumerConfig,
                 | 'INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS'
                 | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
+                | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_MAX_SIZE'
                 | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
                 | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
             >),
