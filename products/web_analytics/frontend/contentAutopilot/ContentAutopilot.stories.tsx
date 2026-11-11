@@ -78,8 +78,15 @@ const workspaceHandlers = ({
                 { count: EXAMPLE_PROMPTS.length, next: null, previous: null, results: EXAMPLE_PROMPTS },
             ],
             '/api/projects/:team_id/aeo_prompts/topics/': () => [200, EXAMPLE_PROMPT_TOPICS],
-            '/api/projects/:team_id/aeo_prompts/overview/': () => [200, EXAMPLE_PROMPT_SET_OVERVIEW],
-            '/api/projects/:team_id/aeo_prompts/rankings/': () => [200, EXAMPLE_PROMPT_SET_RANKINGS],
+            // The segment control reads the segment back from the response, so the mocks echo the requested one.
+            '/api/projects/:team_id/aeo_prompts/overview/': ({ request }) => [
+                200,
+                { ...EXAMPLE_PROMPT_SET_OVERVIEW, branded: new URL(request.url).searchParams.get('branded') ?? 'all' },
+            ],
+            '/api/projects/:team_id/aeo_prompts/rankings/': ({ request }) => [
+                200,
+                { ...EXAMPLE_PROMPT_SET_RANKINGS, branded: new URL(request.url).searchParams.get('branded') ?? 'all' },
+            ],
             '/api/projects/:team_id/aeo_keywords/': () => [200, keywords],
             '/api/projects/:team_id/aeo_keywords/report/': () => [
                 200,

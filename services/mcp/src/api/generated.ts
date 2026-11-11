@@ -355,6 +355,8 @@ export namespace Schemas {
       current_version: number;
       /** How many versions the prompt has. */
       version_count: number;
+      /** Whether the current text names the brand. Computed when read, so it follows changes to the target domains. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand. */
+      branded: boolean;
     }
 
     export interface AEOPromptAuthor {
@@ -686,6 +688,20 @@ export namespace Schemas {
       engines: string[];
     }
 
+    /**
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     */
+    export type BrandedSegmentEnum = typeof BrandedSegmentEnum[keyof typeof BrandedSegmentEnum];
+
+
+    export const BrandedSegmentEnum = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
     export interface AEOPromptSetOverview {
       /** Checks across the prompt set in the last 'days' days. */
       current: AEOPromptSetCounts;
@@ -711,6 +727,16 @@ export namespace Schemas {
       target_domains: string[];
       /** Lower-cased brand names, derived from the target domains. An answer that contains one of them as a word counts as a mention. */
       brand_names: string[];
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
+      /** Answered checks in the current window whose prompt named the brand, whatever 'branded' selects. The sample size behind the branded numbers. */
+      branded_answers: number;
+      /** Answered checks in the current window whose prompt did not name the brand, whatever 'branded' selects. The sample size behind the non-branded numbers. */
+      non_branded_answers: number;
     }
 
     export interface AEORankedBrand {
@@ -794,6 +820,12 @@ export namespace Schemas {
       window_from: string;
       /** Last day of the current window (today), in the project's timezone. */
       window_to: string;
+      /** Which checks every count covers: 'all', 'branded' or 'non_branded' prompts, as requested.
+       *
+       * * `all` - All
+       * * `branded` - Branded
+       * * `non_branded` - Non-branded */
+      branded: BrandedSegmentEnum;
       /** Answered checks in the current window: the denominator of every share. */
       answers: number;
     }
@@ -54210,6 +54242,23 @@ export namespace Schemas {
       AnyUser: 'any-user',
     } as const;
 
+    export interface HighlightExperimentResult {
+      /** Name of the primary metric of the experiment. */
+      metric_name: string;
+      /** Key of the variant the number compares with the control. */
+      variant: string;
+      /** Key of the control variant. */
+      control: string;
+      /** How many variants the experiment tests against the control. */
+      variants: number;
+      /** Whether the difference of `variant` is significant. */
+      significant: boolean;
+      /** Whether `variant` moves the metric toward its goal: up, or down for a metric that should decrease. */
+      favorable: boolean;
+      /** How many people the result counts across every variant, or groups for an experiment on groups. */
+      exposures: number;
+    }
+
     /**
      * * `failure` - Failure
      * * `struggle` - Struggle
@@ -54414,6 +54463,7 @@ export namespace Schemas {
      * * `popular` - Opened often in this project
      * * `watched` - You get updates on this
      * * `built` - You created or edited this
+     * * `experiment` - An experiment you run
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -54425,6 +54475,7 @@ export namespace Schemas {
       Popular: 'popular',
       Watched: 'watched',
       Built: 'built',
+      Experiment: 'experiment',
     } as const;
 
     export interface HighlightMover {
@@ -54440,7 +54491,7 @@ export namespace Schemas {
     }
 
     export interface HighlightMetric {
-      /** Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>. */
+      /** Stable key of the metric: a key metric setting such as signup_event, insight:<short_id>, or experiment:<id>. */
       key: string;
       /** Name of the key metric or of the insight, for example Sign-ups. */
       name: string;
@@ -54474,14 +54525,15 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
        * * `popular` - Opened often in this project
        * * `watched` - You get updates on this
-       * * `built` - You created or edited this */
+       * * `built` - You created or edited this
+       * * `experiment` - An experiment you run */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -54510,6 +54562,8 @@ export namespace Schemas {
       previous_value: number | null;
       /** For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise. */
       movers: HighlightMover[];
+      /** The primary metric result of an experiment. Then `value` is the change of `variant` against the control, in percent, and `series` is empty. Null for other metrics. */
+      experiment: HighlightExperimentResult | null;
     }
 
     /**
@@ -54572,7 +54626,8 @@ export namespace Schemas {
        * * `key_metric` - Project key metric
        * * `popular` - Opened often in this project
        * * `watched` - You get updates on this
-       * * `built` - You created or edited this */
+       * * `built` - You created or edited this
+       * * `experiment` - An experiment you run */
       reason?: HighlightMetricReasonEnum | null;
       /** Stable key of the selected number. */
       key: string;
@@ -64244,6 +64299,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `project` - Project
+     * * `default` - Default
+     * * `code` - Code
+     */
+    export type LimitSourceEnum = typeof LimitSourceEnum[keyof typeof LimitSourceEnum];
+
+
+    export const LimitSourceEnum = {
+      Project: 'project',
+      Default: 'default',
+      Code: 'code',
+    } as const;
+
+    /**
      * * `burst` - burst
      * * `sustained` - sustained
      */
@@ -72159,6 +72228,7 @@ export namespace Schemas {
      * * `other` - Other
      * * `provisioned` - Account provisioned by a partner
      * * `connector` - Signed up through an OAuth connector
+     * * `device_login` - Signed up through an OAuth device login
      */
     export type OnboardingSkippedReasonEnum = typeof OnboardingSkippedReasonEnum[keyof typeof OnboardingSkippedReasonEnum];
 
@@ -72169,6 +72239,7 @@ export namespace Schemas {
       Other: 'other',
       Provisioned: 'provisioned',
       Connector: 'connector',
+      DeviceLogin: 'device_login',
     } as const;
 
     export interface OnlinePerformanceRow {
@@ -96701,6 +96772,24 @@ export namespace Schemas {
       max_live_pipelines: number;
       /** Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered. */
       live_pipelines: number;
+      /** Where max_training_runs_per_day comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_training_runs_per_day_source: LimitSourceEnum;
+      /** Where max_iterations_per_run comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_iterations_per_run_source: LimitSourceEnum;
+      /** Where max_live_pipelines comes from. project: an override for this project. default: the fleet-wide default. code: the built-in default, because no override is set or no override was readable.
+       *
+       * * `project` - Project
+       * * `default` - Default
+       * * `code` - Code */
+      max_live_pipelines_source: LimitSourceEnum;
     }
 
     /**
@@ -126883,6 +126972,11 @@ export namespace Schemas {
      */
     active?: boolean | null;
     /**
+     * Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     * @nullable
+     */
+    branded?: boolean | null;
+    /**
      * Also list archived prompts. Archived prompts are left out by default.
      */
     include_archived?: boolean;
@@ -126939,14 +127033,14 @@ export namespace Schemas {
 
     export type AeoPromptsOverviewParams = {
     /**
-     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
-     * @minimum 1
-     * @maximum 90
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
      */
-    days?: number;
-    };
-
-    export type AeoPromptsRankingsParams = {
+    branded?: AeoPromptsOverviewBranded;
     /**
      * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
      * @minimum 1
@@ -126954,6 +127048,42 @@ export namespace Schemas {
      */
     days?: number;
     };
+
+    export type AeoPromptsOverviewBranded = typeof AeoPromptsOverviewBranded[keyof typeof AeoPromptsOverviewBranded];
+
+
+    export const AeoPromptsOverviewBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
+
+    export type AeoPromptsRankingsParams = {
+    /**
+     * Which checks to count, by the prompt as it ran: 'all' (default), 'branded' (the prompt names the brand) or 'non_branded'. Every count, the window before included, uses the same checks. Use 'non_branded' to judge visibility, since a prompt that names the brand almost always gets an answer that mentions it. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand.
+     *
+     * * `all` - All
+     * * `branded` - Branded
+     * * `non_branded` - Non-branded
+     * @minLength 1
+     */
+    branded?: AeoPromptsRankingsBranded;
+    /**
+     * Length of the window in days, ending today in the project's timezone. Default 30, at most 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
+    export type AeoPromptsRankingsBranded = typeof AeoPromptsRankingsBranded[keyof typeof AeoPromptsRankingsBranded];
+
+
+    export const AeoPromptsRankingsBranded = {
+      All: 'all',
+      Branded: 'branded',
+      NonBranded: 'non_branded',
+    } as const;
 
     export type AiObservabilityInstrumentationChecklistRetrieveParams = {
     /**

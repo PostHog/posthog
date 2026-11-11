@@ -27,6 +27,7 @@ export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'bri
 export type ContentAutopilotWorkspaceTab =
     | 'overview'
     | 'rankings'
+    | 'traffic'
     | 'prompts'
     | 'keywords'
     | 'opportunities'
