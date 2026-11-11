@@ -161,7 +161,7 @@ class TestOIDCAuthentication(APILicensedTest):
                     self.backend.validate_and_return_id_token(token, "example-access-token")
 
     def _complete_oidc_login(
-        self, email: str, *, sub: str = "example-user", name: str = "Example User"
+        self, email: str, *, sub: str = "example-user", name: str = "Example User", email_verified: bool | None = True
     ) -> HttpResponse:
         private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         public_key = {**json.loads(jwt.algorithms.RSAAlgorithm.to_jwk(private_key.public_key())), "kid": "example-key"}
@@ -187,9 +187,10 @@ class TestOIDCAuthentication(APILicensedTest):
                 data = {
                     "sub": sub,
                     "email": email,
-                    "email_verified": True,
                     "name": name,
                 }
+                if email_verified is not None:
+                    data["email_verified"] = email_verified
             else:
                 self.assertEqual(url, "https://idp.example.com/token")
                 self.assertEqual(method, "POST")
@@ -220,12 +221,13 @@ class TestOIDCAuthentication(APILicensedTest):
             )
             return self.client.get("/complete/oidc/", {"state": params["state"][0], "code": "example-code"})
 
-    def test_oidc_login_completes_without_storing_tokens(self):
+    @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
+    def test_oidc_login_completes_without_storing_tokens(self, _name: str, email_verified: bool | None) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
 
-        response = self._complete_oidc_login("member@example.com")
+        response = self._complete_oidc_login("member@example.com", email_verified=email_verified)
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
@@ -234,13 +236,18 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
 
-    def test_oidc_jit_provisioning_creates_user_on_verified_domain(self):
+    @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
+    def test_oidc_jit_provisioning_creates_user_on_verified_domain(
+        self, _name: str, email_verified: bool | None
+    ) -> None:
         self.domain.jit_provisioning_enabled = True
         self.domain.save()
         self.client.logout()
         user_count = User.objects.count()
 
-        response = self._complete_oidc_login("newmember@example.com", sub="new-user", name="New Member")
+        response = self._complete_oidc_login(
+            "newmember@example.com", sub="new-user", name="New Member", email_verified=email_verified
+        )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(User.objects.count(), user_count + 1)
@@ -256,12 +263,17 @@ class TestOIDCAuthentication(APILicensedTest):
         social_auth = UserSocialAuth.objects.get(user=user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:new-user")
 
-    def test_oidc_jit_provisioning_disabled_does_not_provision_user(self):
+    @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
+    def test_oidc_jit_provisioning_disabled_does_not_provision_user(
+        self, _name: str, email_verified: bool | None
+    ) -> None:
         self.assertFalse(self.domain.jit_provisioning_enabled)
         self.client.logout()
         user_count = User.objects.count()
 
-        response = self._complete_oidc_login("newmember@example.com", sub="new-user", name="New Member")
+        response = self._complete_oidc_login(
+            "newmember@example.com", sub="new-user", name="New Member", email_verified=email_verified
+        )
 
         self.assertEqual(response.status_code, 302)
         self.assertEqual(User.objects.count(), user_count)
