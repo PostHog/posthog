@@ -15,6 +15,8 @@ function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: R
     let nextPid = 1
     const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
     const gone: number[] = []
+    const goneAfterRelease: number[] = []
+    let releaseBegan = false
     const jobs: Job[] = []
     const readers: (() => void)[] = []
     let gate: Promise<void> | undefined
@@ -29,6 +31,9 @@ function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: R
                 }
                 if (!unkillable) {
                     gone.push(pid)
+                    if (releaseBegan) {
+                        goneAfterRelease.push(pid)
+                    }
                     processes.set(action.role, nextPid++)
                 }
                 return Promise.resolve({
@@ -51,6 +56,11 @@ function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: R
     return {
         context,
         gone: () => [...gone],
+        goneAfterRelease: () => [...goneAfterRelease],
+        releasing: (release: () => Promise<void>) => {
+            releaseBegan = true
+            return release()
+        },
         run: (count: number, queue: Queue = 'email') =>
             jobs.push(...Array.from({ length: count }, () => ({ team: OUR_TEAM, queue, status: 'running' as const }))),
         nextRead: () => new Promise<void>((resolve) => readers.push(resolve)),
@@ -148,6 +158,26 @@ describe('valves', () => {
         expect(stack.gone()).toEqual([])
         expect(valves.timeline()).toEqual([expect.objectContaining({ error })])
     })
+
+    it.each(Array.from({ length: 12 }, (_, microtasks) => [microtasks]))(
+        'never kills once the release began, when it begins %i microtasks after the probe is read',
+        async (microtasks) => {
+            const valves = createValves({ pollMs: 5 })
+            const stack = stackOf()
+            stack.run(2)
+            const releasing = stack.nextRead().then(async () => {
+                for (let i = 0; i < microtasks; i++) {
+                    await Promise.resolve()
+                }
+                await stack.releasing(() => valves.releaseAll())
+            })
+
+            await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+            await releasing
+
+            expect(stack.goneAfterRelease()).toEqual([])
+        }
+    )
 
     it.each<[string, Parameters<typeof stackOf>[0], string]>([
         ['whose kill did not take', { unkillable: true }, 'applied but not observed'],
