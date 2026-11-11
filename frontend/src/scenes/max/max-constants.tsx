@@ -1474,7 +1474,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 export const MODE_DEFINITIONS: Record<
     Exclude<
         AgentMode,
-        AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox | AgentMode.UserInterview
+        AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox
     >,
     ModeDefinition
 > = {
