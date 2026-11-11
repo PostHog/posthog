@@ -474,35 +474,73 @@ describe('fetch', () => {
         })
     })
 
-    describe('circuit breaker', () => {
-        it('stops opening connections to an address whose requests keep timing out', async () => {
-            let connections = 0
-            const unresponsive = http.createServer(() => {})
-            unresponsive.on('connection', () => connections++)
-            await new Promise<void>((resolve) => unresponsive.listen(0, '127.0.0.1', resolve))
-            const url = `http://localhost:${(unresponsive.address() as AddressInfo).port}/`
-            try {
-                await withIsolatedRequestModule(
-                    {
-                        EXTERNAL_REQUEST_CIRCUIT_BREAKER_ENABLED: 'true',
-                        EXTERNAL_REQUEST_CIRCUIT_BREAKER_MIN_FAILURES: '3',
-                    },
-                    async (fresh) => {
-                        for (const _ of range(3)) {
-                            await expect(fresh.fetch(url, { timeoutMs: 50 })).rejects.toThrow()
-                        }
-                        const connectionsBeforePause = connections
+    describe('new connection limit per IP address', () => {
+        const ipv4 = { address: '127.0.0.1', family: 4 }
+        // Nothing listens on ::1, so a request reaches the origin only through the fallback to IPv4.
+        const ipv6First = [{ address: '::1', family: 6 }, ipv4]
 
-                        await expect(fresh.fetch(url, { timeoutMs: 50 })).rejects.toBeInstanceOf(fresh.CircuitOpenError)
-                        expect(connectionsBeforePause).toBeGreaterThan(0)
-                        expect(connections).toBe(connectionsBeforePause)
-                    }
-                )
-            } finally {
-                unresponsive.closeAllConnections()
-                unresponsive.close()
+        test.each([
+            {
+                name: 'rejects over the limit',
+                enforced: 'true',
+                addresses: [ipv4],
+                expected: [200, 200, 'ConnectionRateLimitError'],
+                expectedConnections: 2,
+            },
+            {
+                name: 'only counts when not enforced',
+                enforced: 'false',
+                addresses: [ipv4],
+                expected: [200, 200, 200],
+                expectedConnections: 3,
+            },
+            {
+                name: 'keeps IPv6 unlimited and the IPv4 fallback',
+                enforced: 'true',
+                addresses: ipv6First,
+                expected: [200, 200, 'ECONNREFUSED'],
+                expectedConnections: 2,
+            },
+        ])(
+            '$name, for an origin that closes every connection',
+            async ({ enforced, addresses, expected, expectedConnections }) => {
+                let connections = 0
+                const closing = http.createServer((_req, res) => {
+                    res.setHeader('connection', 'close')
+                    res.end('ok')
+                })
+                closing.on('connection', () => connections++)
+                await new Promise<void>((resolve) => closing.listen(0, '127.0.0.1', resolve))
+                const url = `http://localhost:${(closing.address() as AddressInfo).port}/`
+                try {
+                    await withIsolatedRequestModule(
+                        {
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '0.001',
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: '2',
+                            EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: enforced,
+                        },
+                        async (fresh) => {
+                            jest.mocked(require('dns/promises').lookup).mockResolvedValue(addresses)
+                            const outcomes = []
+                            for (const _ of range(3)) {
+                                outcomes.push(
+                                    await fresh.fetch(url).then(
+                                        (response) => response.status,
+                                        (error) => error.code ?? error.name
+                                    )
+                                )
+                            }
+
+                            expect(outcomes).toEqual(expected)
+                            expect(connections).toBe(expectedConnections)
+                        }
+                    )
+                } finally {
+                    closing.closeAllConnections()
+                    closing.close()
+                }
             }
-        })
+        )
     })
 })
 
