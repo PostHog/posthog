@@ -1,5 +1,5 @@
 import type { Schemas } from '@/api/generated'
-import { wrapError } from '@/lib/errors'
+import { findRecoverableApiError, PostHogValidationError, wrapError } from '@/lib/errors'
 import { withInformationalResponse, type WithInformationalResponse } from '@/tools/tool-utils'
 import type { Context } from '@/tools/types'
 
@@ -197,7 +197,8 @@ const UNRUN_REFERENCE = /Referenced node '([A-Za-z_][A-Za-z0-9_]*)' has not been
  */
 function withUnrunUpstreamHint(error: unknown, cells: CellTagBlock[]): unknown {
     const message = error instanceof Error ? error.message : ''
-    const name = UNRUN_REFERENCE.exec(message)?.[1]
+    const apiError = findRecoverableApiError(error)
+    const name = UNRUN_REFERENCE.exec(apiError instanceof PostHogValidationError ? apiError.detail : message)?.[1]
     const upstream = name ? cells.find((cell) => cell.returnVariable === name && cell.nodeId) : undefined
     if (!upstream) {
         return error

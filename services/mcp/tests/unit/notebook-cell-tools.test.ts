@@ -602,7 +602,7 @@ describe('notebook cell tools', () => {
             expect(state.runBodies).toHaveLength(0)
         })
 
-        it('retains an unrun-cell rejection as typed metadata without echoing it', async () => {
+        it('preserves upstream-cell recovery without echoing backend details', async () => {
             const state = makeState(
                 [
                     '# Doc',
@@ -613,15 +613,17 @@ describe('notebook cell tools', () => {
                     '',
                 ].join('\n')
             )
-            state.runDispatchError = "Referenced node 'events_df' has not been run yet — run it first."
+            state.runDispatchError = "Referenced node 'events_df' has not been run yet. BODY_SECRET"
             const context = createMockContext(state)
 
             const error = await runCellHandler(context, { notebook_id: 'aBcD1234', node_id: 'target' }).catch(
                 (caught: unknown) => caught
             )
 
-            expect((error as Error).message).toContain('validation error')
-            expect((error as Error).message).not.toContain('events_df')
+            expect((error as Error).message).toContain(
+                'Cell upstream produces events_df. Run it with notebooks-run-cell, then run this cell again.'
+            )
+            expect((error as Error).message).not.toContain('BODY_SECRET')
             expect(findRecoverableApiError(error)).toBeInstanceOf(PostHogValidationError)
             expect(findRecoverableApiError(error)).toMatchObject({ detail: state.runDispatchError })
         })
