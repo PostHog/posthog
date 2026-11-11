@@ -152,7 +152,8 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
             "campaign_type",
             "campaign_ad_type",
             "campaign_package_name",
-            "application",
+            # The docs list `application` for advertiser reports, but `/report` answers
+            # `400 Invalid Column: application` for report_type=advertiser.
             "app_id_external",
             "platform",
             "country",
