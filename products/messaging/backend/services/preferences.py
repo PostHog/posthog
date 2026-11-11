@@ -1,4 +1,4 @@
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
 from django.db import transaction
@@ -84,6 +84,57 @@ def remove_opt_out(
 
     _sync_after_commit(team_id, identifier)
     return preference, created
+
+
+class TopicsNotFound(Exception):
+    def __init__(self, keys: list[str]) -> None:
+        super().__init__(", ".join(keys))
+        self.keys = keys
+
+
+def set_preferences(
+    team_id: int, identifier: str, all_marketing: bool | None, topics: Mapping[str, bool]
+) -> dict[str, Any]:
+    """Apply `all_marketing`, then each topic in order, in one locked write. Returns the stored preferences.
+
+    Raises TopicsNotFound before any write when a topic key names no live category of the team.
+    """
+    categories = {
+        category.key: category
+        for category in MessageCategory.objects.filter(team_id=team_id, key__in=list(topics), deleted=False)
+    }
+    unknown = [key for key in topics if key not in categories]
+    if unknown:
+        raise TopicsNotFound(unknown)
+
+    saved: dict[str, Any] = {}
+
+    def apply(stored: dict[str, Any]) -> dict[str, Any]:
+        preferences = dict(stored)
+        if all_marketing is not None:
+            preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = _status(all_marketing)
+        for key, opted_in in topics.items():
+            if opted_in:
+                _lift_global_opt_out(team_id, preferences, categories[key])
+            preferences[str(categories[key].id)] = _status(opted_in)
+        saved.update(preferences)
+        return preferences
+
+    transition_preferences(team_id, identifier, apply, touch_updated_at=True)
+    _sync_after_commit(team_id, identifier)
+    # The written snapshot, not a reread that a lagging replica could answer with old preferences.
+    return saved
+
+
+def _status(opted_in: bool) -> str:
+    return (PreferenceStatus.OPTED_IN if opted_in else PreferenceStatus.OPTED_OUT).value
+
+
+def topic_keys_by_id(team_id: int) -> dict[str, str]:
+    return {
+        str(category_id): key
+        for category_id, key in MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list("id", "key")
+    }
 
 
 def _lift_global_opt_out(team_id: int, preferences: dict[str, Any], category: MessageCategory) -> None:

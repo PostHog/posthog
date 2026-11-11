@@ -237,6 +237,18 @@ describe('EmailValidationService', () => {
             expect(reason).toContain('no reachable mail servers')
             expect(mockResolveMx).not.toHaveBeenCalled()
         })
+
+        it('falls back to DNS when the Valkey pool cannot hand out a client', async () => {
+            const valkey: RedisV2 = {
+                useClient: jest.fn().mockRejectedValue(new Error('ResourceRequest timed out')),
+                usePipeline: jest.fn(),
+            }
+            const withValkey = new EmailValidationService(valkey)
+
+            const reason = await withValkey.getSkipReason(emailInvocation('user@example.com'), emailAction)
+            expect(reason).toBeNull()
+            expect(mockResolveMx).toHaveBeenCalledWith('example.com')
+        })
     })
     describe('out-of-band domain detection', () => {
         const originalCloudDeployment = process.env.CLOUD_DEPLOYMENT
@@ -256,7 +268,7 @@ describe('EmailValidationService', () => {
             }
         })
 
-        it('logs a listed recipient domain and still lets the send through', async () => {
+        it('refuses a listed recipient domain before it looks the domain up', async () => {
             const reason = await service.getSkipReason(emailInvocation('probe@abc.oast.me'), emailAction)
 
             expect(info).toHaveBeenCalledWith(
@@ -267,8 +279,8 @@ describe('EmailValidationService', () => {
                     guard: 'node_email_validation',
                 })
             )
-            expect(mockResolveMx).toHaveBeenCalledWith('abc.oast.me')
-            expect(reason).toBeNull()
+            expect(mockResolveMx).not.toHaveBeenCalled()
+            expect(reason).toContain('abc.oast.me')
         })
     })
 })

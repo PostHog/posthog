@@ -28,10 +28,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
+import { membersLogic } from '~/models/membersLogic'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import type {
@@ -109,8 +108,6 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
 function TagsCell({ record }: { record: unknown }): JSX.Element {
     const { isTagsSaving, tagOverrides } = useValues(accountsLogic)
     const { updateAccountTags, addTagToFilter } = useActions(accountsLogic)
-    const { tags: tagsAvailable, tagsLoading } = useValues(tagsModel)
-    const { loadTagsIfNeeded } = useActions(tagsModel)
     const getCell = useGetCell()
     const raw = getCell(record, 'tag_names')
     const cellTags = Array.isArray(raw) ? (raw.filter((t) => typeof t === 'string') as string[]) : []
@@ -123,10 +120,8 @@ function TagsCell({ record }: { record: unknown }): JSX.Element {
         <ObjectTags
             tags={tags}
             onChange={(newTags) => updateAccountTags(accountId, newTags)}
-            onEdit={loadTagsIfNeeded}
             onTagClick={addTagToFilter}
-            saving={isTagsSaving(accountId) || tagsLoading}
-            tagsAvailable={(tagsAvailable || []).filter((tag) => !tags.includes(tag))}
+            saving={isTagsSaving(accountId)}
             data-attr="accounts-tags-cell"
             editorFullWidth
         />

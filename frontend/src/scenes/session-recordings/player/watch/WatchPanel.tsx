@@ -1,41 +1,62 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+
+import { IconChevronDown } from '@posthog/icons'
+import { Button } from '@posthog/quill'
 
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
-import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
-import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
+
+import { QuillSummarizeRecordingBar } from 'products/replay_vision/frontend/components/QuillSummarizeRecordingBar'
+import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { DebugModeBanner } from './DebugModeBanner'
-import { MomentTicker } from './MomentTicker'
 import { RecordingCommentsList } from './RecordingCommentsList'
-import { RecordingDebugSection } from './RecordingDebugSection'
-import { RecordingOverviewDisclosure } from './RecordingOverviewDisclosure'
 import { RecordingTitleBlock } from './RecordingTitleBlock'
+import { WatchPanelSections } from './WatchPanelSections'
+import { WatchPanelSectionsWithObservations } from './WatchPanelSectionsWithObservations'
 
-export function WatchPanel({
-    summaryActions,
-}: {
-    /** Recording actions the host places beside the summarize button. */
-    summaryActions?: React.ReactNode
-}): JSX.Element | null {
-    const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
-    const { debugMode, watchDebugDock } = useValues(playerSettingsLogic)
+export const WATCH_PANEL_COLLAPSED_SIZE = '2.5rem'
+
+export function WatchPanel(): JSX.Element | null {
+    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const vision = useVisionSurfaceShown()
+    const { debugMode, watchDebugDock, watchPanelCollapsed } = useValues(playerSettingsLogic)
+    const { setWatchPanelCollapsed } = useActions(playerSettingsLogic)
+    const { dataProcessingAccepted } = useValues(aiConsentLogic)
     if (!sessionRecordingId) {
         return null
     }
-    const vision = visionSurfaceShown(logicProps)
+    const debugDocked = debugMode && watchDebugDock === 'bottom'
+    const actions = vision ? <QuillSummarizeRecordingBar /> : undefined
+    const toggle = (
+        <Button
+            size="icon"
+            onClick={() => setWatchPanelCollapsed(!watchPanelCollapsed)}
+            tooltip={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+            aria-label={watchPanelCollapsed ? 'Expand' : 'Collapse'}
+            data-attr="watch-panel-collapse"
+        >
+            <IconChevronDown className={watchPanelCollapsed ? 'rotate-180' : undefined} />
+        </Button>
+    )
+    if (watchPanelCollapsed) {
+        return <RecordingTitleBlock compact actions={actions} trailingActions={toggle} />
+    }
 
     return (
-        <div className="flex flex-col gap-4 px-1 pt-3 pb-6" data-attr="watch-panel">
-            <DebugModeBanner />
-            {vision && <MomentTicker sessionId={sessionRecordingId} />}
-            <RecordingTitleBlock
-                actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
-            />
-            <RecordingOverviewDisclosure />
+        <div
+            data-quill
+            className="flex flex-col gap-3 px-1 pt-2 pb-1.5 text-foreground isolate h-full min-h-0 overflow-y-auto [&>*]:shrink-0"
+            data-attr="watch-panel"
+        >
+            <RecordingTitleBlock actions={actions} trailingActions={toggle} />
+            {vision && dataProcessingAccepted ? (
+                <WatchPanelSectionsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />
+            ) : (
+                <WatchPanelSections debug={debugDocked} />
+            )}
             <RecordingCommentsList sessionId={sessionRecordingId} />
-            {debugMode && watchDebugDock === 'bottom' && <RecordingDebugSection />}
         </div>
     )
 }

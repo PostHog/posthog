@@ -3,8 +3,6 @@ import type { Experiment } from '~/types'
 
 export const EXPERIMENT_VARIANT_MULTIPLE = '$multiple'
 
-export const EXPERIMENT_HEALTH_PANEL_ELEMENT_ID = 'experiment-health-panel'
-
 export const CONFIDENCE_LEVEL_OPTIONS = [
     { value: 0.9, label: '90%' },
     { value: 0.95, label: '95%' },
@@ -20,7 +18,7 @@ export const MAX_LOOKBACK_DAYS = 30
 
 export const DEFAULT_MDE = 30
 
-// Mirrors EXPERIMENT_RECALCULATION_MAX_AGE_DAYS in posthog/temporal/experiments/activities.py
+// Mirrors DAILY_CALCULATION_DAYS in products/experiments/backend/facade/daily_calculation.py
 export const EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 export const CONCLUSION_DISPLAY_CONFIG: Record<

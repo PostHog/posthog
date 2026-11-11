@@ -265,3 +265,16 @@ LEARNED_RULES_CONCURRENCY = 16
 LIST_DUE_LEARNED_RULES_TIMEOUT = dt.timedelta(seconds=60)
 # Covers the model call's own 120s timeout plus the database reads around it.
 REFRESH_TEAM_LEARNED_RULES_TIMEOUT = dt.timedelta(minutes=4)
+
+
+# Highlight feed rebuilds: a schedule starts this every minute and skips a start while one still runs.
+HIGHLIGHT_REBUILD_WORKFLOW_NAME = "replay-vision-rebuild-highlight-feeds"
+HIGHLIGHT_REBUILD_WORKFLOW_ID = "replay-vision-highlight-feed-rebuilder"
+HIGHLIGHT_REBUILD_SCHEDULE_ID = "replay-vision-highlight-feed-rebuilder-schedule"
+HIGHLIGHT_REBUILD_INTERVAL = dt.timedelta(minutes=1)
+HIGHLIGHT_REBUILD_EXECUTION_TIMEOUT = dt.timedelta(minutes=10)
+HIGHLIGHT_REBUILD_ACTIVITY_TIMEOUT = dt.timedelta(minutes=8)
+# One team's build holds one heavy statement under its own 120s cap, so a heartbeat per team arrives well inside this.
+HIGHLIGHT_REBUILD_HEARTBEAT_TIMEOUT = dt.timedelta(minutes=5)
+# The activity starts no team after this, which leaves a slow last build room inside the activity timeout.
+HIGHLIGHT_REBUILD_CLAIM_BUDGET = dt.timedelta(minutes=3)

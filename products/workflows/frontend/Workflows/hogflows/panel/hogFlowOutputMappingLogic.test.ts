@@ -490,10 +490,9 @@ describe('hogFlowOutputMappingLogic', () => {
         describe('setMappingVariable', () => {
             it('creates the workflow variable when the name is new, then maps and persists it', async () => {
                 const node = makeActionNode('action-new-var')
-                await expectLogic(editorLogic, () => {
-                    editorLogic.actions.setNodesRaw([node])
-                    editorLogic.actions.setSelectedNodeId('action-new-var')
-                }).toMatchValues({ selectedNode: node })
+                // Saving the new variable rebuilds the nodes from the workflow, so the step must be in it.
+                wfLogic.actions.setWorkflowInfo({ actions: [node.data] })
+                editorLogic.actions.setSelectedNodeId('action-new-var')
                 logic.actions.initMappings([{ key: '', result_path: 'output.verdict' }])
 
                 await expectLogic(logic, () => {

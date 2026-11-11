@@ -22,7 +22,7 @@ import type {
     EvaluationsOverviewApi,
     EvaluationsOverviewRetrieveParams,
 } from '../../generated/api.schemas'
-import { buildEvaluationPassRateTrendsQuery } from '../evaluationMetricsLogic'
+import { buildEvaluationPassRateTrendsQuery } from '../evaluationPassRateTrendsQuery'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import type { EvaluationDirectoryEditor } from '../llmEvaluationsLogic'
 import type { EvaluationConfig } from '../types'

@@ -26,9 +26,10 @@ ee/clickhouse
 products/ai_observability/backend/tests/logic/evaluations
 products/ai_observability/backend/tests/logic/traces
 products/ai_observability/backend/tests/test_facade_api.py
-products/ai_observability/backend/tests/test_trace_views.py
+products/ai_observability/backend/tests/presentation/views
 products/cohorts
 products/customer_analytics/backend/hogql_queries
+products/customer_analytics/backend/test/test_account_automations.py
 products/customer_analytics/backend/test/test_key_metrics.py
 products/customer_analytics/backend/test/test_membership_backfill.py
 products/error_tracking/backend/hogql_queries
@@ -38,6 +39,7 @@ products/groups/backend/tests
 products/marketing_analytics/backend/hogql_queries
 products/marketing_analytics/backend/services/test_attribution_health.py
 products/marketing_analytics/backend/services/test_conversion_recordings.py
+products/mcp_analytics/backend/tests/test_dashboard_query.py
 products/mcp_analytics/backend/tests/test_dashboard_series.py
 products/mcp_analytics/backend/tests/test_harness_breakdown.py
 products/mcp_analytics/backend/tests/test_missing_capabilities.py
@@ -74,6 +76,7 @@ products/batch_exports/backend/tests/temporal/test_filters.py
 products/batch_exports/backend/tests/temporal/test_record_batch_model.py
 products/batch_exports/backend/tests/test_custom_events_schema.py
 products/batch_exports/backend/tests/test_hogql_source.py
+products/feature_flags/backend/test/test_flag_windows_errors.py
 products/feature_flags/backend/test/test_flag_windows_exposure.py
 products/feature_flags/backend/test/test_request_usage.py
 

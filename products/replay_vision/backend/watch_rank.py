@@ -12,7 +12,7 @@ import asyncio
 from collections import Counter
 from collections.abc import Collection, Sequence
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
 from django.core.cache import cache
 from django.db import transaction
@@ -35,6 +35,7 @@ from products.replay_vision.backend.models.replay_highlight_feed import ReplayHi
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
 from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
+from products.replay_vision.backend.models.replay_observation_view import ReplayObservationView
 from products.replay_vision.backend.observation_ranks import CATEGORY_CODES, CATEGORY_NAMES, NewRank, record_ranks
 from products.replay_vision.backend.scanner_access import accessible_observations, readable_experiment_ids
 
@@ -326,6 +327,7 @@ _ENTRY_FIELDS = (
     "category",
     "percentile",
     "group_root",
+    "person_key",
 )
 
 
@@ -383,10 +385,15 @@ def _group_reach(
     return {str(row["root"]): GroupReach(sessions=row["sessions"], people=row["people"]) for row in members}
 
 
+def views_by(viewer_id: int, as_of: datetime) -> QuerySet[ReplayObservationView]:
+    """The viewer's observation views up to `as_of`, so later views wait for the next feed load."""
+    return ReplayObservationView.objects.filter(user_id=viewer_id, created_at__lte=as_of)
+
+
 def select_embedding_picks(
     window: FeedWindow,
     scanner_ids: Sequence[Any],
-    viewed: Exists,
+    viewer_id: int,
     access: UserAccessControl,
     team_id: int,
     cap: int,
@@ -428,31 +435,39 @@ def select_embedding_picks(
     window_values = _cap_feed_groups(rows, cap)
     if len(window_values) < cap and len(rows) == fetch_limit:
         window_values = _cap_feed_groups(window_rows(fetch_limit * HIGHLIGHT_PICK_REFILL_FACTOR), cap)
+    # The entries carry everything ranking reads, so only ids load here, and the endpoint gates its page's rows on
+    # experiment access. A stored entry outlives a deleted observation until its feed rebuilds.
+    live = set(
+        ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values)).values_list("id", flat=True)
+    )
+    window_values = {observation_id: entry for observation_id, entry in window_values.items() if observation_id in live}
     if not window_values:
         return []
-    # The entries already carry each row's experiment scope, so this skips the snapshot JSON the row-gate reads; the
-    # endpoint still gates the rows of the page it serves.
-    rows = cast(
-        list[dict[str, Any]],
-        list(
-            ReplayObservation.objects.filter(team_id=team_id, id__in=list(window_values))
-            .annotate(feed_viewed=viewed)
-            .values("id", "session_id", "feed_viewed")
-        ),
+    viewed = set(
+        views_by(viewer_id, window.as_of)
+        .filter(observation_id__in=list(window_values))
+        .values_list("observation_id", flat=True)
     )
     roots = {entry["group_root"] for entry in window_values.values()}
     reach = _group_reach(team_id, window, roots, scanner_ids, categories, experiment_ids)
-    for row in rows:
-        entry = window_values[row["id"]]
-        row["scanner_id"] = entry["scanner_id"]
-        row["created_at"] = entry["created_at"]
+    picks: list[dict[str, Any]] = []
+    for observation_id, entry in window_values.items():
         group = reach.get(str(entry["group_root"]), GroupReach(sessions=1, people=1))
-        row["watch_category"] = CATEGORY_NAMES[entry["category"]]
-        row["watch_percentile"] = entry["percentile"]
-        row["watch_group_root"] = str(entry["group_root"])
-        row["watch_group_size"] = group.sessions
-        row["watch_group_people"] = group.people
-    return rows
+        picks.append(
+            {
+                "id": observation_id,
+                "scanner_id": entry["scanner_id"],
+                "created_at": entry["created_at"],
+                "person_key": entry["person_key"],
+                "feed_viewed": observation_id in viewed,
+                "watch_category": CATEGORY_NAMES[entry["category"]],
+                "watch_percentile": entry["percentile"],
+                "watch_group_root": str(entry["group_root"]),
+                "watch_group_size": group.sessions,
+                "watch_group_people": group.people,
+            }
+        )
+    return picks
 
 
 def select_embedding_filler(
@@ -481,7 +496,7 @@ def select_embedding_filler(
         )
         .annotate(feed_viewed=viewed)
     )
-    fields = ("id", "scanner_id", "session_id", "created_at", "feed_viewed")
+    fields = ("id", "scanner_id", "created_at", "feed_viewed")
     # Two short newest-first walks, instead of ordering by the viewed flag, which would sort the whole window.
     rows = list(
         base.filter(feed_viewed=False).order_by("-created_at", "-id").values(*fields)[:HIGHLIGHT_FEED_MIN_ITEMS]
@@ -496,12 +511,12 @@ def select_embedding_filler(
 
 
 def rank_highlight_feed_by_embedding(rows: list[dict[str, Any]]) -> list[HighlightFeedEntry]:
-    """Rank candidate rows (`id`, `scanner_id`, `session_id`, `created_at`, `feed_viewed`, optionally
-    `feed_impressions`, and for picks the `watch_*` fields `select_embedding_picks` adds).
+    """Rank candidate rows (`id`, `scanner_id`, `created_at`, `feed_viewed`, optionally `feed_impressions`, and for
+    picks `person_key` and the `watch_*` fields `select_embedding_picks` adds).
 
     A pick is a row with a percentile whose category is an issue. Rows of one feed group collapse to their best-scoring
     row, which carries the size of the group. Picks sort by weighted percentile, decayed for each earlier impression,
-    viewed rows docked, one scanner held to a share of the picks, and one session's picks spaced apart. Every other row
+    viewed rows docked, one scanner held to a share of the picks, and one person's picks spaced apart. Every other row
     is filler, kept only to reach the feed's floor.
     """
     best_in_group: dict[str, tuple[float, dict[str, Any]]] = {}
@@ -541,7 +556,7 @@ def rank_highlight_feed_by_embedding(rows: list[dict[str, Any]]) -> list[Highlig
                 score,
                 row["created_at"],
                 row.get("scanner_id"),
-                HighlightFeedEntry(observation_id=row["id"], reason=reason, session_id=row["session_id"]),
+                HighlightFeedEntry(observation_id=row["id"], reason=reason, person_key=row.get("person_key")),
             )
         )
     # A pick stands for its whole feed group, so no member returns as filler.

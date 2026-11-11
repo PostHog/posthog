@@ -841,6 +841,40 @@ class TestProjectedMonthlyObservations(_VisionQuotaTestCase):
         snapshot = compute_quota_snapshot(organization_id=self.organization.id)
         assert snapshot.projected_monthly_credits == 0
 
+    def test_unreported_spend_adds_spend_after_the_report_cutoff(self) -> None:
+        ReplayScanner.objects.filter(pk=self.scanner.pk).update(enabled=True)
+        self._make_scanner(team=self.team, name="paid", estimate=100)  # 100 × 15 credits
+        quiet_org = Organization.objects.create(name="quiet-org")
+        quiet_team = Team.objects.create(organization=quiet_org, name="quiet-team")
+        self._make_scanner(team=quiet_team, name="off", enabled=False, estimate=999)
+        switched_off_org = Organization.objects.create(name="switched-off-org")
+        switched_off_team = Team.objects.create(organization=switched_off_org, name="switched-off-team")
+        switched_off = ReplayScanner.objects.create(
+            team=switched_off_team, name="was-on", scanner_type=ScannerType.MONITOR, scanner_config={"prompt": "p"}
+        )
+        with time_machine.travel("2026-09-15T12:00:00Z", tick=False):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+        with time_machine.travel("2026-09-16T03:00:00Z", tick=False):
+            self._make_observation(status=ObservationStatus.SUCCEEDED, completed_at=timezone.now())
+            self._make_observation(status=ObservationStatus.RUNNING)
+            seed_scanner_spend(switched_off, 30)
+            with patch.object(
+                quota,
+                "_sum_active_backfill_remaining_credits",
+                side_effect=lambda org_id: quota.BackfillCommitments(
+                    paid=400 if org_id == self.organization.id else 0, free_only=0
+                ),
+            ):
+                spend = quota.unreported_spend_by_org(report_cutoff=datetime(2026, 9, 16, tzinfo=UTC))
+
+        # The 15-credit receipt and reservation after midnight count; the receipt before it is in the report.
+        assert spend == {
+            self.organization.id: quota.UnreportedSpend(
+                scanner_credits=round(1500 * (14 + 21 / 24) / 30) + 15 + 15, backfill_credits=400
+            ),
+            switched_off_org.id: quota.UnreportedSpend(scanner_credits=30, backfill_credits=0),
+        }
+
 
 class TestVisionQuotaEndpoint(_VisionQuotaTestCase):
     @property

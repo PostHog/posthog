@@ -24,6 +24,7 @@ The one exception is the OpenID Connect ID token: the worker verifies the region
 | `POST` | `/oauth/revoke`                           | Routed by `client_id`, falls back to trying both regions                           |
 | `POST` | `/oauth/introspect`                       | US first, then EU (a 200 with `active: false` counts as a miss)                    |
 | `GET`  | `/oauth/userinfo`                         | Tries both regions with the bearer token                                           |
+| `GET`  | `/oauth/scopes`                           | The grantable API scopes and what each covers, fetched from US (10m cache)         |
 | `GET`  | `/static/fonts/*.woff2`                   | RoundHog faces for the region picker, bundled from `@posthog/brand`                |
 
 Trailing slashes are optional; paths are normalized before matching.

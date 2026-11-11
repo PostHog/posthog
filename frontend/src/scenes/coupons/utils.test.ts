@@ -19,6 +19,13 @@ describe('parseCouponCampaign', () => {
         ['/coupons/lenny?next=/home', 'lenny'],
         ['/onboarding/coupons/lenny?foo=bar', 'lenny'],
 
+        // With a hash
+        ['/coupons/lenny#terms', 'lenny'],
+
+        // Coupon path only inside the query string or hash
+        ['/home?ref=/coupons/lenny', null],
+        ['/home#/coupons/lenny', null],
+
         // With trailing slash
         ['/coupons/lenny/', 'lenny'],
 

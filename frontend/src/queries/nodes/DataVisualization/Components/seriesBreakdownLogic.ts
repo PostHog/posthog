@@ -474,15 +474,6 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
                 }
             })
         },
-        clearAxis: () => {
-            actions.setQuery((query) => ({
-                ...query,
-                chartSettings: {
-                    ...query.chartSettings,
-                    seriesBreakdownColumn: undefined,
-                },
-            }))
-        },
     })),
     afterMount(({ actions, values }) => {
         if (values.query.chartSettings?.seriesBreakdownColumn === undefined) {

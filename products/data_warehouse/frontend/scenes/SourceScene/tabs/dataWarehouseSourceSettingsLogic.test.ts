@@ -1,12 +1,14 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
-import { ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { ExternalDataJob, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
 import { sourceSceneLogic } from '../SourceScene'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
@@ -83,6 +85,35 @@ describe('sourceSettingsLogic', () => {
         expect(bulkUpdateSchemasSpy).toHaveBeenCalledTimes(1)
         expect(bulkUpdateSchemasSpy).toHaveBeenLastCalledWith('source-1', [
             expect.objectContaining({ id: 'schema-1', should_sync: false }),
+        ])
+    })
+
+    it('waits for confirmation before enabling a pending schema', async () => {
+        const schema = makeSchema({ sync_type: 'full_refresh', pending_self_managed_table: true })
+        jest.spyOn(api.externalDataSources, 'get').mockResolvedValue(makeSource([schema]))
+        const bulkUpdateSchemasSpy = jest
+            .spyOn(api.externalDataSources, 'bulkUpdateSchemas')
+            .mockImplementation(async (_id, updates) => updates.map((update) => ({ ...schema, ...update })))
+        const dialogSpy = jest.spyOn(LemonDialog, 'open').mockImplementation()
+
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        jest.useFakeTimers()
+
+        logic.actions.updateSchema({ ...schema, should_sync: true })
+
+        expect(dialogSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values.source?.schemas[0].should_sync).toBe(false)
+        await jest.advanceTimersByTimeAsync(500)
+        expect(bulkUpdateSchemasSpy).not.toHaveBeenCalled()
+
+        const confirm = dialogSpy.mock.calls[0][0].primaryButton?.onClick as () => void
+        confirm()
+        await jest.advanceTimersByTimeAsync(500)
+
+        expect(bulkUpdateSchemasSpy).toHaveBeenCalledWith('source-1', [
+            expect.objectContaining({ id: 'schema-1', should_sync: true }),
         ])
     })
 
@@ -398,6 +429,62 @@ describe('sourceSettingsLogic', () => {
             expect(logic.values.jobs).toEqual([existingJob])
         }
     )
+
+    it.each([
+        { name: 'jobs refresh resolves', action: 'loadJobs', settle: 'resolve' },
+        { name: 'jobs refresh hits a gateway error', action: 'loadJobs', settle: 'reject' },
+        { name: 'older jobs load resolves', action: 'loadMoreJobs', settle: 'resolve' },
+    ] as const)('stops quietly when the source page closes before the $name', async ({ action, settle }) => {
+        // Not assigned to `logic`, so afterEach does not unmount it a second time.
+        const pageLogic = sourceSettingsLogic({ id: 'source-1' })
+        pageLogic.mount()
+        await expectLogic(pageLogic).toFinishAllListeners()
+
+        jest.spyOn(api.externalDataSources, 'jobs').mockResolvedValueOnce([
+            { id: 'job-2', created_at: '2026-01-02T00:00:00Z' } as any,
+        ])
+        pageLogic.actions.loadJobs()
+        await expectLogic(pageLogic).toFinishAllListeners()
+
+        let settleRequest: () => void = () => {}
+        jest.spyOn(api.externalDataSources, 'jobs').mockReturnValueOnce(
+            new Promise<ExternalDataJob[]>((resolve, reject) => {
+                settleRequest = () =>
+                    settle === 'resolve'
+                        ? resolve([{ id: 'job-1', created_at: '2026-01-01T00:00:00Z' } as any])
+                        : reject(Object.assign(new Error('gateway'), { status: 504 }))
+            })
+        )
+        const captureExceptionSpy = jest.spyOn(posthog, 'captureException')
+        const consoleErrorSpy = jest.spyOn(console, 'error')
+
+        pageLogic.actions[action]()
+        pageLogic.unmount()
+        settleRequest()
+        await new Promise((resolve) => setTimeout(resolve, 0))
+
+        expect(captureExceptionSpy).not.toHaveBeenCalled()
+        expect(consoleErrorSpy).not.toHaveBeenCalled()
+    })
+
+    it('keeps a slow jobs load when another load starts while it is pending', async () => {
+        logic = sourceSettingsLogic({ id: 'source-1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        let resolveSlowLoad: (jobs: ExternalDataJob[]) => void = () => {}
+        jest.spyOn(api.externalDataSources, 'jobs')
+            .mockReturnValueOnce(new Promise<ExternalDataJob[]>((resolve) => (resolveSlowLoad = resolve)))
+            .mockReturnValueOnce(new Promise<ExternalDataJob[]>(() => {}))
+
+        logic.actions.loadJobs()
+        logic.actions.loadJobs()
+        const slowJob = { id: 'job-1', created_at: '2026-01-01T00:00:00Z' } as ExternalDataJob
+
+        await expectLogic(logic, () => resolveSlowLoad([slowJob])).toDispatchActions(['loadJobsSuccess'])
+
+        expect(logic.values.jobs).toEqual([slowJob])
+    })
 
     it('re-throws non-transient errors from loadJobs so the failure path runs', async () => {
         logic = sourceSettingsLogic({ id: 'source-1' })

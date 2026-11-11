@@ -1,6 +1,6 @@
 import json
 from collections.abc import Callable
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -22,25 +22,29 @@ from django.test import SimpleTestCase, override_settings
 from django.test.client import Client
 from django.utils import timezone
 
-from parameterized import parameterized
+from parameterized import param, parameterized
 from rest_framework import status
 
 from posthog.schema import PersonsOnEventsMode, PropertyOperator
+
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.api.cohort import (
     COHORT_USED_IN_PAGE_SIZE,
     AddPersonsToStaticCohortRequestSerializer,
     CohortFilters,
     CohortViewSet,
+    flag_call_criterion_shape_problem,
 )
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
-from posthog.models.property import BehavioralPropertyType
+from posthog.models.property import BehavioralPropertyType, Property
 from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.calculate_cohort import (
@@ -54,11 +58,16 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, Cohort, CohortType
 from products.cohorts.backend.models.dependencies import cohort_backfill_pending_key, find_behavioral_cohorts
+from products.cohorts.backend.models.team_access import (
+    RealtimeCohortAccessPurpose,
+    RealtimeCohortLevel,
+    RealtimeCohortTeamAccess,
+)
 from products.cohorts.backend.models.util import CohortErrorCode, count_cohort_members, list_cohort_member_ids
 from products.exports.backend.api.test.test_exports import TestExportMixin
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
@@ -93,7 +102,7 @@ def _cohort_member_distinct_ids(team_id: int, cohort: Cohort) -> set[str]:
     return distinct_ids
 
 
-_FLAG_CALLED_CRITERION = {
+_FLAG_CALLED_ANY_FLAG_CRITERION = {
     "key": "$feature_flag_called",
     "type": "behavioral",
     "value": "performed_event",
@@ -101,7 +110,41 @@ _FLAG_CALLED_CRITERION = {
     "time_value": 30,
     "time_interval": "day",
 }
-_PAGEVIEW_CRITERION = {**_FLAG_CALLED_CRITERION, "key": "$pageview"}
+_FLAG_KEY_FILTER = {"key": "$feature_flag", "type": "event", "value": "beta-feature", "operator": "exact"}
+_FLAG_CALLED_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "event_filters": [_FLAG_KEY_FILTER]}
+_PAGEVIEW_CRITERION = {**_FLAG_CALLED_ANY_FLAG_CRITERION, "key": "$pageview"}
+
+
+def _pageview_with_hogql_filter(expression: str) -> dict[str, Any]:
+    return {**_PAGEVIEW_CRITERION, "event_filters": [{"key": expression, "type": "hogql"}]}
+
+
+_FLAG_CALLED_PAST_RETENTION_CRITERION = {**_FLAG_CALLED_CRITERION, "time_value": 180}
+_FLAG_CALLED_UNRESOLVABLE_CRITERION = {
+    **_FLAG_CALLED_CRITERION,
+    "event_filters": [_FLAG_KEY_FILTER, {"key": "goe_0.properties.plan = 'pro'", "type": "hogql"}],
+}
+# The rewrite swaps the flag-call subquery and then can't resolve it, because flag_evaluations stores no group properties.
+_PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION = _pageview_with_hogql_filter(
+    "distinct_id IN (SELECT distinct_id FROM events WHERE event = '$feature_flag_called' "
+    "AND properties.$feature_flag = 'beta-feature' AND timestamp > now() - INTERVAL 7 DAY "
+    "AND goe_0.properties.plan = 'pro')"
+)
+_PAGEVIEW_WITH_HOGQL_FILTER_CRITERION = _pageview_with_hogql_filter("properties.plan = 'pro'")
+_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION = {
+    **_FLAG_CALLED_CRITERION,
+    "value": "performed_event_multiple",
+    "operator": "gte",
+    "operator_value": 0,
+}
+_HIDDEN_EVENT_REFUSAL = "its data is moving"
+_FLAG_CALL_TYPE_REFUSAL = "can use this event"
+_FLAG_CALL_WINDOW_REFUSAL = "90 days or less"
+_FLAG_CALL_KEY_REFUSAL = '"Feature flag" equals'
+_FLAG_CALL_COMPILE_REFUSAL = "can't calculate this criterion"
+_FLAG_CALL_FILTER_REFUSAL = "instead of a SQL expression"
+_FLAG_CALL_SQL_EXPRESSION_REFUSAL = "on another criterion"
+_FLAG_CALL_REALTIME_REFUSAL = "Real-time cohorts can't use this event"
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -209,27 +252,26 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             self.user,
             "cohort created",
             {
-                "filters": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "team_id", "value": "5", "type": "person"}],
-                        }
-                    ],
-                },
+                "filters": ANY,
                 "name_length": 8,
                 "deleted": False,
                 "is_static": False,
-                # The legacy `groups` payload leaves `filters` empty, so neither classification
-                # is computed for it.
-                "cohort_type": None,
-                "condition_type": None,
+                "cohort_type": "realtime",
+                "condition_type": {
+                    "person_properties": True,
+                    "behavioral": False,
+                    "lifecycle": False,
+                    "cohorts": False,
+                },
                 "realtime_enabled": False,
+                "realtime_level": "off",
             },
             team=ANY,
             request=ANY,
         )
+
+        leaf = patch_capture.call_args[0][2]["filters"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["operator"], leaf["value"]), ("team_id", "exact", "5"))
 
         with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
             response = self.client.patch(
@@ -258,33 +300,52 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             self.user,
             "cohort updated",
             {
-                "filters": {
-                    "type": "OR",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [{"key": "team_id", "value": "6", "type": "person"}],
-                        }
-                    ],
-                },
+                "filters": ANY,
                 "name_length": 9,
                 "deleted": False,
                 "is_static": False,
-                "cohort_type": None,
-                "condition_type": None,
+                "cohort_type": "realtime",
+                "condition_type": {
+                    "person_properties": True,
+                    "behavioral": False,
+                    "lifecycle": False,
+                    "cohorts": False,
+                },
                 "realtime_enabled": False,
+                "realtime_level": "off",
                 "updated_by_creator": True,
             },
             team=ANY,
             request=ANY,
         )
 
+        leaf = patch_capture.call_args[0][2]["filters"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["operator"], leaf["value"]), ("team_id", "exact", "6"))
+
+    @parameterized.expand(
+        [
+            ("team_off_the_pipeline", None, False, "off"),
+            # A load-test team runs the pipeline, so it is enabled, but adoption counts only serving teams.
+            ("team_granted_processing", RealtimeCohortLevel.PROCESSING, True, "processing"),
+        ]
+    )
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
     def test_cohort_created_reports_realtime_classification(
-        self, patch_calculate_cohort, patch_capture, patch_on_commit
+        self,
+        _name: str,
+        access_level: RealtimeCohortLevel | None,
+        expected_enabled: bool,
+        expected_level: str,
+        patch_calculate_cohort,
+        patch_capture,
+        patch_on_commit,
     ):
+        if access_level is not None:
+            RealtimeCohortTeamAccess.objects.create(
+                team=self.team, level=access_level, purpose=RealtimeCohortAccessPurpose.LOAD_TEST
+            )
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={
@@ -322,8 +383,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             reported["condition_type"],
             {"person_properties": False, "behavioral": True, "lifecycle": False, "cohorts": False},
         )
-        # Realtime-eligible filters on a team the realtime pipeline does not cover.
-        self.assertFalse(reported["realtime_enabled"])
+        self.assertEqual((reported["realtime_enabled"], reported["realtime_level"]), (expected_enabled, expected_level))
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("posthog.api.cohort.report_user_action")
@@ -352,7 +412,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
             distinct_id="person_1",
             timestamp=datetime.now() - timedelta(hours=12),
         )
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -375,7 +435,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                                 "type": "AND",
                                 "values": [
                                     {
-                                        "key": action.pk,
+                                        "key": action.id,
                                         "type": "behavioral",
                                         "value": "performed_event",
                                         "negation": False,
@@ -428,7 +488,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -443,7 +503,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
@@ -527,6 +587,140 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 400, response.content)
         self.assertIn(expected_detail, response.json()["detail"])
+
+    def test_create_cohort_with_legacy_groups_derives_filters_and_condition_type(self):
+        groups = [
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        ]
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Legacy group cohort", "groups": groups},
+        )
+        self.assertEqual(response.status_code, 201, response.content)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual((leaf["key"], leaf["type"], leaf["operator"]), ("email", "person", "is_set"))
+        self.assertEqual(
+            cohort.condition_type,
+            {
+                "person_properties": True,
+                "behavioral": False,
+                "lifecycle": False,
+                "cohorts": False,
+            },
+        )
+
+    def test_patch_cohort_with_legacy_groups_updates_derived_filters(self):
+        initial_groups = [
+            {
+                "properties": [
+                    {
+                        "key": "email",
+                        "type": "person",
+                        "value": "is_set",
+                        "operator": "is_set",
+                    }
+                ]
+            }
+        ]
+        create_res = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Legacy cohort to patch", "groups": initial_groups},
+        )
+        self.assertEqual(create_res.status_code, 201)
+        cohort_id = create_res.json()["id"]
+
+        updated_groups = [
+            {
+                "properties": [
+                    {
+                        "key": "name",
+                        "type": "person",
+                        "value": "Alice",
+                        "operator": "exact",
+                    }
+                ]
+            }
+        ]
+        patch_res = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort_id}",
+            data={"groups": updated_groups},
+        )
+        self.assertEqual(patch_res.status_code, 200, patch_res.content)
+        cohort = Cohort.objects.get(pk=cohort_id)
+        assert cohort.filters is not None
+        leaf = cohort.filters["properties"]["values"][0]["values"][0]
+        self.assertEqual(
+            (leaf["key"], leaf["type"], leaf["operator"], leaf["value"]), ("name", "person", "exact", "Alice")
+        )
+
+    @parameterized.expand(
+        [
+            # Passes validate_groups, but the behavioral leaf has no time window, so conversion fails.
+            (
+                "unconvertible_behavioral",
+                {"event_type": "events", "key": "$pageview", "value": "performed_event", "type": "behavioral"},
+                "could not be converted",
+            ),
+            # Converts, but the filters schema rejects it, as it does when sent as `filters`.
+            ("hogql_leaf", {"type": "hogql", "key": "1 = 1"}, None),
+        ]
+    )
+    def test_create_cohort_with_invalid_legacy_groups_returns_400(
+        self, _name: str, leaf: dict, expected_detail: str | None
+    ) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "Malformed legacy group cohort", "groups": [{"properties": [leaf]}]},
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        if expected_detail:
+            self.assertIn(expected_detail, response.json()["detail"])
+        self.assertFalse(Cohort.objects.filter(team=self.team, name="Malformed legacy group cohort").exists())
+
+    def test_patch_cohort_used_in_flag_rejects_behavioral_groups(self):
+        def cohort_filter(cohort_id: int) -> dict[str, Any]:
+            return {"key": "id", "value": cohort_id, "type": "cohort"}
+
+        person_filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"key": "email", "value": "is_set", "operator": "is_set", "type": "person"}],
+            }
+        }
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="cohort in flag",
+            filters=person_filters,
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [cohort_filter(cohort.pk)]}]},
+            name="Cohort-based flag",
+            key="cohort-flag",
+            created_by=self.user,
+        )
+
+        behavioral_groups = [{"event_id": "$pageview", "days": 7}]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
+            data={"groups": behavioral_groups},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["code"], "behavioral_cohort_found")
+        self.assertIn("Behavioral filters cannot be added to cohorts used in feature flags", response.json()["detail"])
 
     def test_static_cohort_csv_upload_end_to_end(self):
         """Test CSV upload end-to-end with actual celery task execution"""
@@ -2771,28 +2965,19 @@ email@example.org,
                                         "end_date": None,
                                         "event_id": None,
                                         "action_id": None,
-                                        "properties": [
-                                            {
-                                                "key": "prop",
-                                                "type": "person",
-                                                "value": "5",
-                                            }
-                                        ],
+                                        "properties": {"prop": "5"},
                                         "start_date": None,
                                         "count_operator": None,
                                     }
                                 ],
-                                "after": [
-                                    {
-                                        "properties": [
-                                            {
-                                                "key": "prop",
-                                                "type": "person",
-                                                "value": "6",
-                                            }
-                                        ]
-                                    }
-                                ],
+                                "after": [{"properties": {"prop": "6"}}],
+                            },
+                            {
+                                "type": "Cohort",
+                                "action": "changed",
+                                "field": "filters",
+                                "before": mock.ANY,
+                                "after": mock.ANY,
                             },
                         ],
                         "trigger": None,
@@ -3530,9 +3715,7 @@ email@example.org,
 
         self.assertEqual(response.status_code, 200, response.content)
 
-    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
-    @patch("posthog.api.cohort.report_user_action")
-    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
+    def _create_calculated_cohort_matching_p1_and_p2(self) -> int:
         _create_person(
             distinct_ids=["p1"],
             team_id=self.team.pk,
@@ -3601,9 +3784,13 @@ email@example.org,
         self.assertEqual(response.status_code, 201, response.content)
 
         cohort_id = response.json()["id"]
+        self.assertFalse(Cohort.objects.get(pk=cohort_id).is_calculating)
+        return cohort_id
 
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    @patch("posthog.api.cohort.report_user_action")
+    def test_creating_update_and_calculating_with_new_cohort_filters(self, patch_capture, patch_on_commit):
+        cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
@@ -4439,77 +4626,7 @@ email@example.org,
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_duplicating_dynamic_cohort_as_static(self, patch_on_commit):
-        _create_person(
-            distinct_ids=["p1"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "something"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p1",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p2"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p2",
-            timestamp=datetime.now() - timedelta(hours=12),
-        )
-
-        _create_person(
-            distinct_ids=["p3"],
-            team_id=self.team.pk,
-            properties={"$some_prop": "not it"},
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="p3",
-            timestamp=datetime.now() - timedelta(days=12),
-        )
-
-        flush_persons_and_events()
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={
-                "name": "cohort A",
-                "filters": {
-                    "properties": {
-                        "type": "OR",
-                        "values": [
-                            {
-                                "key": "$some_prop",
-                                "value": "something",
-                                "type": "person",
-                                "operator": "exact",
-                            },
-                            {
-                                "key": "$pageview",
-                                "event_type": "events",
-                                "time_value": 1,
-                                "time_interval": "day",
-                                "value": "performed_event",
-                                "type": "behavioral",
-                            },
-                        ],
-                    }
-                },
-            },
-        )
-        self.assertEqual(response.status_code, 201, response.content)
-
-        cohort_id = response.json()["id"]
-
-        while response.json()["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
+        cohort_id = self._create_calculated_cohort_matching_p1_and_p2()
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -4527,12 +4644,6 @@ email@example.org,
         new_cohort_id = response.json()["id"]
         new_cohort = Cohort.objects.get(pk=new_cohort_id)
         self.assertEqual(new_cohort.is_static, True)
-
-        while new_cohort.is_calculating:
-            new_cohort.refresh_from_db()
-            import time
-
-            time.sleep(0.1)
         self.assertEqual(new_cohort.name, "cohort A (static copy)")
         self.assertEqual(new_cohort.is_calculating, False)
         self.assertEqual(new_cohort.errors_calculating, 0)
@@ -4837,97 +4948,392 @@ email@example.org,
         [
             (
                 "event",
-                {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}},
+                [_FLAG_CALLED_CRITERION],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                400,
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
+            (
+                "multiple_times",
+                [
+                    {
+                        **_FLAG_CALLED_CRITERION,
+                        "value": "performed_event_multiple",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
+            (
+                "did_not_complete_event",
+                [_PAGEVIEW_CRITERION, {**_FLAG_CALLED_CRITERION, "negation": True}],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
+            (
+                "multiple_times_without_flag_key",
+                [
+                    {
+                        **_FLAG_CALLED_ANY_FLAG_CRITERION,
+                        "value": "performed_event_multiple",
+                        "operator": "gte",
+                        "operator_value": 2,
+                    }
+                ],
+                FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                _FLAG_CALL_KEY_REFUSAL,
+            ),
+            (
+                "any_flag_in_flag_evaluations_only_mode",
+                [_FLAG_CALLED_ANY_FLAG_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                None,
             ),
             (
                 "sequence_event",
-                {
-                    "filters": {
-                        "properties": {
-                            "type": "OR",
-                            "values": [
-                                {
-                                    "key": "$pageview",
-                                    "type": "behavioral",
-                                    "value": "performed_event_sequence",
-                                    "event_type": "events",
-                                    "time_value": 30,
-                                    "time_interval": "day",
-                                    "seq_event": "$feature_flag_called",
-                                    "seq_event_type": "events",
-                                    "seq_time_value": 1,
-                                    "seq_time_interval": "day",
-                                }
-                            ],
-                        }
+                [
+                    {
+                        "key": "$pageview",
+                        "type": "behavioral",
+                        "value": "performed_event_sequence",
+                        "event_type": "events",
+                        "time_value": 30,
+                        "time_interval": "day",
+                        "seq_event": "$feature_flag_called",
+                        "seq_event_type": "events",
+                        "seq_time_value": 1,
+                        "seq_time_interval": "day",
                     }
-                },
+                ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                400,
+                _FLAG_CALL_TYPE_REFUSAL,
             ),
             (
-                "legacy_groups",
-                {"groups": [{"event_id": "$feature_flag_called", "days": 30}]},
+                "multiple_times_zero",
+                [_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                _FLAG_CALL_COMPILE_REFUSAL,
+            ),
+            (
+                "hogql_filter",
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                _FLAG_CALL_FILTER_REFUSAL,
+            ),
+            (
+                "hogql_filter_on_another_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                None,
+            ),
+            (
+                "malformed_hogql_filter_on_another_criterion",
+                [
+                    _FLAG_CALLED_CRITERION,
+                    _pageview_with_hogql_filter("properties.x = ("),
+                ],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
+            ),
+            (
+                "unresolvable_flag_calls_in_another_criterion_in_flag_evaluations_only_mode",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                _FLAG_CALL_SQL_EXPRESSION_REFUSAL,
+            ),
+            (
+                "unresolvable_flag_call_criterion_beside_hogql_filter",
+                [_FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                _FLAG_CALL_COMPILE_REFUSAL,
+            ),
+            (
+                "date_filter_with_a_number",
+                [
+                    {
+                        **_FLAG_CALLED_CRITERION,
+                        "event_filters": [
+                            _FLAG_KEY_FILTER,
+                            {"key": "$sent_at", "type": "event", "operator": "is_date_after", "value": 123},
+                        ],
+                    }
+                ],
                 FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
-                400,
+                _FLAG_CALL_COMPILE_REFUSAL,
             ),
             (
                 "events_mode",
-                {"filters": {"properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]}}},
+                [_FLAG_CALLED_ANY_FLAG_CRITERION],
                 FlagEvaluationsMode.EVENTS,
-                201,
+                None,
             ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
-    def test_create_cohort_with_criterion_on_hidden_event(
-        self, _name, definition, mode, expected_status, patch_capture
-    ):
+    def test_create_cohort_with_criterion_on_hidden_event(self, _name, criteria, mode, expected_refusal, patch_capture):
         self._set_flag_evaluations_mode(mode)
+        if isinstance(expected_refusal, dict):
+            expected_refusal = expected_refusal[use_new_events_schema(self.team.id)]
 
         response = self.client.post(
-            f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", **definition}
+            f"/api/projects/{self.team.id}/cohorts",
+            data={
+                "name": "flag callers",
+                # A cohort that filters out test accounts is a batch cohort.
+                # The realtime block refuses only realtime cohorts.
+                "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
+            },
         )
 
-        self.assertEqual(response.status_code, expected_status, response.json())
         created = Cohort.objects.filter(team=self.team, name="flag callers").exists()
-        self.assertEqual(created, expected_status == 201)
-        if not created:
+        if expected_refusal is None:
+            self.assertEqual(response.status_code, 201, response.json())
+            self.assertTrue(created)
+        else:
+            self.assertEqual(response.status_code, 400, response.json())
+            self.assertFalse(created)
             self.assertEqual(response.json()["code"], "hidden_event")
+            self.assertIn(expected_refusal, response.json()["detail"])
+
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_cohort_with_legacy_group_on_hidden_event(self, patch_capture):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "flag callers", "groups": [{"event_id": "$feature_flag_called", "days": 30}]},
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertIn(_FLAG_CALL_KEY_REFUSAL, response.json()["detail"])
 
     @parameterized.expand(
         [
-            ("adds_first", [_PAGEVIEW_CRITERION], [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION], 400),
-            ("adds_second", [_FLAG_CALLED_CRITERION], [_FLAG_CALLED_CRITERION, _FLAG_CALLED_CRITERION], 400),
-            ("edits_existing", [_FLAG_CALLED_CRITERION], [{**_FLAG_CALLED_CRITERION, "time_value": 7}], 200),
+            (
+                "adds_within_retention",
+                [_PAGEVIEW_CRITERION],
+                [_PAGEVIEW_CRITERION, _FLAG_CALLED_CRITERION],
+                {False: None, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
+            (
+                "adds_past_retention",
+                [_PAGEVIEW_CRITERION],
+                [_PAGEVIEW_CRITERION, _FLAG_CALLED_PAST_RETENTION_CRITERION],
+                _FLAG_CALL_WINDOW_REFUSAL,
+            ),
+            (
+                "adds_second_past_retention",
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION, _FLAG_CALLED_PAST_RETENTION_CRITERION],
+                _FLAG_CALL_WINDOW_REFUSAL,
+            ),
+            (
+                "widens_past_retention",
+                [_FLAG_CALLED_CRITERION],
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                _FLAG_CALL_WINDOW_REFUSAL,
+            ),
+            (
+                "drops_flag_key",
+                [_FLAG_CALLED_CRITERION],
+                [_FLAG_CALLED_ANY_FLAG_CRITERION],
+                {False: _FLAG_CALL_KEY_REFUSAL, True: None},
+            ),
+            (
+                "adds_beside_unresolvable",
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION],
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _FLAG_CALLED_CRITERION],
+                _FLAG_CALL_KEY_REFUSAL,
+            ),
+            (
+                "adds_unresolvable_flag_calls_in_another_criterion",
+                [_FLAG_CALLED_CRITERION],
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                {False: _FLAG_CALL_SQL_EXPRESSION_REFUSAL, True: _FLAG_CALL_KEY_REFUSAL},
+            ),
+            (
+                "keeps_unresolvable_flag_calls_in_another_criterion",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}, _PAGEVIEW_WITH_UNRESOLVABLE_FLAG_CALLS_CRITERION],
+                None,
+            ),
+            param(
+                "edits_hogql_filter_beside_uncompilable_flag_call_criterion",
+                [_FLAG_CALLED_UNRESOLVABLE_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                [
+                    _FLAG_CALLED_UNRESOLVABLE_CRITERION,
+                    _pageview_with_hogql_filter("properties.plan = 'free'"),
+                ],
+                None,
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+            param(
+                "adds_criterion_that_breaks_the_compile",
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION],
+                [
+                    _FLAG_CALLED_CRITERION,
+                    _PAGEVIEW_WITH_HOGQL_FILTER_CRITERION,
+                    _FLAG_CALLED_MULTIPLE_TIMES_ZERO_CRITERION,
+                ],
+                _FLAG_CALL_COMPILE_REFUSAL,
+                mode=FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+            ),
+            (
+                "edits_any_flag",
+                [_FLAG_CALLED_ANY_FLAG_CRITERION],
+                [{**_FLAG_CALLED_ANY_FLAG_CRITERION, "time_value": 7}],
+                None,
+            ),
+            (
+                "edits_past_retention",
+                [_FLAG_CALLED_PAST_RETENTION_CRITERION],
+                [{**_FLAG_CALLED_PAST_RETENTION_CRITERION, "time_value": 120}],
+                None,
+            ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
     def test_update_cohort_criteria_on_hidden_event(
-        self, _name, stored_criteria, criteria, expected_status, patch_capture
+        self,
+        _name,
+        stored_criteria,
+        criteria,
+        expected_refusal,
+        patch_capture,
+        mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
     ):
-        self._set_flag_evaluations_mode(FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
+        self._set_flag_evaluations_mode(mode)
+        if isinstance(expected_refusal, dict):
+            expected_refusal = expected_refusal[use_new_events_schema(self.team.id)]
+        # A cohort that filters out test accounts is a batch cohort.
+        # The realtime block refuses only realtime cohorts.
         cohort = Cohort.objects.create(
             team=self.team,
             name="flag callers",
-            filters={"properties": {"type": "OR", "values": stored_criteria}},
+            filters={"properties": {"type": "OR", "values": stored_criteria}, "filterTestAccounts": True},
         )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort.pk}",
-            data={"name": "flag callers renamed", "filters": {"properties": {"type": "OR", "values": criteria}}},
+            data={
+                "name": "flag callers renamed",
+                "filters": {"properties": {"type": "OR", "values": criteria}, "filterTestAccounts": True},
+            },
         )
 
-        self.assertEqual(response.status_code, expected_status, response.json())
         cohort.refresh_from_db()
-        if expected_status == 200:
+        if expected_refusal is None:
+            self.assertEqual(response.status_code, 200, response.json())
             self.assertEqual(cohort.name, "flag callers renamed")
-            self.assertEqual(cohort.filters["properties"]["values"][0]["time_value"], 7)
+            self.assertEqual(
+                [(value["key"], value["time_value"]) for value in cohort.filters["properties"]["values"]],
+                [(criterion["key"], criterion["time_value"]) for criterion in criteria],
+            )
         else:
+            self.assertEqual(response.status_code, 400, response.json())
             self.assertEqual(response.json()["code"], "hidden_event")
+            self.assertIn(expected_refusal, response.json()["detail"])
             self.assertEqual(cohort.filters["properties"]["values"], stored_criteria)
+
+    @parameterized.expand(
+        [
+            ("realtime", None, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
+            ("batch", None, None, True, [_FLAG_CALLED_CRITERION], None),
+            ("becomes_realtime", True, None, False, [_FLAG_CALLED_CRITERION], _FLAG_CALL_REALTIME_REFUSAL),
+            ("stays_batch", True, None, True, [_FLAG_CALLED_CRITERION], None),
+            (
+                "realtime_keeps_stored_criterion",
+                False,
+                CohortType.REALTIME,
+                False,
+                [_FLAG_CALLED_CRITERION, _PAGEVIEW_CRITERION],
+                None,
+            ),
+            (
+                "realtime_edits_stored_criterion",
+                False,
+                CohortType.REALTIME,
+                False,
+                [{**_FLAG_CALLED_CRITERION, "time_value": 7}],
+                _FLAG_CALL_REALTIME_REFUSAL,
+            ),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_flag_call_criterion_on_realtime_cohort_in_flag_evaluations_only_mode(
+        self,
+        _name,
+        stored_filter_test_accounts,
+        stored_cohort_type,
+        filter_test_accounts,
+        criteria,
+        expected_refusal,
+        patch_capture,
+    ):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        filters = {
+            "properties": {"type": "OR", "values": criteria},
+            "filterTestAccounts": filter_test_accounts,
+        }
+
+        if stored_filter_test_accounts is None:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts", data={"name": "flag callers", "filters": filters}
+            )
+        else:
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="flag callers",
+                # A criterion stored without the validator has no negation key.
+                filters={
+                    "properties": {"type": "OR", "values": [_FLAG_CALLED_CRITERION]},
+                    "filterTestAccounts": stored_filter_test_accounts,
+                },
+                cohort_type=stored_cohort_type,
+            )
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.pk}", data={"filters": filters})
+
+        if expected_refusal is None:
+            self.assertIn(response.status_code, (200, 201), response.json())
+            self.assertEqual(response.json()["cohort_type"] == "realtime", stored_cohort_type == CohortType.REALTIME)
+        else:
+            self.assertEqual(response.status_code, 400, response.json())
+            self.assertIn(expected_refusal, response.json()["detail"])
+
+    @parameterized.expand([("farthest_east", "Pacific/Kiritimati"), ("farthest_west", "Pacific/Pago_Pago")])
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_cohort_with_longest_flag_call_window_at_the_tightest_hour(self, _name, timezone, patch_capture):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        self.team.timezone = timezone
+        self.team.save()
+        criterion = {**_FLAG_CALLED_CRITERION, "time_value": FLAG_EVALUATIONS_COMPLETE_DAYS - 1}
+
+        with time_machine.travel(datetime(2026, 10, 27, 0, 30, tzinfo=UTC), tick=False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts",
+                data={
+                    "name": "flag callers",
+                    "filters": {"properties": {"type": "OR", "values": [criterion]}, "filterTestAccounts": True},
+                },
+            )
+
+        self.assertEqual(response.status_code, 201, response.json())
+
+    @patch("posthog.api.cohort.EVENTS_HIDDEN_IN_QUERY_BUILDERS", frozenset({"$feature_flag_called", "$other_hidden"}))
+    @patch("posthog.api.cohort.report_user_action")
+    def test_create_cohort_refuses_a_hidden_event_flag_evaluations_does_not_store(self, patch_capture):
+        self._set_flag_evaluations_mode(FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
+        criterion = {**_FLAG_CALLED_CRITERION, "key": "$other_hidden"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts",
+            data={"name": "other", "filters": {"properties": {"type": "OR", "values": [criterion]}}},
+        )
+
+        self.assertEqual(response.status_code, 400, response.json())
+        self.assertEqual(response.json()["code"], "hidden_event")
+        self.assertIn(_HIDDEN_EVENT_REFUSAL, response.json()["detail"])
 
     @patch("posthog.api.cohort.report_user_action")
     def test_cohort_property_validation_nested_groups(self, patch_capture):
@@ -6764,6 +7170,114 @@ email@example.org,
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("too much memory", response.json()["last_error_message"].lower())
 
+    @parameterized.expand(
+        [
+            ("non_numeric_limit", "limit=abc"),
+            ("limit_over_max", "limit=501"),
+            ("non_numeric_offset", "offset=abc"),
+            ("negative_offset", "offset=-1"),
+        ]
+    )
+    def test_calculation_history_rejects_bad_paging_params(self, _name: str, query: str) -> None:
+        cohort = Cohort.objects.create(team=self.team, name="Test Cohort")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/calculation_history/?{query}")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cohort_last_error_message_clears_after_subsequent_success(self):
+        """Test that a subsequent completed successful calculation clears last_error_message in detail, list, and fallback paths"""
+        from posthog.api.cohort import CohortSerializer
+
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Recovered Static Cohort",
+            is_static=True,
+            errors_calculating=0,
+        )
+
+        # Older failed calculation
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=2),
+            finished_at=timezone.now() - timedelta(hours=2),
+            error="This cohort's query has an issue and could not be completed.",
+            error_code=CohortErrorCode.UNKNOWN,
+        )
+
+        # Newer successful calculation
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(hours=1),
+            finished_at=timezone.now() - timedelta(hours=1),
+            count=468,
+            error=None,
+            error_code=None,
+        )
+
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(detail_response.json()["last_error_message"])
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        cohort_data = next(c for c in list_response.json()["results"] if c["id"] == cohort.id)
+        self.assertIsNone(cohort_data["last_error_message"])
+
+        # Also verify the unannotated fallback path on CohortSerializer directly
+        fresh_cohort = Cohort.objects.get(pk=cohort.pk)
+        self.assertFalse(hasattr(fresh_cohort, "last_error_code"))
+        self.assertIsNone(CohortSerializer().get_last_error_message(fresh_cohort))
+
+    def test_cohort_last_error_message_preserved_while_retry_in_flight(self):
+        """Test that an in-flight retry (finished_at=None) does not prematurely clear the last completed error"""
+        from posthog.api.cohort import CohortSerializer
+
+        from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+        from products.cohorts.backend.models.util import CohortErrorCode
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Retrying Cohort",
+            errors_calculating=1,
+        )
+
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(minutes=10),
+            finished_at=timezone.now() - timedelta(minutes=9),
+            error="Timeout",
+            error_code=CohortErrorCode.TIMEOUT,
+        )
+
+        # In-flight retry has started_at > previous failure, but finished_at is still None
+        CohortCalculationHistory.objects.create(
+            cohort=cohort,
+            team=self.team,
+            filters={},
+            started_at=timezone.now() - timedelta(minutes=1),
+            finished_at=None,
+            error=None,
+            error_code=None,
+        )
+
+        detail_response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}")
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertIsNotNone(detail_response.json()["last_error_message"])
+        self.assertIn("taking too long", detail_response.json()["last_error_message"].lower())
+
+        fresh_cohort = Cohort.objects.get(pk=cohort.pk)
+        self.assertIn("taking too long", (CohortSerializer().get_last_error_message(fresh_cohort) or "").lower())
+
 
 class TestCohortUsedIn(ClickhouseTestMixin, APIBaseTest):
     def _create_flag_referencing_cohort_transitively(self) -> tuple[int, int]:
@@ -7727,18 +8241,29 @@ class TestCohortTypeIntegration(APIBaseTest):
                 {"name": "Renamed", "value": "@posthog.com", "regrouped": True},
                 200,
             ),
+            (
+                "rename_resending_the_same_criteria_stored_without_negation",
+                "active",
+                {"name": "Renamed", "value": "@posthog.com", "stored_without_negation": True},
+                200,
+            ),
         ]
     )
     def test_criteria_edit_is_blocked_by_active_workflows_using_it(self, _name, status, change, expected_status):
         cohort_id = self._create_realtime_cohort()
         self._create_workflow_using_cohort(cohort_id, "trigger", status)
-        if "stored_value" in change:
+        if "stored_value" in change or change.get("stored_without_negation"):
             stored_filters = Cohort.objects.get(id=cohort_id).filters
             assert stored_filters is not None
-            stored_filters["properties"]["values"][0]["value"] = change["stored_value"]
+            if "stored_value" in change:
+                stored_filters["properties"]["values"][0]["value"] = change["stored_value"]
+            if change.get("stored_without_negation"):
+                stored_filters["properties"]["values"][0].pop("negation", None)
             Cohort.objects.filter(id=cohort_id).update(filters=stored_filters)
         payload: dict[str, Any] = {
-            key: value for key, value in change.items() if key not in ("value", "regrouped", "stored_value")
+            key: value
+            for key, value in change.items()
+            if key not in ("value", "regrouped", "stored_value", "stored_without_negation")
         }
         if "value" in change:
             condition = {"type": "person", "key": "email", "operator": "icontains", "value": change["value"]}
@@ -7925,6 +8450,57 @@ class TestCohortTypeIntegration(APIBaseTest):
         self.assertEqual(response.status_code, 201, response.data)
         cohort = Cohort.objects.get(id=response.data["id"])
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
+
+    def test_history_limit_is_judged_when_criteria_are_saved(self):
+        def performed_pageview_since(start: str) -> dict:
+            leaf = {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event",
+                "explicit_datetime": start,
+            }
+            return {"properties": {"type": "AND", "values": [leaf]}}
+
+        self.team.timezone = "Pacific/Auckland"
+        self.team.save()
+
+        # It is already 2026-11-06 in Auckland, so 2025-10-01 is 401 days back for the team and 400 in UTC.
+        with time_machine.travel(datetime(2026, 11, 5, 12, 0, tzinfo=UTC), tick=False):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "Viewed a page since October 2025", "filters": performed_pageview_since("2025-10-01")},
+                format="json",
+            )
+            self.assertEqual(create.status_code, 201, create.data)
+            cohort_id = create.data["id"]
+            self.assertNotEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+            shorten = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"filters": performed_pageview_since("2025-10-02")},
+                format="json",
+            )
+            self.assertEqual(shorten.status_code, 200, shorten.data)
+            self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+        # A day later 2025-10-02 is past the limit too, and a rename that resends the same filters keeps realtime.
+        with time_machine.travel(datetime(2026, 11, 6, 12, 0, tzinfo=UTC), tick=False):
+            rename = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"name": "Renamed", "filters": performed_pageview_since("2025-10-02")},
+                format="json",
+            )
+            self.assertEqual(rename.status_code, 200, rename.data)
+            self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+            lengthen = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"filters": performed_pageview_since("2025-09-01")},
+                format="json",
+            )
+            self.assertEqual(lengthen.status_code, 200, lengthen.data)
+            self.assertNotEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type and condition_type fields"""
@@ -8359,3 +8935,61 @@ class TestAddPersonsToStaticCohortRequestSerializer(SimpleTestCase):
 
         assert not serializer.is_valid()
         assert serializer.errors["person_ids"][0].code == expected_code
+
+
+class TestFlagCallCriterionShapeProblem(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("last_90_days", {"time_value": 90, "time_interval": "day"}, False),
+            ("last_91_days", {"time_value": 91, "time_interval": "day"}, True),
+            ("relative_12_weeks", {"explicit_datetime": "-12w"}, False),
+            ("relative_13_weeks", {"explicit_datetime": "-13w"}, True),
+            ("relative_2_months", {"explicit_datetime": "-2m"}, False),
+            ("relative_3_months", {"explicit_datetime": "-3m"}, True),
+            ("relative_1_year", {"explicit_datetime": "-1y"}, True),
+            ("absolute_start", {"explicit_datetime": "2026-09-01"}, True),
+            (
+                "explicit_datetime_wins",
+                {"explicit_datetime": "-180d", "time_value": 30, "time_interval": "day"},
+                True,
+            ),
+            ("unknown_interval", {"time_value": 30, "time_interval": "fortnight"}, True),
+            ("not_performed", {"negation": True, "explicit_datetime": "-30d"}, False),
+            (
+                "performed_multiple_times",
+                {
+                    "value": "performed_event_multiple",
+                    "operator": "gte",
+                    "operator_value": 2,
+                    "explicit_datetime": "-30d",
+                },
+                False,
+            ),
+            ("first_time", {"value": "performed_event_first_time", "explicit_datetime": "-30d"}, True),
+            (
+                "event_property_filter",
+                {
+                    "explicit_datetime": "-30d",
+                    "event_filters": [{"key": "$browser", "type": "event", "value": "Chrome", "operator": "exact"}],
+                },
+                False,
+            ),
+            (
+                "hogql_filter",
+                {"explicit_datetime": "-30d", "event_filters": [{"key": "properties.plan = 'pro'", "type": "hogql"}]},
+                True,
+            ),
+        ]
+    )
+    def test_flags_shapes_flag_evaluations_cannot_serve(self, _name: str, overrides: dict, unsupported: bool) -> None:
+        criterion = Property(
+            **{
+                "key": "$feature_flag_called",
+                "type": "behavioral",
+                "value": "performed_event",
+                "event_type": "events",
+                **overrides,
+            }
+        )
+
+        assert (flag_call_criterion_shape_problem(criterion) is not None) == unsupported

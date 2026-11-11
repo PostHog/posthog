@@ -21,7 +21,7 @@ FULL_ACCESS = ExperimentHealthReaderAccess(
 
 def _history(paused_after_hours: int | None) -> PauseHistory:
     return PauseHistory(
-        launched_at=LAUNCHED_AT,
+        start_date=LAUNCHED_AT,
         team_timezone="UTC",
         paused_at=None if paused_after_hours is None else LAUNCHED_AT + timedelta(hours=paused_after_hours),
     )

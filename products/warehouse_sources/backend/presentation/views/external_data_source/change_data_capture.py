@@ -36,11 +36,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCSourceAdapter,
     PostgresSource,
     get_cdc_adapter,
-    history_table_ids,
+    history_tables,
+    incremental_history_table,
     repair_cdc_source,
     source_type_supports_cdc,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
 from . import base
@@ -187,7 +187,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
-        source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source_impl = base.SourceRegistry.get_source(source_type)
         if not isinstance(source_impl, PostgresSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -348,12 +348,6 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
         if err is not None:
             return err
         assert adapter is not None  # narrowed by _get_cdc_adapter_or_400
-
-        if not base.is_cdc_enabled_for_team(self.team):
-            return Response(
-                status=status.HTTP_403_FORBIDDEN,
-                data={"message": "CDC is not enabled for this team."},
-            )
 
         existing = adapter.parse_cdc_config(instance)
         if existing.enabled:
@@ -536,7 +530,16 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 except ExternalDataSchema.DoesNotExist:
                     pass
 
-            table_ids = history_table_ids(instance)
+            # An incremental schema's history table stays, also one it stopped writing: it holds the only copy
+            # of past versions, and only the delete action may remove it.
+            kept_ids = {
+                table.id
+                for schema in ExternalDataSchema.objects.filter(
+                    source=instance, sync_type=ExternalDataSchema.SyncType.INCREMENTAL
+                ).exclude(deleted=True)
+                if (table := incremental_history_table(schema)) is not None
+            }
+            table_ids = [table.id for table in history_tables(instance) if table.id not in kept_ids]
 
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             ExternalDataSchema.objects.filter(

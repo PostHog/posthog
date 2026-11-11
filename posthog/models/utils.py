@@ -11,12 +11,13 @@ from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union
 from uuid import UUID
 
+from django.conf import settings
 from django.contrib.auth.hashers import PBKDF2PasswordHasher
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections, models, transaction
 from django.db.backends.ddl_references import Statement
 from django.db.backends.utils import CursorWrapper
-from django.db.models import Q, Subquery, UniqueConstraint
+from django.db.models import Q, QuerySet, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
@@ -27,6 +28,7 @@ if TYPE_CHECKING:
     from posthog.hogql import ast
 
 T = TypeVar("T")
+ModelT = TypeVar("ModelT", bound=models.Model)
 
 BASE62 = string.digits + string.ascii_letters  # All lowercase ASCII letters + all uppercase ASCII letters + digits
 AMBIGUOUS_CHARS = frozenset("01OIl")
@@ -338,6 +340,13 @@ def get_deferred_field_set_for_model(
     return {f"{field_prefix}{x.name}" for x in model._meta.fields if x.name not in fields_not_deferred}
 
 
+def strict_fetch(queryset: QuerySet[ModelT]) -> QuerySet[ModelT]:
+    # In tests and local dev, a lazy load of a related object or deferred field raises FieldFetchBlocked,
+    # so a missing select_related fails loudly. In production, Django loads that field for all rows of the
+    # queryset in one query, so a missing select_related costs one extra query and not one per row.
+    return queryset.fetch_mode(models.FETCH_RAISE if settings.DEBUG or settings.TEST else models.FETCH_PEERS)
+
+
 class UniqueConstraintByExpression(BaseConstraint):
     def __init__(self, *, name: str, expression: str, concurrently=True):
         self.name = name
@@ -442,6 +451,14 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # A partial update that leaves the team out cannot change it, so it skips the team read.
+        # In a loop over rows that did not load the team, that read costs one query per row.
+        if kwargs.get("update_fields") is not None:
+            # Django accepts any iterable here, so read it once and pass the same values on.
+            kwargs["update_fields"] = update_fields = list(kwargs["update_fields"])
+            if not {"team", "team_id"} & set(update_fields):
+                super().save(*args, **kwargs)
+                return
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)

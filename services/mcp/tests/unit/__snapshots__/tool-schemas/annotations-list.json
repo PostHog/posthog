@@ -4,6 +4,7 @@
         "limit": {
             "default": 100,
             "description": "Number of annotations to return per page (default 100).",
+            "maximum": 1000,
             "type": "number"
         },
         "offset": {

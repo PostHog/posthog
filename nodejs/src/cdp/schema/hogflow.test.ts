@@ -25,6 +25,78 @@ describe('hogflow schema', () => {
         })
     })
 
+    describe('function_push', () => {
+        it('accepts a UUIDT message category id', () => {
+            const result = HogFlowActionSchema.safeParse({
+                ...commonActionFields,
+                type: 'function_push',
+                config: {
+                    template_id: 'template-native-push',
+                    message_category_id: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e5f',
+                    template_uuid: '0192a1b2-c3d4-0000-8e5f-0a1b2c3d4e60',
+                    inputs: {},
+                },
+            })
+
+            expect(result).toMatchObject({ success: true })
+        })
+    })
+
+    describe('email_sandbox', () => {
+        const sandboxAction = (config: Record<string, unknown> = {}, value: Record<string, unknown> = {}) => ({
+            ...commonActionFields,
+            type: 'email_sandbox',
+            config: {
+                message_category_type: 'marketing',
+                inputs: {
+                    email: {
+                        templating: 'liquid',
+                        value: {
+                            to: { email: '{{ person.properties.email }}', name: '' },
+                            subject: 'Hello',
+                            preheader: '',
+                            text: 'Hello from our workflow.',
+                            html: '',
+                            design: {},
+                            ...value,
+                        },
+                    },
+                },
+                ...config,
+            },
+        })
+
+        it('accepts a sandbox email step', () => {
+            expect(HogFlowActionSchema.safeParse(sandboxAction())).toMatchObject({ success: true })
+        })
+
+        it.each([
+            ['from', { from: { integrationId: 1 } }, {}],
+            ['replyTo', { replyTo: 'reply@example.com' }, {}],
+            ['cc', { cc: [{ email: 'cc@example.com' }] }, {}],
+            ['bcc', { bcc: [{ email: 'bcc@example.com' }] }, {}],
+            ['an integration id in the config', {}, { integration_id: 1 }],
+            ['a template id in the config', {}, { template_id: 'template-email' }],
+        ])('rejects a step that names %s', (_name, value, config) => {
+            expect(HogFlowActionSchema.safeParse(sandboxAction(config, value))).toMatchObject({ success: false })
+        })
+    })
+
+    describe('wait_until_time_window', () => {
+        it.each([
+            [['monday'], true],
+            [[], false],
+        ])('day %j → valid=%p', (day, valid) => {
+            const result = HogFlowActionSchema.safeParse({
+                ...commonActionFields,
+                type: 'wait_until_time_window',
+                config: { timezone: 'UTC', day, time: 'any' },
+            })
+
+            expect(result.success).toBe(valid)
+        })
+    })
+
     describe('wait_until_condition events', () => {
         const baseConfig = {
             condition: { filters: {} },

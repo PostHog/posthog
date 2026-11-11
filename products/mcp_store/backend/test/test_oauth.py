@@ -10,6 +10,7 @@ import httpx
 from parameterized import parameterized
 
 from posthog.models.instance_setting import override_instance_config
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 from products.mcp_store.backend.oauth import (
@@ -120,7 +121,10 @@ class TestRefreshOauthToken(SimpleTestCase):
             str(status_code), request=httpx.Request("POST", "https://example.com"), response=mock_resp
         )
 
-        with patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp):
+        with (
+            patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp),
+            mock_anti_ssrf_dns_lookup(),
+        ):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_oauth_token(
                     token_url="https://example.com/token",
@@ -136,7 +140,10 @@ class TestRefreshOauthToken(SimpleTestCase):
         mock_resp.json.return_value = {"error": "invalid_grant"}
         mock_resp.raise_for_status = MagicMock()
 
-        with patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp):
+        with (
+            patch("products.mcp_store.backend.oauth.httpx.Client.post", return_value=mock_resp),
+            mock_anti_ssrf_dns_lookup(),
+        ):
             with self.assertRaises(TokenRefreshError) as ctx:
                 refresh_oauth_token(
                     token_url="https://example.com/token",

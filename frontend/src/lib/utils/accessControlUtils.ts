@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import type { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 import { getAppContext } from 'lib/utils/getAppContext'
-import { toSentenceCase } from 'lib/utils/strings'
+import { capitalizeFirstLetter, toSentenceCase } from 'lib/utils/strings'
 import { Scene, sceneToAccessControlResourceType } from 'scenes/sceneTypes'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
@@ -109,6 +109,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'revenue analytics'
     } else if (resource === AccessControlResourceType.WebAnalytics) {
         return 'web analytics'
+    } else if (resource === AccessControlResourceType.MarketingAnalytics) {
+        return 'marketing analytics'
     } else if (resource === AccessControlResourceType.ActivityLog) {
         return 'activity logs'
     } else if (resource === AccessControlResourceType.ExternalDataSource) {
@@ -146,6 +148,9 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
 
     return resource.replace(/_/g, ' ') + 's'
 }
+
+/** Label for a resource in access control lists, e.g. "Marketing analytics". */
+export const resourceLabel = (resource: APIScopeObject): string => capitalizeFirstLetter(pluralizeResource(resource))
 
 /**
  * Returns the ordered list of access levels available for a given resource type.
@@ -186,6 +191,8 @@ export const resourceTypeToString = (resourceType: AccessControlResourceType): s
         return 'revenue analytics resource'
     } else if (resourceType === AccessControlResourceType.WebAnalytics) {
         return 'web analytics resource'
+    } else if (resourceType === AccessControlResourceType.MarketingAnalytics) {
+        return 'marketing analytics resource'
     } else if (resourceType === AccessControlResourceType.ErrorTracking) {
         return 'error tracking resource'
     } else if (resourceType === AccessControlResourceType.ExternalDataSource) {

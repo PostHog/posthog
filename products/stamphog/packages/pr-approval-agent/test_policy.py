@@ -152,6 +152,7 @@ OLD_DENY_PATTERN_DEFS = {
         "paths": [
             "^agents\\.md$",
             "^claude\\.md$",
+            "^\\.agents/(agent-automation|architecture|ci|code-style|feature-usage-tracking)\\.md$",
             "^\\.github/pull_request_template\\.md$",
             "^\\.agents/skills/writing-pr-descriptions/",
             "^\\.claude/settings\\.json$",
@@ -202,8 +203,8 @@ OLD_ALLOW_PATH_PATTERNS = [
     "__snapshots__/",
     ".github/CODEOWNERS",
 ]
-OLD_MAX_LINES = 800
-OLD_MAX_FILES = 30
+OLD_MAX_LINES = 1200
+OLD_MAX_FILES = 50
 
 # ── 1. Equality snapshot: loaded policy matches pre-extraction literals ──
 
@@ -455,7 +456,7 @@ def test_load_effective_policy(
         return
     loaded = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert set(loaded.deny) == set(_valid_policy_dict()["deny"])
-    assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 800)
+    assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 1200)
 
 
 def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
@@ -604,8 +605,8 @@ def test_resolve_budgets_each_ceiling_independently(
         pytest.param("stamphog:\n  size_gate:\n    breadth: single-area", id="undelegated-size-gate-key"),
         pytest.param("stamphog:\n  size_gate: {}", id="empty-grant"),
         pytest.param(_grant(max_files=99), id="files-over-ceiling"),
-        pytest.param(_grant(max_lines=1001), id="lines-over-ceiling"),
-        pytest.param(_grant(max_files=50, max_lines=1001), id="one-key-over-ceiling"),
+        pytest.param(_grant(max_lines=1501), id="lines-over-ceiling"),
+        pytest.param(_grant(max_files=50, max_lines=1501), id="one-key-over-ceiling"),
     ],
 )
 def test_resolve_invalid_folder_file_pools_files_into_global(fake_repo: Path, frontmatter: str) -> None:
@@ -631,7 +632,7 @@ def test_resolve_no_folder_file_uses_global() -> None:
     [
         pytest.param(None, gates.MAX_LINES, id="no-grant-keeps-the-global-total"),
         pytest.param(_grant(max_lines=200), gates.MAX_LINES, id="grant-under-the-global-default"),
-        pytest.param(_grant(max_lines=1000), 1000, id="grant-over-the-global-default"),
+        pytest.param(_grant(max_lines=1500), 1500, id="grant-over-the-global-default"),
     ],
 )
 def test_roof_is_the_most_generous_ceiling_in_play(

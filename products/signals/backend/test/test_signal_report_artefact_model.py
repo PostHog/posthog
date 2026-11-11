@@ -1,6 +1,10 @@
 import json
+from datetime import timedelta
 
 from posthog.test.base import BaseTest
+
+from django.core.management import call_command
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -14,6 +18,8 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     Priority,
     PriorityAssessment,
+    RankingModelResult,
+    RankingScore,
     RelatedTo,
     ReportLink,
     SignalFinding,
@@ -377,6 +383,144 @@ class TestSignalReportArtefactHelpers(BaseTest):
         )
 
         assert self._cached_actionability(report) == ("immediately_actionable", False)
+
+    def test_cached_priority_follows_the_newest_judgment(self):
+        report = self._report()
+        assert report.priority_sort_rank == 5
+
+        first = self._append_priority(report, "P3")
+        report.refresh_from_db()
+        assert report.priority_sort_rank == 3
+
+        second = self._append_priority(report, "P1")
+        report.refresh_from_db()
+        assert report.priority_sort_rank == 1
+
+        SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+            content="legacy plain text",
+        )
+        report.refresh_from_db()
+        assert report.priority_sort_rank == 1
+
+        second.delete()
+        report.refresh_from_db()
+        assert report.priority_sort_rank == 3
+
+        first.delete()
+        report.refresh_from_db()
+        assert report.priority_sort_rank == 5
+
+    def test_cached_ranking_score_follows_scores_and_edits(self):
+        report = self._report()
+        result = RankingModelResult(
+            model_name="report_embeddings",
+            model_version="2026-11-05",
+            model_kind="xgboost",
+            roles=["served"],
+            feature_schema_version=1,
+            status="scored",
+            scores={"open": 0.8, "fixed": 0.6, "pr_merged": 0.4},
+            lifts={"open": 2.0, "fixed": 3.0},
+        )
+        score = RankingScore(
+            scored_at=timezone.now() - timedelta(minutes=1),
+            manifest_version="manifest",
+            served_key=result.key,
+            results={result.key: result},
+        )
+        artefact = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+            content=score.model_dump_json(),
+        )
+        report = SignalReport.objects.get(id=report.id)
+        assert report.ranking_scores == {"open": 0.8, "fixed": 0.6, "pr_merged": 0.4}
+        assert report.ranking_open_score == 0.8
+        assert report.ranking_fix_score == 0.6
+        assert report.ranking_open_lift == 2.0
+
+        edit = SignalReportArtefact.objects.create(
+            team=self.team,
+            report=report,
+            type=SignalReportArtefact.ArtefactType.TITLE_CHANGE,
+            content=json.dumps({"old_title": "t", "new_title": "new"}),
+        )
+        report = SignalReport.objects.get(id=report.id)
+        assert report.ranking_scores is None
+        assert report.ranking_open_score is None
+
+        edit.delete()
+        report = SignalReport.objects.get(id=report.id)
+        assert report.ranking_open_score == 0.8
+
+        artefact.delete()
+        report = SignalReport.objects.get(id=report.id)
+        assert report.ranking_scores is None
+        assert report.ranking_open_score is None
+
+    def test_backfill_repairs_old_writes_in_batches_and_only_updates_its_team(self) -> None:
+        report = self._report()
+        stale = self._report()
+        other_team = Team.objects.create(organization=self.organization)
+        other = SignalReport.objects.create(team=other_team, title="Other report", summary="s")
+        now = timezone.now()
+        SignalReportArtefact.objects.bulk_create(
+            [
+                SignalReportArtefact(
+                    team_id=target.team_id,
+                    report=target,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content=json.dumps({"priority": "P1"}),
+                    created_at=now - timedelta(minutes=2),
+                )
+                for target in (report, stale, other)
+            ]
+            + [
+                SignalReportArtefact(
+                    team=self.team,
+                    report=report,
+                    type=SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                    content="legacy plain text",
+                    created_at=now,
+                ),
+                *[
+                    SignalReportArtefact(
+                        team=self.team,
+                        report=target,
+                        type=SignalReportArtefact.ArtefactType.RANKING_SCORE,
+                        content=json.dumps(
+                            {
+                                "scored_at": (now - timedelta(minutes=1)).isoformat(),
+                                "served_key": "test-model",
+                                "results": {"test-model": {"scores": {"action": 0.8}, "lifts": {"action": 2.0}}},
+                            }
+                        ),
+                    )
+                    for target in (report, stale)
+                ],
+                SignalReportArtefact(
+                    team=self.team,
+                    report=stale,
+                    type=SignalReportArtefact.ArtefactType.SUMMARY_CHANGE,
+                    content=json.dumps({"old_summary": "s", "new_summary": "Updated"}),
+                    created_at=now,
+                ),
+            ]
+        )
+        for _ in range(2):
+            call_command("backfill_inbox_sort_cache", team_id=self.team.id, batch_size=1, verbosity=0)
+            report.refresh_from_db()
+            stale.refresh_from_db()
+            other.refresh_from_db()
+            assert report.priority_sort_rank == stale.priority_sort_rank == 1
+            assert report.ranking_action_score == 0.8
+            assert report.ranking_action_lift == 2.0
+            assert stale.ranking_action_score is None
+            assert other.priority_sort_rank == 5
 
     def test_append_status_rejects_log_content(self):
         report = self._report()

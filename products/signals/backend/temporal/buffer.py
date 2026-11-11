@@ -16,19 +16,12 @@ from temporalio.common import MetricCounter, RetryPolicy
 from temporalio.exceptions import ActivityError
 
 from posthog.dataclasses import frozen
-from posthog.models import Team
 from posthog.storage import object_storage
-from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.quota import is_team_signals_quota_limited
-from products.signals.backend.spend import complete_signal_pipeline
-from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.temporal import metrics
-from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped_event, signal_dropped_input
 from products.signals.backend.temporal.grouping_v2 import TeamSignalGroupingV2Workflow
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, safety_filter_activity
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs, TeamSignalGroupingV2Input
@@ -90,44 +83,8 @@ class CheckSignalsQuotaInput:
 @scoped_temporal()
 @close_db_connections
 async def check_signals_quota_limited_activity(input: CheckSignalsQuotaInput) -> bool:
-    """Whether the batch must be dropped: the team is over its Signals credits quota, or over its
-    daily report limit. Owns the drop logging, metric and `signal_dropped` events so the reason
-    names the exact limit that fired; the workflow only acts on the boolean.
-    """
-    team = await Team.objects.select_related("organization").aget(pk=input.team_id)
-    quota_limited = await sync_to_async(is_team_signals_quota_limited, thread_sensitive=False)(team.api_token)
-    daily_gate = await database_sync_to_async(daily_report_limit_gate, thread_sensitive=False)(team)
-    # Captured whenever the daily gate binds — even when the quota drop below wins the
-    # single-reason drop metric — so the daily-limit event stream stays complete on co-bound days.
-    if daily_gate.limited:
-        capture_signal_report_daily_limit_paused(team, report_id=None, stage="ingestion", gate=daily_gate)
-    if quota_limited or daily_gate.limited:
-        reason = "quota_limited" if quota_limited else "daily_report_limit"
-        message = "Signals credits quota exceeded" if quota_limited else "Daily report limit reached"
-        for signal in input.signals:
-            if signal.signal_id:
-                await database_sync_to_async(complete_signal_pipeline)(
-                    team_id=input.team_id,
-                    signal_id=signal.signal_id,
-                    billing_exempt=system_source_exempt(signal.source_product),
-                )
-        logger.info(
-            "signals_buffer.dropped_batch", team_id=input.team_id, signal_count=input.signal_count, reason=reason
-        )
-        metrics.increment_dropped(stage="ingestion", reason=reason, count=input.signal_count)
-        _capture_ingestion_drops(team, input.signals, reason, message)
-        return True
+    """Recorded histories still call this activity; accepted signals must continue."""
     return False
-
-
-def _capture_ingestion_drops(team: Team, signals: list[EmitSignalInputs], error_type: str, error: str) -> None:
-    try:
-        for signal in signals:
-            capture_signal_dropped_event(team, signal_dropped_input(signal, "ingestion", error_type, error))
-    except Exception as e:
-        # Swallow the exception: a failed analytics event must not change the drop decision
-        posthoganalytics.capture_exception(e)
-        logger.exception("Failed to capture signal_dropped events", team_id=team.id, signal_count=len(signals))
 
 
 @dataclass
@@ -250,9 +207,7 @@ class BufferSignalsWorkflow:
             batch = list(self._signal_buffer)
             self._signal_buffer.clear()
 
-            # Drop the batch when the team is over its Signals credits quota or its daily report
-            # limit, before any downstream work. The activity logs the drop and owns the dropped
-            # metric, attributed to the exact limit that fired.
+            # Preserve the recorded command; admission already checked the limits.
             if workflow.patched(_PATCH_QUOTA_INGESTION_GATE):
                 over_limit = await workflow.execute_activity(
                     check_signals_quota_limited_activity,

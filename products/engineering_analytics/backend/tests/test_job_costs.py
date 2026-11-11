@@ -33,12 +33,8 @@ from products.warehouse_sources.backend.facade.testing import create_data_wareho
 TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.job_costs"
 GITHUB_SOURCE_PREFIX = "myprefix"
 
-# The classification matrix: (scenario, labels, started_at, completed_at, status). The view derives
-# cost from labels + the billed elapsed only, so every row exercises a distinct classify_runner / cost
-# branch. None of these rows carry a steps payload, so their billed elapsed IS the wall-clock; the
-# first-step correction has its own test below.
-# Expected values are computed from the Python model in the test, so a row fails only on Python↔SQL
-# drift — exactly the regression this guards.
+# Each row is (scenario, labels, started_at, completed_at, status) and exercises a distinct
+# classify_runner or cost branch. No row carries a steps payload, so billed elapsed equals wall-clock.
 _BASE = "2026-01-01 10:00:00"
 
 
@@ -65,7 +61,7 @@ _MATRIX: list[tuple[str, list[str], str, str | None, str]] = [
 
 
 def _elapsed_seconds(started: str, completed: str | None, status: str) -> int | None:
-    # Mirror the jobs builder: duration is only computed for completed jobs, as completed - started.
+    # Mirrors the jobs builder, which computes a duration only for completed jobs.
     if status != "completed" or completed is None:
         return None
     return int((pd.Timestamp(completed) - pd.Timestamp(started)).total_seconds())
@@ -114,8 +110,6 @@ _REPO = "PostHog/posthog"
 
 
 def _run_row(run_id: int, *, run_attempt: int, pr_number: int) -> dict[str, Any]:
-    """One runs-snapshot row. The snapshot upserts by id, so a re-run leaves ONLY the newest
-    attempt's row — which is what the jobs↔runs join has to cope with."""
     return dict.fromkeys(WORKFLOW_RUNS_COLUMNS) | {
         "id": run_id,
         "name": "CI",
@@ -140,10 +134,6 @@ def _cost_query(jobs_table: str, runs_table: str) -> str:
 
 
 class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
-    # The drift guard for the single-source-of-truth contract: the view is rendered from the same
-    # constants as logic.cost, so any change to one side that isn't matched on the other shows up
-    # here.
-
     def _create_table(self, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
         df = pd.DataFrame(rows, columns=list(columns.keys()))
         tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
@@ -162,10 +152,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         self.addCleanup(cleanup)
         return table.name
 
-    def test_exposed_view_columns_match_the_field_contract(self) -> None:
-        # The view body projects its column list through four nested SELECTs. Appending to FIELDS but
-        # missing a layer yields a query that still runs and silently drops the column from the
-        # exposed view, so assert the two agree — the same guard ci_job_history has.
+    def test_builder_columns_match_the_field_contract(self) -> None:
         jobs_table = self._create_table("github_workflow_jobs", WORKFLOW_JOBS_COLUMNS, [_job_row(0, *_MATRIX[0][1:])])
         runs_table = self._create_table(
             "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [dict.fromkeys(WORKFLOW_RUNS_COLUMNS)]
@@ -174,7 +161,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         columns = execute_hogql_query(
             query=f"SELECT * FROM ({query})", team=self.team, query_type="engineering_analytics.test"
         ).columns
-        assert columns == list(job_costs.FIELDS)
+        assert columns == list(job_costs.BUILDER_FIELDS)
 
     def test_view_matches_python_cost_model(self) -> None:
         jobs_table = self._create_table(
@@ -185,8 +172,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
                 for i, (_, labels, started, completed, status) in enumerate(_MATRIX)
             ],
         )
-        # A runs table with no matching rows: the cost columns don't depend on the join, so the LEFT
-        # JOIN just leaves attribution NULL — exactly the "job without a run row" path.
+        # No run row matches, so this also covers a job whose run row is missing.
         runs_table = self._create_table(
             "github_workflow_runs",
             WORKFLOW_RUNS_COLUMNS,
@@ -201,8 +187,6 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         by_job = {row[0]: row for row in rows}
 
         for index, (scenario, labels, started, completed, status) in enumerate(_MATRIX):
-            # No steps in these fixtures -> nothing to subtract. Routed through the model anyway, so
-            # the assertion states the billed clock rather than assuming it equals the wall-clock.
             billed = billed_elapsed_seconds(_elapsed_seconds(started, completed, status), None)
             tier = classify_runner(labels)
             _job_name, provider, os_, vcpu, multiplier, billable, cost = by_job[f"job-{index}"]
@@ -220,10 +204,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
                 assert cost == pytest.approx(expected_cost), scenario
 
     def test_cost_is_billed_from_the_first_step_not_from_started_at(self) -> None:
-        # GitHub stamps started_at when Depot accepts the job; the machine boots for ~23s before the
-        # first step runs, and Depot doesn't bill provisioning. So a 10-minute job whose steps show it
-        # started running at +23s must cost 577s, not 600s — while duration_seconds stays the full
-        # window GitHub reports. Without the steps payload nothing is subtracted.
+        # GitHub stamps started_at when Depot accepts the job, but Depot bills from the first step.
         labels = ["depot-ubuntu-latest"]
         steps = json.dumps(
             [
@@ -261,12 +242,9 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         assert cost == pytest.approx(estimate_job_cost_usd(labels, 600))
 
     def test_earlier_attempt_jobs_keep_their_run_attribution(self) -> None:
-        # The runs snapshot upserts by id, so after a partial re-run only the attempt-2 run row
-        # exists. Joining on (run_id, run_attempt) left every attempt-1 job unjoined — NULL repo,
-        # NULL pr_number — which is exactly the population that actually executed: attempt 2 mostly
-        # re-lists it. That silently dropped those jobs from every repo-/PR-scoped cost aggregate.
-        # Joining on run_id alone attributes them, and the PR total must then be the two real
-        # executions (the passed job from attempt 1 + the genuine re-run), with no double count.
+        # The runs snapshot upserts by id, so after a partial re-run only the attempt-2 run row exists.
+        # A join on (run_id, run_attempt) leaves the attempt-1 jobs, which are the ones that executed,
+        # without a repo or PR.
         labels = ["depot-ubuntu-latest"]
         run_id, pr_number = 8800, 42
         jobs_table = self._create_table(
@@ -275,12 +253,11 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
             [
                 _job_row(1, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=1, name="passed"),
                 _job_row(2, labels, _BASE, _plus(300), "completed", run_id=run_id, run_attempt=1, name="failed"),
-                # attempt 2: the passed job is re-listed verbatim, the failed one genuinely re-runs.
+                # Attempt 2 lists the passed job again with attempt 1's timestamps and re-runs the failed one.
                 _job_row(3, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=2, name="passed"),
                 _job_row(4, labels, _plus(700), _plus(1000), "completed", run_id=run_id, run_attempt=2, name="failed"),
             ],
         )
-        # Only the newest attempt's run row — the snapshot shape the join has to survive.
         runs_table = self._create_table(
             "github_workflow_runs", WORKFLOW_RUNS_COLUMNS, [_run_row(run_id, run_attempt=2, pr_number=pr_number)]
         )
@@ -293,21 +270,15 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
         by_attempt = {(row[0], row[1]): row for row in rows}
 
-        # Every row is attributed, whichever attempt it belongs to — this is the regression.
         for row in rows:
             assert (row[2], row[3], row[4]) == ("PostHog", "posthog", pr_number), row[0]
 
-        # The attempt-1 job that really ran keeps its cost...
         assert not by_attempt[("passed", 1)][5]
         assert by_attempt[("passed", 1)][6] == pytest.approx(estimate_job_cost_usd(labels, 600))
-        # ...and its attempt-2 re-listing is attributed but costs nothing, so there's no double count.
         assert by_attempt[("passed", 2)][5]
         assert by_attempt[("passed", 2)][6] is None
 
-        # The PR's whole bill is the three executions that happened — the passed job once, the failed
-        # job twice (failing, then re-run) — and nothing else. Before the join fix the two attempt-1
-        # rows were unattributed and dropped from this PR-scoped scan, leaving only the re-run;
-        # counting the copy instead would put the passed job's minutes back under the wrong attempt.
+        # Three executions happened: the passed job once and the failed job twice.
         passed_cost = estimate_job_cost_usd(labels, 600)
         failed_cost = estimate_job_cost_usd(labels, 300)
         assert passed_cost is not None and failed_cost is not None
@@ -315,11 +286,9 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         assert total == pytest.approx(passed_cost + 2 * failed_cost)
 
     def test_rerun_copies_are_flagged_and_not_costed(self) -> None:
-        # "Re-run failed jobs" on a run whose 'passed' job succeeded and whose 'failed' job did not:
-        # GitHub lists BOTH under attempt 2, but only 'failed' actually ran again — 'passed' is
-        # re-listed with a new id and attempt 1's exact timestamps. Costing that row bills minutes
-        # Depot never charged for. The two 'queued' rows guard the NULL trap: neither attempt has
-        # timestamps yet, and NULL == NULL inside a PARTITION BY, so they must not read as copies.
+        # After "Re-run failed jobs", GitHub lists the passed job again under attempt 2 with a new id
+        # and attempt 1's timestamps, although it did not run again. The two queued rows share NULL
+        # timestamps, which group together as a duplicate key, and they must not read as copies.
         labels = ["depot-ubuntu-latest"]
         run_id = 7700
         jobs_table = self._create_table(
@@ -328,9 +297,7 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
             [
                 _job_row(1, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=1, name="passed"),
                 _job_row(2, labels, _BASE, _plus(300), "completed", run_id=run_id, run_attempt=1, name="failed"),
-                # The re-listing: new job id, attempt 1's start and finish verbatim.
                 _job_row(3, labels, _BASE, _plus(600), "completed", run_id=run_id, run_attempt=2, name="passed"),
-                # The real re-run: same name, but it ran later, so it is not a copy.
                 _job_row(4, labels, _plus(700), _plus(1000), "completed", run_id=run_id, run_attempt=2, name="failed"),
                 _job_row(5, labels, None, None, "queued", run_id=run_id, run_attempt=1, name="queued"),
                 _job_row(6, labels, None, None, "queued", run_id=run_id, run_attempt=2, name="queued"),
@@ -348,12 +315,11 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         rows = execute_hogql_query(query=sql, team=self.team, query_type="engineering_analytics.test").results
         by_attempt = {(row[0], row[1]): row for row in rows}
 
-        # Every attempt is still a row — the view's grain is unchanged, the copy is only flagged.
+        # A copy is flagged and stays a row.
         assert len(rows) == 6
 
         _n, _a, copy, duration, billable, cost = by_attempt[("passed", 2)]
         assert copy
-        # The wall-clock duration stays honest (it is what GitHub reports); only the money is dropped.
         assert duration == 600
         assert billable is None
         assert cost is None
@@ -367,5 +333,5 @@ class TestJobCostsViewParity(ClickhouseTestMixin, BaseTest):
         for key in (("queued", 1), ("queued", 2)):
             _n, _a, copy, duration, billable, cost = by_attempt[key]
             assert not copy, key
-            # Unsettled, not a copy: no elapsed, so no cost — never a $0.00.
+            # An unsettled job has a NULL cost and never a zero cost.
             assert duration is None and billable is None and cost is None, key

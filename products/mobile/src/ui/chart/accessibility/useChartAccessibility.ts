@@ -146,7 +146,9 @@ export function useChartAccessibility(input: ChartAccessibilityInput): ChartAcce
             maxRows: Number.POSITIVE_INFINITY,
             dataUntil,
         })
-        const rows = content.rows.map((row) => `${row.label} ${formatValue(row.value)}`).join(', ')
+        const rows = content.rows
+            .map((row) => `${row.label} ${row.formattedValue ?? formatValue(row.value)}`)
+            .join(', ')
         const parts = [content.header, rows, content.compare?.previous, content.compare?.change, content.note]
         return parts.filter((part): part is string => Boolean(part)).join('. ')
     }, [index, series, hiddenKeys, interval, formatValue, dataUntil])

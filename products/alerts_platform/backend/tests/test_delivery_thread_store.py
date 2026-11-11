@@ -1,5 +1,6 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 import time_machine
@@ -12,7 +13,7 @@ from parameterized import parameterized
 
 from posthog.models.scoping import team_scope
 
-from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.dispatch import add_late_image, deliver
 from products.alerts_platform.backend.delivery.thread_store import (
     PENDING_CLAIM_TTL,
     DatabaseThreadStore,
@@ -20,6 +21,7 @@ from products.alerts_platform.backend.delivery.thread_store import (
     ThreadKey,
 )
 from products.alerts_platform.backend.delivery.transport import MessageHandle
+from products.alerts_platform.backend.facade.contracts import LateImageResult, MessageImage
 from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertThread
 from products.alerts_platform.backend.tests.test_delivery_dispatch import TARGET, FakeTransport, _announcement
 
@@ -153,3 +155,58 @@ class TestDatabaseThreadStore(APIBaseTest):
 
         assert checkout is not None and search is not None
         assert checkout.thread_id != search.thread_id
+
+    def test_a_late_image_edits_only_the_message_its_evaluation_opened_and_only_once(self) -> None:
+        class ImageTransport(FakeTransport):
+            provider = "slack"
+
+            def __init__(self) -> None:
+                super().__init__(handle=MessageHandle(external_ref={"ts": "1"}, root_content={"text": "Fired"}))
+                self.images: list[MessageHandle] = []
+
+            def add_root_image(self, *, root: MessageHandle, **_: Any) -> dict[str, Any]:
+                if "image" in (root.root_content or {}):
+                    return root.root_content or {}
+                self.images.append(root)
+                return {**(root.root_content or {}), "image": "chart"}
+
+        transport = ImageTransport()
+        image = MessageImage(url="https://example.com/chart.png", alt_text="Chart")
+        firing = _announcement().transitions
+
+        def late(evaluation_key: str) -> LateImageResult:
+            return add_late_image(
+                transport=transport,
+                thread_store=self.store,
+                team_id=self.team.id,
+                configuration_id=str(self.configuration.id),
+                evaluation_key=evaluation_key,
+                target=TARGET,
+                transitions=firing,
+                image=image,
+            )
+
+        def send(evaluation_key: str) -> None:
+            deliver(
+                transport=transport,
+                thread_store=self.store,
+                team_id=self.team.id,
+                configuration_id=str(self.configuration.id),
+                evaluation_key=evaluation_key,
+                target=TARGET,
+                destination_id=None,
+                announcement=_announcement(),
+            )
+
+        with patch("products.alerts_platform.backend.delivery.dispatch.alert_snapshot", return_value=None):
+            assert late("eval-1") == LateImageResult(edited=0, waiting=1)
+            send("eval-1")
+            send("eval-2")
+            assert late("eval-1") == LateImageResult(edited=1, waiting=0)
+            assert late("eval-1") == LateImageResult(edited=1, waiting=0)
+            assert late("eval-2") == LateImageResult(edited=0, waiting=0)
+
+        assert len(transport.images) == 1
+        claim = self.store.claim(self._key(), "eval-3")
+        assert claim is not None and claim.handle is not None
+        assert claim.handle.root_content == {"text": "Fired", "image": "chart"}

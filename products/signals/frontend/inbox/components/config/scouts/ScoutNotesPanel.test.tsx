@@ -49,7 +49,7 @@ describe('ScoutNotesPanel', () => {
         expect(getByText(new RegExp(TAIL))).toBeTruthy()
     })
 
-    it('lists a fleet-wide note under its own label', async () => {
+    it('folds fleet-wide notes away below the notes for this scout', async () => {
         useMocks({
             get: {
                 '/api/projects/:team/signals/scout/notes/': [
@@ -66,10 +66,15 @@ describe('ScoutNotesPanel', () => {
             },
         })
 
-        const { findByText, getByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
+        const { findByText, getByText, queryByText } = render(<ScoutNotesPanel skillName={SKILL_NAME} />)
 
-        expect(await findByText('Ignore traffic from the staging domain.')).toBeTruthy()
-        expect(getByText('For every scout')).toBeTruthy()
+        expect(await findByText('It also reads 1 note left for every scout')).toBeTruthy()
+        expect(getByText(/Nothing has been told to this scout yet/)).toBeTruthy()
+        expect(queryByText('Ignore traffic from the staging domain.')).toBeNull()
+
+        fireEvent.click(getByText('It also reads 1 note left for every scout'))
+
+        expect(getByText('Ignore traffic from the staging domain.')).toBeTruthy()
     })
 
     it('offers a retry once a load that never settles times out', async () => {

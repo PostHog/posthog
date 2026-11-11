@@ -64,31 +64,40 @@ ORDER BY day, model
 ```sql
 posthog:execute-sql
 SELECT
-    toDate(timestamp) AS day,
-    properties.$ai_model AS model,
-    round(
-        if(
-            any(properties.$ai_cache_reporting_exclusive) = 'true',
-            sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens))
-                       + sum(toInt(properties.$ai_cache_read_input_tokens))
-                       + sum(toInt(properties.$ai_cache_creation_input_tokens)), 0),
-            sum(toInt(properties.$ai_cache_read_input_tokens))
-                / nullIf(sum(toInt(properties.$ai_input_tokens)), 0)
-        ), 3
-    ) AS cache_hit_rate,
-    sum(toInt(properties.$ai_input_tokens)) AS input_tokens,
-    sum(toInt(properties.$ai_cache_read_input_tokens)) AS cache_read_tokens
-FROM events
-WHERE event = '$ai_generation'
-    AND timestamp >= now() - INTERVAL 30 DAY
+    day,
+    model,
+    round(sum(cache_read) / nullIf(sum(if(exclusive, input + cache_read + cache_write, input)), 0), 3) AS cache_hit_rate,
+    sum(input) AS input_tokens,
+    sum(cache_read) AS cache_read_tokens,
+    countIf(flag_missing) AS calls_with_inferred_flag,
+    count() AS calls
+FROM (
+    SELECT
+        toDate(timestamp) AS day,
+        properties.$ai_model AS model,
+        ifNull(toInt(properties.$ai_input_tokens), 0) AS input,
+        ifNull(toInt(properties.$ai_cache_read_input_tokens), 0) AS cache_read,
+        ifNull(toInt(properties.$ai_cache_creation_input_tokens), 0) AS cache_write,
+        lower(ifNull(properties.$ai_provider, '')) AS provider,
+        properties.$ai_cache_reporting_exclusive IS NULL AS flag_missing,
+        (provider = 'anthropic'
+            OR positionCaseInsensitive(ifNull(properties.$ai_model, ''), 'anthropic') > 0
+            OR startsWith(lower(ifNull(properties.$ai_model, '')), 'claude'))
+            AND NOT (provider = 'gateway' AND lower(ifNull(properties.$ai_framework, '')) = 'vercel') AS anthropic_style,
+        if(flag_missing, anthropic_style, toString(properties.$ai_cache_reporting_exclusive) = 'true')
+            OR input < cache_read + cache_write AS exclusive
+    FROM events
+    WHERE event = '$ai_generation'
+        AND timestamp >= now() - INTERVAL 30 DAY
+)
 GROUP BY day, model
 ORDER BY day, model
 ```
 
 A drop often follows a system-prompt change that invalidated the cached prefix.
-A rate above 1 means the flag is unset on those events, so the inclusive
-branch ran over exclusive data. Read the token columns instead.
+The rate resolves the reporting style per event; see
+[cache accounting](./cache-accounting.md) for why, and for how to read
+`calls_with_inferred_flag`.
 
 ## Step 5 — Isolate the feature
 

@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconArrowRight, IconCheck, IconChevronDown, IconPencil, IconStack, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { cn } from 'lib/utils/css-classes'
 
 import type { QueueHold, QueuedMessage } from '../logics/runInteractionLogic'

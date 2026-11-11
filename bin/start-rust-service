@@ -104,6 +104,7 @@ case "$RS_SVC" in
     export KAFKA_HOSTS=localhost:9092
     export KAFKA_TOPIC=logs_ingestion
     export KAFKA_METRICS_TOPIC=metrics_ingestion
+    export VERCEL_DRAIN_ENABLED_TOKENS='*' # The route is closed by default; open it to every project in dev
     ;;
 
   capture-apm-metrics)
@@ -239,6 +240,8 @@ case "$RS_SVC" in
     export DEBUG=1
     export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     export INTERNAL_REQUEST_TOKEN=${INTERNAL_REQUEST_TOKEN:-dev-internal-token}
+    # Answer /flags?v=4 with the v4 response, as production does
+    export FLAGS_V4_RESPONSE_ENABLED=${FLAGS_V4_RESPONSE_ENABLED:-true}
     ;;
 
   hypercache-server)

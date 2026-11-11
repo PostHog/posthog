@@ -39,6 +39,7 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
     BumpStuckCounterInput,
@@ -2623,6 +2624,19 @@ class TestFetchSessionNetworkActivity:
 
         # A block bigger than the whole budget still gets read, on its own.
         assert len(mod._next_batch([block(mod._MAX_BATCH_COMPRESSED_BYTES * 4)], 0)) == 1
+
+    @pytest.mark.asyncio
+    async def test_a_deleted_recording_reads_as_no_network_data(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(side_effect=RecordingDeletedError("deleted"))),
+            patch.object(mod, "_collect", AsyncMock()) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 0
+        assert payload == SessionNetworkPayload()
 
     @pytest.mark.asyncio
     async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:

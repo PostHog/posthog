@@ -6,7 +6,8 @@ from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_
 
 from posthog.models import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.replay_vision.backend.queries.action_volume import recent_action_sessions
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
@@ -24,7 +25,7 @@ def _event(team, event: str, session_id: str, at: dt.datetime) -> None:
 
 
 def _action(team, name: str, event: str) -> Action:
-    return Action.objects.create(team=team, name=name, steps_json=[{"event": event}])
+    return create_action(team=team, name=name, steps_json=[{"event": event}])
 
 
 class TestRecentActionSessions(ClickhouseTestMixin):
@@ -59,7 +60,7 @@ class TestRecentActionSessions(ClickhouseTestMixin):
     def test_an_action_with_no_steps_is_never_measured(self, team) -> None:
         # A stepless action compiles to a condition that matches every event, so measuring it would
         # report the team's whole session count and read as the liveliest action in the briefing.
-        stepless = Action.objects.create(team=team, name="Never finished", steps_json=[])
+        stepless = create_action(team=team, name="Never finished", steps_json=[])
         _event(team, "checkout completed", "s1", _NOW - dt.timedelta(hours=2))
         # This path returns before it queries, and `_create_event` only writes its batch when a
         # query runs. Without the flush the event stays pending and fails the next test's teardown.

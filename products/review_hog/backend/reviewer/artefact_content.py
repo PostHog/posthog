@@ -29,7 +29,7 @@ from products.review_hog.backend.reviewer.models.issues_review import (
 from products.review_hog.backend.reviewer.models.perspective_selection import PerspectiveSelection
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 from products.review_hog.backend.reviewer.review_design import REVIEW_DESIGN_PIPELINE
-from products.signals.backend.artefact_schemas import (
+from products.signals.backend.facade.report_artefacts import (
     ArtefactContentValidationError,
     CodeReference,
     Commit,
@@ -346,6 +346,13 @@ class TurnMarkerArtefact(BaseModel):
     )
     review_design: str | None = Field(
         default=None, description="The design the turn ran on (pipeline or single_agent)."
+    )
+    clean_full_coverage: bool | None = Field(
+        default=None,
+        description=(
+            "Set when a Standard automatic turn finished: true when it kept no valid finding, read every file, "
+            "and reviewed the PR without capping the lens parts. None on every other turn."
+        ),
     )
 
 

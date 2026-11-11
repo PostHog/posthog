@@ -12,7 +12,7 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '../_tests/fixtures-hogflows'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
@@ -88,6 +88,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     let team: Team
     let team2: Team
     let hogFlows: HogFlow[]
+    let jobQueue: ReturnType<typeof createMockJobQueue>
 
     const createSerializedHogFlowInvocation = (
         hogFlow: HogFlow,
@@ -160,11 +161,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         ]
 
         const mockRepo = createMockPersonReadRepository(testPersons)
-        const mockJobQueue = createMockJobQueue()
+        jobQueue = createMockJobQueue()
         processor = new CdpCyclotronWorkerHogFlow(
             hub,
             { ...createCdpConsumerDeps(hub), personRepository: mockRepo },
-            mockJobQueue
+            jobQueue
         )
 
         hogFlows = []
@@ -585,6 +586,33 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(getPerson).toHaveBeenCalledWith(expect.any(Number), 'distinct_A_1', 'distinct_id', {
                 forceFresh: false,
             })
+        })
+
+        it('runs a flow the replica does not have yet, and fails one missing from both', async () => {
+            const [lateFlow, missingFlow] = ['Flow only the primary has', 'Flow neither database has'].map((name) =>
+                new FixtureHogFlowBuilder()
+                    .withName(name)
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withSimpleWorkflow()
+                    .build()
+            )
+            await insertHogFlow(hub.postgres, lateFlow)
+            hideHogFlowsFromReplica(hub.postgres, [lateFlow.id])
+            const [lateInvocation, missingInvocation] = [lateFlow, missingFlow].map((flow) =>
+                createSerializedHogFlowInvocation(flow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                })
+            )
+
+            const results = await processor.processInvocations([lateInvocation, missingInvocation])
+
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
+                finished: true,
+                invocation: { hogFlow: { id: lateFlow.id } },
+            })
+            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
         })
 
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {

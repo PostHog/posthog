@@ -1,15 +1,14 @@
 import { useActions, useValues, type BuiltLogic } from 'kea'
 
-import { LemonBanner, LemonButton, LemonInputSelect, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
-import { tagsModel } from '~/models/tagsModel'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 
 import type { resourceTagsLogicType } from './resourceTagsLogic'
 
 export function ResourceTagsModal({ logic }: { logic: BuiltLogic<resourceTagsLogicType> }): JSX.Element {
     const { isOpen, draft, saving, error } = useValues(logic)
     const { close, setDraft, save } = useActions(logic)
-    const { tags: availableTags } = useValues(tagsModel)
     return (
         <LemonModal
             isOpen={isOpen}
@@ -28,14 +27,12 @@ export function ResourceTagsModal({ logic }: { logic: BuiltLogic<resourceTagsLog
         >
             <div className="space-y-3">
                 {error && <LemonBanner type="error">{error}</LemonBanner>}
-                <LemonInputSelect
-                    mode="multiple"
+                <TagsInputSelect
                     value={draft}
                     onChange={setDraft}
-                    options={availableTags.map((tag) => ({ key: tag, label: tag }))}
-                    allowCustomValues
-                    placeholder="Add tags"
+                    saving={saving}
                     disabled={saving}
+                    placeholder="Add tags"
                     fullWidth
                 />
             </div>

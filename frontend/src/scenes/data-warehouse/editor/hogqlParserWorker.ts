@@ -1,6 +1,12 @@
 import type { ASTNode } from '@posthog/hogql-parser'
 
-import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } from './hogqlAst'
+import {
+    type AstRange,
+    type SelectComparison,
+    compareParsedSelects,
+    innermostSelectRangeFromAst,
+    tablesAndColumnsFromAst,
+} from './hogqlAst'
 
 // Parsing HogQL is a synchronous WASM call over the whole query — roughly 36ms per 1000
 // characters, so seconds on a long one. On the main thread that freezes the editor after every
@@ -9,12 +15,13 @@ import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } f
 export type HogqlParserQuestion =
     | { op: 'innermostSelect'; query: string; localOffset: number }
     | { op: 'tablesAndColumns'; query: string }
+    | { op: 'compareSelects'; query: string; other: string }
 
 export type HogqlParserRequest = HogqlParserQuestion & { id: number }
 
 export type HogqlParserResponse =
     | { type: 'ready' }
-    | { id: number; result: AstRange | null | Record<string, Record<string, boolean>> }
+    | { id: number; result: AstRange | null | Record<string, Record<string, boolean>> | SelectComparison }
     | { id: number; error: string }
 
 let parserPromise: Promise<{ parseSelect: (input: string, isInternal?: boolean) => string }> | null = null
@@ -57,6 +64,15 @@ async function astFor(query: string): Promise<ASTNode | null> {
 self.onmessage = async (event: MessageEvent<HogqlParserRequest>): Promise<void> => {
     const request = event.data
     try {
+        if (request.op === 'compareSelects') {
+            const parser = await getParser()
+            const result = compareParsedSelects(
+                parser.parseSelect(request.query, true),
+                parser.parseSelect(request.other, true)
+            )
+            self.postMessage({ id: request.id, result } satisfies HogqlParserResponse)
+            return
+        }
         const ast = await astFor(request.query)
         if (!ast) {
             self.postMessage({

@@ -22,7 +22,6 @@ import posthoganalytics
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.models import Team, User
@@ -433,6 +432,8 @@ async def run_investigation(
 
 def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[BaseCallbackHandler]:
     callbacks: list[BaseCallbackHandler] = []
+    from ee.hogai.llm import MaxCallbackHandler
+
     client = posthoganalytics.default_client
     if client is None:
         return callbacks
@@ -443,7 +444,7 @@ def _build_callbacks(*, team: Team, alert: AlertConfiguration | None) -> list[Ba
     if alert is not None:
         properties["alert_id"] = str(alert.id)
     callbacks.append(
-        CallbackHandler(
+        MaxCallbackHandler(
             client,
             distinct_id=str(team.id),
             trace_id=f"alert-investigation-{uuid.uuid4()}",

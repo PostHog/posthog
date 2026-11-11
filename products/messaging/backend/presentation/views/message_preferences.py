@@ -6,12 +6,12 @@ from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_sche
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
-from rest_framework.pagination import PageNumberPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import BoundedPageNumberPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.plugins import plugin_server_api
@@ -31,7 +31,7 @@ MAX_BULK_OPT_OUT_ENTRIES = 1000
 UNSAFE_FILENAME_CHARACTERS = re.compile(r"[^A-Za-z0-9_-]+")
 
 
-class OptOutsPagination(PageNumberPagination):
+class OptOutsPagination(BoundedPageNumberPagination):
     page_size = 20
     page_size_query_param = "page_size"
     max_page_size = 100

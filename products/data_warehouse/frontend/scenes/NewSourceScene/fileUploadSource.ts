@@ -1,18 +1,15 @@
 import { urls } from 'scenes/urls'
 
-import {
-    ExternalDataSourceTypeEnumApi,
-    SourceConfigResponseApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
-// File upload is a client-only catalog entry — it has no backend SourceConfig because an uploaded
-// file becomes a DataWarehouseTable (self-managed, or a managed FileUpload source when managed object
-// storage sources are on), not a synced source of its own. `FileUpload` is deliberately not a real
-// source type (there is no backend source of that type), so it's cast here once to reuse the shared source-config shape and the
-// wizard's connector-selection plumbing. This synthetic config drives the wizard's second step and
-// the tile icon; the three tiles below (one per format) all point back at it, since users look for
-// "CSV", not "File upload".
-export const FILE_UPLOAD_SOURCE_NAME = 'FileUpload' as unknown as ExternalDataSourceTypeEnumApi
+import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+
+// File upload is a client-only catalog entry. The backend FileUpload source isn't listed in the
+// catalog, because PostHog creates it after the uploaded file becomes a table. This synthetic config
+// reuses the shared source-config shape and the wizard's connector-selection plumbing. It drives the
+// wizard's second step and the tile icon; the three tiles below (one per format) all point back at
+// it, since users look for "CSV", not "File upload".
+export const FILE_UPLOAD_SOURCE_NAME: ExternalDataSourceType = 'FileUpload'
 
 export type FileUploadFormat = 'csv' | 'json' | 'parquet'
 

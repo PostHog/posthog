@@ -34,6 +34,10 @@ class WeeklyDigestInput(BaseModel):
     digest_key_override: str | None = None
     allow_already_sent: bool = False
     common: CommonInput = CommonInput()
+    # A resend sets these. None sends to every organization.
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
+    period_end_override: datetime | None = None
 
 
 class GenerateDigestDataInput(BaseModel):
@@ -54,8 +58,15 @@ class GenerateDigestDataBatchInput(BaseModel):
     common: CommonInput
 
 
+class OrganizationIdRange(BaseModel):
+    """A half-open [start, end) range of organization ids. The last range has no end."""
+
+    start: UUID
+    end: UUID | None
+
+
 class GenerateOrganizationDigestInput(BaseModel):
-    batch: tuple[int, int]
+    organization_id_range: OrganizationIdRange
     digest: Digest
     common: CommonInput
 
@@ -65,14 +76,18 @@ class SendWeeklyDigestInput(BaseModel):
     allow_already_sent: bool
     digest: Digest
     common: CommonInput
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
 
 
 class SendWeeklyDigestBatchInput(BaseModel):
-    batch: tuple[int, int]
+    organization_id_range: OrganizationIdRange
     dry_run: bool
     allow_already_sent: bool
     digest: Digest
     common: CommonInput
+    organization_ids: list[str] | None = None
+    workflows_only: bool = False
 
 
 class DigestDashboard(BaseModel):

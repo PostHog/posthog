@@ -6,9 +6,9 @@ import { LemonButton, LemonModal, LemonModalProps, LemonSelect, LemonSelectOptio
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
+import { LemonTextAreaMarkdown } from 'lib/components/LemonTextAreaMarkdown/LemonTextAreaMarkdown'
 import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
