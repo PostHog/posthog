@@ -1,11 +1,22 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { createRef } from 'react'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
 
 import { SyncTypeLabelMap } from '../../../utils'
-import { SyncMethodForm, getInitialRadioState, getSaveDisabledReason, shouldOfferXmin } from './SyncMethodForm'
+import {
+    SyncMethodForm,
+    SyncMethodFormHandle,
+    getInitialRadioState,
+    getSaveDisabledReason,
+    shouldOfferXmin,
+} from './SyncMethodForm'
+
+const NO_KEY_REASON = 'Select primary key columns, or use full table replication instead'
+const NO_SOURCE_KEY_REASON =
+    'This table has no primary key on the source. Add one there, or use full table replication instead'
 
 const baseSchema: ExternalDataSourceSyncSchema = {
     table: 'orders',
@@ -39,11 +50,24 @@ describe('SyncMethodForm', () => {
     })
 
     it.each([
-        ['no key, key required', null, true, 'Select primary key columns, or use full table replication instead'],
-        ['no key, source declares its own key', null, false, undefined],
-        ['key picked, key required', ['id'], true, undefined],
-    ])('requires a merge key for incremental: %s', (_, mergeKey, keyRequired, expected) => {
-        expect(getSaveDisabledReason('incremental', 'updated_at', null, mergeKey, keyRequired)).toBe(expected)
+        ['incremental, no key, key required', 'incremental', null, true, true, NO_KEY_REASON],
+        ['incremental, no key, source declares its own key', 'incremental', null, false, true, undefined],
+        ['incremental, key picked, key required', 'incremental', ['id'], true, true, undefined],
+        ['cdc, no key, source declares its own key', 'cdc', null, false, true, NO_SOURCE_KEY_REASON],
+        ['xmin, no key, source declares its own key', 'xmin', null, false, true, NO_SOURCE_KEY_REASON],
+        ['cdc, source key', 'cdc', ['id'], false, true, undefined],
+        ['cdc, no key, new source', 'cdc', null, false, false, undefined],
+    ] as const)('requires a merge key: %s', (_, syncType, mergeKey, keyRequired, replicationKeyRequired, expected) => {
+        expect(
+            getSaveDisabledReason(
+                syncType,
+                'updated_at',
+                null,
+                mergeKey ? [...mergeKey] : null,
+                keyRequired,
+                replicationKeyRequired
+            )
+        ).toBe(expected)
     })
 
     it.each([
@@ -133,6 +157,49 @@ describe('SyncMethodForm', () => {
             )
 
             expect(screen.getByText(/select one or more columns to use as the primary key/i)).toBeInTheDocument()
+        })
+
+        // A never-synced table has no stored key, and the API refuses CDC and xmin without one, so the
+        // form has to send the key detection found.
+        // CDC deletes carry only the source's primary key, and the xmin reader resolves the key from the
+        // source, so a key stored by an earlier incremental setup must not reach either.
+        it.each([
+            ['cdc', null],
+            ['xmin', null],
+            ['cdc', ['order_key']],
+            ['xmin', ['order_key']],
+        ] as const)('sends the source key when saving %s with stored key %s', (syncType, storedKey) => {
+            const onSave = jest.fn()
+            const ref = createRef<SyncMethodFormHandle>()
+            render(
+                <SyncMethodForm
+                    ref={ref}
+                    schema={{
+                        ...baseSchema,
+                        sync_type: null,
+                        cdc_available: true,
+                        detected_primary_keys: null,
+                        primary_key_columns: storedKey ? [...storedKey] : null,
+                    }}
+                    availableColumns={[{ field: 'id', label: 'id', type: 'integer', nullable: false }]}
+                    detectedPrimaryKeys={['id']}
+                    primaryKeyDetectionSupported
+                    onClose={() => {}}
+                    onSave={onSave}
+                />
+            )
+
+            fireEvent.click(screen.getByText(syncType === 'cdc' ? 'CDC (change data capture)' : 'xmin replication'))
+            expect(screen.getByText(/uses the primary key on the source table/i)).toBeInTheDocument()
+            act(() => ref.current?.triggerSave())
+
+            expect(onSave).toHaveBeenCalledWith(
+                syncType,
+                null,
+                null,
+                ['id'],
+                ...(syncType === 'cdc' ? ['consolidated'] : [])
+            )
         })
     })
 })

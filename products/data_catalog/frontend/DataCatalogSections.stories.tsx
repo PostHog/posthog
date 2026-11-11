@@ -134,7 +134,6 @@ const metrics = [
         status: 'proposed',
         is_drifted: false,
         created_source: 'ai_generated',
-        confidence: 0.82,
         ai_model: 'example-model',
         reasoning: 'Trials and upgrades share an account id.',
         owner: null,

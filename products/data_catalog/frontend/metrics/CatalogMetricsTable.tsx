@@ -86,7 +86,6 @@ function SourceBadge({ metric }: { metric: DataCatalogMetricApi }): JSX.Element 
             </Text>
         )
     }
-    const confidencePercent = metric.confidence != null ? `${Math.round(metric.confidence * 100)}%` : 'unknown'
     return (
         <Tooltip>
             <TooltipTrigger render={<span className="inline-flex" />}>
@@ -94,7 +93,6 @@ function SourceBadge({ metric }: { metric: DataCatalogMetricApi }): JSX.Element 
             </TooltipTrigger>
             <TooltipContent>
                 <div className="flex flex-col gap-1">
-                    <span>Confidence: {confidencePercent}</span>
                     {metric.ai_model && <span>Model: {metric.ai_model}</span>}
                     {metric.reasoning && <span>{metric.reasoning}</span>}
                 </div>

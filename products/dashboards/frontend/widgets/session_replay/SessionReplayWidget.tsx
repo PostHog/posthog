@@ -52,11 +52,13 @@ function SessionReplayWidgetRecordingRow({
     recording,
     order,
     matchingEventsQuery,
+    onOpen,
 }: {
     recording: SessionRecordingType
     order: RecordingsQuery['order']
     /** Base query (filters minus session id) used to fetch the events to highlight, or null when nothing can match. */
     matchingEventsQuery: RecordingsQuery | null
+    onOpen: (recordingId: string) => void
 }): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(sessionRecordingEventUsageLogic)
@@ -70,6 +72,7 @@ function SessionReplayWidgetRecordingRow({
             return
         }
         reportRecordingOpenedFromRecentRecordingList()
+        onOpen(recording.id)
 
         // No event/property filters means there's nothing to highlight — open straight away.
         if (!matchingEventsQuery) {
@@ -119,6 +122,10 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
     const parsedConfig = parseSessionReplayWidgetConfig(config)
     const order = parsedConfig.orderBy as RecordingsQuery['order']
     const matchingEventsQuery = payload?.matchingEventsQuery ?? null
+    // The widget result is cached, so it keeps saying "unwatched" after the player marks a recording viewed.
+    // Flip opened rows locally, as the recordings list does when a recording is selected.
+    const [openedRecordingIds, setOpenedRecordingIds] = useState<ReadonlySet<string>>(() => new Set())
+    const markOpened = (recordingId: string): void => setOpenedRecordingIds((ids) => new Set(ids).add(recordingId))
 
     if (loading) {
         return (
@@ -156,9 +163,12 @@ export function SessionReplayWidget({ result, loading, config }: DashboardWidget
                     {recordings.map((recording) => (
                         <SessionReplayWidgetRecordingRow
                             key={recording.id}
-                            recording={recording}
+                            recording={
+                                openedRecordingIds.has(recording.id) ? { ...recording, viewed: true } : recording
+                            }
                             order={order}
                             matchingEventsQuery={matchingEventsQuery}
+                            onOpen={markOpened}
                         />
                     ))}
                 </div>
