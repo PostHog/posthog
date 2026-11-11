@@ -5,13 +5,14 @@ Loaded on first use through `load_insight_source_config`, never from `ready()`, 
 on `posthog.schema`.
 """
 
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
+from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
     mirror_platform_edit,
@@ -65,6 +66,19 @@ class InsightPlatformAlertSourceConfig(BaseModel):
         description="How many of the most recent intervals a check leaves out, so late data can arrive. "
         "It can't change through this API.",
     )
+    investigation_agent_enabled: bool = Field(
+        default=False,
+        description="Whether an AI agent investigates each firing of an anomaly alert. It can't change through this API.",
+    )
+    investigation_gates_notifications: bool = Field(
+        default=False,
+        description="Whether a firing waits for the agent's verdict, and is dropped when the agent calls it a "
+        "false positive. It can't change through this API.",
+    )
+    investigation_inconclusive_action: Literal["notify", "suppress"] = Field(
+        default="notify",
+        description="What a waiting firing does when the agent's verdict is inconclusive. It can't change through this API.",
+    )
 
 
 def validate_insight_edit(edit: PlatformAlertConfigurationEdit) -> None:
@@ -98,5 +112,5 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     ),
     native_create=creates_native_alert,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
-    kept_source_config_keys=frozenset({"config", "skip_weekend", "evaluation_delay_intervals"}),
+    kept_source_config_keys=INSIGHT_ROW_SETTINGS,
 )

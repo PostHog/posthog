@@ -28,6 +28,7 @@ __all__ = [
     "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
     "DuckgresQueryServerConfig",
+    "DuckgresServerSummary",
     "DuckgresStoredBucketConfig",
     "DuckgresStoredServerConfig",
     "DuckLakeCatalogConnectionConfig",
@@ -52,6 +53,7 @@ __all__ = [
     "ServiceCredentialConnect",
     "ServiceCredentialTrinoConnect",
     "ServiceCredentialUnavailable",
+    "StaffActionOutcome",
     "TrinoCompiledQuery",
     "TrinoExpansionMode",
 ]
@@ -473,3 +475,21 @@ class DuckLakeBackfillCatalog(Protocol):
     ) -> int: ...
 
     def delete_rows(self, table: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement) -> None: ...
+
+
+@frozen
+class DuckgresServerSummary:
+    """An organization's warehouse server as staff see it in PostHog Admin. No credentials."""
+
+    server_id: UUID
+    host: str
+    bucket: str | None
+    internal_testing: bool
+    deprovisioned: bool
+
+
+@frozen
+class StaffActionOutcome:
+    ok: bool
+    status_code: int
+    message: str
