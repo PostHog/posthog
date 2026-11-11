@@ -54,10 +54,7 @@ const RESULT: RunResult = {
         },
         { name: 'duplicate_sends', passed: true, observed: 0, gate: 0, unitIds: [] },
     ],
-    measurements: [
-        { name: 'role_cpu_seconds', of: 'cdp-cyclotron-worker-email', value: 4.5, unit: 'seconds' },
-        { name: 'delivery_latency_ms', of: 'p95', value: 830, unit: 'milliseconds' },
-    ],
+    measurements: [],
     timeline: [],
     startedAt: '2026-01-05T10:00:00.000Z',
     endedAt: '2026-01-05T10:02:30.500Z',
@@ -222,8 +219,6 @@ describe('scorecard', () => {
                     inv_duplicate_sends_violation: null,
                     inv_duplicate_sends_ids: [],
                     invariants_failed: ['at_least_once'],
-                    m_role_cpu_seconds_cdp_cyclotron_worker_email: 4.5,
-                    m_delivery_latency_ms_p95: 830,
                     valve_timeline: [],
                     evidence_dir: RESULT.evidenceDir,
                 },
@@ -237,7 +232,6 @@ describe('scorecard', () => {
             units: undefined,
             convergence: undefined,
             invariants: [],
-            measurements: [],
         }
 
         expect(scorecardOf(stopped, SMOKE, PROVENANCE)).toMatchObject({

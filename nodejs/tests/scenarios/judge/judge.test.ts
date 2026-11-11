@@ -10,7 +10,7 @@ import { JournalEntry, Judge, createJudge } from './judge'
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
 const IDLE: JobCounts = { running: 0, available: 0, scheduledLater: 0 }
-const SEED = { teams: [{ teamId: 7, emailIntegrationId: 1 }], flows: [] }
+const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
 
 describe('judge', () => {
@@ -71,12 +71,16 @@ describe('judge', () => {
             body: JSON.stringify({ name: 'ses.reject', params: { type: 'rejected' }, dose: { count: 1 } }),
         })
 
-    const answerNextSendWith503 = (): void => {
+    const answerNextSendWith = (status: number, type: string): void => {
         edge.addFault({
-            name: 'ses.unavailable',
-            answer: { kind: 'status', answer: { status: 503, type: 'ServiceUnavailable', message: 'Unavailable' } },
+            name: `ses.${type}`,
+            answer: { kind: 'status', answer: { status, type, message: type } },
             dose: { count: 1 },
         })
+    }
+
+    const dropNextSend = (): void => {
+        edge.addFault({ name: 'ses.drop', answer: { kind: 'drop-connection' }, dose: { count: 1 } })
     }
 
     const offered = (answer: JournalEntry['answer'] = { accepted: true }): JournalEntry => ({
@@ -94,7 +98,7 @@ describe('judge', () => {
             'delivered on a retry after a retried status',
             offered(),
             async () => {
-                answerNextSendWith503()
+                answerNextSendWith(503, 'ServiceUnavailable')
                 await deliver(UNIT)
                 await deliver(UNIT)
             },
@@ -136,13 +140,41 @@ describe('judge', () => {
             'answered only with a retried status',
             offered(),
             async () => {
-                answerNextSendWith503()
+                answerNextSendWith(503, 'ServiceUnavailable')
                 await deliver(UNIT)
             },
             {
                 passed: false,
                 observed: 1,
                 violation: `${UNIT} email: the last of 1 attempts was answered 503`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'answered only with a throttling status',
+            offered(),
+            async () => {
+                answerNextSendWith(429, 'TooManyRequestsException')
+                await deliver(UNIT)
+            },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: the last of 1 attempts was answered 429`,
+                unitIds: [UNIT],
+            },
+        ],
+        [
+            'whose only attempt lost its connection',
+            offered(),
+            async () => {
+                dropNextSend()
+                await deliver(UNIT)
+            },
+            {
+                passed: false,
+                observed: 1,
+                violation: `${UNIT} email: the last of 1 attempts was answered 0`,
                 unitIds: [UNIT],
             },
         ],

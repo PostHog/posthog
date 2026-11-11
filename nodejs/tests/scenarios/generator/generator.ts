@@ -1,3 +1,4 @@
+import Chance from 'chance'
 import { setTimeout as sleep } from 'timers/promises'
 
 import { insertIntegration } from '~/cdp/_tests/fixtures'
@@ -10,10 +11,7 @@ import { durationMs } from '../duration'
 import type { Judge } from '../judge/judge'
 import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
 
-export type SeedState = {
-    teams: { teamId: number; emailIntegrationId: number }[]
-    flows: { teamId: number; flowId: string; deliveryActions: string[] }[]
-}
+export type SeedState = { teamIds: number[] }
 
 export type DriveSummary = { targetUnits: number; offeredUnits: number }
 
@@ -27,32 +25,20 @@ function trafficKind(name: string): TrafficKind {
     return kind
 }
 
-function seededRandom(seed: number): () => number {
-    let state = seed >>> 0
-    return () => {
-        state = (state + 0x6d2b79f5) >>> 0
-        let mixed = Math.imul(state ^ (state >>> 15), state | 1)
-        mixed ^= mixed + Math.imul(mixed ^ (mixed >>> 7), mixed | 61)
-        return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296
-    }
-}
-
 export async function seed({ card }: LoadedCard, postgres: PostgresRouter): Promise<SeedState> {
-    const state: SeedState = { teams: [], flows: [] }
+    const teamIds: number[] = []
     for (let i = 0; i < card.setup.teams; i++) {
         const { team } = await createTestTeamFixture(postgres)
         const integration = await insertIntegration(postgres, team.id, {
             kind: 'email',
             config: { ...SENDER, verified: true },
         })
-        state.teams.push({ teamId: team.id, emailIntegrationId: integration.id })
         for (const { name } of card.drive.traffic) {
-            const kind = trafficKind(name)
-            const flow = await insertHogFlow(postgres, await kind.flow(team.id, integration.id))
-            state.flows.push({ teamId: team.id, flowId: flow.id, deliveryActions: kind.deliveries })
+            await insertHogFlow(postgres, await trafficKind(name).flow(team.id, integration.id))
         }
+        teamIds.push(team.id)
     }
-    return state
+    return { teamIds }
 }
 
 export async function drive(
@@ -63,7 +49,6 @@ export async function drive(
     context: DriveContext
 ): Promise<DriveSummary> {
     const forMs = durationMs(card.drive.for)
-    const random = seededRandom(card.seed)
     const schedule = card.drive.traffic
         .flatMap(({ name }) => {
             const kind = trafficKind(name)
@@ -72,18 +57,23 @@ export async function drive(
             return Array.from({ length: units }, (_, i) => ({ kind, atMs: (i * 1000) / ratePerSecond }))
         })
         .sort((a, b) => a.atMs - b.atMs)
+    const chance = new Chance(card.seed)
     const start = Date.now()
-    const offers: Promise<void>[] = []
+    const end = start + forMs
+    const offers: Promise<boolean>[] = []
     for (const [n, { kind, atMs }] of schedule.entries()) {
-        await sleep(Math.max(0, start + atMs - Date.now()), undefined, { signal }).catch(() => undefined)
-        if (signal.aborted || Date.now() > start + forMs) {
+        const waitMs = start + atMs - Date.now()
+        if (waitMs > 0) {
+            await sleep(waitMs, undefined, { signal }).catch(() => undefined)
+        }
+        if (signal.aborted || Date.now() > end) {
             break
         }
-        const { teamId } = seeded.teams[Math.floor(random() * seeded.teams.length)]
+        const teamId = chance.pickone(seeded.teamIds)
         const unitId = `${context.runId}-${n + 1}`
         const offeredAt = Date.now()
         offers.push(
-            kind.offer({ unitId, teamId }, context).then((answer) =>
+            kind.offer({ unitId, teamId }, context).then((answer) => {
                 journal.record({
                     unitId,
                     kind: kind.intake,
@@ -92,9 +82,10 @@ export async function drive(
                     answer,
                     expect: { deliveries: kind.deliveries },
                 })
-            )
+                return answer.accepted && Date.now() <= end
+            })
         )
     }
-    await Promise.all(offers)
-    return { targetUnits: schedule.length, offeredUnits: offers.length }
+    const acknowledged = await Promise.all(offers)
+    return { targetUnits: schedule.length, offeredUnits: acknowledged.filter(Boolean).length }
 }

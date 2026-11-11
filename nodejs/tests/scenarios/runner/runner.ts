@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { createReadStream, createWriteStream, existsSync, mkdirSync, statSync, writeFileSync } from 'fs'
 import path from 'path'
+import { pipeline } from 'stream/promises'
 import { setTimeout as sleep } from 'timers/promises'
 
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
@@ -10,9 +11,9 @@ import { CdpRole, LoadedCard } from '../cards'
 import { durationMs } from '../duration'
 import { EDGE_URL, Environment, defaultStateDir } from '../environment/environment'
 import { consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
-import { STACK } from '../environment/stack'
+import { STACK, cyclotronUrlOf } from '../environment/stack'
 import { DriveSummary, drive, seed } from '../generator/generator'
-import { Convergence, InvariantResult, Judge, Measurement, createJudge } from '../judge/judge'
+import { Convergence, InvariantResult, createJudge } from '../judge/judge'
 import { createCyclotronProbe } from '../probe/cyclotron-probe'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
@@ -32,7 +33,7 @@ export type RunResult = {
     units?: DriveSummary
     convergence?: Convergence
     invariants: InvariantResult[]
-    measurements: Measurement[]
+    measurements: never[]
     timeline: never[]
     startedAt: string
     endedAt: string
@@ -47,7 +48,7 @@ export interface Runner {
 
 const HEALTH_INTERVAL_MS = 5000
 
-type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants' | 'measurements'>
+type Outcome = Pick<RunResult, 'status' | 'statusReason' | 'units' | 'convergence' | 'invariants'>
 
 function watchHealth(environment: Environment): () => Promise<string[]> {
     const down = new Set<string>()
@@ -66,74 +67,89 @@ function watchHealth(environment: Environment): () => Promise<string[]> {
     }
 }
 
-function keepLogTails(stateDir: string): (evidenceDir: string) => void {
+function keepLogTails(stateDir: string): (evidenceDir: string) => Promise<void> {
     const files = CdpRole.options.map((role) => path.join(stateDir, `${role}.log`))
-    const sizes = files.map((file) => (existsSync(file) ? statSync(file).size : 0))
-    return (evidenceDir) => {
+    const offsets = files.map((file) => (existsSync(file) ? statSync(file).size : 0))
+    return async (evidenceDir) => {
         mkdirSync(path.join(evidenceDir, 'logs'), { recursive: true })
-        files.forEach((file, i) =>
-            writeFileSync(
-                path.join(evidenceDir, 'logs', path.basename(file)),
-                existsSync(file) ? readFileSync(file).subarray(sizes[i]) : ''
-            )
-        )
+        for (const [i, file] of files.entries()) {
+            const tail = path.join(evidenceDir, 'logs', path.basename(file))
+            const size = existsSync(file) ? statSync(file).size : 0
+            if (size > offsets[i]) {
+                await pipeline(createReadStream(file, { start: offsets[i], end: size - 1 }), createWriteStream(tail))
+            } else {
+                writeFileSync(tail, '')
+            }
+        }
     }
 }
 
-function writeEvidence(result: RunResult, event: unknown, judge: Judge): void {
-    const { journal, truth } = judge.evidence()
-    writeFileSync(path.join(result.evidenceDir, 'scorecard-event.json'), JSON.stringify(event, null, 2))
-    writeFileSync(path.join(result.evidenceDir, 'journal.json'), JSON.stringify(journal, null, 2))
-    writeFileSync(path.join(result.evidenceDir, 'truth.json'), JSON.stringify(truth, null, 2))
-    writeFileSync(path.join(result.evidenceDir, 'scorecard.json'), JSON.stringify(result, null, 2))
+function writeJson(evidenceDir: string, name: string, value: unknown): void {
+    writeFileSync(path.join(evidenceDir, name), JSON.stringify(value, null, 2))
+}
+
+async function errorOf(write: () => Promise<void> | void): Promise<string | undefined> {
+    try {
+        await write()
+        return undefined
+    } catch (error) {
+        return (error as Error).message
+    }
+}
+
+function withEvidenceError(result: RunResult, error: string | undefined): RunResult {
+    return error === undefined
+        ? result
+        : {
+              ...result,
+              status: 'invalid',
+              statusReason: `${result.statusReason}; the evidence could not be written: ${error}`,
+          }
 }
 
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
-    const probe = createCyclotronProbe(env.CYCLOTRON_NODE_DATABASE_URL || STACK.cyclotronNodeUrl)
-    let postgres: PostgresRouter | undefined
     let producer: KafkaProducerWrapper | undefined
 
     return {
         async up() {
             await environment.up()
-            postgres = new PostgresRouter(
-                { DATABASE_URL: env.DATABASE_URL || STACK.postgresUrl, POSTGRES_CONNECTION_POOL_SIZE: 2 },
-                'posthog-scenarios'
-            )
-            producer = await KafkaProducerWrapper.create(undefined)
         },
 
         async run(loaded, signal) {
-            if (!postgres || !producer) {
-                throw new Error('Start the runner with up() before run().')
-            }
             const { card, profile } = loaded
             const runId = randomUUID()
             const startedAt = new Date().toISOString()
             const evidenceDir = path.join(stateDir, runId)
-            mkdirSync(evidenceDir, { recursive: true })
             const writeLogTails = keepLogTails(stateDir)
-            const judge = createJudge({ edgeUrl: EDGE_URL, probe })
+            const specs = roleSpecs(env, EDGE_URL, secretsOf(env), profile.settings)
             const [
                 {
                     topics: [eventsTopic],
                 },
-            ] = consumerGroupsOf(roleSpecs(env, EDGE_URL, secretsOf(env), profile.settings))
-            let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [], measurements: [] }
+            ] = consumerGroupsOf(specs)
+            const judge = createJudge({ edgeUrl: EDGE_URL, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
+            const postgres = new PostgresRouter(
+                {
+                    DATABASE_URL: specs[0].env.DATABASE_URL || STACK.postgresUrl,
+                    POSTGRES_CONNECTION_POOL_SIZE: 2,
+                },
+                'posthog-scenarios'
+            )
+            let outcome: Outcome = { status: 'invalid', statusReason: 'not started', invariants: [] }
             let stopHealth: (() => Promise<string[]>) | undefined
             try {
                 await environment.reset(profile.settings)
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
+                producer ??= await KafkaProducerWrapper.create(undefined)
                 stopHealth = watchHealth(environment)
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, runId })
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 const down = await stopHealth()
                 const invariants = await judge.check(card.invariants, card.gates)
-                const measurements = await judge.measure(card.measure)
                 const verdict = statusOf({ minOffered: card.drive.minOffered, units, down, convergence, invariants })
-                outcome = { ...verdict, units, convergence, invariants, measurements }
+                outcome = { ...verdict, units, convergence, invariants }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
                 }
@@ -145,8 +161,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 }
             } finally {
                 await stopHealth?.()
+                await postgres.end()
             }
-            const result: RunResult = {
+            const base: RunResult = {
                 runId,
                 ...outcome,
                 recorded: false,
@@ -154,27 +171,39 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 origin: 'local-agent',
+                measurements: [],
                 timeline: [],
                 startedAt,
                 endedAt: new Date().toISOString(),
                 evidenceDir,
             }
-            const event = scorecardOf(result, loaded, provenanceOf())
+            const evidenceError = await errorOf(async () => {
+                await writeLogTails(evidenceDir)
+                const { journal, truth } = judge.evidence()
+                writeJson(evidenceDir, 'journal.json', journal)
+                writeJson(evidenceDir, 'truth.json', truth)
+            })
+            const judged = withEvidenceError(base, evidenceError)
+            const event = scorecardOf(judged, loaded, provenanceOf())
             const written = await publish(event, env)
-            result.recorded = written.recorded
-            result.scorecardError = written.problem
-            writeLogTails(evidenceDir)
-            writeEvidence(result, event, judge)
-            return result
+            const result: RunResult = { ...judged, recorded: written.recorded, scorecardError: written.problem }
+            if (evidenceError !== undefined) {
+                return result
+            }
+            return withEvidenceError(
+                result,
+                await errorOf(() => {
+                    writeJson(evidenceDir, 'scorecard-event.json', event)
+                    writeJson(evidenceDir, 'scorecard.json', result)
+                })
+            )
         },
 
         async down() {
             try {
                 await producer?.disconnect()
-                await postgres?.end()
             } finally {
                 producer = undefined
-                postgres = undefined
                 await environment.down()
             }
         },

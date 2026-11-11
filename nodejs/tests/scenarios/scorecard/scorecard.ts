@@ -11,7 +11,7 @@ type Property = string | number | boolean | null | string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
-const propertyName = (...parts: string[]): string => parts.join('_').replace(/[^A-Za-z0-9_]/g, '_')
+const propertyName = (...parts: string[]): string => parts.join('_')
 
 function invariantProperties(result: RunResult): Record<string, Property> {
     return Object.fromEntries([
@@ -24,15 +24,6 @@ function invariantProperties(result: RunResult): Record<string, Property> {
         ]),
         ['invariants_failed', result.invariants.filter(({ passed }) => !passed).map(({ name }) => name)],
     ])
-}
-
-function measurementProperties(result: RunResult): Record<string, Property> {
-    return Object.fromEntries(
-        result.measurements.map(({ name, of, value }) => [
-            propertyName('m', name, ...(of === undefined ? [] : [of])),
-            value,
-        ])
-    )
 }
 
 export function scorecardOf(
@@ -82,7 +73,6 @@ export function scorecardOf(
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
         ...invariantProperties(result),
-        ...measurementProperties(result),
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }
