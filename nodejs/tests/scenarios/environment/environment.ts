@@ -2,6 +2,7 @@ import { ChildProcess, spawn } from 'child_process'
 import { closeSync, existsSync, mkdirSync, openSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
+import { setTimeout as sleep } from 'timers/promises'
 
 import { waitForExpect } from '~/tests/helpers/expectations'
 
@@ -29,13 +30,21 @@ export interface Environment {
 
 export type RoleHandle = { name: Role; metricsUrl: string }
 
-export type RoleExit = { role: Role; at: string; code: number | null; signal: string | null; byValve: boolean }
+export type RoleExit = {
+    role: Role
+    at: string
+    code: number | null
+    signal: string | null
+    byValve: boolean
+    error?: string
+}
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
 const TSX = path.join(NODEJS_DIR, 'node_modules', '.bin', 'tsx')
 const EDGE_PORT = 4566
 const TEMPLATES_WITHIN_MS = 120_000
+const ROLE_HEALTHY_WITHIN_MS = 120_000
 const GROUP_DRAINS_WITHIN_MS = 60_000
 const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
@@ -55,8 +64,21 @@ export function createEnvironment(): Environment {
     let releaseLock: (() => Promise<void>) | undefined
     let stopping = false
 
+    const logOf = (role: Role): string => path.join(stateDir, `${role}.log`)
+
+    const recordAndRestart = (spec: RoleSpec, exit: Pick<RoleExit, 'code' | 'signal' | 'error'>): void => {
+        recorded.push({ role: spec.role, at: new Date().toISOString(), byValve: false, ...exit })
+        const restart = setTimeout(() => {
+            restarts.delete(restart)
+            if (!stopping) {
+                start(spec)
+            }
+        }, ROLE_RESTART_BACKOFF_MS)
+        restarts.add(restart)
+    }
+
     const start = (spec: RoleSpec): void => {
-        const log = openSync(path.join(stateDir, `${spec.role}.log`), 'a')
+        const log = openSync(logOf(spec.role), 'a')
         const child = spawn(TSX, ['src/index.ts'], {
             cwd: NODEJS_DIR,
             env: spec.env,
@@ -65,19 +87,18 @@ export function createEnvironment(): Environment {
         })
         closeSync(log)
         children.set(spec.role, child)
+        child.once('error', (error) => {
+            if (stopping || child.pid !== undefined) {
+                return
+            }
+            recordAndRestart(spec, { code: null, signal: null, error: error.message })
+        })
         child.once('exit', (code, signal) => {
             if (stopping) {
                 return
             }
             void terminate({ groups: child.pid ? [child.pid] : [], pids: [] }, 0)
-            recorded.push({ role: spec.role, at: new Date().toISOString(), code, signal, byValve: false })
-            const restart = setTimeout(() => {
-                restarts.delete(restart)
-                if (!stopping) {
-                    start(spec)
-                }
-            }, ROLE_RESTART_BACKOFF_MS)
-            restarts.add(restart)
+            recordAndRestart(spec, { code, signal })
         })
     }
 
@@ -109,7 +130,27 @@ export function createEnvironment(): Environment {
         down: stop,
     }
 
+    async function untilHealthy(roles: Role[], exitsBefore: number): Promise<void> {
+        const deadline = Date.now() + ROLE_HEALTHY_WITHIN_MS
+        for (const role of roles) {
+            while (!(await answersHealth(role))) {
+                const exit = recorded.slice(exitsBefore).find((exit) => exit.role === role)
+                if (exit) {
+                    const how = exit.error ?? `code ${exit.code}, signal ${exit.signal}`
+                    throw new Error(`${role} exited before it answered /_health (${how}); see ${logOf(role)}`)
+                }
+                if (Date.now() > deadline) {
+                    throw new Error(
+                        `${role} did not answer /_health within ${ROLE_HEALTHY_WITHIN_MS / 1000}s; see ${logOf(role)}`
+                    )
+                }
+                await sleep(PROBE_INTERVAL_MS)
+            }
+        }
+    }
+
     async function bringUp(): Promise<void> {
+        const exitsBefore = recorded.length
         const plan = planCleanup(readProcs(), process.pid, NODEJS_DIR)
         if (plan.strangers.length > 0) {
             throw strangerConflict(plan.strangers)
@@ -118,7 +159,6 @@ export function createEnvironment(): Environment {
         await startStack(REPO_ROOT, stateDir, env)
         const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
         const group = eventsConsumerGroup(specs)
-        const killedLeftovers = plan.groups.length + plan.pids.length > 0
         await waitForExpect(
             async () => {
                 if ((await groupMembers(group)) > 0) {
@@ -128,16 +168,13 @@ export function createEnvironment(): Environment {
                     )
                 }
             },
-            killedLeftovers ? GROUP_DRAINS_WITHIN_MS : 0,
+            GROUP_DRAINS_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
         edge = await startProviderEdge({ port: EDGE_PORT, trackingKeys: secrets.encryptionSaltKeys })
+        const others = specs.filter((spec) => spec.role !== 'cdp-api')
         specs.filter((spec) => spec.role === 'cdp-api').forEach(start)
-        await waitForExpect(
-            () => expectOk(`http://127.0.0.1:${ROLE_PORTS['cdp-api']}/_health`),
-            TEMPLATES_WITHIN_MS,
-            PROBE_INTERVAL_MS
-        )
+        await untilHealthy(['cdp-api'], exitsBefore)
         if ((await missingTemplates()).length > 0) {
             await syncTemplates(REPO_ROOT, stateDir, env)
         }
@@ -151,7 +188,18 @@ export function createEnvironment(): Environment {
             TEMPLATES_WITHIN_MS,
             PROBE_INTERVAL_MS
         )
-        specs.filter((spec) => spec.role !== 'cdp-api').forEach(start)
+        others.forEach(start)
+        await untilHealthy(
+            others.map((spec) => spec.role),
+            exitsBefore
+        )
+    }
+
+    async function answersHealth(role: Role): Promise<boolean> {
+        return await expectOk(`http://127.0.0.1:${ROLE_PORTS[role]}/_health`).then(
+            () => true,
+            () => false
+        )
     }
 
     async function stop(): Promise<void> {
