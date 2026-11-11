@@ -28,6 +28,7 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.alerts.backend import platform_subscribers
 from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
@@ -50,6 +51,7 @@ from products.alerts.backend.llm_detector_limits import (
     is_llm_detector_config,
     llm_detector_access_error,
 )
+from products.alerts.backend.logic.destinations import retire_alert_hog_functions
 from products.alerts.backend.models.alert import (
     METRICS_INSIGHT_QUERY_FILTER,
     AlertCheck,
@@ -66,6 +68,17 @@ SlackSnoozeOutcome = Literal["snoozed", "no_access", "disabled", "not_found", "i
 # Mirrors the in-app SnoozeButton's DateFilter max — Slack's datetimepicker has no bounds of
 # its own, so the cap has to live here.
 SLACK_SNOOZE_MAX_DAYS = 31
+
+
+def first_subscriber_id(*, team_id: int, alert_id: uuid.UUID) -> int | None:
+    """One of the alert's subscribers, for a chart render or an investigation to run as. None when nobody subscribes."""
+    return platform_subscribers.first_subscriber_id(team_id=team_id, alert_id=alert_id)
+
+
+def remove_member_subscriptions(*, user_id: int, organization_id: uuid.UUID) -> int:
+    """Unsubscribes a user who left an organization from its insight alerts, on the platform's copies
+    too, and returns how many subscriptions they had."""
+    return platform_subscribers.remove_member_subscriptions(user_id=user_id, organization_id=organization_id)
 
 
 def get_alert_team_id(alert_id: uuid.UUID) -> int | None:
@@ -122,13 +135,16 @@ def delete_insight_alerts(insight_ids: Collection[int]) -> None:
     queryset delete, because a queryset delete never calls ``AlertConfiguration.delete()``, and
     ModelActivityMixin hangs its per-row activity logging off that override.
 
-    Alerts with no insight row go in a workflow started after the transaction commits, because the
-    platform resolves their open incidents first, which calls the providers, and a rollback cannot
-    take a resolve back. The workflow retries each delete.
+    The platform's alerts, with an insight row or without one, lose their copies and destinations in
+    a workflow started after the transaction commits, because the platform resolves their open
+    incidents first, which calls the providers, and a rollback cannot take a resolve back. The
+    workflow retries each delete. An alert insight owns loses its destinations here.
     """
     # Caller-supplied ids that are already team-scoped by the caller's own query.
     # nosemgrep: idor-lookup-without-team
     for alert in AlertConfiguration.objects.filter(insight_id__in=insight_ids):
+        if not alert.platform_owned:
+            retire_alert_hog_functions(team_id=alert.team_id, alert_id=str(alert.id))
         alert.delete()
     # nosemgrep: idor-lookup-without-team
     insights_by_team: dict[int, list[int]] = {}

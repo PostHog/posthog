@@ -56,10 +56,19 @@ def test_registry_rejects_invalid_serialized_value(_name: str, value: object) ->
         parse_registry_payload(value)
 
 
-def test_program_serialization_round_trip() -> None:
-    program = program_from_mapping(AUDIT_PROGRAM_PAYLOAD)
+@parameterized.expand(
+    [
+        ("latest_context_mill", AUDIT_PROGRAM_PAYLOAD, None),
+        ("pinned_context_mill", {**AUDIT_PROGRAM_PAYLOAD, "context_mill_version": "1.59.0"}, "1.59.0"),
+    ]
+)
+def test_program_serialization_round_trip(
+    _name: str, payload: dict[str, object], context_mill_version: str | None
+) -> None:
+    program = program_from_mapping(payload)
 
-    assert program_to_mapping(program) == AUDIT_PROGRAM_PAYLOAD
+    assert program.context_mill_version == context_mill_version
+    assert program_to_mapping(program) == payload
     assert program_from_mapping(program_to_mapping(program)) == program
 
 
@@ -70,6 +79,7 @@ def test_program_serialization_round_trip() -> None:
         ("duplicate_environments", {**AUDIT_PROGRAM_PAYLOAD, "supported_environments": ["local", "local"]}),
         ("leading_zero_prerelease", {**AUDIT_PROGRAM_PAYLOAD, "wizard_version": "1.2.3-01"}),
         ("leading_zero_dotted_prerelease", {**AUDIT_PROGRAM_PAYLOAD, "wizard_version": "1.2.3-alpha.01"}),
+        ("mutable_context_mill_version", {**AUDIT_PROGRAM_PAYLOAD, "context_mill_version": "latest"}),
     ]
 )
 def test_program_rejects_invalid_serialized_value(_name: str, value: object) -> None:

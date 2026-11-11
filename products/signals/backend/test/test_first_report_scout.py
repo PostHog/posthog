@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
@@ -187,6 +188,20 @@ class TestFirstReportScout(BaseTest):
         result = first_report_state(self.team.id)
         assert result["status"] == expected
         assert result["task_run_id"] == str(task_run.id)
+
+    def test_completion_before_run_creation_keeps_incomplete_outcome(self) -> None:
+        with (
+            patch("products.signals.backend.first_report_completion.capture_exception") as capture,
+            patch("products.signals.backend.first_report_completion.create_notification") as notify,
+        ):
+            result = complete_first_report_investigation(self.team.id, str(uuid4()))
+        assert result == {
+            "first_report_outcome": "incomplete",
+            "report_delivered": False,
+            "report_delivered_within_five_minutes": False,
+        }
+        capture.assert_not_called()
+        notify.assert_not_called()
 
     @parameterized.expand([(True, "report_created"), (False, "insufficient_data")])
     def test_experiment_measures_persisted_delivery_even_when_run_failed(self, delivered: bool, expected: str) -> None:
