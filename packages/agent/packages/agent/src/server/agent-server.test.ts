@@ -7793,7 +7793,12 @@ describe("AgentServer HTTP Mode", () => {
       },
       {
         mrUrl: "https://gitlab.com/acme/platform/api/-/merge_requests/7",
-        expected: ['operation "view"', "git fetch origin <branch>"],
+        expected: [
+          'operation "view"',
+          "git remote set-branches --add origin <branch>",
+          "git fetch origin +refs/heads/<branch>:refs/remotes/origin/<branch>",
+          "git checkout -b <branch> --track origin/<branch>",
+        ],
       },
     ])(
       "gives GitLab instructions instead of GitHub ones for a GitLab auto-publish run (mr=$mrUrl)",
