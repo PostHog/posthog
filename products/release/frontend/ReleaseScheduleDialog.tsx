@@ -19,7 +19,7 @@ import FeatureFlagSchedule from 'scenes/feature-flags/FeatureFlagSchedule'
 import { FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
-import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 
 import { releaseLogic } from './releaseLogic'
 
@@ -45,10 +45,10 @@ function ScheduleBody({ flagId }: { flagId: number }): JSX.Element {
             </div>
         )
     }
-    if (isRulesV2FeatureFlagConfig(featureFlag.filters as never)) {
+    if (!isV1FeatureFlagConfig(featureFlag.filters as never)) {
         return (
             <div className="flex flex-col items-start gap-2 py-4">
-                <Text size="xs">This flag uses rules. Schedule its changes on the flag page.</Text>
+                <Text size="xs">This flag uses a newer configuration. Schedule its changes on the flag page.</Text>
                 <Button variant="outline" nativeButton={false} render={<LinkPrimitive to={urls.featureFlag(flagId)} />}>
                     Open the flag
                 </Button>
@@ -62,13 +62,14 @@ function ScheduleBody({ flagId }: { flagId: number }): JSX.Element {
     )
 }
 
-export function ReleaseScheduleDialog(): JSX.Element {
-    const { scheduleFlagId, flags } = useValues(releaseLogic)
+function ScheduleDialog({ flagId }: { flagId: number }): JSX.Element {
+    const { flags } = useValues(releaseLogic)
     const { closeSchedule } = useActions(releaseLogic)
-    const flag = flags.find((item) => item.id === scheduleFlagId)
+    const { scheduledChangeLoading } = useValues(featureFlagLogic)
+    const flag = flags.find((item) => item.id === flagId)
 
     return (
-        <Dialog open={scheduleFlagId !== null} onOpenChange={(open: boolean) => !open && closeSchedule()}>
+        <Dialog open onOpenChange={(open: boolean) => !open && !scheduledChangeLoading && closeSchedule()}>
             <DialogContent size="wide">
                 <DialogHeader>
                     <DialogTitle>{flag ? `Schedule a change for ${flag.key}` : 'Schedule a change'}</DialogTitle>
@@ -77,13 +78,22 @@ export function ReleaseScheduleDialog(): JSX.Element {
                     </DialogDescription>
                 </DialogHeader>
                 <DialogBody>
-                    {scheduleFlagId !== null && (
-                        <BindLogic logic={featureFlagLogic} props={{ id: scheduleFlagId }}>
-                            <ScheduleBody flagId={scheduleFlagId} />
-                        </BindLogic>
-                    )}
+                    <ScheduleBody flagId={flagId} />
                 </DialogBody>
             </DialogContent>
         </Dialog>
+    )
+}
+
+export function ReleaseScheduleDialog(): JSX.Element | null {
+    const { scheduleFlagId } = useValues(releaseLogic)
+
+    if (scheduleFlagId === null) {
+        return null
+    }
+    return (
+        <BindLogic logic={featureFlagLogic} props={{ id: scheduleFlagId }}>
+            <ScheduleDialog flagId={scheduleFlagId} />
+        </BindLogic>
     )
 }

@@ -12,6 +12,7 @@ import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ReleaseEvent, ReleaseRow } from './releaseUtils'
 
 const HISTORY_LIMIT = 4
+const HISTORY_PAGE = 20
 
 const KIND_TYPE: Partial<Record<ReleaseEvent['kind'], string>> = {
     flag: 'feature_flag',
@@ -73,10 +74,11 @@ function EventList({ events, dashed }: { events: ReleaseEvent[]; dashed?: boolea
 }
 
 export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
-    const [showAll, setShowAll] = useState(false)
+    const [visible, setVisible] = useState(HISTORY_LIMIT)
     const upcoming = row.events.filter((event) => event.upcoming).sort((a, b) => a.date.localeCompare(b.date))
     const past = row.events.filter((event) => !event.upcoming).sort((a, b) => b.date.localeCompare(a.date))
-    const shownPast = showAll ? past : past.slice(0, HISTORY_LIMIT)
+    const shownPast = past.slice(0, visible)
+    const remaining = past.length - shownPast.length
 
     return (
         <Card data-attr="release-timeline-card">
@@ -104,15 +106,27 @@ export function ReleaseHistory({ row }: { row: ReleaseRow }): JSX.Element {
                     </Text>
                     <EventList events={shownPast} />
                     {past.length > HISTORY_LIMIT && (
-                        <div>
-                            <Button
-                                variant="link-muted"
-                                size="sm"
-                                onClick={() => setShowAll(!showAll)}
-                                data-attr="release-timeline-show-all"
-                            >
-                                {showAll ? 'Show less' : `Show all ${past.length} events`}
-                            </Button>
+                        <div className="flex flex-wrap gap-2">
+                            {remaining > 0 && (
+                                <Button
+                                    variant="link-muted"
+                                    size="sm"
+                                    onClick={() => setVisible(visible + HISTORY_PAGE)}
+                                    data-attr="release-timeline-show-all"
+                                >
+                                    {`Show ${Math.min(remaining, HISTORY_PAGE)} more of ${remaining}`}
+                                </Button>
+                            )}
+                            {visible > HISTORY_LIMIT && (
+                                <Button
+                                    variant="link-muted"
+                                    size="sm"
+                                    onClick={() => setVisible(HISTORY_LIMIT)}
+                                    data-attr="release-timeline-show-less"
+                                >
+                                    Show less
+                                </Button>
+                            )}
                         </div>
                     )}
                 </div>

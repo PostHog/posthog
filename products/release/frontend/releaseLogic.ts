@@ -47,6 +47,8 @@ interface ReleaseLogicValues {
     loadFailed: boolean
     experimentsFailed: boolean
     earlyAccessFailed: boolean
+    experimentsReady: boolean
+    earlyAccessReady: boolean
     schedulesFailed: boolean
     partialLoadFailed: boolean
     scheduleFlagId: number | null
@@ -309,34 +311,23 @@ export const releaseLogic = kea<releaseLogicType>([
         newReleaseOpen: [false, { setNewReleaseOpen: (_, { open }) => open }],
         creatingRelease: [false, { createRelease: () => true, createReleaseDone: () => false }],
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
+        experimentsReady: [false, { loadExperimentsSuccess: () => true }],
+        earlyAccessReady: [false, { loadEarlyAccessFeaturesSuccess: () => true }],
         loadFailed: [
             false,
             {
-                reload: () => false,
+                loadReleases: () => false,
+                loadFlags: () => false,
                 loadReleasesFailure: () => true,
                 loadFlagsFailure: () => true,
             },
         ],
-        experimentsFailed: [
-            false,
-            { reload: () => false, loadExperimentsSuccess: () => false, loadExperimentsFailure: () => true },
-        ],
+        experimentsFailed: [false, { loadExperiments: () => false, loadExperimentsFailure: () => true }],
         earlyAccessFailed: [
             false,
-            {
-                reload: () => false,
-                loadEarlyAccessFeaturesSuccess: () => false,
-                loadEarlyAccessFeaturesFailure: () => true,
-            },
+            { loadEarlyAccessFeatures: () => false, loadEarlyAccessFeaturesFailure: () => true },
         ],
-        schedulesFailed: [
-            false,
-            {
-                reload: () => false,
-                loadScheduledChangesSuccess: () => false,
-                loadScheduledChangesFailure: () => true,
-            },
-        ],
+        schedulesFailed: [false, { loadScheduledChanges: () => false, loadScheduledChangesFailure: () => true }],
         scheduleFlagId: [
             null as number | null,
             {
@@ -367,6 +358,8 @@ export const releaseLogic = kea<releaseLogicType>([
                 s.loadFailed,
                 s.experimentsFailed,
                 s.earlyAccessFailed,
+                s.experimentsReady,
+                s.earlyAccessReady,
             ],
             (
                 releases: ReleaseDTOApi[],
@@ -377,7 +370,9 @@ export const releaseLogic = kea<releaseLogicType>([
                 flagsReady: boolean,
                 loadFailed: boolean,
                 experimentsFailed: boolean,
-                earlyAccessFailed: boolean
+                earlyAccessFailed: boolean,
+                experimentsReady: boolean,
+                earlyAccessReady: boolean
             ): ReleaseRow[] => {
                 if (!flagsReady || loadFailed) {
                     return []
@@ -387,7 +382,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     experiments,
                     earlyAccessFeatures,
                     scheduledChanges,
-                    !experimentsFailed && !earlyAccessFailed
+                    experimentsReady && earlyAccessReady && !experimentsFailed && !earlyAccessFailed
                 )
                 return releases.map((release) => buildReleaseRow(release, index))
             },

@@ -9,12 +9,12 @@ import { ExperimentStatus } from '~/types'
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
 import { getExperimentStatus } from 'products/experiments/frontend/experimentStatus'
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
-import { isRulesV2FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
+import { isV1FeatureFlagConfig } from 'products/feature_flags/frontend/featureFlagConfigFormat'
 import type { FeatureFlagApi, ScheduledChangeApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import type { ReleaseDTOApi } from './generated/api.schemas'
 
-export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released'
+export type ReleaseStage = 'planned' | 'flag' | 'experiment' | 'early_access' | 'released' | 'ended'
 
 export interface ReleaseNextStep {
     title: string
@@ -108,6 +108,8 @@ interface FlagFilters {
     aggregation_group_type_index?: number | null
     groups?: FlagGroup[]
     multivariate?: { variants?: { key: string; rollout_percentage: number }[] } | null
+    early_exit?: boolean
+    holdout?: { exclusion_percentage?: number } | null
 }
 
 export const STAGE_LABEL: Record<ReleaseStage, string> = {
@@ -116,6 +118,7 @@ export const STAGE_LABEL: Record<ReleaseStage, string> = {
     experiment: 'Experiment',
     early_access: 'Early access',
     released: 'Released',
+    ended: 'Ended',
 }
 
 export type ReleaseBadgeVariant = 'default' | 'info' | 'destructive' | 'warning' | 'success' | 'completed'
@@ -126,6 +129,7 @@ export const STAGE_TONE: Record<ReleaseStage, 'default' | 'info' | 'warning' | '
     experiment: 'info',
     early_access: 'warning',
     released: 'success',
+    ended: 'default',
 }
 
 export function badgeVariantForTag(type: LemonTagType): ReleaseBadgeVariant {
@@ -164,13 +168,18 @@ export const isExperimentDone = (experiment: ExperimentBasicApi): boolean =>
 export const isExperimentRunning = (experiment: ExperimentBasicApi): boolean =>
     !isExperimentDraft(experiment) && !isExperimentPaused(experiment) && !isExperimentDone(experiment)
 
-const isRulesV2 = (flag: FeatureFlagApi): boolean => !!flag.filters && isRulesV2FeatureFlagConfig(flag.filters as never)
+const isV1 = (flag: FeatureFlagApi): boolean => !flag.filters || isV1FeatureFlagConfig(flag.filters as never)
+
+const isOpenGroup = (group: FlagGroup): boolean => !group.properties?.length
 
 function isFullyRolledOut(flag: FeatureFlagApi): boolean {
-    if (!flag.active || isRulesV2(flag)) {
+    if (!flag.active || !isV1(flag)) {
         return false
     }
     const filters = flagFilters(flag)
+    if ((filters.holdout?.exclusion_percentage ?? 0) > 0) {
+        return false
+    }
     const groups = filters.groups ?? []
     const mixedTargets = groups.some(
         (group) =>
@@ -180,7 +189,11 @@ function isFullyRolledOut(flag: FeatureFlagApi): boolean {
     if (mixedTargets) {
         return false
     }
-    const open = groups.some((group) => !group.properties?.length && (group.rollout_percentage ?? 100) === 100)
+    const fullGroup = (group: FlagGroup): boolean => (group.rollout_percentage ?? 100) === 100
+    const firstOpen = groups.findIndex(isOpenGroup)
+    const open = filters.early_exit
+        ? firstOpen >= 0 && groups.slice(0, firstOpen + 1).every(fullGroup)
+        : groups.some((group) => isOpenGroup(group) && fullGroup(group))
     const variants = filters.multivariate?.variants ?? []
     if (!variants.length) {
         return open
@@ -224,7 +237,7 @@ const CONCLUSION_LABEL: Record<string, string> = {
 }
 
 function flagAudienceRow(flag: FeatureFlagApi, optIn = false): ReleaseFlagAudience {
-    if (isRulesV2(flag)) {
+    if (!isV1(flag)) {
         return { flag, percent: null, who: 'Rules decide', summary: 'The flag rules decide who gets it', variants: [] }
     }
     const filters = flagFilters(flag)
@@ -344,26 +357,29 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     const prelaunchEarlyAccess = openEarlyAccess
         ? undefined
         : earlyAccess.find((item) => item.stage === 'draft' || item.stage === 'concept')
-    const flagsArchived = flags.length > 0 && flags.every((flag) => flag.archived)
+    const ended = flags.length > 0 && flags.every((flag) => flag.archived)
     const released =
-        flagsArchived ||
-        (index.complete &&
-            flags.length > 0 &&
-            flags.every(isFullyRolledOut) &&
-            !running.length &&
-            !paused.length &&
-            !drafts.length &&
-            !openEarlyAccess)
+        !ended &&
+        index.complete &&
+        flags.length > 0 &&
+        flags.every(isFullyRolledOut) &&
+        !running.length &&
+        !paused.length &&
+        !drafts.length &&
+        !openEarlyAccess
+    const finished = released || ended
 
-    const stage: ReleaseStage = released
-        ? 'released'
-        : running.length || paused.length || drafts.length || done.length
-          ? 'experiment'
-          : openEarlyAccess
-            ? 'early_access'
-            : flags.length
-              ? 'flag'
-              : 'planned'
+    const stage: ReleaseStage = ended
+        ? 'ended'
+        : released
+          ? 'released'
+          : running.length || paused.length || drafts.length || done.length
+            ? 'experiment'
+            : openEarlyAccess
+              ? 'early_access'
+              : flags.length
+                ? 'flag'
+                : 'planned'
 
     const current = [...running].sort((a, b) => (a.start_date as string).localeCompare(b.start_date as string))[0]
     const firstStart = current?.start_date
@@ -380,12 +396,14 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     let status = 'No feature flag yet'
     let headline = 'Not started'
     let detail = 'Link the feature flag that controls who gets this release.'
-    if (released) {
+    if (ended) {
+        status = 'Ended, flags archived'
+        headline = 'Release ended'
+        detail = 'The flags of this release are archived, so it no longer changes.'
+    } else if (released) {
         status = 'Rolled out to all users'
         headline = 'Rolled out to all users'
-        detail = flagsArchived
-            ? 'The flags of this release are archived. Nothing is left to do.'
-            : 'Every flag of this release serves it to everyone.'
+        detail = 'Every flag of this release serves it to everyone.'
     } else if (running.length) {
         status = `Experiment running, day ${runningDays}`
         headline = `Experiment running for ${runningDays} day${runningDays === 1 ? '' : 's'}`
@@ -455,7 +473,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             to: urls.experiment(paused[0].id),
             urgent: true,
         }
-    } else if (lastDone && !released && !lastDone.conclusion) {
+    } else if (lastDone && !finished && !lastDone.conclusion) {
         nextStep = {
             title: 'Record the result',
             detail: `${lastDone.name} ended without a recorded result. Record it so the team knows what to ship.`,
@@ -463,15 +481,15 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             to: urls.experiment(lastDone.id),
             urgent: true,
         }
-    } else if (!released && prelaunchEarlyAccess) {
+    } else if (!finished && prelaunchEarlyAccess) {
         nextStep = {
             title: EARLY_ACCESS_NEXT[prelaunchEarlyAccess.stage],
             detail: `${prelaunchEarlyAccess.name} is in ${prelaunchEarlyAccess.stage}, so nobody can opt in yet.`,
             label: 'Open early access',
             to: urls.earlyAccessFeature(prelaunchEarlyAccess.id),
         }
-    } else if (!released && !openEarlyAccess && flags.some((flag) => !isFullyRolledOut(flag) && !isRulesV2(flag))) {
-        const flag = flags.find((item) => !isFullyRolledOut(item) && !isRulesV2(item)) ?? flags[0]
+    } else if (!finished && !openEarlyAccess && flags.some((flag) => !isFullyRolledOut(flag) && isV1(flag))) {
+        const flag = flags.find((item) => !isFullyRolledOut(item) && isV1(item)) ?? flags[0]
         nextStep = {
             title: lastDone ? 'Roll out the winner' : 'Roll out to more users',
             detail: lastDone
@@ -490,7 +508,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             label: 'Open early access',
             to: urls.earlyAccessFeature(openEarlyAccess.id),
         }
-    } else if (released && !flagsArchived) {
+    } else if (released) {
         nextStep = {
             title: 'Clean up the flag',
             detail: 'Everyone gets the release now. Remove the flag check from your code, then archive the flag.',
@@ -505,7 +523,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             .map((experiment) => ({ date: experiment.start_date as string, label: 'Experiment' })),
         ...earlyAccess.map((item) => ({ date: item.created_at, label: 'Early access' })),
     ].sort((a, b) => a.date.localeCompare(b.date))
-    const stageIndex = { planned: 0, flag: 1, experiment: 2, early_access: 2, released: 3 }[stage]
+    const stageIndex = { planned: 0, flag: 1, experiment: 2, early_access: 2, released: 3, ended: 3 }[stage]
     const lifecycle: ReleaseLifecycleStep[] = [
         {
             key: 'planned' as const,
@@ -518,12 +536,12 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             label: testingStarts[0]?.label ?? (experiments.length ? 'Experiment' : 'Testing'),
             date: testingStarts[0]?.date ?? null,
         },
-        { key: 'released' as const, label: 'Rolled out', date: null },
+        { key: 'released' as const, label: ended ? 'Ended' : 'Rolled out', date: null },
     ].map((step, index) => ({
         ...step,
         date: index <= stageIndex ? step.date : null,
         state:
-            index < stageIndex || (released && index === stageIndex)
+            index < stageIndex || (finished && index === stageIndex)
                 ? 'done'
                 : index === stageIndex
                   ? 'current'
@@ -597,7 +615,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
     }
 
     const suggestions: ReleaseSuggestion[] = []
-    if (index.complete && flags.length && !experiments.length && !released) {
+    if (index.complete && flags.length && !experiments.length && !finished) {
         suggestions.push({
             key: 'experiment',
             title: 'Measure the impact',
@@ -606,7 +624,7 @@ export function buildReleaseRow(release: ReleaseDTOApi, index: ReleaseIndex): Re
             to: urls.experiment('new'),
         })
     }
-    if (index.complete && flags.length && !earlyAccess.length && !released && stage === 'flag') {
+    if (index.complete && flags.length && !earlyAccess.length && !finished && stage === 'flag') {
         suggestions.push({
             key: 'early-access',
             title: 'Let users opt in first',

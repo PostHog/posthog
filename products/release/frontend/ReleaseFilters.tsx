@@ -29,7 +29,7 @@ import {
 import { releaseLogic } from './releaseLogic'
 import { ReleaseStage, STAGE_LABEL } from './releaseUtils'
 
-const STAGES: ReleaseStage[] = ['planned', 'flag', 'experiment', 'early_access', 'released']
+const STAGES: ReleaseStage[] = ['planned', 'flag', 'experiment', 'early_access', 'released', 'ended']
 
 type StageOption = ReleaseStage | 'all'
 type StepOption = 'all' | 'decision'
