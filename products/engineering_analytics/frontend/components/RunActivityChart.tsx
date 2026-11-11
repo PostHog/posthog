@@ -13,8 +13,7 @@ import { isDecisiveFailure } from '../lib/lifecycle'
 import { percentileSorted } from '../lib/runHealth'
 import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
 
-// A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
-// can drop the chart in over its own run list; the optional branch/PR fields enrich the hover card.
+// Both WorkflowRunRow and PrRunRow satisfy this shape, so either page can pass its own run list.
 export interface ActivityRun {
     ciEngine?: WorkflowRunActivityPointApi['ci_engine']
     runId: number | null
@@ -31,13 +30,10 @@ interface RunActivityChartProps {
     title?: string
     /** The runs list was capped server-side, so the chart shows the most recent runs, not the full window. */
     truncated?: boolean
-    /** Singular noun for each plotted point in the header count — 'run' by default, 'commit' on the repo-health
-     *  view where every dot is a whole commit's collapsed workflows. */
     noun?: string
     className?: string
 }
 
-// Dot/series color per verdict — the shared map so scatter, mini bars, and the run tables' StatusDot agree.
 const DOT_COLOR = VERDICT_COLOR
 
 export const LEGEND_LABEL: Record<string, string> = {
@@ -53,7 +49,7 @@ const BAND_HEIGHT = 56
 const STRIP_HEIGHT = 26
 const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
-// A scatter of one point says nothing; only draw once there's a spread to read.
+// One point shows no spread, so the chart draws from two.
 const MIN_POINTS = 2
 
 export const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
@@ -65,14 +61,14 @@ export function hasEnoughRunActivity(runs: ActivityRun[]): boolean {
 }
 // Below this total span the chart is already readable without a zoom brush.
 const BRUSH_THRESHOLD_MS = 24 * 60 * 60 * 1000
-// The lens never narrows below 15 min, so it stays grabbable and the zoomed axis keeps a readable span.
+// The lens never narrows below this, so it stays grabbable and the zoomed axis keeps a readable span.
 const MIN_LENS_MS = 15 * 60 * 1000
-// A run with no final duration counts as in flight up to now, capped here: one that started longer ago
-// and never settled almost certainly lost its completion webhook, and uncapped it would inflate the
+// A run with no final duration counts as in flight up to now, capped here. One that started longer ago
+// and never settled almost certainly lost its completion webhook, and uncapped it would stretch the
 // in-flight band and time axis by days.
 const MAX_IN_FLIGHT_MS = 60 * 60 * 1000
 
-/** Round up to a "nice" number (1/2/5 × 10ⁿ) so axis ticks land on readable values. */
+/** Rounds up to 1, 2, or 5 times a power of ten, so axis ticks land on readable values. */
 function niceStep(rough: number): number {
     if (rough <= 0) {
         return 1
@@ -83,7 +79,6 @@ function niceStep(rough: number): number {
     return step * pow
 }
 
-/** Compact minutes label for the duration axis: "45m", "1h", "1h 30m". */
 export function formatAxisMinutes(min: number): string {
     const rounded = Math.round(min)
     if (rounded < 60) {
@@ -109,9 +104,6 @@ interface Point {
     tooltip: JSX.Element
 }
 
-/** The focus lens: a thin strip spanning the whole loaded window with a draggable window selecting the
- *  sub-range the scatter and band zoom into. Drag the body to pan back to older runs; drag an edge to widen
- *  or narrow (zoom). The geometry (pan/resize/clamp) lives in lib/brush so it's unit-tested without a DOM. */
 function RunActivityBrush({
     fullMin,
     fullMax,
@@ -133,9 +125,8 @@ function RunActivityBrush({
     const dragRef = useRef<{ x: number; view: TimeRange; fullMin: number; fullMax: number } | null>(null)
     const [dragMode, setDragMode] = useState<null | 'pan' | 'start' | 'end'>(null)
 
-    // Track the pointer on the window (not just the lens) so a fast drag that outruns the cursor keeps
-    // panning; the listeners attach once per drag (deps don't include the moving bounds — they're frozen in
-    // dragRef) and tear down on pointer-up.
+    // The listeners sit on the window, so a fast drag that outruns the lens keeps panning. They attach
+    // once per drag, because the moving bounds are frozen in dragRef.
     useEffect(() => {
         if (!dragMode) {
             return
@@ -226,11 +217,6 @@ function RunActivityBrush({
     )
 }
 
-/**
- * Two views of one workflow's runs on a shared time axis: a scatter by start time (X) and duration (Y),
- * colored by verdict with a dashed median; and below it an "in-flight" band of concurrent runs (red fill
- * = failing share). Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
- */
 export function RunActivityChart({
     runs,
     title = 'Run activity',
@@ -238,8 +224,7 @@ export function RunActivityChart({
     noun = 'run',
     className,
 }: RunActivityChartProps): JSX.Element | null {
-    // The lens sub-range the scatter/band zoom into; null = the full loaded window. Declared before
-    // the early return so the hook order is stable when there aren't enough points to draw.
+    // Null means the full loaded window. Declared before the early return so the hook order is stable.
     const [focus, setFocus] = useState<TimeRange | null>(null)
     // Drop a manual pan when the runs change (e.g. the shared window changed and reloaded) so the lens
     // returns to the full window instead of clamping a stale range onto an unrelated slice of new data.
@@ -247,10 +232,8 @@ export function RunActivityChart({
         setFocus(null)
     }, [runs])
     const now = dayjs().valueOf()
-    // Every run with a start contributes an interval to the band; a still-running run extends to now, but
-    // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
-    // No-op gate runs never reach this component: the workflow activity endpoint hides them server-side
-    // (pre-cap, with an all-fast fallback), and commit rollups deliberately aren't filtered at all.
+    // A still-running run extends to now, capped at MAX_IN_FLIGHT_MS. No-op gate runs never reach this
+    // component, because the workflow activity endpoint hides them server-side.
     const intervals: Interval[] = runs
         .filter((run): run is ActivityRun & { startedAt: string } => run.startedAt != null)
         .map((run) => {
@@ -266,15 +249,14 @@ export function RunActivityChart({
             }
         })
 
-    // Only completed runs land on the scatter — a still-running run has no final duration to place on Y.
+    // A still-running run has no final duration to place on the Y axis.
     const plottable = runs.filter(isPlottable)
     if (plottable.length < MIN_POINTS) {
         return null
     }
 
-    // Full extent of the loaded runs, then the focus lens the scatter/band actually render. tMin/tMax below
-    // are the lens bounds, so the existing x-axis/band code zooms to the focus without further changes; the
-    // y (duration) scale and median stay over the full set, so panning never jumps the vertical axis.
+    // tMin and tMax below are the lens bounds. The duration scale and the median stay over the full set,
+    // so panning never moves the vertical axis.
     const fullMin = Math.min(...intervals.map((iv) => iv.start))
     const fullMax = Math.max(...intervals.map((iv) => iv.end))
     const brushable = fullMax - fullMin > BRUSH_THRESHOLD_MS
@@ -286,24 +268,20 @@ export function RunActivityChart({
 
     const durationsMin = plottable.map((run) => run.durationSeconds / 60)
     const maxMin = Math.max(...durationsMin)
-    // Tick interval is a "nice" number ~maxMin/4; the axis top is the smallest multiple of it that clears
-    // the slowest run, so ticks read as round values and there's little dead space above the points.
+    // The axis top is the smallest multiple of the step that clears the slowest run.
     const step = niceStep(maxMin / Y_TICK_COUNT)
     const niceMaxMin = Math.max(step, Math.ceil(maxMin / step) * step)
     const yPx = (min: number): number => SCATTER_HEIGHT * (1 - min / niceMaxMin)
 
-    // Same median as the health summary's medianSeconds (one implementation), so chart and KPIs agree.
+    // percentileSorted also computes the health summary's medianSeconds, so the chart and the summary agree.
     const sortedMin = [...durationsMin].sort((a, b) => a - b)
     const medianMin = percentileSorted(sortedMin, 0.5) ?? 0
 
-    // Only the runs inside the focus lens are plotted; the duration scale and median above stay over the
-    // full set so the y-axis holds still while you pan.
     const visible = plottable.filter((run) => {
         const t = dayjs(run.startedAt).valueOf()
         return t >= tMin && t <= tMax
     })
 
-    // Collected here so the legend reuses the per-run verdict instead of re-deriving it for every type.
     const presentTypeSet = new Set<string>()
     const points: Point[] = visible.map((run, i) => {
         const tag = verdictTag(run.conclusion)
@@ -339,15 +317,12 @@ export function RunActivityChart({
         label: dayjs(tMin + (tSpan * i) / (X_TICK_COUNT - 1)).format(xFormat),
     }))
 
-    // Clip each interval to the focus lens so the band shows concurrency within the zoomed window, sharing
-    // the scatter's x-axis. Intervals that don't overlap the focus drop out.
     const focusIntervals = intervals
         .map((iv) => ({ ...iv, start: Math.max(iv.start, tMin), end: Math.min(iv.end, tMax) }))
         .filter((iv) => iv.end > iv.start)
 
-    // In-flight band: exact concurrency via a sweep line over each run's start/end. Sampling fixed instants
-    // misses any run that begins and ends between two samples (minute-long runs on a 30-day window) — those
-    // would never be counted, so the band could read empty with the wrong peak even with runs on the scatter.
+    // A sweep line over each run's start and end gives exact concurrency. Sampling fixed instants would
+    // miss a run that begins and ends between two samples.
     const bandEvents = focusIntervals.flatMap((iv) => {
         const failDelta = isDecisiveFailure(iv.conclusion) ? 1 : 0
         return [
@@ -356,7 +331,6 @@ export function RunActivityChart({
         ]
     })
     bandEvents.sort((a, b) => a.t - b.t)
-    // Walk the events, holding each concurrency level until the next; coalesce events at the same instant.
     const steps: { t: number; total: number; failing: number }[] = []
     let runningTotal = 0
     let runningFailing = 0
@@ -367,13 +341,13 @@ export function RunActivityChart({
             steps.push({ t: event.t, total: runningTotal, failing: runningFailing })
         }
     })
-    // True peak concurrency for the label — 0 when the lens covers a gap with no runs. The band height
-    // divides by it, so use a separate denominator that's never 0.
+    // The peak is 0 when the lens covers a gap with no runs. The band height divides by it, so the
+    // denominator is clamped to 1.
     const peak = steps.length ? Math.max(...steps.map((s) => s.total)) : 0
     const bandScale = Math.max(1, peak)
     const bandX = (t: number): string => (((t - tMin) / tSpan) * 1000).toFixed(1)
     const bandY = (v: number): string => (BAND_HEIGHT - (v / bandScale) * (BAND_HEIGHT - 2)).toFixed(1)
-    // Concurrency is piecewise-constant, so draw step areas: hold the prior level to the event's x, then jump.
+    // Concurrency is piecewise-constant, so the areas are drawn as steps.
     const stepArea = (key: 'total' | 'failing'): string => {
         let d = `M0,${bandY(0)}`
         let level = 0
@@ -484,7 +458,7 @@ export function RunActivityChart({
                                 <path d={line} fill="none" stroke="var(--brand-blue)" strokeWidth={1.5} />
                             </svg>
                         </div>
-                        {/* X axis: time ticks; first/last anchor to the edges so labels don't clip. */}
+                        {/* The first and last ticks anchor to the edges so their labels don't clip. */}
                         <div className="relative mt-1 h-4">
                             {xTicks.map((tick, i) => {
                                 const isEdge = i === 0 || i === xTicks.length - 1
@@ -504,7 +478,7 @@ export function RunActivityChart({
                                 )
                             })}
                         </div>
-                        {/* Focus lens over the full window — drag to pan to older runs, drag an edge to zoom. */}
+                        {/* Focus lens over the full window. */}
                         {brushable && (
                             <RunActivityBrush
                                 fullMin={fullMin}

@@ -186,23 +186,32 @@ def github_step_failed(step: str, response: dict) -> GitHubStepFailed:
 def open_or_join_pull_request(task_run_id: UUID, *, team_id: int) -> str | None:
     writer = writer_settings()
     if writer is None or writer.team_id != team_id:
+        log_skipped_publication(task_run_id, team_id, "unconfigured")
         return None
     run = tasks_facade.get_task_run(task_run_id, team_id)
     if run is None or run.task_origin_product != tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER:
+        log_skipped_publication(task_run_id, team_id, "not_a_writer_run")
         return None
     reported_branches = reported_docs_branches(run.output, writer.docs_repository)
     if not reported_branches:
+        log_skipped_publication(task_run_id, team_id, "no_docs_branch")
         return None
     published = tasks_facade.read_task_state_entry(run.task_id, team_id, PULL_REQUEST_STATE_KEY)
     if isinstance(published, dict):
+        log_skipped_publication(task_run_id, team_id, "already_published")
         return pull_request_json.validate_python(published).url
     if not claim_publication(run.task_id, team_id, task_run_id):
+        log_skipped_publication(task_run_id, team_id, "claim_held")
         return None
     try:
         return publish_claimed_pull_request(run.task_id, team_id, task_run_id, writer, reported_branches)
     except Exception:
         record_pull_request_failure(run.task_id, team_id, "github_request_failed")
         raise
+
+
+def log_skipped_publication(task_run_id: UUID, team_id: int, reason: str) -> None:
+    logger.info("knowledge_writer_publish_skipped", task_run_id=str(task_run_id), team_id=team_id, reason=reason)
 
 
 def settle_publication(task_run_id: UUID, *, team_id: int, has_failed: bool) -> None:
@@ -263,7 +272,24 @@ def publish_claimed_pull_request(
     stored = pull_request_json.dump_python(pull_request, mode="json")
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_STATE_KEY, replace_entry_with(stored))
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(None))
+    logger.info(
+        "knowledge_writer_pull_request_published",
+        task_id=str(task_id),
+        task_run_id=str(task_run_id),
+        team_id=team_id,
+        pull_request_number=pull_request.number,
+        section=pull_request.section,
+        publication=publication_kind(joined_pull_request, pull_request),
+    )
     return pull_request.url
+
+
+def publication_kind(joined_pull_request: WriterPullRequest | None, published: WriterPullRequest) -> str:
+    if joined_pull_request is None:
+        return "opened"
+    if joined_pull_request.number == published.number:
+        return "joined"
+    return "reopened_after_close"
 
 
 def comparison_with_default_branch(github: GitHubIntegration, docs_repository: str, head_branch: str) -> dict:
@@ -324,6 +350,13 @@ def warn_on_joined_pull_request(
         try:
             commented = posted_refusal_warning(github, docs_name, pull_request.number)
         except Exception as error:
+            logger.warning(
+                "knowledge_writer_refusal_warning_failed",
+                task_run_id=str(task_run_id),
+                team_id=team_id,
+                pull_request_number=pull_request.number,
+                error_type=type(error).__name__,
+            )
             capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
             return
         if commented.get("success"):
@@ -346,6 +379,13 @@ def is_comment_failure_retryable(commented: dict) -> bool:
 
 
 def reported_step_failure(step_failed: GitHubStepFailed, team_id: int, task_run_id: UUID) -> WriterPullRequestFailed:
+    logger.warning(
+        "knowledge_writer_pull_request_step_failed",
+        task_run_id=str(task_run_id),
+        team_id=team_id,
+        step=step_failed.step,
+        status_code=step_failed.status_code,
+    )
     failure = WriterPullRequestFailed("knowledge writer docs pull request failed")
     capture_exception(
         failure,
@@ -368,6 +408,7 @@ def refuse_publication(task_id: UUID, team_id: int, task_run_id: UUID, reason: s
 
 
 def record_pull_request_failure(task_id: UUID, team_id: int, reason: str) -> None:
+    logger.warning("knowledge_writer_pull_request_failed", task_id=str(task_id), team_id=team_id, reason=reason)
     tasks_facade.update_task_state_entry(task_id, team_id, PULL_REQUEST_FAILURE_STATE_KEY, replace_entry_with(reason))
 
 
@@ -399,9 +440,21 @@ def label_pull_request_section(github: GitHubIntegration, docs_name: str, pr_num
     try:
         labelled = github.add_pull_request_labels(docs_name, pr_number, [section_label(section)])
     except Exception as error:
+        logger.warning(
+            "knowledge_writer_section_label_failed",
+            pull_request_number=pr_number,
+            section=section,
+            error_type=type(error).__name__,
+        )
         capture_exception(error, {"pr_number": pr_number, "section": section})
         return
     if not labelled.get("success"):
+        logger.warning(
+            "knowledge_writer_section_label_failed",
+            pull_request_number=pr_number,
+            section=section,
+            status_code=labelled.get("status_code"),
+        )
         capture_exception(
             WriterPullRequestFailed("knowledge writer could not label its docs pull request"),
             {"pr_number": pr_number, "section": section, "status_code": labelled.get("status_code")},
