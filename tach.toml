@@ -207,7 +207,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.aeo"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.authorization", "products.dashboards"]
 layer = "modules"
 
 [[interfaces]]
@@ -632,6 +632,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 
@@ -1131,6 +1132,8 @@ depends_on = [
     "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # The canvas experiment needs the new navigation (via the today facade).
+    "products.today",
 ]
 layer = "modules"
 
@@ -2066,4 +2069,18 @@ expose = [
 ]
 from = [
     "products.ui_customization",
+]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
 ]
