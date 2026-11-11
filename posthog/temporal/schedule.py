@@ -79,7 +79,10 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
-from products.ai_observability.backend.eval_suggestions import client as eval_suggestions_client
+from products.ai_observability.backend.facade.temporal import (
+    EVAL_SUGGESTIONS_SCHEDULE_ID,
+    create_eval_suggestions_schedule,
+)
 from products.alerts_platform.backend.facade.temporal import (
     create_alerts_platform_expired_holds_schedule,
     create_alerts_platform_inventory_schedule,
@@ -719,7 +722,7 @@ async def cleanup_non_cloud_ai_observability_schedules(client: Client):
         trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
         trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
         trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
-        eval_suggestions_client.SCHEDULE_ID,
+        EVAL_SUGGESTIONS_SCHEDULE_ID,
     ]
     for schedule_id in schedule_ids:
         if await a_schedule_exists(client, schedule_id):
@@ -1037,7 +1040,7 @@ if settings.DEBUG or is_cloud():
     schedules.append(create_batch_generation_summarization_schedule)
     schedules.append(create_trace_clustering_coordinator_schedule)
     schedules.append(create_generation_clustering_coordinator_schedule)
-    schedules.append(eval_suggestions_client.create_eval_suggestions_schedule)
+    schedules.append(create_eval_suggestions_schedule)
 
 if settings.CLOUD_DEPLOYMENT:
     # Gemini uploads only happen in cloud; each sweep reaps only the files tracked in this

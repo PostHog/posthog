@@ -26,11 +26,13 @@ from products.ai_observability.backend.eval_suggestions.coverage import Coverage
 from products.ai_observability.backend.eval_suggestions.pipeline import (
     create_run,
     dedupe,
-    execute_run,
+    draft_stage,
     fail_run,
+    measure_stage,
     paid_draft,
     publish,
-    run_pipeline,
+    publish_stage,
+    screen_stage,
 )
 from products.ai_observability.backend.eval_suggestions.ranking import Proposal
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -157,6 +159,18 @@ def _dead_judge(team: Team) -> Evaluation:
     return evaluation
 
 
+def _run_stages(
+    team: Team, run: EvalSuggestionRun, *, include_paid: bool = False, now: datetime | None = None
+) -> list[EvalSuggestion]:
+    """Every stage in order, as the team workflow runs them."""
+    team_id, run_id, settings = team.pk, str(run.id), SuggestionSettings()
+    measure_stage(team_id, run_id, settings=settings, now=now)
+    screen_stage(team_id, run_id, include_paid=include_paid, settings=settings)
+    draft_stage(team_id, run_id, include_paid=include_paid, settings=settings)
+    publish_stage(team_id, run_id)
+    return list(EvalSuggestion.objects.for_team(team_id).filter(run=run))
+
+
 @pytest.fixture(autouse=True)
 def _organization_in_rollout() -> Any:
     with patch(
@@ -172,10 +186,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "manual")
 
-        suggestions = {
-            s.dedupe_key: s
-            for s in run_pipeline(self.team, run, include_paid=False, settings=SuggestionSettings(), now=now)
-        }
+        suggestions = {s.dedupe_key: s for s in _run_stages(self.team, run, now=now)}
 
         fix_key = f"fix:{dead_judge.id}:no_runs"
         assert set(suggestions) == {fix_key, "check:unrecovered_errors"}
@@ -190,32 +201,33 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert all("GraphInterrupt" not in e["reason"] for e in errors.evidence)
 
         # The noise: links counted as sensitive data, and dispatcher calls counted as loops.
-        measured = EvalSuggestionRun.objects.for_team(self.team.pk).get(id=run.id).stages["measure"]["checks"]
+        run.refresh_from_db()
+        measured = run.stages["measure"]["checks"]
         assert measured["sensitive_data"]["failed"] == 0
         assert measured["repeated_tool_calls"]["failed"] == 0
+        # Paid stages were off, and the handoff is gone once the run published.
+        assert run.stages["screening"] == {"status": "skipped", "detail": "free stages only"}
+        assert run.handoff == {}
 
 
 class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand(
         [
+            ("publish_retried_after_its_result_was_lost", lambda run: publish_stage(run.team_id, str(run.id))),
             (
-                "retry_after_the_result_was_lost",
-                lambda run: execute_run(run.team_id, str(run.id), include_paid=False, settings=SuggestionSettings()),
-            ),
-            (
-                "attempt_racing_the_first_to_publish",
-                lambda run: run_pipeline(run.team, run, include_paid=False, settings=SuggestionSettings()),
+                "measure_attempt_that_outlived_the_run",
+                lambda run: measure_stage(run.team_id, str(run.id), settings=SuggestionSettings()),
             ),
         ]
     )
-    def test_a_second_attempt_keeps_the_published_cards(
-        self, _name: str, second_attempt: Callable[[EvalSuggestionRun], object]
+    def test_a_late_attempt_keeps_the_published_cards(
+        self, _name: str, late_attempt: Callable[[EvalSuggestionRun], object]
     ) -> None:
         dead_judge = _dead_judge(self.team)
         run = create_run(self.team, "scheduled")
-        execute_run(self.team.pk, str(run.id), include_paid=False, settings=SuggestionSettings())
+        _run_stages(self.team, run)
 
-        second_attempt(run)
+        late_attempt(run)
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.COMPLETED
@@ -227,18 +239,17 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
     def test_only_a_completed_run_replaces_the_previous_cards(self, _name: str, next_run_fails: bool) -> None:
         _dead_judge(self.team)
         first = create_run(self.team, "scheduled")
-        execute_run(self.team.pk, str(first.id), include_paid=False, settings=SuggestionSettings())
+        _run_stages(self.team, first)
         second = create_run(self.team, "scheduled")
 
         if next_run_fails:
-            with patch(
-                "products.ai_observability.backend.eval_suggestions.pipeline.fetch_profile",
-                side_effect=RuntimeError("ClickHouse timed out"),
-            ):
+            with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
                 with pytest.raises(RuntimeError):
-                    execute_run(self.team.pk, str(second.id), include_paid=False, settings=SuggestionSettings())
+                    measure_stage(self.team.pk, str(second.id), settings=SuggestionSettings())
+            # The workflow fails the run once the stage used up its attempts.
+            fail_run(self.team.pk, str(second.id), "RuntimeError: ClickHouse timed out")
         else:
-            execute_run(self.team.pk, str(second.id), include_paid=False, settings=SuggestionSettings())
+            _run_stages(self.team, second)
 
         statuses = dict(EvalSuggestion.objects.for_team(self.team.pk).values_list("run_id", "status"))
         second.refresh_from_db()
@@ -246,6 +257,24 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
             EvalSuggestionRunStatus.FAILED if next_run_fails else EvalSuggestionRunStatus.COMPLETED
         )
         assert statuses[first.id] == ("proposed" if next_run_fails else "expired")
+
+    def test_a_stale_attempt_that_fails_leaves_the_newer_attempt_to_publish(self) -> None:
+        dead_judge = _dead_judge(self.team)
+        run = create_run(self.team, "scheduled")
+        # Attempt 1 timed out in Temporal's view and attempt 2 measured. Attempt 1's thread then raises.
+        measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings())
+        with patch.object(pipeline, "fetch_profile", side_effect=RuntimeError("ClickHouse timed out")):
+            with pytest.raises(RuntimeError):
+                measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings())
+
+        assert publish_stage(self.team.pk, str(run.id)) == 1
+        run.refresh_from_db()
+        assert run.status == EvalSuggestionRunStatus.COMPLETED
+        assert [s.dedupe_key for s in EvalSuggestion.objects.for_team(self.team.pk).filter(run=run)] == [
+            f"fix:{dead_judge.id}:no_runs"
+        ]
+        # Neither paid stage ran, so publish records them as unfinished.
+        assert run.stages["drafting"] == {"status": "failed", "detail": "the stage did not finish"}
 
 
 def _completion(content: str) -> MagicMock:
@@ -373,29 +402,58 @@ class TestRunRecords(BaseTest):
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
-    @patch("products.ai_observability.backend.eval_suggestions.pipeline.run_pipeline")
-    @patch(
-        "products.ai_observability.backend.eval_suggestions.pipeline.is_enabled_for_organization", return_value=False
-    )
+    def test_a_card_accepted_while_the_run_works_is_not_published_again(self) -> None:
+        run = create_run(self.team, "scheduled")
+        earlier = create_run(self.team, "scheduled")
+        publish(earlier, [_candidate("check:unrecovered_errors", [])], {})
+        EvalSuggestion.objects.for_team(self.team.pk).filter(run=earlier).update(
+            status=EvalSuggestionStatus.ACCEPTED, decided_at=timezone.now()
+        )
+
+        assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
+
+    @patch.object(pipeline, "is_enabled_for_organization", return_value=False)
+    @patch.object(pipeline.coverage_stage, "fetch_coverage")
     def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
-        self, _flag: MagicMock, run_pipeline: MagicMock
+        self, fetch_coverage: MagicMock, _flag: MagicMock
     ) -> None:
         run = create_run(self.team, "scheduled")
 
-        assert execute_run(self.team.pk, str(run.id), include_paid=True, settings=SuggestionSettings()) == 0
+        assert measure_stage(self.team.pk, str(run.id), settings=SuggestionSettings()) == 0
 
         run.refresh_from_db()
         assert run.status == EvalSuggestionRunStatus.FAILED
-        run_pipeline.assert_not_called()
+        fetch_coverage.assert_not_called()
+        assert publish_stage(self.team.pk, str(run.id)) == 0
 
-    def test_a_run_past_its_deadline_stops_before_publishing(self) -> None:
+    @patch.object(pipeline, "_drafted_proposals")
+    def test_a_draft_that_cannot_finish_before_the_deadline_is_not_started(self, drafted: MagicMock) -> None:
         run = create_run(self.team, "scheduled")
+        handoff = pipeline.Handoff(
+            window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
+            profile=pipeline.TeamProfile.empty(),
+            sample=[],
+            proposals=[],
+            gaps=[pipeline.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
+            screened_judges=[],
+            judge_target="trace",
+            judge_model="gpt-5-mini",
+            sources={},
+            candidate_options={},
+        )
 
-        with pytest.raises(pipeline.RunDeadlinePassed):
-            execute_run(self.team.pk, str(run.id), include_paid=False, settings=SuggestionSettings(), deadline=0.0)
+        with (
+            patch.object(pipeline, "_load", return_value=handoff),
+            patch.object(pipeline, "_paid_skip", return_value=None),
+        ):
+            drafted_count = draft_stage(
+                self.team.pk, str(run.id), include_paid=True, settings=SuggestionSettings(), deadline=0.0
+            )
 
+        assert drafted_count == 0
+        drafted.assert_not_called()
         run.refresh_from_db()
-        assert run.status == EvalSuggestionRunStatus.FAILED
+        assert run.stages["drafting"] == {"status": "skipped", "detail": "not enough time left"}
 
 
 def _existing(**overrides: Any) -> ExistingEval:
@@ -512,7 +570,7 @@ def test_a_draft_replaces_the_templated_card_for_its_gap(
     with (
         patch.object(pipeline.drafting, "gap_brief", return_value="brief"),
         patch.object(pipeline, "paid_draft", return_value=drafting.DraftCall(draft=draft, cost_usd=0.01)),
-        patch.object(pipeline, "measure", return_value=[MagicMock()]),
+        patch.object(pipeline, "run_check", return_value=[MagicMock(failed=False, reasoning="ok")]),
         patch.object(pipeline.ranking, "code_check_proposal", return_value=hog_card),
     ):
         result = pipeline._drafted_proposals(

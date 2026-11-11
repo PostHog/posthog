@@ -34,7 +34,6 @@ def _turn(trace_id: str, text: str) -> SampledTrace:
         segments={},
         segment_values={},
         raw_segment_values={},
-        raw_segments={},
         final_text=text,
         turn_text=text,
         user_messages=1,

@@ -1,4 +1,6 @@
-from posthog.test.base import BaseTest
+from datetime import timedelta
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -33,3 +35,21 @@ class TestEligibility(BaseTest):
         eligibility.record_visit(child)
 
         assert EvalSuggestionTeamState.objects.for_team(self.team.pk).count() == 1
+
+
+class TestSteadyTraffic(ClickhouseTestMixin, BaseTest):
+    def test_a_team_needs_generations_on_enough_recent_days(self) -> None:
+        now = timezone.now()
+        quiet = Team.objects.create(organization=self.organization, name="quiet")
+        # Steady: 4 days in the last 28, two of them in the last week. Quiet: 3 days, all in the last week.
+        for team, days_ago in ((self.team, (1, 3, 10, 20)), (quiet, (1, 2, 3))):
+            for days in days_ago:
+                _create_event(
+                    team=team,
+                    event="$ai_generation",
+                    distinct_id="user-1",
+                    timestamp=now - timedelta(days=days),
+                    properties={"$ai_trace_id": f"trace-{days}"},
+                )
+
+        assert eligibility.steady_traffic_team_ids([self.team.pk, quiet.pk], now) == {self.team.pk}

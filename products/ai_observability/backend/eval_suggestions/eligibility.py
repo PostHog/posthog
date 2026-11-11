@@ -17,6 +17,7 @@ from products.ai_observability.backend.models.eval_suggestions import (
 )
 
 from .config import SuggestionSettings, is_enabled_for_organization
+from .queries import MAX_EXECUTION_TIME_SECONDS
 
 VISIT_LOOKBACK = timedelta(days=14)
 MIN_DAYS_IN_28 = 4
@@ -74,6 +75,8 @@ def steady_traffic_team_ids(team_ids: list[int], now: datetime) -> set[int]:
                 "end": now,
             },
             workload=Workload.OFFLINE,
+            # Well inside the plan activity's 10 minutes, so a slow batch fails the query, not the activity.
+            settings={"max_execution_time": MAX_EXECUTION_TIME_SECONDS},
         )
     return {int(team_id) for team_id, days_28, days_7 in rows if days_28 >= MIN_DAYS_IN_28 and days_7 >= MIN_DAYS_IN_7}
 

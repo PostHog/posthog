@@ -25,8 +25,33 @@ TEAM_WORKFLOW_NAME = "llma-eval-suggestions-team"
 SCHEDULE_ID = "llma-eval-suggestions-coordinator-schedule"
 # Runs weekly with overlaps skipped, so it can take most of the week: 2,000 teams of 3 minutes at 4 at a time is 25 hours.
 COORDINATOR_TIMEOUT = timedelta(days=6)
-# Room for each activity's schedule-to-close deadline in turn: start, both execute attempts, then the fail-run cleanup.
-TEAM_TIMEOUT = timedelta(minutes=50)
+
+
+@frozen
+class ActivityLimits:
+    start_to_close: timedelta
+    attempts: int
+    retry_interval: timedelta = timedelta(seconds=30)
+    # Worker queue time an activity may wait before its first attempt starts.
+    queue: timedelta = timedelta(minutes=2)
+
+    @property
+    def schedule_to_close(self) -> timedelta:
+        return self.start_to_close * self.attempts + self.retry_interval * (self.attempts - 1) + self.queue
+
+
+START_RUN = ActivityLimits(start_to_close=timedelta(minutes=1), attempts=3)
+MEASURE = ActivityLimits(start_to_close=timedelta(minutes=10), attempts=2, retry_interval=timedelta(minutes=1))
+# Screening and dedupe calls stop at their own budgets, 7 minutes together, before this runs out.
+SCREEN = ActivityLimits(start_to_close=timedelta(minutes=9), attempts=2, retry_interval=timedelta(minutes=1))
+# One attempt: a retry would pay for the draft again. Room for the slowest draft and measuring it.
+DRAFT = ActivityLimits(start_to_close=timedelta(minutes=15), attempts=1)
+PUBLISH = ActivityLimits(start_to_close=timedelta(minutes=2), attempts=3)
+FAIL_RUN = ActivityLimits(start_to_close=timedelta(minutes=1), attempts=3)
+# The activities run one after another, so the workflow needs room for each one's whole schedule-to-close.
+TEAM_TIMEOUT = sum(
+    (limits.schedule_to_close for limits in (START_RUN, MEASURE, SCREEN, DRAFT, PUBLISH, FAIL_RUN)), timedelta()
+)
 
 
 @frozen

@@ -18,14 +18,15 @@ from posthog.llm.gateway_client import Product, build_openai_client, team_distin
 from posthog.llm.openai_flex import FLEX_CAPABLE_MODELS, is_flex_recoverable
 
 from .profile import StructuredGap, TeamProfile
+from .ranking import MODEL_PRICES
 from .screening import AI_PRODUCT
 
 logger = structlog.get_logger(__name__)
 
 DRAFT_MODEL = "gpt-5-mini"
 # List prices of DRAFT_MODEL, for the per-run budget.
-INPUT_PRICE_PER_TOKEN = 0.25e-6
-OUTPUT_PRICE_PER_TOKEN = 2e-6
+INPUT_PRICE_PER_TOKEN = MODEL_PRICES[DRAFT_MODEL].input_per_token
+OUTPUT_PRICE_PER_TOKEN = MODEL_PRICES[DRAFT_MODEL].output_per_token
 # Reasoning tokens count against this too, so it bounds what one call can bill for output.
 MAX_OUTPUT_TOKENS = 2000
 FLEX_TIMEOUT_SECONDS = 180.0
@@ -95,6 +96,14 @@ def gap_brief(gap: StructuredGap, profile: TeamProfile) -> str:
 
 def _messages(brief: str) -> list[ChatCompletionMessageParam]:
     return [{"role": "system", "content": _SYSTEM_PROMPT}, {"role": "user", "content": brief}]
+
+
+def max_draft_seconds() -> float:
+    """The longest one draft can take: the flex attempt, then every standard attempt and the waits between them."""
+    flex = FLEX_TIMEOUT_SECONDS if DRAFT_MODEL in FLEX_CAPABLE_MODELS else 0.0
+    standard = (1 + STANDARD_MAX_RETRIES) * STANDARD_TIMEOUT_SECONDS
+    backoff = sum(RETRY_BACKOFF_SECONDS * (attempt + 1) for attempt in range(1 + STANDARD_MAX_RETRIES))
+    return flex + standard + backoff
 
 
 def max_cost_usd(brief: str) -> float:

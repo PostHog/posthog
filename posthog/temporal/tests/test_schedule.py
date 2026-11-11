@@ -23,7 +23,7 @@ from posthog.temporal.schedule import (
     create_wa_weekly_digest_schedule,
 )
 
-from products.ai_observability.backend.eval_suggestions import client as eval_suggestions_client
+from products.ai_observability.backend.facade.temporal import EVAL_SUGGESTIONS_SCHEDULE_ID
 
 
 @pytest.mark.asyncio
@@ -125,7 +125,7 @@ async def test_wa_digest_schedules_target_the_weekly_digest_queue() -> None:
                 trace_summarization_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
                 trace_clustering_constants.COORDINATOR_SCHEDULE_ID,
                 trace_clustering_constants.GENERATION_COORDINATOR_SCHEDULE_ID,
-                eval_suggestions_client.SCHEDULE_ID,
+                EVAL_SUGGESTIONS_SCHEDULE_ID,
             ],
         ),
         ("US", False, []),

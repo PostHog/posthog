@@ -1,9 +1,15 @@
-"""Weekly coordinator and per-team workflow. Activities pass ids and counts, never trace content."""
+"""Weekly coordinator and per-team workflow. Activities pass ids and counts, never trace content.
+
+A team's run is one activity per stage, so a retry redoes only the stage that failed and a timeout stops only that
+stage. Screening and drafting are paid and optional: when either fails, the run publishes without it.
+"""
 
 import time
 import uuid
 import asyncio
+from collections.abc import Callable
 from datetime import timedelta
+from typing import Any
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -17,12 +23,26 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat import Heartbeater
     from posthog.temporal.common.utils import on_asyncify_pool
 
-    from .client import COORDINATOR_WORKFLOW_NAME, TEAM_TIMEOUT, TEAM_WORKFLOW_NAME, CoordinatorInputs, TeamRunInputs
+    from .client import (
+        COORDINATOR_WORKFLOW_NAME,
+        DRAFT,
+        FAIL_RUN,
+        MEASURE,
+        PUBLISH,
+        SCREEN,
+        START_RUN,
+        TEAM_TIMEOUT,
+        TEAM_WORKFLOW_NAME,
+        ActivityLimits,
+        CoordinatorInputs,
+        TeamRunInputs,
+    )
     from .config import load_settings
     from .eligibility import eligible_team_ids
-    from .pipeline import create_run, execute_run, fail_run
+    from .pipeline import create_run, draft_stage, fail_run, measure_stage, publish_stage, screen_stage
 
-RUN_ATTEMPT_TIMEOUT = timedelta(minutes=15)
+# Each stage stops itself this long before Temporal times its attempt out.
+DEADLINE_MARGIN = timedelta(minutes=1)
 
 
 @frozen
@@ -32,7 +52,7 @@ class CoordinatorPlan:
 
 
 @frozen
-class ExecuteRunInputs:
+class StageInputs:
     team_id: int
     run_id: str
     include_paid: bool
@@ -75,19 +95,58 @@ async def fail_eval_suggestions_run_activity(inputs: FailRunInputs) -> None:
     await on_asyncify_pool(fail_run)(inputs.team_id, inputs.run_id, inputs.error)
 
 
-@activity.defn(name="llma-eval-suggestions-execute-run")
-async def execute_eval_suggestions_run_activity(inputs: ExecuteRunInputs) -> int:
+def _deadline(limits: ActivityLimits) -> float:
+    return time.monotonic() + (limits.start_to_close - DEADLINE_MARGIN).total_seconds()
+
+
+@activity.defn(name="llma-eval-suggestions-measure")
+async def measure_eval_suggestions_activity(inputs: StageInputs) -> int:
     async with Heartbeater():
         suggestion_settings = await on_asyncify_pool(load_settings)()
-        # A minute short of the attempt's timeout, so the run stops itself before Temporal starts a retry.
-        deadline = time.monotonic() + RUN_ATTEMPT_TIMEOUT.total_seconds() - 60
-        return await on_asyncify_pool(execute_run)(
+        return await on_asyncify_pool(measure_stage)(
+            inputs.team_id, inputs.run_id, settings=suggestion_settings, deadline=_deadline(MEASURE)
+        )
+
+
+@activity.defn(name="llma-eval-suggestions-screen")
+async def screen_eval_suggestions_activity(inputs: StageInputs) -> int:
+    async with Heartbeater():
+        suggestion_settings = await on_asyncify_pool(load_settings)()
+        return await on_asyncify_pool(screen_stage)(
             inputs.team_id,
             inputs.run_id,
             include_paid=inputs.include_paid,
             settings=suggestion_settings,
-            deadline=deadline,
+            deadline=_deadline(SCREEN),
         )
+
+
+@activity.defn(name="llma-eval-suggestions-draft")
+async def draft_eval_suggestions_activity(inputs: StageInputs) -> int:
+    async with Heartbeater():
+        suggestion_settings = await on_asyncify_pool(load_settings)()
+        return await on_asyncify_pool(draft_stage)(
+            inputs.team_id,
+            inputs.run_id,
+            include_paid=inputs.include_paid,
+            settings=suggestion_settings,
+            deadline=_deadline(DRAFT),
+        )
+
+
+@activity.defn(name="llma-eval-suggestions-publish")
+async def publish_eval_suggestions_activity(inputs: StageInputs) -> int:
+    return await on_asyncify_pool(publish_stage)(inputs.team_id, inputs.run_id)
+
+
+def _options(limits: ActivityLimits, *, heartbeat: bool = True) -> dict[str, Any]:
+    return {
+        "start_to_close_timeout": limits.start_to_close,
+        # Each activity has a schedule-to-close deadline, so worker queue time cannot outlast the workflow.
+        "schedule_to_close_timeout": limits.schedule_to_close,
+        **({"heartbeat_timeout": timedelta(minutes=2)} if heartbeat else {}),
+        "retry_policy": RetryPolicy(maximum_attempts=limits.attempts, initial_interval=limits.retry_interval),
+    }
 
 
 @workflow.defn(name=TEAM_WORKFLOW_NAME)
@@ -99,31 +158,36 @@ class EvalSuggestionsTeamWorkflow(PostHogWorkflow):
         info = workflow.info()
         # Known before the start activity runs, so a start that created the row and then failed is cleaned up too.
         run_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{info.workflow_id}/{info.run_id}"))
+        stage = StageInputs(team_id=inputs.team_id, run_id=run_id, include_paid=inputs.include_paid)
         try:
             await workflow.execute_activity(
                 start_eval_suggestions_run_activity,
                 StartRunInputs(run=inputs, run_id=run_id),
-                start_to_close_timeout=timedelta(minutes=1),
-                # Each activity has a schedule-to-close deadline, so worker queue time cannot outlast the workflow.
-                schedule_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                **_options(START_RUN, heartbeat=False),
             )
+            await workflow.execute_activity(measure_eval_suggestions_activity, stage, **_options(MEASURE))
+            paid: list[tuple[Callable, ActivityLimits]] = [
+                (screen_eval_suggestions_activity, SCREEN),
+                (draft_eval_suggestions_activity, DRAFT),
+            ]
+            for paid_activity, limits in paid:
+                try:
+                    await workflow.execute_activity(paid_activity, stage, **_options(limits))
+                except ActivityError as error:
+                    # The free cards still publish, and publish records the stage as unfinished.
+                    workflow.logger.warning(
+                        "eval_suggestions_paid_stage_failed", team_id=inputs.team_id, error=str(error.cause or error)
+                    )
             return await workflow.execute_activity(
-                execute_eval_suggestions_run_activity,
-                ExecuteRunInputs(team_id=inputs.team_id, run_id=run_id, include_paid=inputs.include_paid),
-                start_to_close_timeout=RUN_ATTEMPT_TIMEOUT,
-                schedule_to_close_timeout=RUN_ATTEMPT_TIMEOUT * 2 + timedelta(minutes=8),
-                heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                publish_eval_suggestions_activity, stage, **_options(PUBLISH, heartbeat=False)
             )
         except ActivityError as error:
-            # A worker that died or timed out never reached execute_run's own failure handling.
+            # Only the workflow marks a run failed, once a required stage has used up its attempts. An attempt that
+            # timed out keeps running in its thread, and it must not fail the run a newer attempt is working on.
             await workflow.execute_activity(
                 fail_eval_suggestions_run_activity,
                 FailRunInputs(team_id=inputs.team_id, run_id=run_id, error=str(error.cause or error)),
-                start_to_close_timeout=timedelta(minutes=1),
-                schedule_to_close_timeout=timedelta(minutes=3),
-                retry_policy=RetryPolicy(maximum_attempts=3),
+                **_options(FAIL_RUN, heartbeat=False),
             )
             raise
 
@@ -174,7 +238,7 @@ class EvalSuggestionsCoordinatorWorkflow(PostHogWorkflow):
                     failed += 1
         if queue:
             # History grew too long. Children end with their parent, so the rest start in a fresh run once all
-            # running ones finished.
+            # running ones finished. The batch id carries over, since the drafting budget is counted per batch.
             workflow.continue_as_new(
                 CoordinatorInputs(remaining_team_ids=queue, batch_id=batch_id, max_concurrent_teams=concurrency)
             )
@@ -185,6 +249,9 @@ WORKFLOWS = [EvalSuggestionsCoordinatorWorkflow, EvalSuggestionsTeamWorkflow]
 ACTIVITIES = [
     plan_eval_suggestions_activity,
     start_eval_suggestions_run_activity,
-    execute_eval_suggestions_run_activity,
+    measure_eval_suggestions_activity,
+    screen_eval_suggestions_activity,
+    draft_eval_suggestions_activity,
+    publish_eval_suggestions_activity,
     fail_eval_suggestions_run_activity,
 ]
