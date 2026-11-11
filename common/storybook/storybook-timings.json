@@ -207,10 +207,6 @@
         "chromium": 5.51,
         "webkit": 2.307
     },
-    "frontend/src/lib/components/FlagCalledRebuildBanner/FlagCalledRebuildBanner.stories.tsx": {
-        "chromium": 12.141,
-        "webkit": 2.532
-    },
     "frontend/src/lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories.tsx": {
         "chromium": 38.164,
         "webkit": 5.549

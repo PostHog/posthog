@@ -22,11 +22,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
 
-import {
-    FlagCallCriterionProblem,
-    MAX_LOOKBACK_DAYS,
-    moveNoticeProblem,
-} from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
+import { flagCallProblemText, moveNoticeProblem } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
 
 export interface CohortCriteriaRowBuilderProps {
     id: CohortLogicProps['id']
@@ -37,17 +33,6 @@ export interface CohortCriteriaRowBuilderProps {
     logicalOperator: FilterLogicalOperator
     hideDeleteIcon?: boolean
     onChangeType?: (nextType: BehavioralFilterType) => void
-}
-
-const MOVE_NOTICE_EFFECTS: Record<FlagCallCriterionProblem, string> = {
-    type: 'When the move finishes, this criterion stops matching new flag calls. To keep it matching, change it to "Completed event", "Did not complete event" or "Completed an event multiple times".',
-    window: `When the move finishes, this criterion counts every flag call only if its range is relative to today and goes back ${MAX_LOOKBACK_DAYS} days or less, such as "Last 30 days".`,
-    filters:
-        'When the move finishes, PostHog may not be able to calculate this cohort. To keep it working, filter this criterion on event properties only.',
-}
-
-function moveNoticeText(problem: FlagCallCriterionProblem): string {
-    return `Feature flag called is moving out of the events table. ${MOVE_NOTICE_EFFECTS[problem]}`
 }
 
 export function CohortCriteriaRowBuilder({
@@ -207,7 +192,7 @@ export function CohortCriteriaRowBuilder({
                                     : undefined
                             }
                         >
-                            {moveNoticeText(flagCallProblem)}
+                            {flagCallProblemText(flagCallProblem, false)}
                         </LemonBanner>
                     )}
                 </>
