@@ -7,6 +7,7 @@ from django.contrib import messages
 from django.db.models import Model
 from django.http import HttpRequest, HttpResponse
 
+from posthog.admin.console.moved import MovedRecord
 from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Secret, Table
@@ -19,6 +20,7 @@ from products.managed_warehouse.backend.facade.staff import (
     get_view_translation_summary,
     is_control_plane_configured,
     onboard_team_for_staff,
+    organization_id_for_duckgres_server,
     preview_provision_for_staff,
     provision_for_staff,
     retry_view_translation_for_staff,
@@ -293,6 +295,9 @@ class ManagedWarehousePanel(Panel):
     key = "managed-warehouse"
     title = "Managed warehouse"
     owner = MANAGED_WAREHOUSE
+    operation_keys = frozenset(
+        {"provision", "enable-backfill", "deprovision", "start-view-translation", "retry-view-translation"}
+    )
 
     def facts(self, obj: Model) -> list[Fact]:
         server = get_duckgres_server_summary(obj.pk)
@@ -401,3 +406,39 @@ class TrinoCompileCheckPanel(Panel):
                 form_class=CheckTrinoCompileForm,
             )
         ]
+
+
+def find_server_organization(server_id: UUID) -> MovedRecord | None:
+    # The old server URLs name the server, and its actions moved to the panel of the server's organization.
+    organization_id = organization_id_for_duckgres_server(server_id)
+    if organization_id is None:
+        return None
+    return MovedRecord(pk=organization_id)
+
+
+for old, target in {
+    "enable-backfill": "managed-warehouse/enable-backfill/",
+    "deprovision": "managed-warehouse/deprovision/",
+}.items():
+    console.register_moved_action(
+        old_path=f"admin/managed_warehouse/duckgresserver/<uuid:server_id>/{old}/",
+        record="organization",
+        target=target,
+        resolver=find_server_organization,
+    )
+
+
+# The old pages asked for the organization in their form, so their URLs name none.
+for old_path, title in (
+    ("admin/managed_warehouse/duckgresserver/provision/", "Provisioning a managed warehouse"),
+    ("admin/managed_warehouse/managedwarehouseviewtranslationjob/add/", "Starting a view translation job"),
+):
+    console.register_moved_page(
+        old_path=old_path,
+        title=title,
+        url="/admin/console/",
+        note=(
+            "It is on the Managed warehouse panel of each organization's page. Look up a team of the "
+            "organization, then open its organization."
+        ),
+    )
