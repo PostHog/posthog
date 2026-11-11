@@ -15,6 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.db import connection, transaction
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 import requests
@@ -51,6 +52,7 @@ from products.messaging.backend.services import send_categories, transactional_e
 from products.messaging.backend.services.html_text import UNSUBSCRIBE_PLACEHOLDER
 from products.messaging.backend.services.transactional_email import TransactionalEmailStage, make_transactional
 from products.messaging.backend.tests.cdp_api_fake import CdpApi
+from products.messaging.backend.tests.fakes.unlayer_export_api import FakeUnlayerExportAPI, unlayer_document
 from products.workflows.backend.facade.api import set_default_email_sender_if_unset
 from products.workflows.backend.facade.models import HogFlow
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
@@ -2075,7 +2077,7 @@ class TestTransactionalEmail(APIBaseTest):
             assert (self.template.content["email"]["html"], workflow_html) == (self.UNSUBSCRIBE_HTML,) * 2
         else:
             assert response.status_code == status.HTTP_200_OK, response.json()
-            assert (self.template.content["email"]["html"], workflow_html) == (new_text,) * 2
+            assert (self.template.content["email"]["html"], workflow_html) == (unlayer_document(new_text),) * 2
 
     def test_a_design_edit_with_categories_off_writes_the_step_the_base_writes(self, _cdp_post, flag, _capture):
         flag.side_effect = lambda key, *_args, **_kwargs: key != CODE_SEND_CATEGORIES_FLAG
@@ -2088,7 +2090,7 @@ class TestTransactionalEmail(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         step = self._email_step(self.hog_flow_id)
-        assert step["inputs"]["email"]["value"]["html"] == "<p>Your account changed</p>"
+        assert step["inputs"]["email"]["value"]["html"] == unlayer_document("<p>Your account changed</p>")
         assert (step["message_category_type"], step.get("skip_frequency_cap")) == ("transactional", None)
 
     def _design(self) -> dict:
@@ -2105,13 +2107,9 @@ class TestTransactionalEmail(APIBaseTest):
             "body": {"id": "body1", "rows": [row], "values": {}},
         }
 
+    @override_settings(UNLAYER_API_KEY="unlayer-key", UNLAYER_API_BASE_URL="https://api.unlayer.example")
     def _edit_design(self, text: str) -> Any:
-        with patch(
-            "products.messaging.backend.presentation.views.message_templates.render_design_html",
-            side_effect=lambda design: "".join(
-                content["values"]["text"] for content in design["body"]["rows"][0]["columns"][0]["contents"]
-            ),
-        ):
+        with FakeUnlayerExportAPI("https://api.unlayer.example", "unlayer-key").installed():
             return self.client.patch(
                 f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/design/",
                 {"operations": [{"op": "update_content", "id": "txt1", "patch": {"values": {"text": text}}}]},
