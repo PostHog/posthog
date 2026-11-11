@@ -263,8 +263,9 @@ class TestResendImport(BaseTest):
         deleted_category.deleted = True
         deleted_category.save()
 
-        self._run()
+        rerun = self._run()
 
+        assert rerun.progress["opt_outs"]["counts"] == {"opted_out": 0, "already_present": 2, "subscribed": 2}
         assert not MessageSuppression.objects.for_team(self.team.id).get(identifier="gone@example.com").suppressed
         assert (
             MessageRecipientPreference.objects.get(
