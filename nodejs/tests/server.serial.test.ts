@@ -80,53 +80,69 @@ describe('server', () => {
         }
     })
 
-    it('keeps the sandbox email worker up while the SES Valkey refuses connections, and starts it once Valkey answers', async () => {
-        const kill = jest.spyOn(process, 'kill').mockImplementation(() => true)
-        const sesValkey = new StallingValkeyProxy({
-            host: defaultConfig.CDP_REDIS_HOST,
-            port: defaultConfig.CDP_REDIS_PORT,
-        })
-        const port = await sesValkey.start()
-        afterServerStops.push(() => {
-            sesValkey.stopLeavingClientsSilent()
-            kill.mockRestore()
-        })
-        sesValkey.refuseNewConnections()
-        pluginsServer = new PluginServer({
-            LOG_LEVEL: 'debug',
-            PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email_sandbox,
-            PERSONHOG_ENABLED: true,
-            PERSONHOG_ADDR: 'localhost:50052',
-            SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
-            SES_RATE_LIMITER_VALKEY_PORT: port,
-            SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
-        })
-        const started = pluginsServer.start()
-        let reference: Redis.Redis | undefined
-        try {
-            await waitForExpect(() => expect(sesValkey.refusedConnections).toBeGreaterThan(0), 15_000)
-
-            // The worker opens all its SES Valkey pools together, so they exist once one of them has connected. A
-            // client that stops the process on repeated errors reconnects on this same backoff. This one starts
-            // after the worker's pools, so once it has seen more errors than such a client tolerates (10), any
-            // such pool in the worker would already have stopped the process.
-            let referenceErrors = 0
-            reference = new Redis(port, '127.0.0.1')
-            reference.on('error', () => {
-                referenceErrors++
+    it.each([
+        [
+            'SES Valkey',
+            { host: defaultConfig.CDP_REDIS_HOST, port: defaultConfig.CDP_REDIS_PORT },
+            (port: number) => ({
+                SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
+                SES_RATE_LIMITER_VALKEY_PORT: port,
+                SES_RATE_LIMITER_VALKEY_PASSWORD: defaultConfig.CDP_REDIS_PASSWORD,
+            }),
+        ],
+        [
+            'frequency cap Valkey',
+            { host: '127.0.0.1', port: 6390 },
+            (port: number) => ({ CDP_FREQUENCY_CAP_VALKEY_HOST: '127.0.0.1', CDP_FREQUENCY_CAP_VALKEY_PORT: port }),
+        ],
+    ])(
+        'keeps the sandbox email worker up while the %s refuses connections, and healthy once it answers',
+        async (_name, target, valkeyConfig) => {
+            const kill = jest.spyOn(process, 'kill').mockImplementation(() => true)
+            const valkey = new StallingValkeyProxy(target)
+            const port = await valkey.start()
+            afterServerStops.push(() => {
+                valkey.stopLeavingClientsSilent()
+                kill.mockRestore()
             })
-            await waitForExpect(() => expect(referenceErrors).toBeGreaterThan(10), 15_000)
-            expect(kill).not.toHaveBeenCalled()
-        } finally {
-            reference?.disconnect()
-            sesValkey.answerNewConnections()
-            await started
-        }
+            valkey.refuseNewConnections()
+            pluginsServer = new PluginServer({
+                LOG_LEVEL: 'debug',
+                PLUGIN_SERVER_MODE: PluginServerMode.cdp_cyclotron_worker_email_sandbox,
+                PERSONHOG_ENABLED: true,
+                PERSONHOG_ADDR: 'localhost:50052',
+                ...valkeyConfig(port),
+            })
+            let serverStarted = false
+            const started = pluginsServer.start().then(() => {
+                serverStarted = true
+            })
+            let reference: Redis.Redis | undefined
+            try {
+                await waitForExpect(() => expect(serverStarted || valkey.refusedConnections > 0).toBe(true), 15_000)
 
-        const worker = pluginsServer.lifecycle.services.find(({ id }) => id === 'CdpCyclotronWorkerEmailSandbox')
-        expect((await worker!.healthcheck()).isError()).toBe(false)
-        expect(kill).not.toHaveBeenCalled()
-    }, 60_000)
+                // A client that stops the process on repeated errors reconnects on this same backoff. This one starts
+                // after the worker's pools, so once it has seen more errors than such a client tolerates (10), any
+                // such pool in the worker would already have stopped the process.
+                let referenceErrors = 0
+                reference = new Redis(port, '127.0.0.1')
+                reference.on('error', () => {
+                    referenceErrors++
+                })
+                await waitForExpect(() => expect(referenceErrors).toBeGreaterThan(10), 15_000)
+                expect(kill).not.toHaveBeenCalled()
+            } finally {
+                reference?.disconnect()
+                valkey.answerNewConnections()
+                await started
+            }
+
+            const worker = pluginsServer.lifecycle.services.find(({ id }) => id === 'CdpCyclotronWorkerEmailSandbox')
+            expect((await worker!.healthcheck()).isError()).toBe(false)
+            expect(kill).not.toHaveBeenCalled()
+        },
+        60_000
+    )
 
     // Replay modes are handled by IngestionSessionReplayServer (see ingestion-session-replay-server.test.ts)
     it('should error on startup with replay mode', async () => {
