@@ -369,6 +369,7 @@ export const FEATURE_FLAGS = {
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list
     INBOX_TIME_WINDOW: 'inbox-time-window', // owner: #team-self-driving, gates the created-in window filter on the inbox report list
+    INBOX_TRIAGE_BUTTON_COLOR: 'inbox-triage-button-color', // owner: #team-self-driving multivariate=control,test, shows the inbox Triage button as a secondary button instead of a primary one; gate on === 'test'
     INSIGHT_ALERTS_EMPTY_STATE_EXPERIMENT: 'insight-alerts-empty-state',
     INSIGHT_DATA_CHECKS: 'insight-data-checks', // owner: @sampennington #team-product-analytics, checks the events behind an insight and shows the result on the insight page
     INSIGHT_DRAG_TO_ZOOM: 'insight-drag-to-zoom', // owner: @sampennington #team-product-analytics, gates x-axis drag-to-zoom on insight charts (trends today, SQL to follow)
@@ -551,7 +552,9 @@ export const FEATURE_FLAGS = {
     TAXONOMIC_FILTER_SEARCH_INTENT: 'taxonomic-filter-search-intent', // owner: @pauldambra multivariate=control,banner,promote, classifies a picker search with the decision model. control changes nothing, banner suggests the right tab, promote moves the predicted group to the top of the All tab
     TAXONOMIC_FILTER_VALUE_SEARCH_GATING: 'taxonomic-filter-value-search-gating', // owner: @pauldambra
     TEXT_CARD_WORD_ART: 'text-card-word-art', // owner: @jonmcwest, gates the word art insert button in dashboard text cards
+    TODAY_HOME_COMPOSER: 'today-home-composer', // owner: @puemos, adds a task composer at the top of the Today home
     TODAY_RAIL_NAV: 'today-rail-nav', // owner: @k11kirky, replaces the left navigation with a rail (Home, Spaces, Library, Tools) and makes the Today page the homepage
+    TODAY_RAIL_NAV_SWITCH: 'today-rail-nav-switch', // owner: #team-surfaces, shows the controls that switch between old and new navigation. Off for experiment cohorts so neither arm sees the other experience advertised.
     TODAY_REPORT_JEV: 'today-report-jev', // owner: @puemos, asks the decision model to label the problem, cause and fix in a Today report, to mark the numbers a source states, and to pick the code excerpt a finding describes
     TOOLBAR_PAID_HEATMAPS: 'toolbar-paid-heatmaps', // owner: #team-web-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
