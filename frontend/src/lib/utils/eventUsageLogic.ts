@@ -1920,7 +1920,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportTimeToSeeData: async ({ payload }) => {
-            posthog.capture('time to see data', payload)
+            posthog.capture('time to see data', { ...payload, $update_person_last_seen_at: false })
         },
         reportGroupTypeDetailDashboardCreated: async () => {
             posthog.capture('group type detail dashboard created')

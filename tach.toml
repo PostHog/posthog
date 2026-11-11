@@ -207,7 +207,7 @@ layer = "modules"
 
 [[modules]]
 path = "products.aeo"
-depends_on = ["posthog"]
+depends_on = ["posthog", "products.authorization", "products.dashboards"]
 layer = "modules"
 
 [[interfaces]]
@@ -632,6 +632,7 @@ depends_on = [
     "products.engineering_analytics",
     # Trace feedback reads trace-linked survey responses through the surveys facade.
     "products.surveys",
+    "products.today",
 ]
 layer = "modules"
 
@@ -1131,6 +1132,8 @@ depends_on = [
     "products.webmcp",
     # Object access checks on canvases served as contracts (via the access_control facade).
     "products.access_control",
+    # The canvas experiment needs the new navigation (via the today facade).
+    "products.today",
 ]
 layer = "modules"
 
@@ -1309,9 +1312,12 @@ from = [
 
 # dashboards is not isolated yet, so it gets its own blocks instead of a place in the shared one.
 # External callers go through backend.facade; testing.py is the fixture door for suites outside it.
+# presentation.serializers carries the DRF tile serializer that product_analytics nests in its insight
+# serializers, because a facade may not hold DRF.
 [[interfaces]]
 expose = [
     "backend\\.facade.*",
+    "backend\\.presentation\\.serializers(\\..*)?",
     "backend\\.presentation\\.views.*",
     "backend\\.routes.*",
 ]
@@ -1320,12 +1326,11 @@ from = [
 ]
 
 # Legacy leaks — core (posthog, ee), sibling products and their tests still import these dashboards
-# internals. Each entry goes when its last caller moves to products.dashboards.backend.facade, and
-# backend.api.dashboard goes when the views move to presentation/. Delete the block when it is empty.
+# internals. Each entry goes when its last caller moves to products.dashboards.backend.facade.
+# Delete the block when it is empty.
 [[interfaces]]
 expose = [
     "backend\\.access(\\..*)?",
-    "backend\\.api\\.dashboard(\\..*)?",
     "backend\\.constants(\\..*)?",
     "backend\\.customization(\\..*)?",
     "backend\\.models(\\..*)?",
@@ -2066,4 +2071,18 @@ expose = [
 ]
 from = [
     "products.ui_customization",
+]
+
+[[modules]]
+path = "products.release"
+depends_on = ["posthog", "products.feature_flags", "products.workflows"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation\\.views.*",
+]
+from = [
+    "products.release",
 ]
