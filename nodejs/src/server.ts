@@ -1,5 +1,6 @@
 import { IntegrationManagerService } from '~/cdp/services/managers/integration-manager.service'
 import { PostgresIntegrationSource } from '~/cdp/services/managers/postgres-integration-source'
+import { TeamWorkflowsConfigService } from '~/cdp/services/managers/team-workflows-config.service'
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
 import { createIngestionRedisConnectionConfig, createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
@@ -402,6 +403,7 @@ export class PluginServer implements NodeServer {
                 const sandboxEmail = createSandboxEmailRuntime(this.config, {
                     postgres: this.postgres!,
                     teamManager: cdpDeps!.teamManager,
+                    teamWorkflowsConfig: new TeamWorkflowsConfigService(this.postgres!, cdpDeps!.pubSub),
                 })
                 const queue = new CyclotronJobQueuePostgresV2(this.config.CONSUMER_BATCH_SIZE, this.config)
                 const worker = new CdpCyclotronWorkerEmailSandbox(

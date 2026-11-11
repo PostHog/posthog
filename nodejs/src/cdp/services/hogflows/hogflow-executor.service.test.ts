@@ -3339,6 +3339,7 @@ describe('Hogflow Executor', () => {
                                         releaseUnsent: () => Promise.resolve(true),
                                         refundUnsent: () => Promise.resolve(true),
                                     }),
+                                teamWorkflowsConfig: { getEmailSendingSuspension: () => Promise.resolve(null) },
                                 ses: sandboxSes,
                                 now: () => new Date(Date.now()),
                             }),

@@ -289,6 +289,32 @@ describe('sandbox email test sends', () => {
         expect(world.ses.attempts).toBe(0)
     })
 
+    it.each<[string, string, () => Promise<void>]>([
+        ["staff suspended the project's email", 'sending_suspended', () => world.suspendProjectEmail()],
+        [
+            "the workflow's email is paused",
+            'sending_paused',
+            () => {
+                hogFlow.email_sending_paused_at = new Date().toISOString()
+                return Promise.resolve()
+            },
+        ],
+    ])(
+        'refuses a test send while %s, without spending a daily allowance, an SES slot or an SES attempt',
+        async (_name, reason, arrange) => {
+            const bucket = world.sesBucket(2)
+            const caps = { team: 1, recipient: 1 }
+            serveWorker({ bucket, caps })
+            await arrange()
+
+            await expect(tester().send(testRun())).resolves.toEqual({ status: 'skipped', reason })
+
+            expect(world.ses.attempts).toBe(0)
+            expect(await world.takeSlotsLeft(bucket)).toBe(2)
+            expect(await world.allowanceLeft(caps, member())).toBe(true)
+        }
+    )
+
     it('refuses a test send while the SES send rate cannot be read', async () => {
         serveWorker({ bucket: { ...world.sesBucket(5), limiter: world.unreachableLimiter() } })
 

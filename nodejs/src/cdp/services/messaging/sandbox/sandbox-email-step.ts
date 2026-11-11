@@ -85,6 +85,7 @@ export class SandboxEmailSendStep implements SandboxEmailStep {
             actionId: action.id,
             flowVersion: invocation.hogFlow.version,
             isTest: false,
+            workflowEmailPaused: Boolean(invocation.hogFlow.email_sending_paused_at),
             parentRunId: invocation.parentRunId ?? undefined,
             email,
             categoryId: action.config.message_category_id,

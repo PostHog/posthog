@@ -86,6 +86,7 @@ export class SandboxEmailTester implements SandboxEmailTestClient {
                         email,
                         message_category_id: action.config.message_category_id,
                         message_category_type: action.config.message_category_type,
+                        email_sending_paused: Boolean(invocation.hogFlow.email_sending_paused_at),
                     }),
                     timeoutMs: SANDBOX_TEST_TIMEOUT_MS,
                 }

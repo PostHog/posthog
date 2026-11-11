@@ -18,6 +18,7 @@ const TestSendRequestSchema = z.object({
     email: z.unknown(),
     message_category_id: z.string().optional(),
     message_category_type: z.enum(['marketing', 'transactional']).optional(),
+    email_sending_paused: z.boolean().optional(),
 })
 
 export type SandboxEmailTestRouteDeps = {
@@ -61,7 +62,8 @@ async function handleTestSend(
         res.json({ status: 'skipped', reason: 'sending_disabled' } satisfies SandboxEmailStepResult)
         return
     }
-    const { hog_flow_id, action_id, email, message_category_id, message_category_type } = body.data
+    const { hog_flow_id, action_id, email, message_category_id, message_category_type, email_sending_paused } =
+        body.data
     const invocationId = randomUUID()
     const outcome = await service.send({
         teamId,
@@ -71,6 +73,7 @@ async function handleTestSend(
         actionId: action_id,
         flowVersion: 0,
         isTest: true,
+        workflowEmailPaused: email_sending_paused ?? false,
         email,
         categoryId: message_category_id,
         categoryType: message_category_type,

@@ -26,7 +26,7 @@ describe('createSandboxEmailRuntime', () => {
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
     }
-    const deps = { postgres: {} as any, teamManager: {} as any }
+    const deps = { postgres: {} as any, teamManager: {} as any, teamWorkflowsConfig: {} as any }
 
     it('builds nothing while sending is off, whatever else is set', () => {
         expect(

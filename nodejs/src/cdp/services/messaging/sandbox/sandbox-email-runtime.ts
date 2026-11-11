@@ -3,6 +3,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { TeamManager } from '~/common/utils/team-manager'
 import { PluginsServerConfig } from '~/types'
 
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { CAPS_VALKEY_TIMEOUT_MS } from './sandbox-deadlines'
 import { SandboxEmailEvents } from './sandbox-email-events'
@@ -64,7 +65,11 @@ export function missingSandboxSenderSettings(config: SandboxRuntimeConfig): stri
 
 export function createSandboxEmailRuntime(
     config: SandboxRuntimeConfig,
-    { postgres, teamManager }: { postgres: PostgresRouter; teamManager: TeamManager }
+    {
+        postgres,
+        teamManager,
+        teamWorkflowsConfig,
+    }: { postgres: PostgresRouter; teamManager: TeamManager; teamWorkflowsConfig: TeamWorkflowsConfigService }
 ): SandboxEmailRuntime | null {
     if (!config.WORKFLOWS_SANDBOX_SENDER_ENABLED) {
         return null
@@ -101,6 +106,7 @@ export function createSandboxEmailRuntime(
             team: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
             recipient: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
         },
+        teamWorkflowsConfig,
         ses: new SandboxSesClient(
             createSandboxSesV2Client({ region: config.SES_REGION, endpoint: config.SES_ENDPOINT }),
             { configurationSet: config.SES_SANDBOX_CONFIGURATION_SET, tenantName: config.SES_SANDBOX_TENANT_NAME }

@@ -3,6 +3,7 @@ import { Counter, Histogram } from 'prom-client'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 
 import { MessageOptOutRecord } from '../../../types'
+import { TeamWorkflowsConfigService } from '../../managers/team-workflows-config.service'
 import { RateLimiterService } from '../../rate-limiter/rate-limiter.service'
 import { FrequencyCapCheck } from '../recipient-preferences.service'
 import {
@@ -38,6 +39,7 @@ export type SandboxSendRequest = {
     actionId: string
     flowVersion: number
     isTest: boolean
+    workflowEmailPaused: boolean
     parentRunId?: string
     email: unknown
     categoryId?: string
@@ -56,6 +58,7 @@ export type SandboxEmailServiceDeps = {
     authorize: (request: { teamId: number; recipient: string; tenantName: string }) => Promise<SandboxAuthorization>
     checkRecipient: (request: SandboxRecipientCheckRequest) => Promise<SandboxRecipientCheck>
     claimCaps: (claim: SandboxCapClaimRequest) => Promise<SandboxCapClaim>
+    teamWorkflowsConfig: Pick<TeamWorkflowsConfigService, 'getEmailSendingSuspension'>
     ses: Pick<SandboxSesClient, 'send'>
     now?: () => Date
 }
@@ -91,6 +94,12 @@ export class SandboxEmailService {
     private async decide(request: SandboxSendRequest): Promise<SandboxSendOutcome> {
         if (!this.deps.enabled) {
             return { status: 'skipped', reason: 'sending_disabled' }
+        }
+        if ((await this.deps.teamWorkflowsConfig.getEmailSendingSuspension(request.teamId)) === 'staff') {
+            return { status: 'skipped', reason: 'sending_suspended' }
+        }
+        if (request.workflowEmailPaused) {
+            return { status: 'skipped', reason: 'sending_paused' }
         }
         const email = SandboxRenderedEmailSchema.safeParse(request.email)
         if (!email.success) {
@@ -219,6 +228,7 @@ export function createSandboxEmailService({
     recipientChecks,
     limiter,
     caps,
+    teamWorkflowsConfig,
     ses,
     fromAddress,
     tenantName,
@@ -228,6 +238,7 @@ export function createSandboxEmailService({
     recipientChecks: SandboxRecipientCheckDependencies
     limiter: RateLimiterService
     caps: SandboxCaps
+    teamWorkflowsConfig: SandboxEmailServiceDeps['teamWorkflowsConfig']
     ses: Pick<SandboxSesClient, 'send'>
     fromAddress: string
     tenantName: string
@@ -240,6 +251,7 @@ export function createSandboxEmailService({
         authorize: (request) => readSandboxAuthorization(db, request),
         checkRecipient: (request) => checkSandboxRecipient(recipientChecks, request),
         claimCaps: (claim) => claimSandboxCaps(limiter, caps, claim),
+        teamWorkflowsConfig,
         ses,
     })
 }

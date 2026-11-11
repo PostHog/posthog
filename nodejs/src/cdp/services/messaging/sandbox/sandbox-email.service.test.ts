@@ -27,6 +27,7 @@ describe('SandboxEmailService', () => {
             actionId: 'action_email_sandbox_1',
             flowVersion: 4,
             isTest: false,
+            workflowEmailPaused: false,
             email: { to: { email: 'member@example.com', name: 'Mem' }, subject: 'Hi', text: 'Hello' },
             claimSesSlot: () => Promise.resolve(true),
             ...overrides,

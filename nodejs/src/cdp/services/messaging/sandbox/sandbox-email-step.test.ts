@@ -329,6 +329,32 @@ describe('SandboxEmailSendStep', () => {
         }
     )
 
+    it.each<[string, string, () => Promise<void>]>([
+        ["staff suspended the project's email", 'sending_suspended', () => world.suspendProjectEmail()],
+        [
+            "the workflow's email is paused",
+            'sending_paused',
+            () => {
+                hogFlow.email_sending_paused_at = new Date().toISOString()
+                return Promise.resolve()
+            },
+        ],
+    ])(
+        'skips a step while %s, without spending a daily allowance, an SES slot or an SES attempt',
+        async (_name, reason, arrange) => {
+            const dailyCaps = { team: 1, recipient: 1 }
+            await arrange()
+
+            const { segments, finished } = await runToNextAction(member(), { dailyCaps })
+
+            expect(world.ses.attempts).toBe(0)
+            expect(await world.takeSlotsLeft(sesBucket)).toBe(sesBucket.capacity)
+            expect(await world.allowanceLeft(dailyCaps, member())).toBe(true)
+            expect(metricNames(segments)).toEqual([['email_sandbox_blocked', 'email']])
+            expect(finished.invocation.state.variables?.email_result).toEqual({ status: 'skipped', reason })
+        }
+    )
+
     it('retries a step while the shared SES send rate is spent, and charges the daily allowance only for the send that goes out', async () => {
         await world.takeSlotsLeft(sesBucket)
 
