@@ -923,6 +923,10 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             for (const entry of present.values()) {
                 if (isIndexed(entry) || !entry.shortcut) {
+                    // A file the tree loads new or at another path, such as a refreshed rename, is newer than a scan in flight.
+                    if (isIndexed(entry) && index.get(entry.id)?.path !== entry.path) {
+                        cache.changes = changeCount(cache) + 1
+                    }
                     index.set(entry.id, entry)
                 }
             }

@@ -29,6 +29,14 @@ describe('workflowFoldersLogic', () => {
             lastCount: results.length,
         })
 
+    const templateReceipt = {
+        id: 'receipt',
+        path: 'Billing/Cards/Receipt',
+        type: 'message_template',
+        ref: 'template-receipt',
+        team_id: MOCK_TEAM_ID,
+    }
+
     const projectFiles = ({ request }: { request: Request }): [number, unknown] => {
         const type = new URL(request.url).searchParams.get('search')?.replace('type:', '')
         const entries = [
@@ -47,13 +55,7 @@ describe('workflowFoldersLogic', () => {
             { id: 'cohorts', path: 'Unfiled/Cohorts', type: 'folder' },
             { id: 'direct', path: 'Billing/Welcome', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
             { id: 'nested', path: 'Billing/Cards/Renewal', type: 'hog_flow', ref: FIXTURE_WORKFLOWS[1].id },
-            {
-                id: 'receipt',
-                path: 'Billing/Cards/Receipt',
-                type: 'message_template',
-                ref: 'template-receipt',
-                team_id: MOCK_TEAM_ID,
-            },
+            templateReceipt,
             {
                 id: 'sibling-receipt',
                 path: 'Billing/Cards/Staging receipt',
@@ -327,6 +329,41 @@ describe('workflowFoldersLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         logic.actions.openFolder('Billing/Cards')
         await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
+    })
+
+    it('keeps a rename the shared tree refreshes while an older folder scan is still loading', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Billing/Cards')
+        let receiptPath = 'Billing/Cards/Receipt'
+        let releaseScan!: () => void
+        const scanHeld = new Promise<void>((resolve) => (releaseScan = resolve))
+        let scanStarted = false
+        useMocks({
+            get: {
+                '/api/projects/:team_id/file_system/': async ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    const receipt = { ...templateReceipt, path: receiptPath }
+                    if (params.get('ref') === 'template-receipt') {
+                        return [200, paginated([receipt])]
+                    }
+                    const search = params.get('search')
+                    if (search === 'type:message_template' && !scanStarted) {
+                        scanStarted = true
+                        await scanHeld
+                    }
+                    return [200, paginated(search === 'type:message_template' ? [receipt] : [])]
+                },
+            },
+        })
+        logic.actions.loadBrowser()
+        await waitFor(() => expect(scanStarted).toBe(true))
+        receiptPath = 'Billing/Cards/Receipt v2'
+        await projectTreeDataLogic.asyncActions.syncTypeAndRef('message_template', 'template-receipt', true)
+        releaseScan()
+        await waitFor(() => expect(logic.values.browserReadyLoading).toBe(false))
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Billing/Cards/Receipt v2'])
     })
 
