@@ -18,12 +18,14 @@ permissions:
 
 jobs:
     verify:
-        name: Test and verify committed bundle (${{ matrix.action }})
-        runs-on: depot-ubuntu-24.04
+        name: Test and verify committed bundle (${{ matrix.action }}, ${{ matrix.runner }}, ${{ matrix.sample }})
+        runs-on: ${{ matrix.runner }}
         timeout-minutes: 10
         strategy:
             matrix:
                 action: [paths-filter, shared-image-releases]
+                runner: [depot-ubuntu-24.04, ubuntu-24.04]
+                sample: [1, 2, 3]
         defaults:
             run:
                 working-directory: .github/actions/${{ matrix.action }}
