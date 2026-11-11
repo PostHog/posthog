@@ -28,6 +28,8 @@ import type {
     PulseSlotApi,
 } from 'products/today/frontend/generated/api.schemas'
 
+import { isExperimentKey } from './todayPulseExperiment'
+
 export const HIGHLIGHTS_POLL_MS = 2_000
 const MAX_HIDDEN_PULSE_NUMBERS = 50
 const HIGHLIGHTS_WAIT_MS = 2_000
@@ -195,8 +197,8 @@ export function placePulseSlots(
     return { slots: shown, places: nextPlaces }
 }
 
-function pulseKind(key: string): 'insight' | 'key_metric' {
-    return key.startsWith('insight:') ? 'insight' : 'key_metric'
+function pulseKind(key: string): 'insight' | 'key_metric' | 'experiment' {
+    return key.startsWith('insight:') ? 'insight' : isExperimentKey(key) ? 'experiment' : 'key_metric'
 }
 
 function hiddenHighlightKey(projectId: number | string, key: string): string {
