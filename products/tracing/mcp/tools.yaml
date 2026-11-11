@@ -207,16 +207,15 @@ tools:
         enrich_url: ?trace={params.trace_id}
         title: Retrieve trace spans
         description: >
-            Fetch one trace by its hex trace ID. By default this returns a compact `summary` (about 3 KB
-            whatever the trace size) instead of every span: trace duration, root span, span/service/error
-            counts, the top spans by self time (duration not covered by children — a large value on a parent
-            is uninstrumented work), the critical path from the root (the spans the end time waits on, with
-            N+1 loops collapsed into one entry with a `count` and spans under 1% of the root left out), span
-            names that repeat (N+1 queries), and error spans with their exception message. Entries name their
-            `service` only when it differs from the root's. Start here. Set `summary` to false only when you need
-            every span's raw fields (span tree, timing, status, attributes, events, self_time_nano); then set
-            excludeAttributes to true unless you need the attributes, which can hold multi-KB values like
-            db.statement, and page with `offset` (up to 2000 spans per page).
+            Fetch one trace by its hex trace ID. By default this returns a compact `summary` (about 3 KB whatever the
+            trace size) instead of every span: trace duration, root span, span/service/error counts, the top spans by
+            self time (duration not covered by children — a large value on a parent is uninstrumented work), the
+            critical path from the root (the spans the end time waits on, with N+1 loops collapsed into one entry with a
+            `count` and spans under 1% of the root left out), span names that repeat (N+1 queries), and error spans with
+            their exception message. Entries name their `service` only when it differs from the root's. Start here. Set
+            `summary` to false only when you need every span's raw fields (span tree, timing, status, attributes,
+            events, self_time_nano); then set excludeAttributes to true unless you need the attributes, which can hold
+            multi-KB values like db.statement, and page with `offset` (up to 2000 spans per page).
         param_overrides:
             summary:
                 default: true
