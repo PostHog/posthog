@@ -27,6 +27,7 @@ def build_metric_events_precompute_query(
     entity_key: str,
     date_range_query: QueryDateRange,
     conversion_window_seconds: int,
+    distinct_id_column_sql: str,
 ) -> tuple[str, dict[str, ast.Expr]]:
     """
     Returns the SELECT query that the lazy computation system wraps in an
@@ -46,16 +47,23 @@ def build_metric_events_precompute_query(
     a sentinel) rather than reusing build_metric_predicate(), which bakes the
     resolved dates into the AST. The window end of a running experiment moves,
     so baked dates would change the job hash and defeat cache reuse.
+
+    distinct_id_column_sql comes from
+    ExperimentQueryContext.precompute_distinct_id_column_sql(). It is empty, or
+    it is the column that stores the distinct_id of the event.
     """
     # The job hash includes the parser source position of each node, so a change to
     # this template's whitespace invalidates every cached job. Keep it byte for byte.
-    query_string = """
+    query_string = (
+        """
             SELECT
                 {entity_key} AS entity_id,
                 timestamp AS timestamp,
                 uuid AS event_uuid,
                 `$session_id` AS session_id,
-                {value_expr} AS numeric_value
+                {value_expr} AS numeric_value"""
+        + distinct_id_column_sql
+        + """
             FROM events
             WHERE timestamp >= {time_window_min}
                 AND timestamp < {time_window_max}
@@ -63,6 +71,7 @@ def build_metric_events_precompute_query(
                 AND timestamp < {experiment_date_to} + toIntervalSecond({conversion_window_seconds})
                 AND {metric_event_filter}
         """
+    )
 
     math_type = getattr(source, "math", None) or ExperimentMetricMathType.TOTAL
     if math_type in (ExperimentMetricMathType.DAU, ExperimentMetricMathType.UNIQUE_SESSION):

@@ -31,6 +31,7 @@ class TrialInboxReads:
         {
             "search",
             "created_after",
+            "created_before",
             "priority",
             "actionability",
             "already_addressed",
@@ -283,6 +284,11 @@ class TrialInboxReads:
             if query.get("created_after")
             else None
         )
+        created_before = (
+            serializers.DateTimeField().to_internal_value(query["created_before"])
+            if query.get("created_before")
+            else None
+        )
         priorities = [priority.upper() for priority in self._tokens(query.get("priority"))]
         actionabilities = self._tokens(query.get("actionability"))
         already_addressed = self.view._bool_query_param("already_addressed")
@@ -303,11 +309,12 @@ class TrialInboxReads:
                 continue
             if search and not any(search in str(document.get(field, "")).casefold() for field in ("title", "summary")):
                 continue
-            if (
-                created_after is not None
-                and datetime.fromisoformat(str(document["created_at"]).replace("Z", "+00:00")) < created_after
-            ):
-                continue
+            if created_after is not None or created_before is not None:
+                created_at = datetime.fromisoformat(str(document["created_at"]).replace("Z", "+00:00"))
+                if created_after is not None and created_at < created_after:
+                    continue
+                if created_before is not None and created_at >= created_before:
+                    continue
             if priorities and document.get("priority") not in priorities:
                 continue
             if actionabilities and document.get("actionability") not in actionabilities:
@@ -320,8 +327,7 @@ class TrialInboxReads:
             result.append(document)
         return result
 
-    @staticmethod
-    def _sort_value(document: Mapping[str, object], field: str) -> str | int | float | datetime:
+    def _sort_value(self, document: Mapping[str, object], field: str) -> str | int | float | datetime:
         if field == "pipeline_status_rank":
             status = document.get("status")
             if status == "ready":
@@ -336,7 +342,7 @@ class TrialInboxReads:
                 "suppressed": 8,
                 "deleted": 9,
             }.get(str(status), 50)
-        if field == "priority_sort_rank":
+        if field == self.view._SIGNAL_REPORT_ORDERING_FIELDS["priority"]:
             priority = document.get("priority")
             return (
                 {"P0": 0, "P1": 1, "P2": 2, "P3": 3, "P4": 4}[str(priority)]
@@ -401,7 +407,9 @@ class TrialInboxReads:
                 queryset, documents, page_request, include_source_metadata=include_source_metadata
             ),
         )
-        return paginator.get_paginated_response(page.results)
+        response = paginator.get_paginated_response(page.results)
+        response.data["source_metadata_available"] = self.view._source_metadata_available
+        return response
 
 
 def private_report_artefacts(store: ScoutTrialStore, report_id: str) -> list[SignalReportArtefact]:

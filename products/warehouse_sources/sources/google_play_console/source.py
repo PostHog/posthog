@@ -88,6 +88,12 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
                 "API in its Google Cloud project, and give the service account permission to view app quality "
                 "data in Play Console."
             ),
+            # Every per-app route answers 404 for a package Play doesn't know or the service account
+            # can't see, typically a mistyped or removed name in `app_package_names`.
+            "404 Client Error: Not Found for url: https://playdeveloperreporting.googleapis.com/": (
+                "Google Play couldn't find one of your apps, or the service account can't see it. "
+                "Check the app package names in your source settings, then re-enable the sync."
+            ),
             "Google rejected the service account key": (
                 "Google rejected the service account key. Check that the key is still active and upload a current one."
             ),
@@ -108,9 +114,14 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
         # no response body to match on, so it needs its own entry alongside the 500 case. Without it,
         # the activity's classifier (import_data_sync.py) treats the 503 as an unclassified failure
         # and reports it to error tracking on every attempt instead of retrying quietly.
+        # A 502 "Bad Gateway" is the same gateway-level outage, raised from the same place.
         return {
             "500 Server Error": (
                 "Google Play's reporting API had an internal error, so this sync couldn't finish. "
+                "This is on Google's side, and the next sync runs on schedule."
+            ),
+            "502 Server Error": (
+                "Google Play's reporting API was unavailable, so this sync couldn't finish. "
                 "This is on Google's side, and the next sync runs on schedule."
             ),
             "503 Server Error": (
@@ -128,7 +139,9 @@ class GooglePlayConsoleSource(ResumableSource[GooglePlayConsoleSourceConfig, Goo
             label="Google Play Console",
             caption="""Sync Android vitals and error reporting from the Play Developer Reporting API: crash and ANR rates, excessive wakeups and stuck wakelocks, slow starts and slow rendering, low-memory kills, memory usage, plus error issues, error reports, release tracks, and the anomalies Play detects.
 
-To connect, create a Google Cloud service account and enable the **Play Developer Reporting API** in its project. Then, in Play Console under **Users and permissions**, invite the service account's email and give it access to view app quality data. Upload that service account's JSON key below.
+To connect, create a Google Cloud service account and enable the **Play Developer Reporting API** in its project. Then, in Play Console under **Users and permissions**, invite the service account's email and give it access to view app quality data.
+
+To create the key, open the service account in Google Cloud under **IAM & Admin → Service accounts**, go to **Keys → Add key → Create new key**, and choose **JSON**. Upload the downloaded file below.
 
 Leave the package names blank to sync every app the service account can see.""",
             iconPath="/static/services/google_play_console.png",

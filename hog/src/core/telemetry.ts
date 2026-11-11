@@ -3,16 +3,18 @@ import { z } from 'zod'
 
 import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
+import { INGESTION_HOSTS } from '@/posthog/host'
 import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
 import { parseJsonOrUndefined } from './json'
 import type { Env, Runtime } from './runtime'
+import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-const TELEMETRY_HOST = 'https://us.i.posthog.com'
+const TELEMETRY_HOST = INGESTION_HOSTS.us
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
 const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
@@ -123,6 +125,7 @@ const IdentityProject = z.object({ organization: Text, uuid: Text })
 export class Telemetry {
     private readonly queue: QueuedEvent[] = []
     private enabled: boolean
+    private loggedIn: AccessKey | undefined
     readonly invocationId = randomUUID()
     commandName: string | undefined
     credentials: (() => Promise<Credentials>) | undefined
@@ -150,26 +153,47 @@ export class Telemetry {
         }
     }
 
+    // The run logged in as `key`, so its events belong to that user, and so do the install ID's
+    // earlier events, such as the ones a person sent before they had an account.
+    loggedInAs(key: AccessKey): void {
+        this.loggedIn = key
+    }
+
     async flush(debug = false): Promise<void> {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const key = (await this.credentials?.().catch(() => undefined))?.key
+        const key = this.loggedIn ?? (await this.credentials?.().catch(() => undefined))?.key
         const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
-        const distinctId = identity?.distinctId ?? installId
+        const workload = key?.workload && isCloudHost(key.host) ? key.workload : undefined
+        // Each CI run is a new machine, and the hash keeps the repository ID out of the event.
+        const workloadId =
+            workload &&
+            `workload_${createHash('sha256').update(`${key?.host}\n${workload.provider}\n${workload.subject}`).digest('hex').slice(0, 32)}`
+        const distinctId = identity?.distinctId ?? workloadId ?? installId
         const groups = Object.fromEntries(
-            Object.entries({ organization: identity?.organization, project: identity?.project }).filter(
-                ([, key]) => key !== undefined
-            )
+            Object.entries({
+                organization: identity?.organization ?? workload?.organization,
+                project: identity?.project,
+            }).filter(([, key]) => key !== undefined)
         )
         const common = {
             ...this.commonProperties(),
             install_id: installId,
             // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
             env_id: key && isCloudHost(key.host) ? key.projectId : null,
+            credential_type: key?.status().kind ?? null,
+            ...(workload ? { workload_provider: workload.provider } : {}),
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+        }
+        if (this.loggedIn && identity?.distinctId) {
+            this.queue.unshift({
+                event: '$identify',
+                properties: { $anon_distinct_id: installId },
+                timestamp: new Date(this.runtime.now()).toISOString(),
+            })
         }
         const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
             event,
@@ -221,7 +245,7 @@ export class Telemetry {
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
     private async identity(key: AccessKey): Promise<Identity | undefined> {
-        if (!isCloudHost(key.host)) {
+        if (!isCloudHost(key.host) || !key.identifiesPerson) {
             return undefined
         }
         let path: string
@@ -255,7 +279,7 @@ export class Telemetry {
     }
 
     private async lookup(key: AccessKey): Promise<Identity> {
-        const get = async <S extends z.ZodType>(path: string, schema: S): Promise<z.output<S> | undefined> => {
+        const get = async <T>(path: string, schema: Schema<T>): Promise<T | undefined> => {
             try {
                 const response = await this.runtime.fetch(new URL(path, key.host), {
                     headers: { Authorization: `Bearer ${key.token}` },

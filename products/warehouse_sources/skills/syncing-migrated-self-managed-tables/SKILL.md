@@ -10,8 +10,8 @@ description: >
 
 # Syncing migrated self-managed tables
 
-PostHog no longer links tables that read a bucket directly. Every existing self-managed table now has a managed source
-and a schema that is turned off. The table keeps working and keeps its name. It costs nothing until someone turns
+PostHog no longer links tables that read a bucket directly. Eligible existing self-managed tables now have a managed
+source and a schema that is turned off. The table keeps working and keeps its name. It costs nothing until someone turns
 syncing on. Turning syncing on starts billing, so the user must agree first.
 
 ## What happened

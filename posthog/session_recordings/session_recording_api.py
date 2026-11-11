@@ -234,13 +234,16 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
 
 
 def _replay_blocks_viewer(request) -> str | None:
-    """Who the player is watching as, for the block URLs and the per-viewer rate limit. An export renders as the user
-    who created it. None for any caller that is not the player, which keeps reading blocks through Django. Share links
-    also stay on Django, because a block token cannot see a share being disabled or its password revoked."""
+    """Who the player is watching as, for the block URLs and the per-viewer rate limit. A team's exports share one viewer,
+    so an export cannot use up its creator's rate limit, and creating many exports does not add budget. None for any
+    caller that is not the player, which keeps reading blocks through Django. Share links also stay on Django, because a
+    block token cannot see a share being disabled or its password revoked."""
     authenticator = getattr(request, "successful_authenticator", None)
-    if isinstance(authenticator, (SessionAuthentication, ExportRendererAuthentication)) and isinstance(
-        request.user, User
-    ):
+    if not isinstance(request.user, User):
+        return None
+    if isinstance(authenticator, ExportRendererAuthentication):
+        return f"e{authenticator.team_id}"
+    if isinstance(authenticator, SessionAuthentication):
         return f"u{request.user.pk}"
     return None
 
@@ -408,7 +411,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlS
 
         return list(
             SessionRecordingExternalReferenceSerializer(
-                external_references_manager.select_related("integration").all(),
+                external_references_manager.all(),
                 many=True,
                 context=self.context,
             ).data
@@ -502,7 +505,7 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     blob_key = serializers.CharField(allow_null=True)
     url = serializers.CharField(
         required=False,
-        help_text="Where the player fetches this block directly, sending block_token as a Bearer token. Absent when the block must be read through this endpoint.",
+        help_text="Same-origin path where the player fetches this block directly, sending block_token as a Bearer token. Absent when the block must be read through this endpoint.",
     )
 
 
@@ -992,7 +995,8 @@ class _SnapshotUserRateThrottle(SimpleRateThrottle):
         _count_session_recording_throttled(location=location, auth_type=_request_auth_type(request))
         # A client over the limit stays over it for every later request, so log once a minute per user, not per request.
         if cache.add(f"{self.scope}_logged:{request.user.pk}", 1, timeout=60):
-            logger.info(
+            # Warning, not info: production drops INFO from this logger, and this line is how we see who goes over.
+            logger.warning(
                 "snapshot_user_rate_limit_exceeded",
                 scope=self.scope,
                 enforced=enforced,
@@ -1407,6 +1411,16 @@ class SessionRecordingViewSet(
             team=self.team,
             request=request,
         )
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+            user=cast(User, request.user),
+            was_impersonated=is_impersonated(request),
+            item_id=recording.session_id,
+            scope="Replay",
+            activity="deleted",
+            detail=Detail(name=recording.session_id),
+        )
         return Response(status=204)
 
     @extend_schema(
@@ -1813,7 +1827,8 @@ class SessionRecordingViewSet(
                     "blob_key": str(i),
                 }
                 if access and block.ref:
-                    source["url"] = self.request.build_absolute_uri(access.path_prefix + block.ref)
+                    # Relative, so the URL never takes its host from the request and the player keeps it same-origin.
+                    source["url"] = access.path_prefix + block.ref
                 sources.append(source)
 
             with timer("serialize_data__gather_session_recording_sources"):

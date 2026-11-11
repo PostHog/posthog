@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from unittest.mock import _patch
 
 from parameterized import parameterized
+from pydantic import ValidationError
 
 from posthog.schema import (
     CachedHogQLQueryResponse,
@@ -40,6 +41,7 @@ from posthog.hogql.visitor import clear_locations
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.hogql_queries.hogql_query_runner import API_SQL_WINDOW_CACHE_AGE_FLAG, HogQLQueryRunner
+from posthog.hogql_queries.paginators import OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
 from posthog.hogql_queries.query_runner import CACHE_ENTRY_FRESHNESS_KEY, ExecutionMode
 from posthog.hogql_queries.sql_freshness.classifier import SqlFreshness, freshness_record
 from posthog.hogql_queries.sql_freshness.rules import FreshnessReason, Reject, SqlWindowClass
@@ -148,6 +150,28 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 5)
         self.assertNotIn("hasMore", response)
 
+    @parameterized.expand(
+        [
+            ("own_limit", "SELECT number FROM numbers(10) ORDER BY number LIMIT 5", {}, LimitContext.QUERY),
+            ("union", "SELECT 1 AS n UNION ALL SELECT 2 AS n", {}, LimitContext.QUERY),
+            ("raw_sql", "SELECT 1", {"sendRawQuery": True, "connectionId": "conn_example"}, LimitContext.QUERY),
+            ("alert", "SELECT number FROM numbers(10)", {}, LimitContext.SQL_ALERT),
+        ]
+    )
+    def test_offset_without_default_row_limit_is_rejected(
+        self, _name: str, sql: str, query_fields: dict, limit_context: LimitContext
+    ) -> None:
+        runner = HogQLQueryRunner(
+            team=self.team, query=HogQLQuery(query=sql, offset=3, **query_fields), limit_context=limit_context
+        )
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            runner.calculate()
+        assert str(ctx.exception) == OFFSET_NEEDS_DEFAULT_ROW_LIMIT_MESSAGE
+
+    def test_negative_offset_is_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            HogQLQuery(query="SELECT 1", offset=-1)
+
     @parameterized.expand([(3, False), (4, True)])
     def test_alert_explicit_limit_probes_one_extra_row(self, row_count, has_more):
         query = HogQLQuery(query=f"SELECT arrayJoin(range({row_count + 2})) AS value ORDER BY value LIMIT 3 OFFSET 2")
@@ -204,6 +228,25 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(clear_locations(query), expected)
         response = runner.calculate()
+        self.assertEqual(response.results[0][0], 1)
+
+    @parameterized.expand([("values",), ("variables",)])
+    def test_filters_placeholder_with_values_or_variables(self, source: str) -> None:
+        if source == "values":
+            query = HogQLQuery(
+                query="select count(event) from events where event = {e} and {filters}",
+                values={"e": "clicky-3"},
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+            )
+        else:
+            variable = InsightVariable.objects.create(team=self.team, name="E", code_name="e", type="String")
+            query = HogQLQuery(
+                query="select count(event) from events where event = {variables.e} and {filters}",
+                variables={
+                    str(variable.id): HogQLVariable(code_name="e", variableId=str(variable.id), value="clicky-3")
+                },
+            )
+        response = self._create_runner(query).calculate()
         self.assertEqual(response.results[0][0], 1)
 
     def test_cache_target_age_is_two_hours_in_future_after_run(self):
@@ -540,12 +583,14 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ("limit_by", "select event, timestamp from events limit 5 by event offset 10"),
             # OFFSET arrives via placeholder — proves hook runs after to_query() substitution.
             ("placeholder", "select event from events limit 10 offset {o}"),
+            ("offset_field", "select event from events"),
         ]
     )
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_query_service_rejects_offset(self, _name, sql, _mock_flag):
         values = {"o": 50} if "{o}" in sql else None
-        runner = self._create_runner(HogQLQuery(query=sql, values=values))
+        offset = 50 if _name == "offset_field" else None
+        runner = self._create_runner(HogQLQuery(query=sql, values=values, offset=offset))
         runner.is_query_service = True
 
         with self.assertRaises(QueryError) as ctx:

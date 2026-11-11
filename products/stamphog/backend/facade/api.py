@@ -15,7 +15,7 @@ from uuid import UUID
 
 from django.db import IntegrityError, router, transaction
 from django.db.models import BooleanField, ExpressionWrapper, Prefetch, Q, QuerySet
-from django.db.models.fields.json import KeyTransform
+from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.utils import timezone
 
 import structlog
@@ -23,6 +23,8 @@ import structlog
 from ..logic.installations import reset_unverified_review_policy
 from ..logic.review_trigger import derive_review_trigger
 from ..logic.reviewer import parse_reviewer_output
+from ..logic.routing.claims import is_stale_claim
+from ..logic.routing.fork_labels import fork_labels
 from ..logic.routing.owners_file import owners_file_status
 from ..logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from ..models import (
@@ -51,6 +53,7 @@ from .enums import (
     RoutingOwnerOutcome,
     RoutingOwnerReason,
     RoutingScope,
+    RoutingStatus,
 )
 
 logger = structlog.get_logger(__name__)
@@ -102,8 +105,45 @@ def _repo_config_to_dto(obj: StamphogRepoConfig) -> contracts.RepoConfigDTO:
         review_mode=obj.review_mode,
         trigger_label=obj.trigger_label,
         routing_mode=obj.routing_mode,
+        routing_fork_labels=fork_labels(obj),
+        review_on_clean_external_review=obj.review_on_clean_external_review,
         created_at=obj.created_at,
         updated_at=obj.updated_at,
+    )
+
+
+def _record_time(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _routing_to_dto(record: object) -> contracts.PullRequestRoutingDTO | None:
+    """An allowlist of the routing record's scalars. The plan, the pins and the comment stay internal."""
+    if not isinstance(record, dict):
+        return None
+    try:
+        status = RoutingStatus(str(record.get("status")))
+        mode = RoutingMode(str(record.get("mode")))
+        scope = RoutingScope(record["scope"]) if record.get("scope") else None
+    except ValueError:
+        return None
+    claimed = status in (RoutingStatus.ROUTING, RoutingStatus.REQUESTED)
+    return contracts.PullRequestRoutingDTO(
+        status=status,
+        head_sha=str(record.get("head_sha") or ""),
+        mode=mode,
+        trigger=str(record.get("trigger") or ""),
+        scope=scope,
+        claim_expired=claimed and is_stale_claim(record),
+        waiting_since=_record_time(record.get("waiting_since")),
+        claimed_at=_record_time(record.get("claimed_at")),
+        routed_at=_record_time(record.get("routed_at")),
+        full_routed_head=str(record.get("full_routed_head") or ""),
+        pinned_routed_head=str(record.get("pinned_routed_head") or ""),
     )
 
 
@@ -125,6 +165,8 @@ def _pull_request_to_dto(obj: PullRequest) -> contracts.PullRequestDTO:
         merge_commit_sha=obj.merge_commit_sha,
         merged_at=obj.merged_at,
         posted_comment_id=obj.posted_comment_id,
+        routing_mode=RoutingMode(obj.repo_config.routing_mode),
+        routing=_routing_to_dto(obj.routing),
         created_at=obj.created_at,
         updated_at=obj.updated_at,
     )
@@ -154,14 +196,25 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
 _SELF_DRIVING = Q(output__has_key="inbox_review")
 # Same shape for a manual request: request_manual_review writes a populated dict or no key at all.
 _MANUAL = Q(output__has_key="manual_review")
+# A silent run has no provenance dict. Its stamped trigger is the only record. Containment, not key
+# equality: equality is NULL for a run without the key, and an exclude() would then drop that run.
+_SILENT = Q(output__contains={"review_trigger": ReviewTrigger.REVIEWHOG_CLEAN.value})
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
-def _derive_trigger(obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool) -> ReviewTrigger:
+def _derive_trigger(
+    obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool, stamped_trigger: str | None
+) -> ReviewTrigger:
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
-    the reviewer invocation has to answer the same question before a run exists to read."""
+    the reviewer invocation has to answer the same question before a run exists to read.
+
+    Of the stamped triggers only a silent one is read, because ``_SILENT`` matches it in SQL. Every
+    other trigger is derived, for the reason ``trigger_for_run`` gives.
+    """
+    if not (has_inbox_review or has_manual_review) and stamped_trigger == ReviewTrigger.REVIEWHOG_CLEAN:
+        return ReviewTrigger.REVIEWHOG_CLEAN
     return derive_review_trigger(
         has_inbox_review=has_inbox_review,
         has_manual_review=has_manual_review,
@@ -181,10 +234,16 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
         return qs.filter(_SELF_DRIVING)
     if trigger == ReviewTrigger.MANUAL:
         return qs.exclude(_SELF_DRIVING).filter(_MANUAL)
+    if trigger == ReviewTrigger.REVIEWHOG_CLEAN:
+        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(_SILENT)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        return qs.exclude(_SELF_DRIVING | _MANUAL | _SILENT).filter(
+            pull_request__repo_config__review_mode=ReviewMode.LABEL
+        )
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return qs.exclude(_SELF_DRIVING | _MANUAL | _SILENT).filter(
+            pull_request__repo_config__review_mode=ReviewMode.ALL
+        )
     return qs.none()
 
 
@@ -222,6 +281,7 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
         obj,
         has_inbox_review=bool(output.get("inbox_review")),
         has_manual_review=bool(output.get("manual_review")),
+        stamped_trigger=output.get("review_trigger"),
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
 
@@ -236,6 +296,7 @@ def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
         **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
         slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
         slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
+        slim_review_trigger=KeyTextTransform("review_trigger", "output"),
     )
 
 
@@ -246,6 +307,7 @@ def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> con
         obj,
         has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
         has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
+        stamped_trigger=obj.slim_review_trigger,  # type: ignore[attr-defined]
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
 
@@ -381,6 +443,8 @@ def create_repo_config(
     review_mode: str | None = None,
     trigger_label: str | None = None,
     routing_mode: str | None = None,
+    routing_fork_labels: dict[str, str] | None = None,
+    review_on_clean_external_review: bool | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -397,6 +461,10 @@ def create_repo_config(
         fields["trigger_label"] = trigger_label
     if routing_mode is not None:
         fields["routing_mode"] = routing_mode
+    if routing_fork_labels is not None:
+        fields["routing_fork_labels"] = routing_fork_labels
+    if review_on_clean_external_review is not None:
+        fields["review_on_clean_external_review"] = review_on_clean_external_review
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:
@@ -646,6 +714,8 @@ def _routing_owner_to_dto(row: RoutingRunOwner, *, with_files: bool) -> contract
                 status=file["status"],
                 additions=file["additions"],
                 deletions=file["deletions"],
+                # Runs recorded before the field have no entry.
+                owners_source=file.get("owners_source"),
             )
             for file in (row.files if with_files else [])
         ],

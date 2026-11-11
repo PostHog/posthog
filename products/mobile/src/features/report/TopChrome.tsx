@@ -1,6 +1,6 @@
 import { Stack, useRouter } from 'expo-router'
-import { type ReactElement, useMemo } from 'react'
-import { ActivityIndicator, Platform, useWindowDimensions, View } from 'react-native'
+import { type ReactElement, type RefObject, useMemo } from 'react'
+import { ActivityIndicator, Platform, useWindowDimensions, View, type ViewInstance } from 'react-native'
 import Animated, { FadeIn, FadeOut } from 'react-native-reanimated'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
@@ -21,6 +21,7 @@ interface TopChromeProps {
     onNext?: () => void
     title?: ScrollTitle
     refreshing?: boolean
+    blurTarget?: RefObject<ViewInstance | null>
     /** False leaves out the Previous and Next pill, for a screen that is not one report of the inbox list. */
     withPager?: boolean
 }
@@ -32,6 +33,7 @@ export function TopChrome({
     title,
     refreshing = false,
     withPager = true,
+    blurTarget,
 }: TopChromeProps): ReactElement {
     const router = useRouter()
     const { contentWidth, paired } = useAppLayout()
@@ -72,6 +74,7 @@ export function TopChrome({
             onBack={onBack}
             backTestID="report-back"
             title={title}
+            blurTarget={blurTarget}
             hideNativeTitle={withPager && paired}
             nativeActions={
                 Platform.OS === 'ios' && withPager ? (

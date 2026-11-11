@@ -81,6 +81,35 @@ class CDCSourceMixin(_BaseSource[ConfigType]):
                 extra={"source_id": str(source.id), "slot_name": cdc_config.stream_name},
             )
 
+    def _record_cdc_snapshot_position(
+        self, schema: ExternalDataSchema, inputs: SourceInputs, *, rebuild: bool, resuming: bool
+    ) -> None:
+        """Record the source's log position before a snapshot in a history mode reads the table.
+
+        Only a rebuild replaces a recorded position, because an earlier attempt may already have
+        written rows. A position that cannot be read is recorded as unknown, and the history lane
+        then replays the whole buffer.
+        """
+        from products.warehouse_sources.backend.models.external_data_schema import update_sync_type_config_keys
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import is_history_table_mode
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_SNAPSHOT_POSITION_KEY
+
+        if not is_history_table_mode(schema.cdc_table_mode):
+            return
+        recorded = CDC_SNAPSHOT_POSITION_KEY in (schema.sync_type_config or {})
+        if not rebuild and (recorded or resuming):
+            return
+        try:
+            adapter = get_cdc_adapter(schema.source)
+            with adapter.management_connection(schema.source) as conn:
+                position = adapter.position_to_seq(adapter.current_position(conn))
+        except Exception:
+            inputs.logger.warning("cdc_snapshot_position_unread", schema_id=str(schema.id), exc_info=True)
+            update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_SNAPSHOT_POSITION_KEY: None})
+            return
+        update_sync_type_config_keys(schema.id, schema.team_id, updates={CDC_SNAPSHOT_POSITION_KEY: position})
+        inputs.logger.info("cdc_snapshot_position_recorded", schema_id=str(schema.id), position=position)
+
     def _buffered_cdc_source(self, schema: ExternalDataSchema, inputs: SourceInputs) -> SourceResponse:
         """A `SourceResponse` reading this streaming, seeded schema's S3 change buffer."""
         from asgiref.sync import async_to_sync

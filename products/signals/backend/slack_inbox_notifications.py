@@ -7,6 +7,7 @@ suggested reviewer is also routed to one destination: their own configured targe
 by their min-priority), otherwise the team-default channel. A personal target is either a channel
 or the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
 destination get a single post mentioning only the reviewers routed there.
+Already-addressed reports still reach the team channel, but do not notify suggested reviewers.
 All sends are best-effort.
 """
 
@@ -37,6 +38,8 @@ from posthog.slack.formatting import (
 from posthog.slack.markdown import slack_markdown_block as _markdown_block
 
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
+from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.implementation_pr import fetch_implementation_prs_for_reports
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -60,12 +63,16 @@ from products.signals.backend.slack_formatting import (
     first_sentence as _first_sentence,
     is_safe_slack_http_url,
     prepare_slack_markdown as _prepare_markdown,
+    slack_text_length,
     strip_chart_references as _strip_chart_references,
     truncate_slack_text,
 )
 from products.signals.backend.slack_notification_targets import is_slack_member_target, lookup_slack_user_id_by_email
 from products.signals.backend.slack_report_threads import record_report_slack_thread
-from products.slack_app.backend.facade.api import slack_followup_invite
+from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.typed_report_links import incoming_links
+from products.slack_app.backend.facade.api import slack_followup_invite, slack_report_implementation_button
+from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
 # report notifies iff its latest actionability judgment is one of these (and it's READY).
@@ -77,6 +84,7 @@ logger = logging.getLogger(__name__)
 
 _SUMMARY_EXCERPT_MAX_LEN = 280
 _SLACK_HEADER_MAX_LEN = 150
+_SLACK_CONTEXT_MAX_LEN = 3000
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
 _MAX_REVIEWER_MENTIONS = 5
@@ -92,6 +100,14 @@ _PRIORITY_ORDER: tuple[str, ...] = (
     AutonomyPriority.P3,
     AutonomyPriority.P4,
 )
+# Keep in sync with PRIORITY_TAG_TYPE in frontend/inbox/filterOptions.tsx, so Slack and the inbox agree.
+_PRIORITY_EMOJI: dict[str, str] = {
+    AutonomyPriority.P0: "🔴",
+    AutonomyPriority.P1: "🟠",
+    AutonomyPriority.P2: "🟡",
+    AutonomyPriority.P3: "🔵",
+    AutonomyPriority.P4: "⚪️",
+}
 
 # Report titles are PR-style ("fix(scope): Description"). The inbox shows only the description, so
 # Slack does too. Keep in sync with CONVENTIONAL_COMMIT_TITLE in frontend/inbox/utils/reportPresentation.ts.
@@ -146,22 +162,55 @@ def _latest_priority(report: SignalReport) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _latest_actionability(report: SignalReport) -> str | None:
+def _latest_actionability_judgment(report: SignalReport) -> dict:
     art = (
         report.artefacts.filter(type=SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT)
         .order_by("-created_at")
         .first()
     )
     if art is None:
-        return None
+        return {}
     try:
         data = json.loads(art.content)
     except (json.JSONDecodeError, TypeError, ValueError):
-        return None
-    if not isinstance(data, dict):
-        return None
-    value = data.get("actionability")
-    return value if isinstance(value, str) else None
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _offers_implementation(judgment: dict) -> bool:
+    """Whether the message offers Implement: the research says the fix is ready and nobody has started it."""
+    return (
+        judgment.get("actionability") == ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value
+        and judgment.get("already_addressed") is not True
+    )
+
+
+def _implementation_underway(report: SignalReport) -> bool:
+    """Whether the report has a pull request or an implementation run that has not ended.
+
+    The inbox then shows View task instead of the Implement choices, so the message must not offer
+    Implement. Auto-start often opens the pull request before the notification goes out.
+    """
+    report_id = str(report.id)
+    if fetch_implementation_prs_for_reports([report_id], team_id=report.team_id, using="default").get(report_id):
+        return True
+    task_ids = [
+        run.task_id
+        for run in SignalReport.associated_task_runs(
+            report_id=report_id, team_id=report.team_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
+        )
+    ]
+    return any(not run.is_terminal for run in tasks_facade.get_latest_run_by_task(task_ids).values())
+
+
+def _should_offer_implementation(report: SignalReport, judgment: dict) -> bool:
+    """Whether the message offers Implement, matching when the inbox offers its Implement choices."""
+    if not _offers_implementation(judgment):
+        return False
+    # A plan parent has no run of its own: the reports that are part of it do the work.
+    if incoming_links(team_id=report.team_id, report_id=report.id, kinds=(ReportLinkKind.PART_OF,)):
+        return False
+    return not _implementation_underway(report)
 
 
 def resolve_org_suggested_reviewer_user_ids(*, team_id: int, report_ids: Collection[str]) -> dict[str, set[int]]:
@@ -231,31 +280,56 @@ def resolve_suggested_reviewer_user_ids(report: SignalReport) -> set[int]:
     return set(report.team.all_users_with_access().filter(id__in=user_ids).values_list("id", flat=True))
 
 
-def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, SignalUserAutonomyConfig]:
+@frozen
+class _OwnTarget:
+    integration: IntegrationRecord
+    channel: str
+    min_priority: str | None
+
+
+def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, _OwnTarget]:
     """Per-user configs that name an own Slack target on this team's integration.
 
     The target is a channel or the reviewer's own Slack account. A reviewer absent from this map
     has no own target and falls back to the team default.
     """
-    configs = (
-        SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids)
-        .filter(slack_notification_integration__team_id=team_id)
+    configs = list(
+        SignalUserAutonomyConfig.objects.filter(user_id__in=user_ids, slack_notification_integration_id__isnull=False)
         .exclude(slack_notification_channel__isnull=True)
         .exclude(slack_notification_channel="")
-        .select_related("slack_notification_integration")
     )
-    return {config.user_id: config for config in configs}
+    integrations = IntegrationManager.slack.any.get_many(
+        team_id,
+        {config.slack_notification_integration_id for config in configs if config.slack_notification_integration_id},
+    )
+    return {
+        config.user_id: _OwnTarget(
+            integration=integrations[config.slack_notification_integration_id],
+            channel=config.slack_notification_channel or "",
+            min_priority=config.slack_notification_min_priority,
+        )
+        for config in configs
+        if config.slack_notification_integration_id in integrations
+    }
 
 
-def _team_notification_target(team_id: int) -> tuple[IntegrationRecord, str] | None:
+def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[IntegrationRecord, str] | None:
     """The team-default channel and the Slack workspace that owns it."""
     config = (
         SignalTeamConfig.objects.filter(team_id=team_id)
-        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .only(
+            "default_slack_notification_channel",
+            "default_slack_notification_integration_id",
+            "default_slack_notification_min_priority",
+        )
         .first()
     )
     channel = ((config.default_slack_notification_channel if config else None) or "").strip()
     if config is None or not channel:
+        return None
+    if config.default_slack_notification_min_priority and not _meets_min_priority(
+        priority, config.default_slack_notification_min_priority
+    ):
         return None
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
     slack_rows = IntegrationManager.slack.any
@@ -346,16 +420,39 @@ def _display_title(title: str | None) -> str:
 
 def _section_body(markdown: str) -> str:
     def safe_token(match: re.Match[str]) -> str:
-        destination = match.group(1).partition("|")[0]
+        destination = match.group(0)[1:-1].partition("|")[0]
         return match.group(0) if is_safe_slack_http_url(destination) else _escape_mrkdwn(match.group(0))
 
     # Conversion creates Slack tokens, so only HTTP links may survive in the untrusted body.
     converted = SlackMarkdownConverter().convert(markdown)
-    return truncate_slack_text(re.sub(r"<([^<>]*)>", safe_token, converted), 3000)
+    return truncate_slack_text(re.sub(r"<[^<>]*>|[<>]", safe_token, converted), 3000)
+
+
+def _owner_context_text(reviewer_labels: list[str], *, max_length: int = _SLACK_CONTEXT_MAX_LEN) -> str:
+    owner_label = "Suggested owner" if len(reviewer_labels) == 1 else "Suggested owners"
+    prefix = f"👤 {owner_label}:"
+    text = f"{prefix} {' '.join(reviewer_labels)}"
+    if slack_text_length(text) <= max_length:
+        return text
+
+    text = prefix
+    for index, label in enumerate(reviewer_labels):
+        remaining = len(reviewer_labels) - index - 1
+        suffix = f" (+{remaining} more)" if remaining else ""
+        if slack_text_length(text) + 1 + slack_text_length(label) + len(suffix) > max_length:
+            return f"{text} (+{remaining + 1} more)"
+        text += f" {label}"
+    return text
 
 
 def _build_message_blocks(
-    report: SignalReport, *, reviewer_mentions: list[str], use_section_blocks: bool = False
+    report: SignalReport,
+    *,
+    reviewer_labels: list[str],
+    use_section_blocks: bool = False,
+    priority: str | None = None,
+    offer_implementation: bool = False,
+    slack_integration_id: int | None = None,
 ) -> tuple[list[dict], str]:
     title_line = _display_title(report.title)
     header_text = (
@@ -390,30 +487,35 @@ def _build_message_blocks(
         body_block,
     ]
 
+    context_parts: list[str] = []
+    if priority_emoji := _PRIORITY_EMOJI.get(priority or ""):
+        context_parts.append(f"{priority_emoji} *{priority}*")
     # Plain-text blocks would show the raw mention token instead of resolving the user.
-    if reviewer_mentions:
-        owner_label = "Suggested owner" if len(reviewer_mentions) == 1 else "Suggested owners"
+    if reviewer_labels:
+        prefix_length = slack_text_length(" · ".join(context_parts) + " · ") if context_parts else 0
+        context_parts.append(_owner_context_text(reviewer_labels, max_length=_SLACK_CONTEXT_MAX_LEN - prefix_length))
+    if context_parts:
         blocks.append(
-            {
-                "type": "context",
-                "elements": [{"type": "mrkdwn", "text": f"👤 {owner_label}: {' '.join(reviewer_mentions)}"}],
-            }
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": " · ".join(context_parts), "verbatim": True}]}
         )
 
-    action_elements: list[dict] = [
+    action_elements: list[dict] = []
+    if offer_implementation and slack_integration_id is not None:
+        action_elements.append(slack_report_implementation_button(slack_integration_id))
+    action_elements.append(
         {
             "type": "button",
             "text": {"type": "plain_text", "text": "Review in PostHog", "emoji": True},
             "url": build_report_url(report.team_id, report.id, ReportLinkSource.SLACK),
         }
-    ]
+    )
     blocks.append({"type": "actions", "elements": action_elements})
 
     return blocks, _escape_mrkdwn(title_line)
 
 
 class _ChannelRoute:
-    """One Slack destination and the reviewers routed to it (mentioned only there).
+    """One Slack destination and the reviewers notified or shown there.
 
     The destination is a channel, or a member whose id Slack turns into a direct message.
     """
@@ -424,6 +526,7 @@ class _ChannelRoute:
         self.is_team_channel = is_team_channel
         self.is_direct_message = is_slack_member_target(channel)
         self.users: list[User] = []
+        self.owner_users: dict[int, User] = {}
 
 
 @frozen
@@ -434,7 +537,7 @@ class _Destination:
 
 
 class _RouteTable:
-    """The destinations one report is posted to, each collecting the reviewers it mentions.
+    """The destinations one report is posted to, with reviewers to notify and display.
 
     Keyed by (integration_id, channel_id) so a reviewer's own channel and the team default
     collapse into one post when they resolve to the same Slack channel.
@@ -443,7 +546,7 @@ class _RouteTable:
     def __init__(self) -> None:
         self._routes: dict[tuple[int, str], _ChannelRoute] = {}
 
-    def add(self, destination: _Destination, *, user: User | None = None) -> None:
+    def add(self, destination: _Destination, *, user: User | None = None, owner_users: Iterable[User] = ()) -> None:
         key = (destination.integration.id, _channel_id_from_target(destination.channel))
         route = self._routes.get(key)
         if route is None:
@@ -455,6 +558,9 @@ class _RouteTable:
             route.is_team_channel = True
         if user is not None:
             route.users.append(user)
+            route.owner_users[user.id] = user
+        for owner_user in owner_users:
+            route.owner_users[owner_user.id] = owner_user
 
     def routes(self) -> list[_ChannelRoute]:
         return list(self._routes.values())
@@ -462,7 +568,7 @@ class _RouteTable:
 
 def _reviewer_destination(
     *,
-    own_config: SignalUserAutonomyConfig | None,
+    own_config: _OwnTarget | None,
     priority: str | None,
     team_integration: IntegrationRecord | None,
     team_channel: str | None,
@@ -472,10 +578,10 @@ def _reviewer_destination(
     `None` means this reviewer gets no notification at all.
     """
     if own_config is not None:
-        if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
+        if not _meets_min_priority(priority, own_config.min_priority):
             return None
-        integration: IntegrationRecord | None = own_config.slack_notification_integration
-        channel = own_config.slack_notification_channel
+        integration: IntegrationRecord | None = own_config.integration
+        channel = own_config.channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
         integration, channel, is_team_channel = team_integration, team_channel, True
@@ -494,15 +600,16 @@ def _build_reviewer_routes(
     team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
-    """Route resolvable suggested reviewers to a destination, mentioning them there.
+    """Route resolvable suggested reviewers to a destination.
 
     Own target (filtered by the reviewer's min-priority) if set, else the team default. A reviewer
-    filtered out of their own target is not mentioned in the team channel — that was their choice.
-    Reviewers sharing a destination are grouped so each channel is posted to once, mentioning only
-    its own reviewers. The team-default channel (if configured) receives every report, with no
-    mentions when no reviewer is routed there.
+    filtered out of their own target is not pinged. Reviewers sharing a destination are grouped so
+    each channel is posted to once. The team-default channel receives every report and shows every
+    suggested owner. It pings only the reviewers routed there.
     """
-    reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
+    reviewer_user_ids = (
+        set() if report.latest_already_addressed is True else resolve_suggested_reviewer_user_ids(report)
+    )
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
     own_configs = _own_target_configs_by_user(report.team_id, reviewer_user_ids)
 
@@ -521,10 +628,11 @@ def _build_reviewer_routes(
             continue
         table.add(destination, user=user)
 
-    # The team channel gets every report. It mentions only the reviewers routed there, so a reviewer
-    # with their own target is not pinged twice.
     if team_integration is not None and team_channel:
-        table.add(_Destination(integration=team_integration, channel=team_channel, is_team_channel=True))
+        table.add(
+            _Destination(integration=team_integration, channel=team_channel, is_team_channel=True),
+            owner_users=(reviewer_users[user_id] for user_id in sorted(reviewer_users)),
+        )
 
     return table.routes()
 
@@ -534,6 +642,8 @@ def _deliver_route_notification(
     route: _ChannelRoute,
     *,
     trigger: str,
+    priority: str | None,
+    offer_implementation: bool,
 ) -> bool:
     """Post one report notification to a route's destination.
 
@@ -556,12 +666,23 @@ def _deliver_route_notification(
             logger.warning("Skipping signals inbox-item Slack DM to an ineligible member", extra=log_context)
             _capture_notification_delivered(report, route, trigger=trigger, delivered=False)
             return False
-        # The only reviewer a direct message could mention is the person already reading it.
-        mentions = [] if route.is_direct_message else _resolve_reviewer_mentions(slack, route.users)
+        if route.is_direct_message:
+            reviewer_labels: list[str] = []
+        else:
+            reviewer_labels = _resolve_reviewer_mentions(slack, route.users)
+            mentioned_user_ids = {user.id for user in route.users}
+            reviewer_labels.extend(
+                _escape_mrkdwn(_posthog_user_display_name(user))
+                for user_id, user in route.owner_users.items()
+                if user_id not in mentioned_user_ids
+            )
         blocks, text = _build_message_blocks(
             report,
-            reviewer_mentions=mentions,
+            reviewer_labels=reviewer_labels,
             use_section_blocks=organization_inbox_slack_section_blocks_enabled(report.team.organization_id),
+            priority=priority,
+            offer_implementation=offer_implementation,
+            slack_integration_id=route.integration.id,
         )
         # Added here rather than inside the block builder, which stays free of the integration so it
         # can be tested without one. Approval is read now, not assumed from generation time: a
@@ -598,11 +719,15 @@ def _deliver_to_routes(
     routes: list[_ChannelRoute],
     *,
     trigger: str,
+    priority: str | None,
+    offer_implementation: bool,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
     sent = 0
     for route in routes:
-        if _deliver_route_notification(report, route, trigger=trigger):
+        if _deliver_route_notification(
+            report, route, trigger=trigger, priority=priority, offer_implementation=offer_implementation
+        ):
             sent += 1
     return sent
 
@@ -669,7 +794,8 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
     # Mirror the inbox Reports tab: notify only for actionable reports (READY is enforced upstream
     # in the notification activity). Priority is read below for min-priority routing, but
     # it's optional now — an actionable report notifies even without a priority.
-    if _latest_actionability(report) not in _ACTIONABLE_VALUES:
+    actionability = _latest_actionability_judgment(report)
+    if actionability.get("actionability") not in _ACTIONABLE_VALUES:
         logger.info(
             "dispatch_inbox_item_notifications: report not actionable, skipping",
             extra={"report_id": report_id, "team_id": team_id},
@@ -677,7 +803,7 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         return 0
 
     priority = _latest_priority(report)
-    team_target = _team_notification_target(team_id)
+    team_target = _team_notification_target(team_id, priority=priority)
     team_integration, team_channel = team_target if team_target is not None else (None, None)
 
     routes = _build_reviewer_routes(
@@ -702,7 +828,13 @@ def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
         )
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="report_ready")
+    sent = _deliver_to_routes(
+        report,
+        routes,
+        trigger="report_ready",
+        priority=priority,
+        offer_implementation=_should_offer_implementation(report, actionability),
+    )
     logger.info(
         "dispatch_inbox_item_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
@@ -748,14 +880,12 @@ def _build_added_reviewer_routes(team_id: int, user_ids: set[int], priority: str
         # An unprioritized report still pings a reviewer with no min-priority threshold: the
         # initial path would have delivered it via the team channel, but this path has no
         # fallback, so `_meets_min_priority`'s no-priority-never-notifies rule would lose it.
-        min_priority = config.slack_notification_min_priority
+        min_priority = config.min_priority
         if (priority is not None or min_priority is not None) and not _meets_min_priority(priority, min_priority):
             continue
-        integration = config.slack_notification_integration
-        channel = config.slack_notification_channel
-        if integration is None or not channel:
-            continue
-        table.add(_Destination(integration=integration, channel=channel, is_team_channel=False), user=user)
+        table.add(
+            _Destination(integration=config.integration, channel=config.channel, is_team_channel=False), user=user
+        )
     return table.routes()
 
 
@@ -800,7 +930,8 @@ def dispatch_reviewer_added_notifications(
     # Mirror the initial notification's gate: only reports actually surfaced in the inbox
     # (READY and actionable) notify. Status is checked here because — unlike the generation
     # pipeline — this path has no upstream READY guarantee.
-    if report.status != SignalReport.Status.READY or _latest_actionability(report) not in _ACTIONABLE_VALUES:
+    actionability = _latest_actionability_judgment(report)
+    if report.status != SignalReport.Status.READY or actionability.get("actionability") not in _ACTIONABLE_VALUES:
         return 0
 
     user_ids = _resolve_added_reviewer_user_ids(
@@ -814,7 +945,13 @@ def dispatch_reviewer_added_notifications(
     if not routes:
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="reviewer_added")
+    sent = _deliver_to_routes(
+        report,
+        routes,
+        trigger="reviewer_added",
+        priority=priority,
+        offer_implementation=_should_offer_implementation(report, actionability),
+    )
     logger.info(
         "dispatch_reviewer_added_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},

@@ -1716,9 +1716,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             posthog.capture('autoresearch model resumed', { pipeline_id: props.id })
             lemonToast.success('Model resumed')
         },
-        resumePipelineFailure: () => {
+        resumePipelineFailure: ({ errorObject }) => {
             posthog.capture('autoresearch model action failed', { action: 'resume', pipeline_id: props.id })
-            lemonToast.error('Could not resume the model')
+            // A project at its active model limit explains it in `detail`.
+            lemonToast.error(errorObject?.detail ?? errorObject?.data?.detail ?? 'Could not resume the model')
         },
         scoreNowSuccess: ({ scoreResult }) => {
             if (!scoreResult) {

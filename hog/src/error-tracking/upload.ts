@@ -1,10 +1,10 @@
 import { z } from 'zod'
 
 import { HogError } from '@/core/errors'
-import { parseJson, parseJsonOrUndefined } from '@/core/json'
+import { parseJsonOrUndefined } from '@/core/json'
 import type { Runtime } from '@/core/runtime'
-import { parseOrThrow } from '@/core/schema'
-import { USER_AGENT } from '@/posthog/api'
+import { failWith, parseOrThrow, type Schema } from '@/core/schema'
+import { sendRequest } from '@/posthog/api'
 import { hostUrl } from '@/posthog/host'
 import type { KeySession } from '@/posthog/key-session'
 
@@ -57,15 +57,11 @@ export function errorCode(body: string): string | undefined {
 
 class ApiFailure extends Error {
     constructor(
-        readonly status: number | undefined,
+        readonly status: number,
         readonly body: string,
         readonly url: string
     ) {
-        super(
-            status === undefined
-                ? `Request to ${url} failed: ${body}`
-                : `PostHog answered ${status} for ${url}: ${body}`
-        )
+        super(`PostHog answered ${status} for ${url}: ${body}`)
     }
 
     // posthog-cli matches error codes in the parsed body, or anywhere in the raw text as a fallback.
@@ -169,41 +165,24 @@ export class SymbolSetClient {
         return new URL(path, hostUrl(host, `api/projects/${projectId}/`))
     }
 
-    async api<S extends z.ZodType>(
-        method: 'GET' | 'POST',
-        path: string,
-        schema: S,
-        body?: unknown
-    ): Promise<z.output<S>> {
+    async api<T>(method: 'GET' | 'POST', path: string, schema: Schema<T>, body?: unknown): Promise<T> {
         await this.throttle.wait()
         const url = this.projectUrl(path)
-        // Only a failed request becomes an ApiFailure. A renewal that fails keeps its own error and hint.
-        const send = async (token: string): Promise<Response> => {
-            try {
-                return await this.runtime.fetch(url, {
-                    method,
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                        'User-Agent': USER_AGENT,
-                    },
-                    body: body === undefined ? undefined : JSON.stringify(body),
-                    timeoutMs: REQUEST_TIMEOUT_MS,
-                })
-            } catch (error) {
-                throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
-            }
-        }
-        const response = await this.session.send(send, (answer) => answer.status === 401)
-        const text = await response.text()
+        const response = await this.session.send(
+            (token) => sendRequest(this.runtime.fetch, url, { method, body, token, timeoutMs: REQUEST_TIMEOUT_MS }),
+            (answer) => answer.status === 401
+        )
         if (!response.ok) {
-            throw new ApiFailure(response.status, text, url.toString())
+            throw new ApiFailure(response.status, response.text, url.toString())
         }
         const failure = {
             code: 'unexpected_response',
             context: `PostHog's answer to ${method} ${url.pathname} isn't what hog expects.`,
         }
-        return text ? parseJson(text, schema, failure) : parseOrThrow(schema, undefined, failure)
+        if (response.text && response.json === undefined) {
+            throw failWith(failure, "The answer isn't JSON.")
+        }
+        return parseOrThrow(schema, response.json, failure)
     }
 
     async upload(uploads: SymbolSetUpload[], options: UploadOptions): Promise<UploadOutcome> {
@@ -290,13 +269,7 @@ export class SymbolSetClient {
                             force: options.force,
                             skip_on_conflict: options.skipOnConflict,
                         }),
-                    (error) =>
-                        !(
-                            error instanceof ApiFailure &&
-                            error.status !== undefined &&
-                            error.status >= 400 &&
-                            error.status < 500
-                        )
+                    (error) => !(error instanceof ApiFailure && error.status >= 400 && error.status < 500)
                 )
                 const response = parseOrThrow(CheckResponse, answer, {
                     code: 'unexpected_response',
@@ -427,10 +400,7 @@ export class SymbolSetClient {
                 primaryTransportErrors = 0
             }
             if (!response.ok) {
-                throw new HogError(
-                    'upload_failed',
-                    `Object storage answered ${response.status}: ${await response.text()}`
-                )
+                throw new HogError('upload_failed', await storageFailure(response, target))
             }
             if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0 && !this.preferFallback) {
                 this.preferFallback = true
@@ -467,6 +437,26 @@ export class SymbolSetClient {
             skipRateLimit: true,
         })
     }
+}
+
+// A presigned URL carries temporary storage credentials in its query, and S3 can echo them back in
+// an error's Message or CanonicalRequest. The failure keeps only the path, the Code and the RequestId.
+async function storageFailure(response: Response, target: Target): Promise<string> {
+    const url = target.kind === 'put' ? target.url : target.form.url
+    const summary = storageErrorSummary(await response.text())
+    return `Object storage answered ${response.status} for ${withoutQuery(url)}${summary ? ` (${summary})` : ''}.`
+}
+
+function withoutQuery(url: string): string {
+    return url.split(/[?#]/, 1)[0]!
+}
+
+function storageErrorSummary(body: string): string | undefined {
+    const fields = ['Code', 'RequestId'].flatMap((name) => {
+        const value = body.match(new RegExp(`<${name}>([^<]*)</${name}>`))?.[1]
+        return value === undefined ? [] : [`${name}=${value}`]
+    })
+    return fields.length > 0 ? fields.join(' ') : undefined
 }
 
 function describe(error: unknown): string {

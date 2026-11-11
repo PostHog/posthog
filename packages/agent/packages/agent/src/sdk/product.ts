@@ -134,7 +134,10 @@ export function defineProduct<LaunchOptions extends object>(definition: {
 
 export function buildPullRequestFooter(
   launch: ProductLaunchConfiguration,
-  options: { automated?: boolean; source?: TaskSource } = {},
+  options: {
+    automated?: boolean;
+    sources?: readonly (TaskSource | undefined)[];
+  } = {},
 ): string {
   const mobile = launch.launchOptions.client_platform === "mobile";
   let createdWith =
@@ -145,10 +148,12 @@ export function buildPullRequestFooter(
     createdWith = "Created with [PostHog](https://posthog.com?ref=pr)";
   }
 
-  const { source } = options;
-  if (!source) {
-    return `*${createdWith}*`;
-  }
-  const article = /^[aeiou]/i.test(source.label) ? "an" : "a";
-  return `*${createdWith} from ${article} [${source.label}](${source.url})*`;
+  const links = (options.sources ?? [])
+    .filter((source): source is TaskSource => source !== undefined)
+    .map((source, index) => {
+      const preposition = index === 0 ? "from" : "via";
+      const article = /^[aeiou]/i.test(source.label) ? "an" : "a";
+      return `${preposition} ${article} [${source.label}](${source.url})`;
+    });
+  return `*${[createdWith, ...links].join(" ")}*`;
 }

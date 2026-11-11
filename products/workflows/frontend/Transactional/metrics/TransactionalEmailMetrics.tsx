@@ -1,24 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { METRICS_DATE_RANGES, transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
+import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
+import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
+import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
 import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailMetrics(): JSX.Element {
-    const { hours, templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
+    const { templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
-    const { setHours, loadTemplateStats, loadDomainStats } = useActions(transactionalEmailMetricsLogic)
+    const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
-        <div className="flex flex-col gap-4">
+        <div className="@container flex flex-col gap-4">
             {statsFailed && !templateStatsLoading && !domainStatsLoading && (
                 <LemonBanner
                     type="error"
@@ -27,6 +29,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                         onClick: () => {
                             loadTemplateStats()
                             loadDomainStats()
+                            loadStatsOverTime()
                         },
                         'data-attr': 'transactional-email-metrics-retry',
                     }}
@@ -34,20 +37,16 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     The numbers couldn't load. Check your connection and try again.
                 </LemonBanner>
             )}
+            <SceneSection title="All transactional emails" actions={<TransactionalEmailMetricsDateRange />}>
+                <TransactionalEmailMetricTiles />
+            </SceneSection>
+            <SceneDivider />
             <SceneSection
                 title="By email"
                 description="Delivered and bounced are shares of what was sent. Marked as spam, opened and clicked are shares of what was delivered."
-                actions={
-                    <LemonSelect
-                        size="small"
-                        value={hours}
-                        onChange={setHours}
-                        options={METRICS_DATE_RANGES.map((range) => ({ value: range.value, label: range.label }))}
-                        data-attr="transactional-email-metrics-date-filter"
-                    />
-                }
             >
                 <TransactionalEmailStatsTable
+                    id="by_email"
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
@@ -59,6 +58,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
             <SceneDivider />
             <SceneSection title="By sending domain" description="The same counts for each domain the emails came from.">
                 <TransactionalEmailStatsTable
+                    id="by_domain"
                     rows={domainStats}
                     loading={domainStatsLoading}
                     groupTitle="Sending domain"

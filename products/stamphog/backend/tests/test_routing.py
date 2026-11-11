@@ -52,13 +52,14 @@ def _resolution(
     status: str = "active",
     sensitive: bool = False,
     added: Addition | None = None,
+    source: str = "owners.yaml",
 ) -> Resolution:
     return Resolution(
         path=path,
         owners=owners,
         status=status,
         slack=None,
-        source="owners.yaml",
+        source=source,
         unowned_by_design=False,
         added=added,
         sensitive=sensitive,
@@ -106,7 +107,9 @@ class TestFindCandidates:
     ) -> None:
         file = _file(path, status=status, previous_path=previous_path)
         resolutions = {
-            "ci/baseline.txt": _resolution("ci/baseline.txt", ["team-guard"], status=path_status, sensitive=True),
+            "ci/baseline.txt": _resolution(
+                "ci/baseline.txt", ["team-guard"], status=path_status, sensitive=True, source="ci/owners.yaml"
+            ),
             "ci/moved.txt": _resolution("ci/moved.txt", ["team-other"]),
         }
 
@@ -114,6 +117,8 @@ class TestFindCandidates:
 
         assert candidates["team-guard"].pins == _SENSITIVE_PIN
         assert candidates["team-guard"].files == (file,)
+        # A rename reaches the guard through its old path, so the old path's file decided the owner.
+        assert candidates["team-guard"].owners_sources == {path: "ci/owners.yaml"}
         if "team-other" in candidates:
             assert not candidates["team-other"].is_pinned
 
@@ -121,15 +126,17 @@ class TestFindCandidates:
     def test_addition_pins_owners_of_additions(self, status: str, expect_pin: bool) -> None:
         path = "products/new_thing/backend/api.py"
         added = Addition(path="products/new_thing", additions=["team-architecture"])
-        resolutions = {path: _resolution(path, ["team-products"], added=added)}
+        resolutions = {path: _resolution(path, ["team-products"], added=added, source="products/owners.yaml")}
 
         candidates = {
             candidate.owner: candidate for candidate in find_candidates([_file(path, status=status)], resolutions)
         }
 
         assert not candidates["team-products"].is_pinned
+        assert candidates["team-products"].owners_sources == {path: "products/owners.yaml"}
         if expect_pin:
             assert candidates["team-architecture"].pins == {Pin(reason=PinReason.NEW_PATH, path="products/new_thing")}
+            assert candidates["team-architecture"].owners_sources == {}
         else:
             assert "team-architecture" not in candidates
 
@@ -363,6 +370,7 @@ class TestRenderRoutingComment:
             cut=(
                 CutOwner(candidate=_candidate("team-small"), reason=hostile),
                 CutOwner(candidate=_candidate("@alice"), reason="Formatting only."),
+                CutOwner(candidate=_candidate("team-other"), reason="Formatting\nonly."),
             ),
             llm_skipped=None,
         )
@@ -375,7 +383,7 @@ class TestRenderRoutingComment:
         items = [line for line in lines if line.startswith("- ")]
         assert len(items) == 2
         assert items[0].startswith("- `@PostHog/team-small`: Only a rename. ")
-        assert items[1] == "- `@alice`: Formatting only."
+        assert items[1] == "- `@alice`, `@PostHog/team-other`: Formatting only."
         assert "\n## " not in body
         assert "![" not in body
         assert "@PostHog/security" not in body
