@@ -682,13 +682,16 @@ def _approval_retention_on_label_skip(
     """Why a standing approval survives a push that the missing trigger label skips, or None to dismiss it.
 
     The main path decides retention only after the author write-permission gate, which the label skip
-    runs before. This checks that gate first, so the skip retains an approval only where the main path
-    would retain it too. Any error answers None, which dismisses, like the main path's fallback.
+    runs before. This checks that gate too, so the skip retains an approval only where the main path
+    would retain it. The gate runs last because it calls GitHub, and most unlabeled pushes have no
+    standing approval, so retention answers None from the database first. Any error answers None,
+    which dismisses, like the main path's fallback.
     """
     try:
-        if _author_lacks_write_permission(repo_config, repo, pr):
+        reason = _standing_approval_retention(repo_config, pr)
+        if reason is None or _author_lacks_write_permission(repo_config, repo, pr):
             return None
-        return _standing_approval_retention(repo_config, pr)
+        return reason
     except Exception:
         logger.warning("stamphog_pr_event_retention_check_failed", delivery_id=delivery_id, exc_info=True)
         return None
