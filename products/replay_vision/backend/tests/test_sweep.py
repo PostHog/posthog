@@ -1587,6 +1587,8 @@ def test_failed_send_returns_the_notification_to_the_next_tick() -> None:
 
     scanner.refresh_from_db()
     assert scanner.limit_notified_period_start is None
+    # Pausing would remove the schedule, and with it the tick that retries the notification.
+    assert scanner.sweep_paused_until is None
 
     with patch("products.notifications.backend.facade.api.create_notification") as mock_notify:
         check_scanner_budget_activity(CheckScannerBudgetInputs(scanner_id=scanner.id, team_id=scanner.team_id))

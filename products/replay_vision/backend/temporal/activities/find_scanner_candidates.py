@@ -205,13 +205,14 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
             # relaunch, but a disabled scanner has no schedule left to notice either. So skip the
             # tick instead, before any ClickHouse read. Both watermarks move to now, as a re-enable
             # does, so the sweep picks up from the resume or relaunch and never bills the gap.
+            recheck_soon = lifecycle_block.kind == "paused"
             if lifecycle_block.kind != "paused":
                 # A pause resumes, and the scout can sit it out. An ended or archived experiment's
                 # data stops changing, so its scout would only re-read the same summaries on the
-                # customer's bill.
-                stop_variant_analysis(scanner)
+                # customer's bill. A failed shutdown is retried by the next recheck, so that comes sooner.
+                recheck_soon = not stop_variant_analysis(scanner)
             record_sweep_outcome("experiment_over")
-            recheck = SWEEP_PAUSE_RECHECK_SOON if lifecycle_block.kind == "paused" else SWEEP_PAUSE_RECHECK
+            recheck = SWEEP_PAUSE_RECHECK_SOON if recheck_soon else SWEEP_PAUSE_RECHECK
             pause_sweep(scanner, SweepPauseReason.EXPERIMENT_NOT_RUNNING, timezone.now() + recheck)
             horizon = initial_watermark()
             return FindScannerCandidatesOutput(

@@ -22,6 +22,7 @@ from products.replay_vision.backend.models.replay_scanner_backfill import (
 from products.replay_vision.backend.quota import (
     BillingPeriod,
     OrgCreditCap,
+    QuotaState,
     compute_scanner_budget,
     org_credit_cap_for,
     quota_state_for_cap,
@@ -177,19 +178,23 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decisions and the notification stamp cannot straddle a rollover.
     cap = org_credit_cap_for(scanner.team.organization, scanner.team.organization_id)
+    # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
+    if scanner.has_spend_ceiling and unrunnable_reason(scanner):
+        return CheckScannerBudgetOutput(capped=False)
+    # One read of the org's spend serves both a free-only scanner's budget and the org cap.
+    org_state: QuotaState | None = None
+    if cap.credit_limit is not None or scanner.free_only:
+        with bounded_queries(CHECK_SCANNER_BUDGET_TIMEOUT):
+            org_state = quota_state_for_cap(scanner.team.organization_id, cap)
     # The scanner's own limit goes first, so its limit notification still goes out when the org is capped too.
-    if scanner.has_spend_ceiling:
-        # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
-        if unrunnable_reason(scanner):
-            return CheckScannerBudgetOutput(capped=False)
-        if _scanner_capped(scanner, cap.period):
-            return CheckScannerBudgetOutput(capped=True)
-    return CheckScannerBudgetOutput(capped=_org_capped(scanner, cap))
+    if scanner.has_spend_ceiling and _scanner_capped(scanner, cap.period, org_state):
+        return CheckScannerBudgetOutput(capped=True)
+    return CheckScannerBudgetOutput(capped=org_state is not None and _org_capped(scanner, cap, org_state))
 
 
-def _scanner_capped(scanner: ReplayScanner, period: BillingPeriod) -> bool:
+def _scanner_capped(scanner: ReplayScanner, period: BillingPeriod, org_state: QuotaState | None) -> bool:
     with bounded_queries(CHECK_SCANNER_BUDGET_TIMEOUT):
-        budget = compute_scanner_budget(scanner, period)
+        budget = compute_scanner_budget(scanner, period, org_state=org_state)
     if not budget.blocked:
         return False
     if not budget.blocked_by_settled_spend:
@@ -229,19 +234,21 @@ def _scanner_capped(scanner: ReplayScanner, period: BillingPeriod) -> bool:
             "credits_used": budget.credits_used,
         },
     )
-    # The period end is the known resume point. The recheck covers what saves no scanner, such as the org
-    # buying credits. A raised scanner limit is a save, which resumes the sweep at once.
-    pause_sweep(scanner, SweepPauseReason.CREDIT_LIMIT, min(period.end, timezone.now() + SWEEP_PAUSE_RECHECK))
     # Sent only after the stamp commits: a push can't be un-sent, so it must never precede its record.
     if stamped and not _notify_limit_reached(scanner):
-        # Hand the claim back so a transient outage delays the notification instead of consuming it.
+        # Hand the claim back so a transient outage delays the notification instead of consuming it. The
+        # sweep stays scheduled, so the next tick retries the notification.
         ReplayScanner.objects.filter(pk=scanner.pk, limit_notified_period_start=period.start).update(
             limit_notified_period_start=None
         )
+        return True
+    # The period end is the known resume point. The recheck covers what saves no scanner, such as the org
+    # buying credits. A raised scanner limit is a save, which resumes the sweep at once.
+    pause_sweep(scanner, SweepPauseReason.CREDIT_LIMIT, min(period.end, timezone.now() + SWEEP_PAUSE_RECHECK))
     return True
 
 
-def _org_capped(scanner: ReplayScanner, cap: OrgCreditCap) -> bool:
+def _org_capped(scanner: ReplayScanner, cap: OrgCreditCap, quota: QuotaState) -> bool:
     """Whether the organization's credit limit refuses this scanner's next observation.
 
     Admission in `create_observation` refuses each session on its own, so without this gate a capped
@@ -250,8 +257,6 @@ def _org_capped(scanner: ReplayScanner, cap: OrgCreditCap) -> bool:
     if cap.credit_limit is None:
         return False
     cost = observation_credits_for_model(scanner.model)
-    with bounded_queries(CHECK_SCANNER_BUDGET_TIMEOUT):
-        quota = quota_state_for_cap(scanner.team.organization_id, cap)
     if not quota.would_exceed(cost):
         return False
     if not replace(quota, credits_used=quota.credits_settled).would_exceed(cost):
