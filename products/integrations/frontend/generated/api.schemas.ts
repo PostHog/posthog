@@ -224,6 +224,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `anthropic` - Anthropic
  * * `apple-ads` - Apple Ads
  * * `apns` - Apple Push
+ * * `aws-kinesis` - Aws Kinesis
  * * `aws-redshift` - Aws Redshift
  * * `aws-s3` - Aws S3
  * * `azure-blob` - Azure Blob
@@ -278,6 +279,7 @@ export const IntegrationKindEnumApi = {
     Anthropic: 'anthropic',
     AppleAds: 'apple-ads',
     Apns: 'apns',
+    AwsKinesis: 'aws-kinesis',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',
@@ -337,6 +339,7 @@ export interface IntegrationConfigCreateApi {
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
+     * * `aws-kinesis` - Aws Kinesis
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
@@ -1107,6 +1110,7 @@ export interface IntegrationAccessRequestApi {
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
+     * * `aws-kinesis` - Aws Kinesis
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
@@ -1273,6 +1277,7 @@ export type IntegrationsListParams = {
      * * `anthropic` - Anthropic
      * * `apple-ads` - Apple Ads
      * * `apns` - Apple Push
+     * * `aws-kinesis` - Aws Kinesis
      * * `aws-redshift` - Aws Redshift
      * * `aws-s3` - Aws S3
      * * `azure-blob` - Azure Blob
@@ -1338,6 +1343,7 @@ export const IntegrationsListKind = {
     Anthropic: 'anthropic',
     Apns: 'apns',
     AppleAds: 'apple-ads',
+    AwsKinesis: 'aws-kinesis',
     AwsRedshift: 'aws-redshift',
     AwsS3: 'aws-s3',
     AzureBlob: 'azure-blob',

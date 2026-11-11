@@ -7485,6 +7485,7 @@ export namespace Schemas {
         | "postgresql"
         | "aws-s3"
         | "aws-redshift"
+        | "aws-kinesis"
         | "s3-compatible"
         | "snowflake"
         | "youtube-analytics"

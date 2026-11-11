@@ -124,6 +124,7 @@ export interface destinationModalLogicActions {
         kind:
             | 'apns'
             | 'apple-ads'
+            | 'aws-kinesis'
             | 'aws-redshift'
             | 'aws-s3'
             | 'azure-blob'

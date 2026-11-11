@@ -135,6 +135,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
             "anthropic_available": bool(os.environ.get("ANTHROPIC_API_KEY")),
             "webmcp_available": False,
+            "cdp_aws_external_role_arn": None,
             "is_test": True,
             **options,
         }

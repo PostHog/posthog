@@ -24,6 +24,7 @@ KINDS: Mapping[str, KindSpec] = {
     "anthropic": KindSpec(label="Anthropic", default=_TOKEN),
     "apns": KindSpec(label="Apple Push Notification service", default=_CREDENTIALS),
     "apple-ads": KindSpec(label="Apple Ads", default=_OAUTH, others=frozenset({_CREDENTIALS})),
+    "aws-kinesis": KindSpec(label="Amazon Kinesis", default=_CREDENTIALS),
     "aws-redshift": KindSpec(label="Amazon Redshift", default=_CREDENTIALS),
     "aws-s3": KindSpec(label="Amazon S3", default=_CREDENTIALS),
     "azure-blob": KindSpec(label="Azure Blob Storage", default=_CREDENTIALS),
