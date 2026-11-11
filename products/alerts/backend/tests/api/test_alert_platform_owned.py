@@ -16,7 +16,9 @@ from rest_framework import status
 from posthog.schema import InsightThreshold
 
 from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import team_scope
+from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.evaluation.detector import _earlier_flags
@@ -36,9 +38,17 @@ from products.alerts.backend.models.alert import (
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
 from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
+from products.alerts.backend.platform_subscribers import SUBSCRIBER_EVENT_KINDS
+from products.alerts.backend.tasks.tasks import remove_departed_subscriber
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, record_verdict_change, update_configuration
+from products.alerts_platform.backend.facade.api import (
+    get_configuration,
+    record_verdict_change,
+    set_subscriber_destinations,
+    subscriber_user_ids_by_public_id,
+    update_configuration,
+)
 from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
@@ -465,6 +475,71 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
                 configuration_id=self.copy_id,
                 change=change,
             )
+
+    def test_each_subscriber_writer_keeps_the_copys_subscriber_destinations_in_step(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        handed_over = create_insight_alert(self.team, next_check_at=self.now + timedelta(minutes=3))
+        handed_over.subscribed_users.add(other)
+
+        def copied(alert_id: Any) -> Any:
+            with team_scope(self.team.id):
+                return subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[alert_id])
+
+        cut_over_team(self.team.id, now=self.now)
+        assert copied(handed_over.id) == {handed_over.id: (other.id,)}
+
+        edit = self.client.patch(
+            f"{self.url}/{self.alert.id}/", {"subscribed_users": [self.user.id, other.id]}, format="json"
+        )
+        assert edit.status_code == status.HTTP_200_OK, edit.json()
+        assert copied(self.alert.id) == {self.alert.id: tuple(sorted([self.user.id, other.id]))}
+
+        with team_scope(self.team.id):
+            native = platform_testing.create_configuration(
+                team_id=self.team.id,
+                name="native",
+                source_kind="insight",
+                source_config={"insight_id": self.alert.insight_id},
+                check_interval_minutes=1440,
+                owner="platform",
+                legacy_configuration_id=None,
+            )
+            set_subscriber_destinations(
+                team_id=self.team.id,
+                public_id=native.id,
+                user_ids=[self.user.id, other.id],
+                event_kinds=SUBSCRIBER_EVENT_KINDS,
+                in_app_resource_type="insight",
+                in_app_resource_id=self.alert.insight.short_id,
+            )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationMembership.objects.get(user=other, organization=self.organization).delete()
+        assert copied(self.alert.id) == {self.alert.id: (self.user.id,)}
+        assert copied(handed_over.id) == {}
+        assert copied(native.id) == {native.id: (self.user.id,)}
+        # A cleanup that runs after the user joined again, such as a retry, follows the subscriptions
+        # where the alert has them, and leaves an alert with no insight row alone.
+        with team_scope(self.team.id):
+            for public_id in (self.alert.id, native.id):
+                set_subscriber_destinations(
+                    team_id=self.team.id,
+                    public_id=public_id,
+                    user_ids=[self.user.id, other.id],
+                    event_kinds=SUBSCRIBER_EVENT_KINDS,
+                    in_app_resource_type="insight",
+                    in_app_resource_id=self.alert.insight.short_id,
+                )
+        self.organization.memberships.create(user=other)
+        remove_departed_subscriber(
+            organization_id=str(self.organization.id), user_id=other.id, alert_ids=[str(self.alert.id)]
+        )
+        assert copied(self.alert.id) == {self.alert.id: (self.user.id,)}
+        assert copied(native.id) == {native.id: tuple(sorted([self.user.id, other.id]))}
+
+        cleared = self.client.patch(f"{self.url}/{self.alert.id}/", {"subscribed_users": []}, format="json")
+        assert cleared.status_code == status.HTTP_200_OK, cleared.json()
+        assert copied(self.alert.id) == {}
 
     def test_each_api_writes_both_rows_of_an_alert_the_platform_owns(self) -> None:
         stored_config = self._copy().source_config
