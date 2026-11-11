@@ -14,13 +14,13 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.schema_enums import InCohortVia, InlineCohortCalculation, PersonsOnEventsMode
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestTrinoSemantics(APIBaseTest):

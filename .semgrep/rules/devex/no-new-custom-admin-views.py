@@ -41,3 +41,34 @@ api_urlpatterns = [
     # ok: no-new-custom-admin-views
     path("api/projects/", projects_view),
 ]
+
+
+class DeletionRequestAdmin(admin.ModelAdmin):
+    # ok: no-new-admin-workflow-hooks
+    readonly_fields = ("status",)
+
+    # ok: no-new-admin-workflow-hooks
+    def get_readonly_fields(self, request, obj=None):
+        return self.readonly_fields
+
+    # ruleid: no-new-admin-workflow-hooks
+    def save_model(self, request, obj, form, change):
+        obj.status = "draft"
+        super().save_model(request, obj, form, change)
+
+    # ruleid: no-new-admin-workflow-hooks
+    def save_form(self, request, form, change):
+        return form.save(commit=False)
+
+    # ruleid: no-new-admin-workflow-hooks
+    def change_view(self, request, object_id, form_url="", extra_context=None):
+        return super().change_view(request, object_id, form_url, extra_context)
+
+    # ruleid: no-new-admin-workflow-hooks
+    def response_change(self, request, obj):
+        return super().response_change(request, obj)
+
+
+# ok: no-new-admin-workflow-hooks
+def save_model(request, obj):
+    return obj

@@ -28,6 +28,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.s3_table import DataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_trino_identifier
+from posthog.hogql.functions.clickhouse.conversions import NUMERIC_CONVERSION_ALIASES
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS, HOGQL_CLICKHOUSE_FUNCTIONS, HOGQL_POSTHOG_FUNCTIONS
 from posthog.hogql.helpers.timestamp_visitor import is_time_or_interval_constant
 from posthog.hogql.parser import parse_expr, parse_select
@@ -525,6 +526,15 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
             "arrayExists((v, d) -> d, [10, 20], [0, 1])",
             'any_match(zip_with(ARRAY[10, 20], ARRAY[0, 1], ("v", "d") -> CAST("d" AS BOOLEAN))',
         ),
+        ("(id > 0) = 1", '(CAST(("users"."id" > 0) AS INTEGER) = 1)'),
+        ("1 = (id > 0)", '(1 = CAST(("users"."id" > 0) AS INTEGER))'),
+        (
+            "(id > 0 AND user_id = 'a') = 1",
+            '(CAST(((("users"."id" > 0)) AND (("users"."user_id" = %(hogql_val_0)s))) AS INTEGER) = 1)',
+        ),
+        ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
+        ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
+        ("id = 1", '("users"."id" = 1)'),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
@@ -554,10 +564,38 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
             "WITH a AS (SELECT [toDate('2024-01-01')] AS days) SELECT arrayJoin(days) + 1 FROM a",
             'date_add(\'day\', CAST(1 AS BIGINT), "__trino_array_function_0"."value_0")',
         ),
+        (
+            "SELECT sumIf(id, flagged.is_active = 1) FROM flagged",
+            'FILTER (WHERE (CAST("flagged"."is_active" AS INTEGER) = 1))',
+        ),
+        (
+            "SELECT sumIf(id, f.is_active != 0) FROM flagged AS f",
+            'FILTER (WHERE (CAST("f"."is_active" AS INTEGER) != 0))',
+        ),
+        ("SELECT sumIf(id, flagged.score = 1) FROM flagged", 'FILTER (WHERE ("flagged"."score" = 1))'),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
-    sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
+    context = _context_with_trino_table()
+    assert context.database is not None
+    context.database.tables.add_child(
+        TableNode(
+            name="flagged",
+            table=SavedQuery(
+                id="flagged",
+                name="flagged",
+                query="SELECT id, id > 0 AND user_id != '' AS is_active, id AS score FROM users",
+                # Saved view columns come from ClickHouse, which reports a boolean expression as UInt8.
+                fields={
+                    "id": IntegerDatabaseField(name="id"),
+                    "is_active": IntegerDatabaseField(name="is_active"),
+                    "score": IntegerDatabaseField(name="score"),
+                },
+            ),
+        )
+    )
+
+    sql, _ = prepare_and_print_ast(parse_select(query), context, "trino")
 
     assert expected in sql
 
@@ -591,6 +629,7 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         *TRINO_FUNCTION_RENAMES_LOWER,
         *TRINO_PASSTHROUGH_FUNCTIONS,
         *_SPECIAL_CALLS,
+        *(alias.lower() for alias in NUMERIC_CONVERSION_ALIASES),
     }
     registries = {
         "scalar": HOGQL_CLICKHOUSE_FUNCTIONS,
@@ -643,6 +682,8 @@ def test_tracks_every_registered_function_without_a_trino_mapping(snapshot: Snap
         ("toTypeName(user_id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("bitNot(id)", "TRINO_FUNCTION_UNSUPPORTED"),
         ("range(1, 10, id)", "TRINO_RANGE_STEP_UNSUPPORTED"),
+        ("JSONExtractKeysAndValues(properties, 'Array(Float64)')", "TRINO_JSON_TARGET_TYPE_UNSUPPORTED"),
+        ("JSONExtractKeysAndValues(properties, user_id, 'Float64')", "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED"),
     ],
 )
 def test_rejects_unsupported_printer_function_variants(expression: str, feature_code: str) -> None:
@@ -2093,7 +2134,21 @@ def test_rejects_with_fill_before_printing_invalid_trino_sql() -> None:
         ("date_part('year', created_at)", 'EXTRACT(YEAR FROM "users"."created_at")'),
         (
             "JSONExtractKeysAndValues(properties, 'Float64')",
-            'map_entries(transform_values(CAST(json_extract("users"."properties", \'$\') AS MAP(VARCHAR, JSON))',
+            'ch_json_extract_keys_and_values_float64(IF(typeof("users"."properties") = \'json\', '
+            'json_format(json_extract("users"."properties", \'$\')), CAST("users"."properties" AS VARCHAR)), '
+            "'[]', false)",
+        ),
+        # ClickHouse reads 'Float' as Float32 and 'Int' as Int32.
+        ("JSONExtractKeysAndValues(properties, 'Float')", "ch_json_extract_keys_and_values_float32("),
+        (
+            "JSONExtractKeysAndValues(properties, 'metrics', 1, 'Int')",
+            "'[\"metrics\", 1]', false, -2147483648, 2147483647) AS ARRAY(ROW(VARCHAR, INTEGER)))",
+        ),
+        ("JSONExtractKeysAndValues(properties, 'Int64')", "false, -9223372036854775807 - 1, 9223372036854775807)"),
+        # A Nullable type keeps a JSON null as a NULL value instead of dropping the key.
+        (
+            "JSONExtractKeysAndValues(properties, 'Nullable(UInt8)')",
+            "'[]', true, 0, 255) AS ARRAY(ROW(VARCHAR, SMALLINT)))",
         ),
         ("['a', 'b'][2:]", "slice(ARRAY[%(hogql_val_0)s, %(hogql_val_1)s], 2, 2147483647)"),
     ],

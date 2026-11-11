@@ -45,6 +45,22 @@ class TestBingWebmasterToolsSource:
         assert error_message_matches(error_message, self.source.get_retryable_errors())
         assert not error_message_matches(error_message, self.source.get_non_retryable_errors())
 
+    @pytest.mark.parametrize("fault", ["ThrottleUser", "ThrottleIP"])
+    def test_throttle_fault_gets_clear_message_when_retries_run_out(self, fault):
+        raised = f"Bing Webmaster Tools GetQueryStats failed with status 400: ERROR!!! {fault}"
+
+        messages = [
+            message
+            for key, message in self.source.get_retry_exhausted_errors().items()
+            if error_message_matches(raised, [key])
+        ]
+
+        assert len(messages) == 1
+        assert "rate limit" in messages[0]
+        assert "Throttle" not in messages[0]
+        assert "400" not in messages[0]
+        assert error_message_matches(raised, self.source.get_retryable_errors())
+
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_plumbs_schema_name(self, endpoint):
         response = self.source.source_for_pipeline(self.config, _make_inputs(endpoint))

@@ -14,7 +14,12 @@ from posthog.models import User
 from posthog.schema_enums import IntervalType
 
 from ..facade import api
-from ..facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, METRIC_NAME_MAX_LENGTH
+from ..facade.api import (
+    DESCRIPTION_TOO_LONG_MESSAGE,
+    MAX_DESCRIPTION_LENGTH,
+    MAX_METRIC_RUN_PAGES,
+    METRIC_NAME_MAX_LENGTH,
+)
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric, RelationshipProposal, TableCertification
 
@@ -69,17 +74,27 @@ class MetricRunResponseSerializer(serializers.Serializer):
     compiled_query = serializers.CharField(allow_null=True, help_text="The compiled HogQL, when available.")
     query_status = _FreeJSONField(allow_null=True, help_text="Async query status, when the run is not blocking.")
     has_more = serializers.BooleanField(
-        help_text="True when the query hit its row limit and more rows exist. Narrow the window or the "
-        "interval and run the metric again. A HogQLQuery metric fixes its window in SQL and rejects those "
-        "overrides, so report the window the definition itself covers, or ask for a parameterized metric. "
-        "Either way, do not re-derive the series by hand. False whenever row_limit is null, because no row "
-        "cap was reported for that run."
+        help_text="True when the query hit its row limit and more rows exist. Run the metric again with "
+        "offset set to next_offset, and repeat until has_more is false. Do not re-derive the rows by hand. "
+        "False whenever row_limit is null, because no row cap was reported for that run."
     )
     row_limit = serializers.IntegerField(
         allow_null=True,
         help_text="Row limit applied to this run. Null when no row cap was reported: a markdown metric, an "
         "insight or trends query, or a HogQL metric that sets its own LIMIT or uses a UNION. This field "
         "cannot verify the completeness of those runs.",
+    )
+    next_offset = serializers.IntegerField(
+        allow_null=True,
+        help_text="Offset that returns the next page of rows. Null when has_more is false, or when the run "
+        "reached the page limit (see paging_stopped_reason). Pages follow the definition's ORDER BY, so rows that "
+        "tie on every ORDER BY column can move between pages.",
+    )
+    paging_stopped_reason = serializers.CharField(
+        allow_null=True,
+        help_text=f"Why paging stopped while has_more is still true: a metric run returns at most "
+        f"{MAX_METRIC_RUN_PAGES} pages. Report the result as partial. Null when paging can continue or the rows "
+        "are complete.",
     )
     posthog_url = serializers.CharField(
         allow_null=True, help_text="Deep link to open the query in the app (SQL editor or insight)."
@@ -103,6 +118,12 @@ class MetricRunRequestSerializer(serializers.Serializer):
         choices=[t.value for t in IntervalType],
         required=False,
         help_text="Override the bucket interval. Rejected for HogQLQuery metrics.",
+    )
+    offset = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        help_text="Rows to skip, to read the page after a run that returned has_more. Pass next_offset from "
+        "that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.",
     )
     query_id = serializers.CharField(required=False, help_text="Client-supplied id to correlate or cancel the run.")
 
@@ -175,7 +196,6 @@ class MetricSerializer(serializers.ModelSerializer):
             "last_run_at",
             "created_source",
             "ai_model",
-            "confidence",
             "reasoning",
             "created_by",
             "created_at",
@@ -214,11 +234,6 @@ class MetricSerializer(serializers.ModelSerializer):
             },
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
             "ai_model": {"help_text": "Model that generated the metric, if AI-authored."},
-            "confidence": {
-                "help_text": "AI author's confidence in the proposal, 0-1.",
-                "min_value": 0.0,
-                "max_value": 1.0,
-            },
             "reasoning": {
                 "help_text": "Why the definition is shaped this way, in 1-3 short sentences. Name the main design "
                 "decisions and trade-offs: the source table or view, a filter or exclusion, the grain, an "

@@ -81,7 +81,12 @@ describe('classic chat draft recovery', () => {
             } else {
                 expect(screen.getByText('Received reply')).toBeTruthy()
                 expect(screen.queryByText("Couldn't load this session")).toBeNull()
-                fireEvent.press(screen.getByLabelText('Reconnect'))
+                if (kind === 'reloading') {
+                    expect(screen.queryByLabelText('Reconnect')).toBeNull()
+                    expect(screen.queryByText('Reconnecting…')).toBeNull()
+                } else {
+                    fireEvent.press(screen.getByLabelText('Reconnect'))
+                }
             }
             expect(reload).toHaveBeenCalledTimes(kind === 'reloading' ? 0 : 1)
         }

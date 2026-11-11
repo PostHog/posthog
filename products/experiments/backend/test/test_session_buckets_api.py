@@ -14,7 +14,7 @@ import posthog.hogql.query as hogql_query_module
 
 from posthog.clickhouse.query_tagging import Product, get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.models import EventProperty, Team, User
+from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import uuid7
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -22,6 +22,7 @@ from posthog.session_recordings.queries.test.session_replay_sql import produce_r
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend import session_buckets
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,

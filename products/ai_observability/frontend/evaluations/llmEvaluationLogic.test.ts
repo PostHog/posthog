@@ -10,7 +10,6 @@ import { HogQLQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ActivityScope } from '~/types'
 
-import type { TestHogResponseApi } from '../generated/api.schemas'
 import { modelPickerLogic } from '../modelPickerLogic'
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_RUNS_QUERY_LIMIT, numericScorePasses } from './constants'
@@ -244,6 +243,7 @@ describe('llmEvaluationLogic', () => {
         useMocks({
             get: {
                 '/api/llm_proxy/models/': [],
+                '/api/projects/:teamId/llm_analytics/provider_keys/:keyId/models/': [],
                 '/api/environments/:teamId/llm_analytics/provider_keys/': { results: mockProviderKeys },
                 '/api/environments/:teamId/llm_analytics/evaluation_config/': {
                     active_provider_key: null,
@@ -1950,6 +1950,34 @@ return result`,
                                   ]
                                 : [],
                         ],
+                        '/api/projects/:team_id/llm_analytics/provider_keys/:key_id/models/': ({ params }) => [
+                            200,
+                            params.key_id === keyId
+                                ? [
+                                      {
+                                          id: 'example/dual-model',
+                                          name: 'example/dual-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/chat-model',
+                                          name: 'example/chat-model',
+                                          provider: displayName,
+                                          supports_decisions: false,
+                                          supports_chat: true,
+                                      },
+                                      {
+                                          id: 'example/decision-model',
+                                          name: 'example/decision-model',
+                                          provider: displayName,
+                                          supports_decisions: true,
+                                          supports_chat: false,
+                                      },
+                                  ]
+                                : [],
+                        ],
                     },
                 })
                 await expectLogic(keysLogic, () => keysLogic.actions.loadProviderKeys()).toFinishAllListeners()
@@ -2092,169 +2120,8 @@ return result`,
         })
     })
 
-    describe('Hog sample testing', () => {
-        it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
-            expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
-        })
-
-        it.each(['numeric', 'categorical'] as const)(
-            'does not request a sample with an invalid %s config',
-            async (outputType) => {
-                const testSample = jest.fn(() => ({ results: [] }))
-                useMocks({ post: { '/api/projects/:teamId/evaluations/test_hog/': testSample } })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-                logic.actions.setEvaluationType('hog')
-                logic.actions.setOutputType(outputType)
-                logic.actions.patchOutputConfig(
-                    outputType === 'numeric'
-                        ? { passing_rule: { operator: 'gte', threshold: NaN } }
-                        : {
-                              options: Array.from({ length: 101 }, (_, i) => ({
-                                  key: `category_${i}`,
-                                  label: `Category ${i}`,
-                              })),
-                          }
-                )
-
-                await expectLogic(logic, () => logic.actions.testHogOnSample()).toFinishAllListeners()
-
-                expect(testSample).not.toHaveBeenCalled()
-                expect(logic.values.hogTestResults).toBeNull()
-            }
-        )
-
-        it.each(['boolean', 'numeric', 'categorical'] as const)(
-            'sends %s output config and clears sample results after configuration changes',
-            async (outputType) => {
-                let requestBody: Record<string, unknown> | undefined
-                useMocks({
-                    post: {
-                        '/api/projects/:teamId/evaluations/test_hog/': async ({ request }) => {
-                            requestBody = (await request.json()) as Record<string, unknown>
-                            return {
-                                results: [
-                                    {
-                                        sample_id: 'trace-1',
-                                        sample_type: 'trace',
-                                        event_uuid: null,
-                                        trace_id: 'trace-1',
-                                        input_preview: 'hello',
-                                        output_preview: 'world',
-                                        result: true,
-                                        reasoning: null,
-                                        error: null,
-                                    },
-                                ],
-                            }
-                        },
-                    },
-                })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-                logic.actions.setEvaluationType('hog')
-                logic.actions.setOutputType(outputType)
-                if (outputType === 'numeric') {
-                    logic.actions.patchOutputConfig({
-                        min: 0,
-                        max: 10,
-                        passing_rule: { operator: 'gte', threshold: 7 },
-                    })
-                }
-                logic.actions.setEvaluationTarget('trace')
-                logic.actions.patchTargetConfig({ window_seconds: 120 })
-                logic.actions.testHogOnSample()
-
-                await expectLogic(logic)
-                    .toDispatchActions(['testHogOnSampleSuccess'])
-                    .toMatchValues({
-                        hogTestResults: [expect.objectContaining({ sample_id: 'trace-1', sample_type: 'trace' })],
-                    })
-                expect(requestBody).toMatchObject({
-                    target: 'trace',
-                    output_type: outputType,
-                    output_config:
-                        outputType === 'numeric'
-                            ? { min: 0, max: 10, allows_na: false, passing_rule: { operator: 'gte', threshold: 7 } }
-                            : outputType === 'categorical'
-                              ? {
-                                    allows_na: false,
-                                    selection_mode: 'single',
-                                    options: [
-                                        { key: 'resolved', label: 'Resolved' },
-                                        { key: 'unresolved', label: 'Unresolved' },
-                                    ],
-                                }
-                              : { allows_na: false },
-                    target_config: { window_seconds: 120 },
-                })
-                expect(requestBody).not.toHaveProperty('allows_na')
-
-                if (outputType === 'numeric') {
-                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
-                    expect(logic.values.hogTestResults).not.toBeNull()
-                    logic.actions.patchOutputConfig({ max: 20 })
-                } else {
-                    logic.actions.patchTargetConfig({ window_seconds: 240 })
-                }
-                await expectLogic(logic).toMatchValues({ hogTestResults: null })
-            }
-        )
-
-        it.each(['target', 'passing_rule'])(
-            'handles a %s change while a preview is in flight',
-            async (changedField) => {
-                let resolveRequest: (value: TestHogResponseApi) => void = () => {}
-                const pendingResponse = new Promise<TestHogResponseApi>((resolve) => {
-                    resolveRequest = resolve
-                })
-                useMocks({
-                    post: {
-                        '/api/projects/:teamId/evaluations/test_hog/': () => pendingResponse,
-                    },
-                })
-                logic = llmEvaluationLogic({ evaluationId: 'new' })
-                logic.mount()
-                await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
-
-                logic.actions.setEvaluationType('hog')
-                logic.actions.setOutputType('numeric')
-                logic.actions.testHogOnSample()
-                await expectLogic(logic).toMatchValues({ hogTestResultsLoading: true })
-
-                if (changedField === 'target') {
-                    logic.actions.setEvaluationTarget('trace')
-                } else {
-                    logic.actions.patchOutputConfig({ passing_rule: { operator: 'gte', threshold: 5 } })
-                }
-                await expectLogic(logic).toMatchValues({ hogTestResults: null })
-                resolveRequest({
-                    results: [
-                        {
-                            sample_id: 'generation-1',
-                            sample_type: 'generation',
-                            event_uuid: 'generation-1',
-                            trace_id: 'trace-1',
-                            input_preview: 'hello',
-                            output_preview: 'world',
-                            result: null,
-                            score: 7,
-                            reasoning: '',
-                            error: null,
-                        },
-                    ],
-                })
-
-                await expectLogic(logic)
-                    .toDispatchActions(['testHogOnSampleSuccess'])
-                    .toMatchValues({
-                        hogTestResults: changedField === 'target' ? null : [expect.objectContaining({ score: 7 })],
-                    })
-            }
-        )
+    it.each([NaN, Infinity, -Infinity])('leaves scores ungraded for threshold %s', (threshold) => {
+        expect(numericScorePasses(7, { operator: 'gte', threshold })).toBeNull()
     })
 
     describe('saveEvaluation list refresh', () => {

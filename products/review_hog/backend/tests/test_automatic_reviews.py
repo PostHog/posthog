@@ -52,6 +52,8 @@ _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
 _INSTALLATION_ID = "1234"
 _REPO_ID = 5001
+_REQUESTER_ID = 4242
+_TEAM_REQUEST_QUEUE = "products.review_hog.backend.tasks.process_review_team_request.delay"
 
 
 def _dispatch_count(outcome: str) -> float:
@@ -80,6 +82,16 @@ def _payload(
             "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
             "base": {"repo": {"full_name": repository}},
         },
+    }
+
+
+def _review_request_payload(
+    *, team_slug: str = "posthog-review", sender: Mapping[str, object] | None = None
+) -> dict[str, object]:
+    return {
+        **_payload(action="review_requested"),
+        "requested_team": {"id": 1, "slug": team_slug},
+        "sender": sender or {"id": _REQUESTER_ID, "login": "OctoCat", "type": "User"},
     }
 
 
@@ -156,6 +168,7 @@ class TestAuthoredPRWebhook(SimpleTestCase):
             github_repo_id=_REPO_ID,
             draft=draft,
             skip_agent_review=False,
+            action=action,
         )
 
     @parameterized.expand(
@@ -225,6 +238,33 @@ class TestAuthoredPRWebhook(SimpleTestCase):
 
         enqueue.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("review_team", _review_request_payload(), True),
+            ("another_team", _review_request_payload(team_slug="team-devex"), False),
+            ("bot_sender", _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), False),
+        ]
+    )
+    @patch(_TEAM_REQUEST_QUEUE)
+    @patch(_QUEUE)
+    def test_a_review_team_request_queues_a_requested_review(
+        self, _name: str, payload: dict[str, object], expected: bool, enqueue: MagicMock, enqueue_request: MagicMock
+    ) -> None:
+        assert self._post(json.dumps(payload).encode()).status_code == 202
+
+        enqueue.assert_not_called()
+        if expected:
+            enqueue_request.assert_called_once_with(
+                installation_id=_INSTALLATION_ID,
+                repository="PostHog/posthog",
+                github_repo_id=_REPO_ID,
+                pr_number=42,
+                requester_github_id=_REQUESTER_ID,
+                requester_login="OctoCat",
+            )
+        else:
+            enqueue_request.assert_not_called()
+
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:
         assert self.view(self.factory.get("/webhooks/github/")).status_code == 405
@@ -285,14 +325,14 @@ class TestAuthoredPRReviewTask(BaseTest):
         )
 
     def _queued_event(
-        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = ()
+        self, login: str = "OctoCat", *, draft: bool = False, labels: tuple[str, ...] = (), action: str = "opened"
     ) -> Mapping[str, object]:
         with patch(_QUEUE) as enqueue:
-            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels))
+            accept_pull_request_event(_payload(login=login, draft=draft, labels=labels, action=action))
         enqueue.assert_called_once()
         return enqueue.call_args.kwargs
 
-    def _expected_start(self, *, team_id: int, user_id: int) -> dict[str, object]:
+    def _expected_start(self, *, team_id: int, user_id: int, marks_ready: bool = True) -> dict[str, object]:
         return {
             "pr_url": "https://github.com/PostHog/posthog/pull/42",
             "team_id": team_id,
@@ -303,6 +343,8 @@ class TestAuthoredPRReviewTask(BaseTest):
             "review_mode": "flash",
             "trigger_source": "automatic",
             "requested_head_sha": _HEAD_SHA,
+            "trigger_action": "opened",
+            "marks_ready": marks_ready,
             "installation_id": _INSTALLATION_ID,
             "github_repo_id": _REPO_ID,
         }
@@ -336,7 +378,9 @@ class TestAuthoredPRReviewTask(BaseTest):
 
         process_authored_pr_event.run(**self._queued_event(draft=drafts))
 
-        start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
+        start.assert_called_once_with(
+            **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not drafts)
+        )
         assert _dispatch_count("started") - started_before == 1.0
         # The first sighting stores GitHub's id, so a later rename keeps the row.
         self.repository.refresh_from_db()
@@ -434,7 +478,9 @@ class TestAuthoredPRReviewTask(BaseTest):
         process_authored_pr_event.run(**self._queued_event(login="dependabot[bot]", draft=draft))
 
         if expected_outcome == "started":
-            start.assert_called_once_with(**self._expected_start(team_id=self.team.id, user_id=self.user.id))
+            start.assert_called_once_with(
+                **self._expected_start(team_id=self.team.id, user_id=self.user.id, marks_ready=not draft)
+            )
         else:
             start.assert_not_called()
         assert _dispatch_count(expected_outcome) - outcome_before == 1.0

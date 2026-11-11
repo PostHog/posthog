@@ -9,3 +9,5 @@ Choose the link source in this order:
 3. Only for genuinely static pages not in the `generate-app-url` catalog (some settings pages), take the origin from a PostHog URL you already have (any `_posthogUrl`, or a `generate-app-url` result). Then build the link (don't double-prefix):
    - Project-scoped paths → origin + `/project/<active project id>`, never an id copied from another URL: `/settings/<section-id>` (hyphenated, e.g. `/settings/environment-replay`, `/settings/user-api-keys`).
    - Org-/account-level paths → origin only (no `/project/:id`): first segment `organization`, `me`, `account`, or `instance` — e.g. billing is `/organization/billing`.
+
+To link a SQL query that has no `_posthogUrl` (e.g. one you ran with `execute-sql`), build origin + `/project/<active project id>/sql?open_query=<URL-encoded SQL>`, with the origin taken as in step 3. Never wrap SQL in an `/insights/new#q=` link: a new insight cannot show or edit SQL, so the reader sees only a table.

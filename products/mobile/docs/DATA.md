@@ -28,6 +28,9 @@ Each interface names the serializer it mirrors.
 
 Query keys (`reportKeys` in `src/api/reports.ts`) carry the host and project id, so a project switch never shows another project's cache.
 `useProjectScope()` reads both from the auth store and returns null until the session is signed in.
+Inside a `ProjectScopeOverride` (`src/auth/projectScope.ts`) it returns that project instead. A report a web link opened provides the link's project, so the report pane and its details screen read and write that project, and the session's project stays the same.
+The helpers those screens call take the scope from `useProjectScope()`, so a request goes to the project of its query key.
+Chat runs in the session's project, so Ask and the task chat on such a report switch the session to the report's project first (`mobile_project_switched` with `from: link`).
 
 ## Connectivity
 
@@ -100,8 +103,9 @@ The screen and the prefetcher share the query factories in `src/features/report/
 The report screen renders the cached copy at once and refetches it on every open, and on Prev/Next.
 A failed background refetch keeps the cached copy.
 `mobile_report_opened` carries `from_cache`, true when the report detail was in the cache when the screen opened.
-It also carries `from`, read from the route's `from` param: `inbox` (a row tap), `push` (a notification), `adjacent` (Prev/Next) or `deep_link` (no param or an unknown one).
+It also carries `from`, read from the route's `from` param: `inbox` (a row tap), `push` (a notification), `adjacent` (Prev/Next), `slack` (a web report link with `link_source=slack` or `slack_scout`), `link` (any other web report link) or `deep_link` (no param or an unknown one).
 `mobile_report_load_failed` is sent when the screen shows "Couldn't load this report", with `report_id` and `kind` as for the inbox error, or with `kind: invalid_id` and no id for "Couldn't find this report".
+It carries `kind: other_project` when a report link names a region the session is not signed in to, or a project that refuses the report with a 403 or 404. The screen then offers to open the link in an in-app browser.
 `mobile_report_read` is sent once when the report body unmounts (Back or Prev/Next), with `report_id`, `dwell_s` (whole seconds the screen had focus with the app in the foreground) and `scrolled_to_end` (the deepest scroll came within 160 px of the content end, or the content fit on screen).
 `mobile_report_replay_opened` carries `report_id` and `replay_count` when "See the moment" opens the session screen (the recording on the web in demo mode).
 

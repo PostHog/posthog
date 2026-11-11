@@ -645,6 +645,35 @@ export interface MessageSuppressionApi {
     readonly updated_at: string
 }
 
+export interface BulkRemoveSuppressionsRequestApi {
+    /**
+     * The email addresses to remove, at most 100 per request.
+     * @minItems 1
+     * @maxItems 100
+     * @items.maxLength 512
+     */
+    identifiers: string[]
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
+export interface BulkRemoveSuppressionsResponseApi {
+    /** Addresses removed from the suppression list. */
+    removed: string[]
+    /** Addresses that were not on the suppression list. */
+    not_found: string[]
+}
+
+export interface RemoveSuppressionRequestApi {
+    /**
+     * The email address to remove.
+     * @maxLength 512
+     */
+    identifier: string
+    /** Set to true to remove addresses that are suppressed because the recipient reported a message as spam. Mailing them again can hurt your sender reputation. Without it, a request that includes one removes nothing and returns 400. */
+    confirm_complaints?: boolean
+}
+
 /**
  * OpenAPI shape for the paginated suppressions response. Declared so drf-spectacular emits
  * the {count, next, previous, results} envelope on the generated client, rather than a bare
@@ -1134,6 +1163,67 @@ export interface TransactionalEmailLogDetailApi {
     action_id: string
     /** True when the template is marked sensitive, so no rendered body or subject values are kept. */
     sensitive: boolean
+}
+
+export interface TransactionalEmailActivityEventApi {
+    /** The event's UUID. */
+    uuid: string
+    /** The event name, such as `$pageview` or a custom event. */
+    event: string
+    /** When the event happened. */
+    timestamp: string
+    /**
+     * The page the person was on. Null when not set.
+     * @nullable
+     */
+    current_url: string | null
+    /**
+     * The path of that page, such as `/pricing`.
+     * @nullable
+     */
+    pathname: string | null
+    /**
+     * The session the event belongs to. Use it to find the session recording. Null for events captured without a session, such as server-side events.
+     * @nullable
+     */
+    session_id: string | null
+    /**
+     * What an autocaptured event did, such as `click` or `submit`. Null otherwise.
+     * @nullable
+     */
+    event_type: string | null
+    /** The element an autocaptured event happened on, with its parents. Empty for other events. */
+    elements_chain: string
+}
+
+export interface TransactionalEmailActivitySessionApi {
+    /** The session ID, the same one session recordings use. */
+    session_id: string
+    /** The first event of this session in the window. */
+    first_event_at: string
+    /** The last event of this session in the window. */
+    last_event_at: string
+    /** How many of the returned events belong to this session. */
+    event_count: number
+    /** True when none of the session's events came before the send, so the person started it after the email. */
+    started_after_send: boolean
+}
+
+export interface TransactionalEmailActivityApi {
+    /** The distinct ID the send named. Empty when it named none, and then there are no events. */
+    distinct_id: string
+    /** When the email went to the provider, or when it was queued if it was never sent. */
+    sent_at: string
+    /** The person's events in the week before the send, oldest first. */
+    before: TransactionalEmailActivityEventApi[]
+    /** The person's events in the week after the send, oldest first. */
+    after: TransactionalEmailActivityEventApi[]
+    /** True when older events in the window were left out. */
+    has_more_before: boolean
+    /** True when later events in the window were left out. */
+    has_more_after: boolean
+    /** The sessions the returned events belong to, in the order they first appear. */
+    sessions: TransactionalEmailActivitySessionApi[]
 }
 
 export interface TransactionalEmailResultsApi {

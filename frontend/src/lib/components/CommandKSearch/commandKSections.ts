@@ -309,14 +309,14 @@ function matchLocal(source: LocalSource, items: SearchItem[], query: string, ran
     if (cached) {
         return cached
     }
-    const fuzzy = (): SearchItem[] =>
-        source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
     const matches =
         strict && source === 'settings'
             ? settingsMatches(items, query)
             : strict
-              ? strictLocalMatches(fuzzy(), query)
-              : fuzzy()
+              ? strictLocalMatches(items, query)
+              : source === 'create'
+                ? filterNewItems(items, query)
+                : filterSearchItems(items, query)
     if (byQuery.size >= LOCAL_MATCH_CACHE_SIZE) {
         byQuery.delete(byQuery.keys().next().value!)
     }

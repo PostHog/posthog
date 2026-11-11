@@ -40,6 +40,16 @@ const FIXES: Record<ExperimentHealthFindingActionKind, { title: string; descript
         title: 'Add a secondary metric',
         description: 'Adds a metric to watch next to the primary metrics. Your users see no change.',
     },
+    end_experiment: {
+        title: 'End the experiment',
+        description:
+            "Users and events after the end date don't count in the results. In the next step you choose whether to roll out a variant or leave the feature flag as it is.",
+    },
+    freeze_exposure: {
+        title: 'Freeze exposure',
+        description:
+            'New users stop entering the experiment. Users already in it keep their variant, and their events keep counting. You can unfreeze it later.',
+    },
 }
 
 export function HealthFindingFixes({

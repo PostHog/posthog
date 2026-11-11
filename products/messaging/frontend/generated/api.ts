@@ -13,6 +13,8 @@ import type {
     AddSuppressionRequestApi,
     BulkAddOptOutsRequestApi,
     BulkAddOptOutsResultApi,
+    BulkRemoveSuppressionsRequestApi,
+    BulkRemoveSuppressionsResponseApi,
     EmailStatusApi,
     GenerateLinkRequestApi,
     ImportProviderOptionApi,
@@ -37,6 +39,7 @@ import type {
     PreferencesLinkApi,
     ProviderImportRunApi,
     RemoveOptOutRequestApi,
+    RemoveSuppressionRequestApi,
     SendEmailApi,
     SendTransactionalEmailApi,
     SendTransactionalEmailResponseApi,
@@ -44,6 +47,7 @@ import type {
     StartProviderImportApi,
     SupabaseAuthEmailSettingsApi,
     TopicPreferencesApi,
+    TransactionalEmailActivityApi,
     TransactionalEmailLogDetailApi,
     TransactionalEmailLogListApi,
     TransactionalEmailLogListParams,
@@ -78,7 +82,7 @@ export const getMessagingEmailsRetrieveUrl = (projectId: string, id: string) => 
 }
 
 /**
- * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too.
+ * Get the status of one transactional email by the `message_id` that the send returned, for 30 days after the send. Needs a project secret API key with the `transactional_email:read` scope. A key with `hog_flow:read` also works, but that scope reaches the rest of Workflows too. The first status is recorded a few seconds after the send, so a read right after a send can answer 404. Treat that 404 as `queued` and read again a few seconds later.
  * @summary Get a transactional email's status
  */
 export const messagingEmailsRetrieve = async (
@@ -777,6 +781,30 @@ export const messagingSuppressionsAddSuppressionCreate = async (
     })
 }
 
+export const getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/messaging_suppressions/bulk_remove_suppressions/`
+}
+
+/**
+ * Remove up to 100 addresses from the suppression list so they can receive messages again.
+ * @summary Remove several email addresses from the suppression list
+ */
+export const messagingSuppressionsBulkRemoveSuppressionsCreate = async (
+    projectId: string,
+    bulkRemoveSuppressionsRequestApi: BulkRemoveSuppressionsRequestApi,
+    options?: RequestInit
+): Promise<BulkRemoveSuppressionsResponseApi> => {
+    return apiMutator<BulkRemoveSuppressionsResponseApi>(
+        getMessagingSuppressionsBulkRemoveSuppressionsCreateUrl(projectId),
+        {
+            ...options,
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(bulkRemoveSuppressionsRequestApi),
+        }
+    )
+}
+
 export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/messaging_suppressions/remove_suppression/`
 }
@@ -787,14 +815,14 @@ export const getMessagingSuppressionsRemoveSuppressionCreateUrl = (projectId: st
  */
 export const messagingSuppressionsRemoveSuppressionCreate = async (
     projectId: string,
-    addSuppressionRequestApi: AddSuppressionRequestApi,
+    removeSuppressionRequestApi: RemoveSuppressionRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getMessagingSuppressionsRemoveSuppressionCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(addSuppressionRequestApi),
+        body: JSON.stringify(removeSuppressionRequestApi),
     })
 }
 
@@ -1055,6 +1083,25 @@ export const transactionalEmailLogRetrieve = async (
     options?: RequestInit
 ): Promise<TransactionalEmailLogDetailApi> => {
     return apiMutator<TransactionalEmailLogDetailApi>(getTransactionalEmailLogRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTransactionalEmailLogActivityRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/transactional_email_log/${id}/activity/`
+}
+
+/**
+ * The recipient's events in the 7 days before and after one send, with the sessions they belong to.
+ * @summary Get what a transactional email's recipient did around the send
+ */
+export const transactionalEmailLogActivityRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TransactionalEmailActivityApi> => {
+    return apiMutator<TransactionalEmailActivityApi>(getTransactionalEmailLogActivityRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

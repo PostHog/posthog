@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.testing import create_dashboard
 from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.reminders.backend.models import Reminder
@@ -389,7 +389,9 @@ class TestReminderAPI(APIBaseTest):
     ) -> None:
         created_by = self.user if created_by_caller else None
         if resource_type == "dashboard":
-            resource_id = Dashboard.objects.create(team=self.team, name="Revenue", created_by=created_by).pk
+            resource_id = create_dashboard(
+                team_id=self.team.id, name="Revenue", created_by_id=created_by.id if created_by else None
+            )
         else:
             flag = FeatureFlag.objects.create(team=self.team, key="experiment-flag")
             resource_id = create_experiment(

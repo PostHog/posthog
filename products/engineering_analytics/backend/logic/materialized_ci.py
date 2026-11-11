@@ -13,14 +13,17 @@ from posthog.dataclasses import frozen
 from products.data_modeling.backend.facade.api import (
     IncrementalConfig,
     definition_fingerprint,
+    deserialize_watermark,
     get_incremental_config,
     get_incremental_state,
     is_materialization_fresh,
 )
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.engineering_analytics.backend.facade.contracts import MATERIALIZED_VIEWS_FEATURE_FLAG, CIDataFreshness
+from products.engineering_analytics.backend.logic.queries._workflow_filters import WIDEST_SCAN_FLOOR_SLACK
 from products.engineering_analytics.backend.logic.sources import GitHubTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import ci_rows, depot_ci, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views.incremental_floor import SEED_LOOKBACK
 from products.warehouse_sources.backend.facade.api import import_started_before
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -74,6 +77,9 @@ class MaterializedCI:
     repository: str
     freshness: CIDataFreshness
     cache_scope: str
+    # The creation time of the oldest row both views hold. A full build seeds SEED_LOOKBACK before
+    # it starts, and incremental runs only add newer rows.
+    covers_from: datetime
 
     @classmethod
     def resolve(
@@ -132,6 +138,7 @@ class MaterializedCI:
         expected = ci_rows.build_views(sources)
         materialized_at: dict[str, datetime] = {}
         started_at: dict[str, datetime] = {}
+        seeded_at: list[datetime] = []
         for name, fields, config, sql in (
             (ci_rows.RUNS_VIEW_NAME, ci_rows.RUN_FIELDS, ci_rows.RUN_INCREMENTAL_CONFIG, expected.runs),
             (ci_rows.JOBS_VIEW_NAME, ci_rows.JOB_FIELDS, ci_rows.JOB_INCREMENTAL_CONFIG, expected.jobs),
@@ -161,13 +168,20 @@ class MaterializedCI:
                 return None
             incremental = get_incremental_config(view)
             fingerprint = _definition_fingerprint(sql, incremental) if incremental is not None else None
-            if fingerprint is None or fingerprint != get_incremental_state(view).definition_fingerprint:
+            state = get_incremental_state(view)
+            if fingerprint is None or fingerprint != state.definition_fingerprint:
+                return None
+            # Data modeling records this instant when the full build completes, after the build
+            # computed its seed floor, so SEED_LOOKBACK before it never reaches past the seed.
+            full_refresh_at = deserialize_watermark(state.last_full_refresh_at, "datetime")
+            if full_refresh_at is None:
                 return None
             completed_at = job.last_run_at
             if not is_materialization_fresh(completed_at, int(MAX_MATERIALIZATION_AGE.total_seconds())):
                 return None
             materialized_at[name] = completed_at
             started_at[name] = job.created_at
+            seeded_at.append(full_refresh_at)
 
         runs_at = materialized_at[ci_rows.RUNS_VIEW_NAME]
         jobs_at = materialized_at[ci_rows.JOBS_VIEW_NAME]
@@ -186,7 +200,19 @@ class MaterializedCI:
                 runs_synced_at=synced_at(tables.workflow_runs), jobs_synced_at=synced_at(tables.workflow_jobs)
             ),
             cache_scope=f"materialized:{runs_at.isoformat()}:{jobs_at.isoformat()}",
+            covers_from=max(seeded_at) - SEED_LOOKBACK,
         )
+
+    def covers(self, since: datetime) -> bool:
+        """True when every row a read windowed from ``since`` scans was created inside the coverage.
+
+        Coverage is by creation time, so a run created before it and rerun inside the window is
+        missing from the stored rows. SPEC §5 accepts that. A naive ``since`` cannot be compared with
+        the coverage start, so it reads the raw tables.
+        """
+        if since.tzinfo is None:
+            return False
+        return since - WIDEST_SCAN_FLOOR_SLACK >= self.covers_from
 
     def _scope(self) -> str:
         return (

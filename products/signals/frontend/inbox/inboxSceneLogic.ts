@@ -272,8 +272,17 @@ function findReportRank(id: string): {
     listSize: number | null
     section: InboxReportSectionKey | null
     rankerId: string | null
+    personalTier: string | null
+    personalReasonShown: boolean
 } {
-    const notFound = { rank: null, listSize: null, section: null, rankerId: null }
+    const notFound = {
+        rank: null,
+        listSize: null,
+        section: null,
+        rankerId: null,
+        personalTier: null,
+        personalReasonShown: false,
+    }
     const filterValues = inboxFiltersLogic.findMounted()?.values
     if (!filterValues) {
         return notFound
@@ -301,11 +310,16 @@ function findReportRank(id: string): {
             sectionKey,
             listParams: INBOX_REPORT_SECTION_LIST_PARAMS[sectionKey],
         })?.values
+        // The opened report can come from the detail endpoint, which has no personal fields, so they
+        // come from the list row the person saw.
+        const personalSort = filterValues.activeSortField === 'personal' || sectionValues?.loadedRanker === 'personal'
         return {
             rank: idx + 1,
             listSize: rows.length,
             section: sectionKey,
             rankerId: sectionValues?.loadedRanker ?? null,
+            personalTier: personalSort ? (rows[idx].report.personal_tier ?? null) : null,
+            personalReasonShown: personalSort && !!rows[idx].report.personal_reason,
         }
     }
     return notFound
@@ -356,6 +370,8 @@ function captureOpenWhenRanked(
                 listSize: resolved.listSize,
                 section: resolved.section,
                 rankerId: resolved.rankerId,
+                personalTier: resolved.personalTier,
+                personalReasonShown: resolved.personalReasonShown,
             },
             // The wait puts the capture up to `OPEN_RANK_WAIT_MS` after the report opened, and
             // posthog-js stamps an event at the capture moment. Without the override, a scroll or an
@@ -598,6 +614,7 @@ export interface inboxSceneLogicActions {
 export interface inboxSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         activeTab: (activeTabState: InboxTabKey | null) => InboxTabKey
+        breadcrumbs: (selectedReport: SignalReport | null, selectedReportId: string | null) => Breadcrumb[]
         isStaff: (user: UserType | null) => boolean
         signalRuns: (signalRunsResponse: SignalRun[] | null) => SignalRun[]
         signalRunsLoading: (signalRunsResponse: SignalRun[] | null, signalRunsResponseLoading: boolean) => boolean
@@ -874,13 +891,17 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 activeTabState && isInboxTabKey(activeTabState) ? activeTabState : 'reports',
         ],
         breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => [
+            (s) => [s.selectedReport, s.selectedReportId],
+            (selectedReport: SignalReport | null, selectedReportId: string | null): Breadcrumb[] => [
                 {
                     key: 'inbox',
                     name: sceneConfigurations[Scene.Inbox].name,
                     iconType: 'inbox',
+                    path: urls.inbox('reports'),
                 },
+                ...(selectedReport && selectedReport.id === selectedReportId
+                    ? [{ key: selectedReport.id, name: selectedReport.title }]
+                    : []),
             ],
         ],
         isStaff: [

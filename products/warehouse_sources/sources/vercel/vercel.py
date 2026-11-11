@@ -351,7 +351,16 @@ def get_fanout_rows(
             if config.team_scoped and team_id:
                 params["teamId"] = team_id
 
-            data = _fetch_page(session, _build_url(child_path, params), headers, logger)
+            try:
+                data = _fetch_page(session, _build_url(child_path, params), headers, logger)
+            except requests.HTTPError as e:
+                # Vercel can still list a deployment whose check runs it can't find, and that
+                # deployment returns the same 404 on every sync. One such deployment must not
+                # fail the whole table.
+                if e.response is not None and e.response.status_code == 404:
+                    logger.warning(f"Vercel: no check runs found for deployment {parent_id}; skipping")
+                    continue
+                raise
             for item in data.get(config.response_data_key) or []:
                 batcher.batch(item)
                 if batcher.should_yield():
