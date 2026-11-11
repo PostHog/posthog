@@ -20,7 +20,11 @@ import {
     emailSuppressionConfigFromEnv,
 } from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
-import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
+import {
+    FrequencyCapCheck,
+    PREFERENCES_UNAVAILABLE,
+    RecipientPreferencesService,
+} from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -234,7 +238,7 @@ describe('RecipientPreferencesService', () => {
                 expect(mockRecipientsManagerGetPreference).not.toHaveBeenCalled()
             })
 
-            it('should handle errors gracefully and return false', async () => {
+            it('should report the preferences as unavailable when the lookup errors', async () => {
                 const action = createEmailAction('test@example.com', '123e4567-e89b-12d3-a456-426614174000')
                 const invocation = createFunctionStepInvocation(action)
                 const loggerSpy = jest.spyOn(logger, 'error').mockImplementation()
@@ -243,7 +247,7 @@ describe('RecipientPreferencesService', () => {
 
                 const result = await service.shouldSkipAction(invocation, action)
 
-                expect(result).toBeNull()
+                expect(result).toBe(PREFERENCES_UNAVAILABLE)
                 expect(loggerSpy).toHaveBeenCalledWith(
                     'Failed to fetch recipient preferences for test@example.com:',
                     expect.any(Error)
