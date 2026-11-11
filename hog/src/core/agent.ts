@@ -1,4 +1,5 @@
 import type { Env } from './runtime'
+import { detectCi } from './telemetry'
 
 // Env vars that coding agents set for the commands they run, checked in order.
 // Sources: the env vars @vercel/detect-agent and the Gauge CLI check. CURSOR_TRACE_ID and
@@ -35,7 +36,8 @@ export interface Mode {
     format: OutputFormat
     color: boolean
     columns: number | undefined
-    // Set from the CI variable most CI services export.
+    // Set from the CI variable most CI services export, or from a CI service's own variables, because
+    // Jenkins, Azure Pipelines and AWS CodeBuild don't export CI.
     ci: boolean
 }
 
@@ -79,5 +81,12 @@ export function resolveMode(env: Env, terminal: Terminal, requestedFormat: Outpu
     const colorForced = env.FORCE_COLOR !== undefined && env.FORCE_COLOR !== '0'
     const color =
         colorForced || (format === 'text' && terminal.hasColors && agent === undefined && env.NO_COLOR === undefined)
-    return { agent, agentReason: reason, format, color, columns: terminal.columns, ci: isTruthy(env.CI) }
+    return {
+        agent,
+        agentReason: reason,
+        format,
+        color,
+        columns: terminal.columns,
+        ci: isTruthy(env.CI) || detectCi(env).provider !== null,
+    }
 }

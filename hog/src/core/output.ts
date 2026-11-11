@@ -115,16 +115,31 @@ export class Output {
     }
 
     error(error: HogError): void {
+        const { message, hint } = failureText(error, this.mode.ci)
         if (this.mode.format === 'json') {
-            const payload = { error: { ...error.details, code: error.code, message: error.message, hint: error.hint } }
+            const payload = { error: { ...error.details, code: error.code, message, hint } }
             this.runtime.writeStderr(`${JSON.stringify(payload)}\n`)
             return
         }
-        this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${escapeControls(error.message)}\n`)
-        if (error.hint) {
-            this.runtime.writeStderr(`${this.style(escapeControls(error.hint), 'dim')}\n`)
+        this.runtime.writeStderr(`${this.style('Error:', 'red', 'bold')} ${escapeControls(message)}\n`)
+        if (hint) {
+            this.runtime.writeStderr(`${this.style(escapeControls(hint), 'dim')}\n`)
         }
     }
+}
+
+const SERVER_DETAIL_HIDDEN = "PostHog's reason is hidden in CI. Run the command outside CI to see it."
+
+// PostHog's reason is useful at a terminal, but it can repeat values from the request, and CI logs
+// are often public. In CI the reason is left out and the hint says where to see it.
+function failureText(error: HogError, ci: boolean): { message: string; hint: string | undefined } {
+    if (error.serverDetail === undefined) {
+        return { message: error.message, hint: error.hint }
+    }
+    if (ci) {
+        return { message: error.message, hint: [error.hint, SERVER_DETAIL_HIDDEN].filter(Boolean).join(' ') }
+    }
+    return { message: `${error.message.replace(/\.$/, '')}: ${error.serverDetail}`, hint: error.hint }
 }
 
 // posthog-cli prints JSON through serde_json without `preserve_order`, so object keys come

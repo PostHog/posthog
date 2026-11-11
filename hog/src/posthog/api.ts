@@ -88,13 +88,14 @@ export class ApiError extends HogError {
         code: string,
         message: string,
         hint?: string,
-        details?: Readonly<Record<string, unknown>>
+        details?: Readonly<Record<string, unknown>>,
+        serverDetail?: string
     ) {
-        super(code, message, hint, undefined, details)
+        super(code, message, hint, undefined, details, serverDetail)
     }
 
     override withHint(hint: string): ApiError {
-        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details)
+        return new ApiError(this.status, this.type, this.code, this.message, hint, this.details, this.serverDetail)
     }
 }
 
@@ -244,8 +245,10 @@ export class PostHogApi {
             status,
             error.type,
             error.code ?? `http_${status}`,
-            error.detail ?? `PostHog answered with HTTP ${status}.`,
-            hints[status]
+            `PostHog answered with HTTP ${status}.`,
+            hints[status],
+            undefined,
+            error.detail
         )
     }
 }
