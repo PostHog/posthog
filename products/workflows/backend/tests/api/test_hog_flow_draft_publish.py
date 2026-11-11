@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -12,7 +13,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
-from products.workflows.backend.presentation.views.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS
+from products.workflows.backend.presentation.views.hog_flow import WRITABLE_DRAFT_CONTENT_FIELDS, set_workflow_enabled
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -100,13 +101,26 @@ class TestHogFlowDraftPublish(APIBaseTest):
 
     # ── Draft routing ────────────────────────────────────────────────
 
-    @parameterized.expand([("active", False), ("disabled_after_active", True)])
-    def test_mcp_content_edit_on_protected_flow_routes_to_draft(self, _name: str, disable: bool) -> None:
+    @parameterized.expand(
+        [
+            ("active", []),
+            ("disabled_after_active", ["draft"]),
+            ("archived_after_active", ["archived"]),
+            ("restored_after_archive", ["archived", "draft"]),
+            ("disabled_from_canvas", ["canvas_disable"]),
+        ]
+    )
+    def test_mcp_content_edit_on_protected_flow_routes_to_draft(self, _name: str, moves: list[str]) -> None:
         flow_id = self._create_active_flow()
-        if disable:
+        for move in moves:
+            if move == "canvas_disable":
+                set_workflow_enabled(
+                    team_id=self.team.id, user_id=self.user.id, workflow_id=UUID(flow_id), enabled=False
+                )
+                continue
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"status": "draft"},
+                {"status": move},
                 HTTP_X_POSTHOG_CLIENT="mcp",
             )
             assert response.status_code == 200, response.json()
@@ -120,7 +134,7 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.actions == live_actions_before
         assert flow.draft is not None
         assert flow.draft_updated_at is not None
-        assert flow.disabled_from_active is disable
+        assert flow.disabled_from_active is bool(moves)
         draft_urls = [a["config"]["inputs"]["url"]["value"] for a in flow.draft["actions"] if a["type"] == "function"]
         assert draft_urls == ["https://changed.example.com"]
         # The response surfaces the draft so callers can see what they staged

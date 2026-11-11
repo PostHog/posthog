@@ -176,7 +176,21 @@ def save_validated_workflow(*, team_id: int, hog_flow_id: UUID, validated_data: 
     # The save writes every column. Lock the read so that a concurrent write, such as a staff email
     # sending pause, either lands before this read or waits for this save, and is never overwritten.
     with transaction.atomic():
-        _save_live(HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id), validated_data)
+        locked = HogFlow.objects.select_for_update().get(team_id=team_id, pk=hog_flow_id)
+        _save_live(locked, _track_disabled_from_active(locked, validated_data))
+
+
+def _track_disabled_from_active(before: HogFlow, validated_data: dict) -> dict:
+    # Every status write goes through here, so no way of stopping a live workflow (disable or archive,
+    # from the API, MCP or a canvas) leaves later MCP content edits landing on the live config.
+    # Restoring an archived workflow keeps the mark; only going live again clears it.
+    target_status = validated_data.get("status")
+    if target_status is None or target_status == before.status:
+        return validated_data
+    disabled_from_active = target_status != HogFlow.State.ACTIVE and (
+        before.status == HogFlow.State.ACTIVE or before.disabled_from_active
+    )
+    return {**validated_data, "disabled_from_active": disabled_from_active}
 
 
 def _derive_from_locked_graph(
@@ -471,11 +485,7 @@ def update_workflow(
             validated_data = _derive_from_locked_graph(before_update, validated_data, requested_exit_condition)
             if keeps_live_sensitivity:
                 validated_data = _keep_live_sensitivity(before_update, validated_data)
-            target_status = validated_data.get("status")
-            if target_status is not None and target_status != before_update.status:
-                validated_data["disabled_from_active"] = (
-                    before_update.status == HogFlow.State.ACTIVE and target_status == HogFlow.State.DRAFT
-                )
+            validated_data = _track_disabled_from_active(before_update, validated_data)
             _refresh_action_redirects(instance, before_update, validated_data.get("actions"))
             bump = _stage_revision_bump(instance, before_update, validated_data)
             if clears_staged_draft:
