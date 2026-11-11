@@ -11,6 +11,7 @@ import { PersonPropertyFilter, PropertyFilterType, PropertyOperator } from '~/ty
 import { autoresearchNewLogic } from './autoresearchNewLogic'
 import {
     autoresearchCreate,
+    autoresearchLimitsRetrieve,
     autoresearchResolveTemplateCreate,
     autoresearchTemplatesList,
     autoresearchTrainCreate,
@@ -19,6 +20,7 @@ import {
 
 jest.mock('./generated/api', () => ({
     autoresearchCreate: jest.fn(),
+    autoresearchLimitsRetrieve: jest.fn(),
     autoresearchTrainCreate: jest.fn(),
     autoresearchValidateCreate: jest.fn(),
     autoresearchTemplatesList: jest.fn(),
@@ -30,6 +32,16 @@ const mockValidate = autoresearchValidateCreate as jest.Mock
 const mockTemplates = autoresearchTemplatesList as jest.Mock
 const mockResolve = autoresearchResolveTemplateCreate as jest.Mock
 const mockTrain = autoresearchTrainCreate as jest.Mock
+const mockLimits = autoresearchLimitsRetrieve as jest.Mock
+
+const LIMITS = {
+    max_training_runs_per_day: 3,
+    training_runs_used: 1,
+    next_slot_at: null,
+    max_iterations_per_run: 10,
+    max_live_pipelines: 3,
+    live_pipelines: 2,
+}
 
 function validation(
     warnings: { code: string; severity: string }[],
@@ -101,6 +113,28 @@ describe('autoresearchNewLogic', () => {
         initKeaTests()
         mockValidate.mockResolvedValue({ can_proceed: true, warnings: [] })
         mockTemplates.mockResolvedValue(TEMPLATES)
+        mockLimits.mockResolvedValue(LIMITS)
+    })
+
+    it.each([
+        [
+            'training on',
+            LIMITS,
+            'This project can start 3 training runs in any 24 hours (1 used) and keep 3 models active (2 active now).',
+        ],
+        [
+            'training turned off',
+            { ...LIMITS, max_training_runs_per_day: 0, training_runs_used: 0 },
+            'Training is turned off for this project. It can keep 3 models active (2 active now).',
+        ],
+    ])('summarizes the project limits with %s', async (_, limits, expected) => {
+        mockLimits.mockResolvedValue(limits)
+        const logic = autoresearchNewLogic()
+        logic.mount()
+        await settle(logic)
+
+        // pluralize joins the count and the word with a non-breaking space.
+        expect(logic.values.projectLimitsSummary?.replace(/\u00a0/g, ' ')).toEqual(expected)
     })
 
     afterEach(() => {
