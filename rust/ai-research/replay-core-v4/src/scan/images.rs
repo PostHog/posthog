@@ -266,7 +266,7 @@ enum DataUri {
     Replaced { replacement: String, end: usize },
 }
 
-/// The longest `ftyp` box the scan reads for its brands. Real files list a handful of brands in far fewer bytes.
+/// The longest `ftyp` box the scan reads for its brands. A longer AVIF box is not still, so that no brand past the limit can hide an animation.
 const MAX_FTYP_BYTES: usize = 256;
 
 enum AvifHeader {
@@ -290,7 +290,7 @@ fn avif_header(bytes: &[u8]) -> Option<AvifHeader> {
     {
         return None;
     }
-    if major == b"avif" && !brands.any(|brand| brand == b"avis") {
+    if major == b"avif" && size <= MAX_FTYP_BYTES && !brands.any(|brand| brand == b"avis") {
         Some(AvifHeader::Still)
     } else {
         Some(AvifHeader::NotStill)
@@ -1151,7 +1151,18 @@ mod tests {
 
     #[test]
     fn stores_a_still_avif_and_declines_every_other_avif() {
-        let cases: [(&str, &[u8], bool); 5] = [
+        let brands_past_the_scan = [
+            b"\x00\x00\x01\x04ftypavif\x00\x00\x00\x00".as_slice(),
+            &b"mif1".repeat(60),
+            b"avis",
+        ]
+        .concat();
+        let cases: [(&str, &[u8], bool); 6] = [
+            (
+                "animation brand past the scan",
+                &brands_past_the_scan,
+                false,
+            ),
             (
                 "still",
                 b"\x00\x00\x00\x1cftypavif\x00\x00\x00\x00avifmif1miaf",

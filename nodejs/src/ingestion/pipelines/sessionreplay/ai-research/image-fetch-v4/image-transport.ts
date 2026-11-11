@@ -195,7 +195,11 @@ function isStillAvif(bytes: Buffer): boolean {
     if (bytes.length < 8 || bytes.toString('latin1', 4, 8) !== 'ftyp') {
         return false
     }
-    const ftypEnd = Math.min(Math.max(bytes.readUInt32BE(0), 8), MAX_FTYP_BYTES, bytes.length)
+    const ftypSize = bytes.readUInt32BE(0)
+    if (ftypSize > MAX_FTYP_BYTES) {
+        return false
+    }
+    const ftypEnd = Math.min(Math.max(ftypSize, 8), bytes.length)
     const brandAt = (offset: number): string => bytes.toString('latin1', offset, offset + 4)
     if (ftypEnd < 12 || brandAt(8) !== 'avif') {
         return false

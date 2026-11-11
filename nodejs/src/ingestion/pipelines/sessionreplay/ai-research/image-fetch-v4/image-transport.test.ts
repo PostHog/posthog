@@ -146,13 +146,14 @@ describe('image transport', () => {
         ['an animation', ftyp('avis', ['avis', 'avif', 'mif1', 'msf1']), false],
         ['AVIF only as a compatible brand', ftyp('mif1', ['miaf', 'avif']), false],
         ['a still brand beside an animation brand', ftyp('avif', ['avif', 'avis']), false],
+        ['an animation brand past the scan', ftyp('avif', [...Array(60).fill('mif1'), 'avis']), false],
     ] as const)('stores %s only when the image scrub decodes it', async (_case, bytes, stored) => {
         const prepared = prepareFetchedImage(bytes, 'image/avif', undefined)
         await (stored
             ? expect(prepared).resolves.toEqual(bytes)
             : expect(prepared).rejects.toMatchObject({ reason: 'content_type_mismatch' }))
         expect(URL_ASSET_RULES.image.canStartWith(bytes.subarray(0, SIGNATURE_BYTES), 'image/avif')).toBe(
-            bytes.toString('latin1', 8, 12) === 'avif'
+            bytes.toString('latin1', 8, 12) === 'avif' && bytes.readUInt32BE(0) <= 256
         )
     })
 
