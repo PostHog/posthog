@@ -1,9 +1,12 @@
+from datetime import timedelta
 from typing import Any
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -64,9 +67,10 @@ def _graph_message(
     return msg
 
 
-def _resp(status_code: int = 200, json_data: dict | None = None) -> MagicMock:
+def _resp(status_code: int = 200, json_data: dict | None = None, text: str = "") -> MagicMock:
     resp = MagicMock()
     resp.status_code = status_code
+    resp.text = text
     resp.json.return_value = json_data or {}
     return resp
 
@@ -240,10 +244,17 @@ class TestPollSharedChannel(BaseTest):
         self.assertFalse(sync.primed)
         self.assertIsNone(sync.delta_link)
 
-    @parameterized.expand([("payment", 402), ("forbidden", 403), ("throttled", 429)])
+    @parameterized.expand(
+        [
+            ("unauthorized", 401, False),
+            ("payment", 402, True),
+            ("forbidden", 403, True),
+            ("throttled", 429, False),
+        ]
+    )
     @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_error_statuses_skip_without_crashing(
-        self, _name: str, status_code: int, mock_get: MagicMock, *_: Any
+        self, _name: str, status_code: int, backs_off: bool, mock_get: MagicMock, *_: Any
     ) -> None:
         mock_get.side_effect = [
             _channel_verify_resp(),
@@ -252,10 +263,49 @@ class TestPollSharedChannel(BaseTest):
         poll_team_shared_channels(self.team.id)
 
         mock_get.side_effect = None
-        mock_get.return_value = _resp(status_code=status_code)
+        mock_get.return_value = _resp(status_code=status_code, text='{"error":{"code":"Forbidden"}}')
         # Should not raise.
         poll_team_shared_channels(self.team.id)
         self.assertEqual(Ticket.objects.filter(team=self.team).count(), 0)
+        sync = self._sync()
+        if backs_off:
+            assert sync.denied_until is not None
+            self.assertGreater(sync.denied_until, timezone.now())
+        else:
+            self.assertIsNone(sync.denied_until)
+
+    @patch("products.conversations.backend.tasks.teams.requests.get")
+    def test_verify_forbidden_holds_channel_and_reverifies_after_hold(self, mock_get: MagicMock, *_: Any) -> None:
+        mock_get.return_value = _resp(status_code=403, text='{"error":{"code":"Forbidden"}}')
+        poll_team_shared_channels(self.team.id)
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(mock_get.call_count, 1)
+        sync = self._sync()
+        self.assertFalse(sync.primed)
+        assert sync.denied_until is not None
+
+        with time_machine.travel(sync.denied_until + timedelta(seconds=1), tick=False):
+            mock_get.return_value = _resp(json_data={"id": CHANNEL_ID, "membershipType": "standard"})
+            poll_team_shared_channels(self.team.id)
+
+        self.assertFalse(
+            TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).filter(channel_id=CHANNEL_ID).exists()
+        )
+
+    @patch("products.conversations.backend.tasks.teams.requests.get")
+    def test_priming_resumes_from_cursor_without_reverifying(self, mock_get: MagicMock, *_: Any) -> None:
+        TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).create(
+            team=self.team, teams_team_id=TEAMS_TEAM_ID, channel_id=CHANNEL_ID, delta_link="NEXT_PRIMING"
+        )
+        mock_get.return_value = _resp(status_code=429)
+
+        poll_team_shared_channels(self.team.id)
+
+        self.assertEqual(mock_get.call_args_list[0].args[0], "NEXT_PRIMING")
+        sync = self._sync()
+        self.assertFalse(sync.primed)
+        self.assertEqual(sync.delta_link, "NEXT_PRIMING")
 
     @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_unknown_future_value_passes_verification(self, mock_get: MagicMock, *_: Any) -> None:
@@ -327,6 +377,40 @@ class TestPollSharedChannelThreadReplies(BaseTest):
                 "teams_graph_refresh_token": "graph-ref",
             },
         )
+
+    @patch("products.conversations.backend.tasks.teams.requests.get")
+    def test_forbidden_backs_off_then_retries_delta_and_replies(self, mock_get: MagicMock, *_: Any) -> None:
+        mock_get.side_effect = [
+            _channel_verify_resp(),
+            _resp(json_data={"value": [], "@odata.deltaLink": "DELTA1"}),
+        ]
+        poll_team_shared_channels(self.team.id)
+
+        mock_get.side_effect = [
+            _resp(json_data={"value": [_graph_message(msg_id="root-1")], "@odata.deltaLink": "DELTA2"}),
+            _resp(json_data={"value": []}),
+        ]
+        poll_team_shared_channels(self.team.id)
+        self.assertEqual(Ticket.objects.filter(team=self.team).count(), 1)
+
+        mock_get.side_effect = None
+        mock_get.return_value = _resp(status_code=403, text='{"error":{"code":"Forbidden"}}')
+        poll_team_shared_channels(self.team.id)
+        calls_after_denial = mock_get.call_count
+
+        poll_team_shared_channels(self.team.id)
+        self.assertEqual(mock_get.call_count, calls_after_denial)
+
+        sync = TeamConversationsTeamsChannelSync.objects.for_team(self.team.id).get(channel_id=CHANNEL_ID)
+        assert sync.denied_until is not None
+        with time_machine.travel(sync.denied_until + timedelta(seconds=1), tick=False):
+            mock_get.return_value = _resp(json_data={"value": [], "@odata.deltaLink": "DELTA3"})
+            poll_team_shared_channels(self.team.id)
+
+        sync.refresh_from_db()
+        self.assertIsNone(sync.denied_until)
+        self.assertEqual(sync.delta_link, "DELTA3")
+        self.assertGreater(mock_get.call_count, calls_after_denial)
 
     @patch("products.conversations.backend.tasks.teams.requests.get")
     def test_thread_reply_ingested_from_graph_replies(self, mock_get: MagicMock, *_: Any) -> None:
