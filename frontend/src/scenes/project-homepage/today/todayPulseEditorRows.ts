@@ -1,5 +1,7 @@
 import type { HiddenPulseNumberApi, PulsePinApi, PulseSlotApi } from 'products/today/frontend/generated/api.schemas'
 
+import { productNumberKind } from './todayPulseProductNumbers'
+
 export const IGNORED_TOGGLE = 'today-pulse-editor:ignored'
 const IGNORED_PREFIX = 'today-pulse-editor:ignored:'
 
@@ -83,7 +85,7 @@ export function editorRows({
     ignoredOpen: boolean
 }): EditorRows {
     const ignoredKeys = new Set(ignored.map((row) => row.key))
-    const others = withoutKeys(othersOnOpen, ignoredKeys)
+    const others = withoutKeys(othersOnOpen, ignoredKeys).filter((row) => !productNumberKind(row.key))
     const baseKeys = new Set([...pinnedOnOpen, ...others].map((row) => row.key))
     const recent = withoutKeys(
         recentInsights,

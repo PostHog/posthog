@@ -112,7 +112,18 @@ class TestSyncMCPCatalog(TestCase):
             assert template.oauth_credentials_source == "slack_dev_app"
             assert template.oauth_credentials == {}
             assert entry.oauth_scope_allowlist is not None
-            extra_scopes = ("canvases:read", "search:read.private", "search:read.im", "search:read.mpim")
+            extra_scopes = (
+                "canvases:read",
+                "search:read.private",
+                "search:read.im",
+                "search:read.mpim",
+                "groups:history",
+                "groups:read",
+                "im:history",
+                "im:read",
+                "mpim:history",
+                "mpim:read",
+            )
             assert not set(extra_scopes) & set(entry.oauth_scope_allowlist)
             expected_scopes = (*entry.oauth_scope_allowlist, *extra_scopes)
             assert template.oauth_scope_allowlist == list(expected_scopes)

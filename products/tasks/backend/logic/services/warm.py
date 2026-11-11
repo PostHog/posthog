@@ -15,7 +15,7 @@ quota gate before it can warm.
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 from uuid import UUID
 
 from django.db import transaction
@@ -29,17 +29,27 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.scopes import scopes_not_covered
+from posthog.temporal.oauth import resolve_scopes
 
 from products.tasks.backend.access import get_posthog_ai_access_decision
 from products.tasks.backend.facade.profiles import TaskProfile, WarmQuota
 from products.tasks.backend.logic.services.compute_quota import organization_deactivated
-from products.tasks.backend.logic.services.workflow_dispatch import WorkflowDispatchOptions, enqueue_or_start_workflow
+from products.tasks.backend.logic.services.workflow_dispatch import (
+    WorkflowDispatchOptions,
+    build_create_payload,
+    enqueue_or_start_workflow,
+)
 from products.tasks.backend.metrics import observe_warm_churn_throttled
 from products.tasks.backend.models import SandboxSession, Task, TaskRun
 from products.tasks.backend.temporal.client import execute_task_processing_workflow
+from products.tasks.backend.temporal.oauth import dispatched_run_scopes
 from products.tasks.backend.temporal.process_task.utils import parse_run_state
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
+
+if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
 
 logger = structlog.get_logger(__name__)
 
@@ -237,8 +247,8 @@ class SandboxWarmer:
                 # The provider kills a Modal box at its TTL even when the close stamp never lands, so a
                 # stale row must not lock anyone out. Hogland's TTL is an idle timeout that proxied
                 # requests extend without touching the row, so a hogland row counts while its run is live.
-                Q(ttl_expires_at__gt=timezone.now())
-                | Q(sandbox_backend="hogland", task_run__status__in=cls._LIVE_RUN_STATUSES)
+                Q(ttl_expires_at__gt=timezone.now()) | Q(sandbox_backend="hogland"),
+                task_run__status__in=cls._LIVE_RUN_STATUSES,
             )
         )
         if exclude_run_id is not None:
@@ -322,6 +332,7 @@ class SandboxWarmer:
         create_pr: bool = False,
         expected_resume_from_run_id: str | UUID | None = None,
         required_existing_state: dict[str, Any] | None = None,
+        posthog_mcp_scopes: "PosthogMcpScopes | None" = None,
     ) -> WarmResult:
         """Idempotently ensure the Task has a warm Run, then dispatch the processing workflow after commit.
 
@@ -358,7 +369,16 @@ class SandboxWarmer:
                 trial_admission.lock_report(self.task.signal_report_source_id)
             locked = Task.objects.select_for_update().get(id=self.task.id)
             existing = locked.latest_run
+            locked_profile = locked.stored_profile
+            scope_ceiling = locked_profile.mcp_scopes if locked_profile is not None else "full"
+            scopes = posthog_mcp_scopes
+            if scopes is None:
+                scopes = dispatched_run_scopes(locked, existing.state) if existing is not None else scope_ceiling
+            if scopes_not_covered(resolve_scopes(scope_ceiling), resolve_scopes(scopes)):
+                raise PermissionDenied("Warm run scopes exceed the task profile's permissions.")
             if existing is not None and not existing.is_terminal:
+                if dispatched_run_scopes(locked, existing.state) != scopes:
+                    raise WarmSourceChanged
                 if expected_resume_from_run_id is not None:
                     existing_state = existing.state or {}
                     expected_resume_id = str(expected_resume_from_run_id)
@@ -396,6 +416,14 @@ class SandboxWarmer:
                     if resume_source is None:
                         raise WarmSourceChanged
 
+            if resume_source is not None:
+                resume_scopes = dispatched_run_scopes(locked, resume_source.state)
+                if posthog_mcp_scopes is not None and scopes != resume_scopes:
+                    raise WarmSourceChanged
+                if scopes_not_covered(resolve_scopes(scope_ceiling), resolve_scopes(resume_scopes)):
+                    raise WarmSourceChanged
+                scopes = resume_scopes
+
             if pool_full:
                 raise Throttled(detail="Warm-pool capacity reached. Release an idle warm session and try again.")
             if churned:
@@ -413,6 +441,13 @@ class SandboxWarmer:
                 run_state["resume_from_run_id"] = str(resume_source.id)
                 run_state.update(parse_run_state(resume_source.state).resume_snapshot_carry_state())
 
+            dispatch_options = WorkflowDispatchOptions(
+                user_id=self.user.pk,
+                create_pr=create_pr,
+                posthog_mcp_scopes=scopes,
+                prewarmed=True,
+            )
+            run_state["pending_dispatch"] = build_create_payload(dispatch_options)
             new_run = locked.create_run(
                 mode=mode, extra_state=run_state, branch=run_state.get("branch"), _trial_admission=trial_admission
             )
@@ -421,12 +456,7 @@ class SandboxWarmer:
             enqueue_or_start_workflow(
                 new_run,
                 start_workflow=execute_task_processing_workflow,
-                options=WorkflowDispatchOptions(
-                    user_id=self.user.pk,
-                    create_pr=create_pr,
-                    posthog_mcp_scopes="full",
-                    prewarmed=True,
-                ),
+                options=dispatch_options,
             )
 
         logger.info(
