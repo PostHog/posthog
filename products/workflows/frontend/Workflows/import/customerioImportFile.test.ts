@@ -56,12 +56,6 @@ describe('parseCustomerioFiles', () => {
         })
     })
 
-    it('reads a segment file with its rules', () => {
-        const segment = { id: 16, name: 'Active trials', type: 'dynamic', conditions: { and: [] } }
-
-        expect(parseCustomerioFiles([JSON.stringify({ segment })]).segments).toEqual([segment])
-    })
-
     it('rejects a file that is not JSON', () => {
         expect(() => parseCustomerioFiles(['{nope'])).toThrow('One of the files is not valid JSON.')
     })
