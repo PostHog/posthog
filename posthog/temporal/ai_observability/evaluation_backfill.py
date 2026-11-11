@@ -405,6 +405,7 @@ def report_backfill_finished(
             distinct_id=(row.created_by.distinct_id if row.created_by else None) or str(row.team.uuid),
             event="llma evaluation backfill finished",
             properties={
+                "$update_person_last_seen_at": False,
                 "backfill_id": str(row.pk),
                 "evaluation_id": str(row.evaluation_id),
                 "status": status or row.status,

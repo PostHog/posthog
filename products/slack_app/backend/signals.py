@@ -41,8 +41,8 @@ def onboard_slack_inbox_on_install(sender: Any, instance: WorkspaceIntegration, 
         # Robust, so a failed capture cannot stop the onboarding callback queued after it.
         transaction.on_commit(lambda: _capture_install(instance, has_inbox_scopes=inbox_scopes), robust=True)
         if inbox_scopes:
-            integration_id = instance.id
-            transaction.on_commit(lambda: _start_inbox_onboarding_workflow(integration_id))
+            team_id, integration_id = instance.team_id, instance.id
+            transaction.on_commit(lambda: _start_inbox_onboarding_workflow(team_id, integration_id))
             return
 
     transaction.on_commit(lambda: _start_installer_onboarding(instance), robust=True)
@@ -74,7 +74,7 @@ def _capture_install(integration: WorkspaceIntegration, *, has_inbox_scopes: boo
     )
 
 
-def _start_inbox_onboarding_workflow(integration_id: int) -> None:
+def _start_inbox_onboarding_workflow(team_id: int, integration_id: int) -> None:
     # Deferred imports keep the Temporal stack off the signals (AppConfig.ready) import path.
     import asyncio
 
@@ -96,7 +96,7 @@ def _start_inbox_onboarding_workflow(integration_id: int) -> None:
         asyncio.run(
             client.start_workflow(
                 PostHogSlackInboxOnboardingWorkflow.run,
-                PostHogSlackInboxOnboardingInputs(integration_id=integration_id),
+                PostHogSlackInboxOnboardingInputs(team_id=team_id, integration_id=integration_id),
                 id=f"posthog-slack-inbox-onboarding-{integration_id}",
                 task_queue=settings.TASKS_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
