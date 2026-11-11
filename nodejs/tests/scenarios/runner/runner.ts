@@ -103,6 +103,7 @@ function writeEvidence(result: RunResult, judge: Judge): void {
 
 export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = process.env): Runner {
     const stateDir = defaultStateDir(env)
+    let stuckProducer: string | undefined
 
     return {
         async up() {
@@ -110,6 +111,11 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
         },
 
         async run(loaded, signal) {
+            if (stuckProducer !== undefined) {
+                throw new Error(
+                    `The load producer of run ${stuckProducer} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
+                )
+            }
             const { card, profile } = loaded
             const runId = randomUUID()
             const startedAt = new Date().toISOString()
@@ -158,11 +164,12 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 try {
                     await producer?.disconnect()
                 } catch (error) {
+                    stuckProducer = runId
                     const failed = `the load producer did not disconnect: ${(error as Error).message}`
                     outcome = {
                         ...outcome,
                         status: 'invalid',
-                        statusReason: outcome.status === 'invalid' ? `${outcome.statusReason}; ${failed}` : failed,
+                        statusReason: outcome.status === 'passed' ? failed : `${outcome.statusReason}; ${failed}`,
                     }
                 } finally {
                     await postgres.end()

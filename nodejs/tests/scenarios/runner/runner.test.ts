@@ -92,7 +92,7 @@ describe('runner', () => {
         })
     })
 
-    it('keeps the result and its evidence when the load producer cannot flush on disconnect', async () => {
+    const failNextDisconnect = (): void => {
         const disconnect = KafkaProducerWrapper.prototype.disconnect
         jest.spyOn(KafkaProducerWrapper.prototype, 'disconnect').mockImplementationOnce(async function (
             this: KafkaProducerWrapper
@@ -100,6 +100,10 @@ describe('runner', () => {
             await disconnect.call(this)
             throw new Error('Local: Timed out')
         })
+    }
+
+    it('keeps the result and its evidence when the load producer cannot flush on disconnect', async () => {
+        failNextDisconnect()
 
         const result = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
 
@@ -111,6 +115,15 @@ describe('runner', () => {
             status: 'invalid',
             statusReason,
         })
+    })
+
+    it('refuses the next card on a runner whose load producer did not disconnect', async () => {
+        failNextDisconnect()
+        const stuck = await runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)
+
+        await expect(runner.run(withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }), NEVER_ABORTED)).rejects.toThrow(
+            `The load producer of run ${stuck.runId} did not disconnect and may still send its buffered messages into this card. Restart the runner, then run the card again.`
+        )
     })
 
     it("keeps only this run's part of each role log", async () => {

@@ -1,3 +1,4 @@
+import { getEventListeners } from 'events'
 import path from 'path'
 
 import { LoadedCard, load } from '../cards'
@@ -88,6 +89,18 @@ describe('drive', () => {
         interrupt.abort()
 
         expect(await driving).toEqual({ targetUnits: 5, offeredUnits: 2 })
+    })
+
+    it('leaves no abort listener on the interrupt signal once a drive ends', async () => {
+        const interrupt = new AbortController()
+        const { driving } = startDrive(cardWith({ ratePerSecond: 50, driveFor: '100ms' }), ACKNOWLEDGED, {
+            signal: interrupt.signal,
+        })
+
+        await jest.advanceTimersByTimeAsync(100)
+        await driving
+
+        expect(getEventListeners(interrupt.signal, 'abort')).toEqual([])
     })
 
     it('offers every unit that fell due during a stall in one turn', async () => {
