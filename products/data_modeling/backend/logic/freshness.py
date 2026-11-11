@@ -686,7 +686,10 @@ def validate_declared_target(
 
     # Nothing legal to fall back to, so no message here can end in "pick X instead"
     if not bounds.satisfiable:
-        raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names, pinned))
+        message = _nothing_satisfiable_message(bounds, names, pinned)
+        if option.blocked_by == "plan" and bounds.plan_floor is not None:
+            raise PlanFloorRefusalError(message, target=target, plan_floor=bounds.plan_floor)
+        raise UnsatisfiableFrequencyError(message)
 
     # Suggest a cadence the same call would accept, and name the bound itself rather than a
     # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
