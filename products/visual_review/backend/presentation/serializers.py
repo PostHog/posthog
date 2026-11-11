@@ -260,6 +260,13 @@ class UpdateRepoInputSerializer(DataclassSerializer):
                     "snapshots. Off by default. The digest goes out every Monday morning."
                 )
             },
+            "auto_quarantine_mode": {
+                "help_text": (
+                    "Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky. "
+                    "`off` (the default) does nothing. `preview` logs each proof and changes nothing. "
+                    "`on` quarantines the snapshot for 14 days and notifies the owning team."
+                )
+            },
         }
 
 

@@ -262,6 +262,22 @@ def notify_quarantine_owners(team_id: int, entry_id: str) -> None:
 
 
 @shared_task(
+    name="products.visual_review.backend.tasks.notify_auto_quarantine_limit",
+    ignore_result=True,
+)
+@with_team_scope()
+def notify_auto_quarantine_limit(team_id: int, repo_id: str, automatic_count: int) -> None:
+    """Tell the visual review maintainers that the daily limit stopped automatic quarantines."""
+    from ..logic import quarantine_notice  # noqa: PLC0415 — avoids the logic/tasks circular import
+
+    try:
+        quarantine_notice.send_daily_limit_notice(UUID(repo_id), team_id, automatic_count)
+    except Exception:
+        # Nothing retries: the limit warning is also in the logs and in every capped proof event.
+        logger.warning("visual_review.auto_quarantine_limit_notice_failed", repo_id=repo_id, exc_info=True)
+
+
+@shared_task(
     name="products.visual_review.backend.tasks.reconcile_quarantine_lifts",
     bind=True,
     ignore_result=True,

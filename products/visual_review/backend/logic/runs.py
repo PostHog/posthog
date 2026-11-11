@@ -21,6 +21,7 @@ from ..models import Repo, Run, RunSnapshot
 from ..storage import ArtifactStorage
 from . import (
     artifact_store,
+    auto_quarantine,
     baselines,
     ci_status,
     errors,
@@ -392,6 +393,13 @@ def finish_processing(run_id: UUID, error_message: str = "") -> Run:
     # then reclassifies every snapshot whose diff came in under the threshold. A reader
     # that sees COMPLETED before the recount therefore gets counts that still report drift
     # the run no longer has, and the CLI fails CI on them.
+    # Before the recount, so a quarantine this run proves is stamped on this run and the run passes.
+    # A failure here must never fail the run or make it retry, because the gate works without it.
+    try:
+        auto_quarantine.quarantine_proven_flakes(run)
+    except Exception:
+        logger.exception("visual_review.auto_quarantine_failed", run_id=str(run_id))
+
     try:
         snapshots = gating._recount(run)
     except Exception as exc:
