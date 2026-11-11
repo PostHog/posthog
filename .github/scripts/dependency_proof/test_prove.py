@@ -292,7 +292,8 @@ def stray(path: str, base: bytes, head: bytes) -> dict:
             "tools/pnpm-workspace.yaml is not beside a lockfile",
         ),
         (None, catalog_trees(head_catalog="~1.3.1"), None, "changes the range operator"),
-        (None, catalog_trees(head_version="1.3.0"), None, "changes no direct dependency version"),
+        (None, catalog_trees(head_version="1.3.0"), None, "left-pad is named in minimumReleaseAgeExclude"),
+        (None, trees("ms", head_version="1.3.0"), None, "changes no direct dependency version"),
     ],
 )
 def test_refusals(tmp_path: Path, github: FakeGitHub | None, update: dict, replayed: bytes | None, reason: str) -> None:
