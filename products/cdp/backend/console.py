@@ -38,7 +38,6 @@ from products.cdp.backend.services.invocation_replay import (
     DEFAULT_LATEST_PER_PERSON_TEMPLATE_IDS,
     SKIP_REASON_LABELS,
     WORKFLOWS_TEMPLATE_KEY,
-    FunctionReplay,
     ReplayCriteria,
     ReplayOverlapError,
     ReplayPlan,
@@ -254,24 +253,9 @@ def _targets_label(plan: ReplayPlan) -> str:
     return "Destinations and workflows" if plan.criteria.include_workflows else "Destinations"
 
 
-def _function_cells(function: FunctionReplay) -> tuple[Cell, Cell]:
-    if function.function_kind == "hog_flow":
-        return (
-            Cell(
-                text=function.function_name or "No name",
-                href=reverse("admin:workflows_hogflow_change", args=[function.function_id]),
-                detail=function.function_id,
-            ),
-            Cell(text="Workflow"),
-        )
-    return (
-        Cell(
-            text=function.function_name or "No name",
-            href=reverse("admin:cdp_hogfunction_change", args=[function.function_id]),
-            detail=function.function_id,
-        ),
-        Cell(text=function.template_id or "Custom function", mono=bool(function.template_id)),
-    )
+def _admin_url(function_kind: str, function_id: str) -> str:
+    view = "admin:workflows_hogflow_change" if function_kind == "hog_flow" else "admin:cdp_hogfunction_change"
+    return reverse(view, args=[function_id])
 
 
 def _template_cell(template_id: str) -> Cell:
@@ -361,7 +345,14 @@ def _destinations_table(plan: ReplayPlan) -> Table:
             Row(
                 cells=(
                     _team_cell(function.team_id, function.team_name),
-                    *_function_cells(function),
+                    Cell(
+                        text=function.function_name or "No name",
+                        href=_admin_url(function.function_kind, function.function_id),
+                        detail=function.function_id,
+                    ),
+                    Cell(text="Workflow")
+                    if function.function_kind == "hog_flow"
+                    else _template_cell(function.template_id),
                     Cell(text=f"{len(function.invocation_ids):,}", muted=not function.invocation_ids),
                     Cell(
                         text="\n".join(
@@ -450,12 +441,7 @@ class ReplayStatus:
                         ),
                         Cell(
                             text=result["function_id"],
-                            href=reverse(
-                                "admin:workflows_hogflow_change"
-                                if result.get("function_kind") == "hog_flow"
-                                else "admin:cdp_hogfunction_change",
-                                args=[result["function_id"]],
-                            ),
+                            href=_admin_url(result.get("function_kind", "hog_function"), result["function_id"]),
                             mono=True,
                         ),
                         Cell(text=f"{result['invocation_count']:,}"),
