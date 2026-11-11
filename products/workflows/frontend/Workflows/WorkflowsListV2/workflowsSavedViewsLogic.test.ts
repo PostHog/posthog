@@ -872,6 +872,7 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [], text: 'renewal' },
             { filters: savedView.state.filters, text: 'renewal' },
             [],
+            ['health'],
         ],
         [
             'a filter on a view-only link',
@@ -879,6 +880,15 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [eventTrigger], text: '' },
             { filters: [status('active'), eventTrigger], text: '' },
             [eventTrigger],
+            ['health'],
+        ],
+        [
+            'a filter on a link that carries only columns',
+            { view: VIEW_ID, columns: 'owner' },
+            { filters: [eventTrigger], text: '' },
+            { filters: [status('active'), eventTrigger], text: '' },
+            [eventTrigger],
+            ['owner'],
         ],
         [
             'a folder opened on a view-only link',
@@ -886,6 +896,7 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [{ facet: 'in', value: 'Archive', negated: false }], text: '' },
             { filters: [{ facet: 'in', value: 'Archive', negated: false }, status('active')], text: '' },
             [],
+            ['health'],
         ],
         [
             'a filter on a link that carries additions',
@@ -893,10 +904,11 @@ describe('workflowsSavedViewsLogic', () => {
             { filters: [status('active'), eventTrigger, adaOwns], text: '' },
             { filters: [status('active'), eventTrigger, adaOwns], text: '' },
             [eventTrigger, adaOwns],
+            ['health'],
         ],
     ])(
         'keeps the view filters and the additions when %s is entered before the views load',
-        async (_, link, edit, expected, added) => {
+        async (_, link, edit, expected, added, columns) => {
             let release: () => void = () => {}
             const pending = new Promise<void>((resolve) => {
                 release = resolve
@@ -920,6 +932,7 @@ describe('workflowsSavedViewsLogic', () => {
             expect(logic.values.activeViewId).toEqual(VIEW_ID)
             expect(workflowsListV2Logic.values.value).toEqual(expected)
             expect(logic.values.addedFilters).toEqual(added)
+            expect(workflowsListV2Logic.values.shownColumns).toEqual(columns)
         }
     )
 
@@ -1358,6 +1371,44 @@ describe('workflowsSavedViewsLogic', () => {
         expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
     })
 
+    it('picks up a new view whose timed-out save landed, instead of saving it twice', async () => {
+        const landedId = '00000000-0000-4000-8000-000000000005'
+        let posts = 0
+        useMocks({
+            post: {
+                '/api/projects/:team_id/workflow_views/': async ({ request }) => {
+                    posts++
+                    const view = { ...savedView, ...((await request.json()) as WorkflowViewCreateApi), id: landedId }
+                    if (posts === 1) {
+                        storedViews.push(view)
+                        return new Promise(() => {})
+                    }
+                    return [201, { ...view, id: '00000000-0000-4000-8000-000000000006' }]
+                },
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: '' })
+        jest.useFakeTimers()
+        try {
+            const saved = logic.asyncActions.saveViewAs('Draft flows')
+            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
+            await saved
+        } finally {
+            jest.useRealTimers()
+        }
+        await logic.asyncActions.saveViewAs('Draft flows')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(posts).toBe(1)
+        expect(logic.values.views.filter((view) => view.name === 'Draft flows').map((view) => view.id)).toEqual([
+            landedId,
+        ])
+        expect(logic.values.activeViewId).toBe(landedId)
+    })
+
     it('keeps a view whose stalled delete answers after the deadline', async () => {
         let answerLate: () => void = () => {}
         const lateAnswer = new Promise<void>((resolve) => (answerLate = resolve))
@@ -1582,7 +1633,6 @@ describe('workflowsSavedViewsLogic', () => {
             logic.mount()
             await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
             expect(logic.values.savedViewsLoadFailed).toBe(true)
-            expect(logic.values.viewsResolving).toBe(false)
         } finally {
             jest.useRealTimers()
         }
