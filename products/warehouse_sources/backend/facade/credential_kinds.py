@@ -423,6 +423,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "EmailOctopus": "email-octopus",
     "Emarsys": "emarsys",
     "Embrace": "embrace",
+    "Emplifi": "emplifi",
     "EmploymentHero": "employment-hero",
     "Encharge": "encharge",
     "Entsoe": "entsoe",

@@ -11,7 +11,7 @@ from functools import lru_cache, partial
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Func, JSONField, Q, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -38,7 +38,11 @@ from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_
 from products.signals.backend.facade.source_scouts import refresh_source_scout
 from products.signals.backend.first_report_completion import complete_first_report_investigation
 from products.signals.backend.first_report_experiment import FirstReportExperiment, resolve_first_report_experiment
-from products.signals.backend.first_report_scout import set_first_report_state
+from products.signals.backend.first_report_scout import (
+    FirstReportRunInProgress,
+    lock_first_report_start,
+    set_first_report_state,
+)
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult
 from products.signals.backend.github_optional import ResearchAccessPolicy
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
@@ -189,11 +193,7 @@ def _get_trial_config(trial: TrialLaunch) -> SignalScoutConfig:
     return SignalScoutConfig.objects.for_team(trial.team_id).get(id=trial.config_id, skill_name=trial.skill_name)
 
 
-def _existing_trial_result(team_id: int, trial: TrialLaunch) -> RunResult | None:
-    task_id = tasks_facade.get_task_id_by_idempotency_key(team_id, f"scout-trial:{trial.id}")
-    if task_id is None:
-        return None
-    run = SignalScoutRun.objects.for_team(team_id).select_related("task_run").filter(task_run__task_id=task_id).first()
+def _persisted_run_result(run: SignalScoutRun | None) -> RunResult | None:
     if run is None:
         return None
     return RunResult(
@@ -205,6 +205,25 @@ def _existing_trial_result(team_id: int, trial: TrialLaunch) -> RunResult | None
         skill_name=run.skill_name,
         skill_version=run.skill_version,
     )
+
+
+def _existing_trial_result(team_id: int, trial: TrialLaunch) -> RunResult | None:
+    task_id = tasks_facade.get_task_id_by_idempotency_key(team_id, f"scout-trial:{trial.id}")
+    if task_id is None:
+        return None
+    run = SignalScoutRun.objects.for_team(team_id).select_related("task_run").filter(task_run__task_id=task_id).first()
+    return _persisted_run_result(run)
+
+
+def _existing_first_report_result(team_id: int, run_id: UUID) -> RunResult | None:
+    run = (
+        SignalScoutRun.objects.for_team(team_id)
+        .using("default")
+        .select_related("task_run")
+        .filter(id=run_id, skill_name=FIRST_REPORT_SCOUT)
+        .first()
+    )
+    return _persisted_run_result(run)
 
 
 def _trial_invalid_reason(*, team_id: int, run_id: UUID, trial: TrialLaunch) -> str | None:
@@ -284,6 +303,7 @@ async def _arun_signals_scout(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    first_report_run_id: UUID | None = None,
 ) -> RunResult:
     """Async core. Safe to call from inside a running event loop (Temporal activity).
 
@@ -311,6 +331,12 @@ async def _arun_signals_scout(
     if skill_name == FIRST_REPORT_SCOUT and triggered_by != TRIGGERED_BY_ONBOARDING:
         raise ValueError("The first-report scout only accepts onboarding dispatches.")
     team = await database_sync_to_async(_get_team, thread_sensitive=False)(team_id)
+    if skill_name == FIRST_REPORT_SCOUT and first_report_run_id is not None:
+        prior = await database_sync_to_async(_existing_first_report_result, thread_sensitive=False)(
+            team.parent_team_id or team.id, first_report_run_id
+        )
+        if prior is not None:
+            return prior
     trial = (
         await database_sync_to_async(load_trial_launch, thread_sensitive=False)(
             team.parent_team_id or team.id, trial_launch_id
@@ -408,8 +434,8 @@ async def _arun_signals_scout(
     # Skip-if-running guard, keyed on (team, skill_name). Different skills for the same
     # team are allowed to run concurrently — the coordinator can dispatch several due
     # scouts for one team in a single tick. Best-effort — there is a race window between
-    # this check and the bridge-row insert inside _spawn_and_run (a second trigger could
-    # land in between), which we accept until a claim/lease primitive lands.
+    # this check and the bridge-row insert inside _spawn_and_run. First-report runs also
+    # recheck under a project lock in the task creation transaction.
     if trial is None and await database_sync_to_async(_has_running_run, thread_sensitive=False)(
         team_id=team.parent_team_id or team.id, skill_name=skill.name
     ):
@@ -475,7 +501,7 @@ async def _arun_signals_scout(
     # Pre-mint the bridge row's UUID so the prompt can reference it before the row
     # exists. The TaskRun is created inside `MultiTurnSession.start`; the bridge row is
     # inserted in the task creation transaction so first-turn tools resolve its private state.
-    run_id = uuid7()
+    run_id = (first_report_run_id or uuid7()) if skill.name == FIRST_REPORT_SCOUT else uuid7()
     started_at = timezone.now()
 
     # Resolve the scout's agent model. A `None` model keeps the agent-server default; an override
@@ -654,7 +680,29 @@ async def _arun_signals_scout(
             skill_name=skill.name,
             skill_version=skill.version,
         )
+    except FirstReportRunInProgress:
+        return RunResult(
+            run_id=None,
+            task_run_id=None,
+            status=None,
+            last_message=None,
+            runtime_s=0.0,
+            skill_name=skill.name,
+            skill_version=skill.version,
+            skip_reason="prior run still in progress",
+        )
     except Exception as exc:
+        if (
+            skill.name == FIRST_REPORT_SCOUT
+            and isinstance(exc, IntegrityError)
+            and getattr(getattr(exc.__cause__, "diag", None), "constraint_name", None)
+            in {"posthog_task_origin_key_uniq", "posthog_task_idempotency_key_uniq"}
+        ):
+            prior = await database_sync_to_async(_existing_first_report_result, thread_sensitive=False)(
+                team.parent_team_id or team.id, run_id
+            )
+            if prior is not None:
+                return prior
         trial_status = tasks_facade.TaskRunStatus.FAILED.value
         runtime_s = time.monotonic() - started
         if trial is not None:
@@ -838,6 +886,7 @@ async def arun_signals_scout(
     check_id: str | None = None,
     precheck_rows: str | None = None,
     precheck_query_source: str | None = None,
+    first_report_run_id: UUID | None = None,
 ) -> RunResult:
     with private_capture_context() if trial_launch_id is not None else nullcontext():
         return await _arun_signals_scout(
@@ -855,6 +904,7 @@ async def arun_signals_scout(
             check_id=check_id,
             precheck_rows=precheck_rows,
             precheck_query_source=precheck_query_source,
+            first_report_run_id=first_report_run_id,
         )
 
 
@@ -1314,7 +1364,7 @@ async def _spawn_and_run(
             ai_agent_name=skill.name,
             before_task_dispatch=_create_bridge_row,
             origin_key=(
-                "first-report"
+                f"first-report:{run_id}"
                 if skill.name == FIRST_REPORT_SCOUT
                 else f"scout-trial:{trial.id}"
                 if trial is not None
@@ -1688,6 +1738,8 @@ def _create_run_row(
     if precheck_query_source:
         metadata["precheck_query_source"] = precheck_query_source
     with transaction.atomic():
+        if skill.name == FIRST_REPORT_SCOUT and trial is None:
+            lock_first_report_start(team)
         run = SignalScoutRun.objects.for_team(team.id).create(
             id=run_id,
             task_run_id=task_run_id,
