@@ -1,7 +1,11 @@
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.db import connection
 from django.test import Client, override_settings
 
 from parameterized import parameterized
@@ -13,8 +17,9 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
+from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG, provision_sandbox_sender
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
+from products.workflows.backend.tests.fakes.ses_endpoint import FakeSesEndpoint
 
 
 def _flag(enabled: bool):
@@ -46,19 +51,18 @@ class TestWorkflowEmailSandbox(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert _sandbox_rows(self.team.id) == []
 
-    @patch("boto3.client")
-    def test_provision_creates_one_row_without_calling_the_email_provider(self, boto3_client) -> None:
-        with _flag(True):
+    def test_provision_creates_one_row_without_calling_the_email_provider(self) -> None:
+        with _flag(True), FakeSesEndpoint().installed() as ses:
             first = self.client.post(self._url("provision"))
             second = self.client.post(self._url("provision"))
 
-        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert [first.status_code, second.status_code] == [status.HTTP_200_OK, status.HTTP_200_OK], first.json()
         rows = _sandbox_rows(self.team.id)
         assert [row.id for row in rows] == [first.json()["integration_id"]] == [second.json()["integration_id"]]
         assert rows[0].integration_id == "posthog-managed-sandbox"
         assert rows[0].config == {}
         assert rows[0].created_by_id == self.user.id
-        boto3_client.assert_not_called()
+        assert ses.requests == []
 
     def test_provision_reuses_a_row_another_request_created(self) -> None:
         other_user = User.objects.create_and_join(self.organization, "other@example.com", "testtest")
@@ -75,6 +79,34 @@ class TestWorkflowEmailSandbox(APIBaseTest):
 
         assert response.json() == {"integration_id": existing.id}
         assert [row.created_by_id for row in _sandbox_rows(self.team.id)] == [other_user.id]
+
+    def test_provision_keeps_the_creator_of_a_row_committed_after_its_lookup(self) -> None:
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "testtest")
+        competing: list[Integration] = []
+        raced: list[bool] = []
+
+        def commit_competing_row_after_lookup(
+            execute: Callable[..., Any], sql: str, params: Any, many: bool, context: Any
+        ) -> Any:
+            result = execute(sql, params, many, context)
+            if not raced and sql.lstrip().upper().startswith("SELECT") and '"posthog_integration"' in sql:
+                raced.append(True)
+                competing.append(
+                    Integration.objects.create(
+                        team=self.team,
+                        kind="email_sandbox",
+                        integration_id="posthog-managed-sandbox",
+                        config={},
+                        created_by=other_user,
+                    )
+                )
+            return result
+
+        with connection.execute_wrapper(commit_competing_row_after_lookup):
+            row = provision_sandbox_sender(self.team, self.user)
+
+        assert row.id == competing[0].id
+        assert [stored.created_by_id for stored in _sandbox_rows(self.team.id)] == [other_user.id]
 
     @parameterized.expand([("before_provision", False), ("after_provision", True)])
     def test_status_describes_the_sender(self, _name: str, provisioned: bool) -> None:

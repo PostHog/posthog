@@ -1,10 +1,13 @@
 import re
 from typing import Any
 
+from django.conf import settings
+
 from rest_framework.exceptions import ValidationError
 
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.validation import generate_template_bytecode
+from products.workflows.backend.models.hog_flow.hog_flow import SANDBOX_EMAIL_ACTION_TYPE
 
 _ACTION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -20,6 +23,14 @@ _CATEGORY_TYPES = ("marketing", "transactional")
 _TEMPLATING = ("hog", "liquid")
 
 ADOPTION_UNAVAILABLE = "The sandbox sender isn't available for this organization. Choose a verified email sender."
+RUNTIME_UNAVAILABLE = "The sandbox sender can't send from workflows yet. Save this workflow as a draft, or choose a verified email sender."
+
+
+def require_sandbox_runtime(actions: Any) -> None:
+    if settings.WORKFLOWS_SANDBOX_EMAIL_RUNTIME_ENABLED:
+        return
+    if any(isinstance(action, dict) and action.get("type") == SANDBOX_EMAIL_ACTION_TYPE for action in actions or []):
+        raise ValidationError({"actions": RUNTIME_UNAVAILABLE})
 
 
 def validate_sandbox_email_action(

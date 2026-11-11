@@ -8,6 +8,7 @@ from products.workflows.backend.services.sandbox_email.provisioning import (
 )
 from products.workflows.backend.services.sandbox_email.validation import (
     ADOPTION_UNAVAILABLE,
+    require_sandbox_runtime,
     validate_sandbox_email_action,
 )
 
@@ -17,6 +18,7 @@ __all__ = [
     "SANDBOX_SENDER_ADOPTION_FLAG",
     "SANDBOX_SENDER_INTEGRATION_ID",
     "provision_sandbox_sender",
+    "require_sandbox_runtime",
     "sandbox_adoption_enabled",
     "sandbox_sender_status",
     "validate_sandbox_email_action",
