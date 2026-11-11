@@ -228,9 +228,13 @@ def _notice(organization: Organization, deletion_on: date | None) -> dict[str, o
 def _notify_admins(event: str, notices: dict[UUID, dict[str, object]]) -> None:
     if not is_cloud() or not notices:
         return
-    admins = OrganizationMembership.objects.filter(
-        organization_id__in=notices, level__gte=OrganizationMembership.Level.ADMIN, user__is_active=True
-    ).values_list("organization_id", "user__distinct_id")
+    admins = (
+        OrganizationMembership.objects.with_effective_level()
+        .filter(
+            organization_id__in=notices, resolved_level__gte=OrganizationMembership.Level.ADMIN, user__is_active=True
+        )
+        .values_list("organization_id", "user__distinct_id")
+    )
     with ph_scoped_capture(raise_on_error=True, event_region=get_instance_region()) as capture:
         for organization_id, distinct_id in admins:
             capture(

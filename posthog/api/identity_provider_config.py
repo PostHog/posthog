@@ -432,7 +432,7 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
         membership = OrganizationMembership.objects.filter(
             user=cast(User, request.user), organization=config.organization
         ).first()
-        if not membership or membership.level < OrganizationMembership.Level.ADMIN:
+        if not membership or membership.effective_level < OrganizationMembership.Level.ADMIN:
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         queryset = SCIMRequestLog.objects.filter(identity_provider_config=config)

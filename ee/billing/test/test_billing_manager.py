@@ -346,6 +346,10 @@ class TestBillingManager(BaseTest):
             password=None,
             level=OrganizationMembership.Level.OWNER,
         )
+        y2.join(
+            organization=Organization.objects.create(name="Other organization"),
+            level=OrganizationMembership.Level.OWNER,
+        )
         organization.refresh_from_db()
         BillingManager(license).update_billing_organization_users(organization)
         assert billing_patch_request_mock.call_count == 1
