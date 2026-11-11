@@ -34,7 +34,7 @@ def gitlab_request(
     method: str,
     url: str,
     *,
-    token: str,
+    token: str | None,
     source: str,
     endpoint: str,
     scoped: bool = True,
@@ -44,6 +44,8 @@ def gitlab_request(
     """``endpoint`` is a template such as ``/projects/{id}/issues``. Project paths in a URL are
     customer data, so the raw URL never becomes the label.
 
+    Pass ``token=None`` for an anonymous request, which sees only public projects on gitlab.com.
+
     Pass ``scoped=False`` when the token is a candidate PostHog has not stored yet. Each scope
     retains a counter child and three gauge children for the lifetime of the process, so a caller
     that probes with rejected tokens would otherwise grow the metric registry without a bound.
@@ -52,8 +54,8 @@ def gitlab_request(
         method,
         url,
         source=source,
-        headers={"PRIVATE-TOKEN": token},
-        scope=token_scope(url, token) if scoped else None,
+        headers={"PRIVATE-TOKEN": token} if token else {},
+        scope=token_scope(url, token) if token and scoped else None,
         endpoint=endpoint,
         timeout=timeout,
         **kwargs,

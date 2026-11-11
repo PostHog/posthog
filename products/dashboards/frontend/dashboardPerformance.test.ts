@@ -2,7 +2,7 @@ import posthog from 'posthog-js'
 
 import { DashboardPlacement } from '~/types'
 
-import { DashboardPerformanceMonitor } from './dashboardPerformance'
+import { DashboardPerformanceMonitor, LayoutGestureMonitor } from './dashboardPerformance'
 
 describe('DashboardPerformanceMonitor', () => {
     const context = { dashboardId: 1, placement: DashboardPlacement.Dashboard, getTileCount: () => 3 }
@@ -28,6 +28,52 @@ describe('DashboardPerformanceMonitor', () => {
             tile_count: 3,
         })
         expect(monitor.finish(130_000, heap(150))).toBeNull()
+    })
+
+    it('reports gesture frame gaps from the gesture start, skipping hidden-tab time, once the drop has painted', () => {
+        const pending = new Map<number, FrameRequestCallback>()
+        let lastHandle = 0
+        const runFrame = (frameAt: number): void => {
+            const callbacks = [...pending.values()]
+            pending.clear()
+            callbacks.forEach((callback) => callback(frameAt))
+        }
+        const monitor = new LayoutGestureMonitor(
+            0,
+            (callback) => {
+                pending.set(++lastHandle, callback)
+                return lastHandle
+            },
+            (handle) => pending.delete(handle)
+        ).start()
+        const report = jest.fn()
+        try {
+            // A 120 ms wait for the first frame, then twenty 16 ms gaps around a hidden-tab pause.
+            Array.from({ length: 20 }, (_, i) => 120 + i * 16).forEach(runFrame)
+            jest.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+            document.dispatchEvent(new Event('visibilitychange'))
+            jest.restoreAllMocks()
+            ;[5000, 5016].forEach(runFrame)
+
+            jest.spyOn(performance, 'now').mockReturnValueOnce(5160)
+            monitor.finish(report, 5100)
+            runFrame(0)
+            expect(report).not.toHaveBeenCalled()
+            runFrame(0)
+
+            expect(report).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    gesture_duration_ms: 5100,
+                    frame_count: 21,
+                    frame_gap_p95_ms: 16,
+                    frame_gap_max_ms: 120,
+                    slow_frame_count: 1,
+                    release_to_paint_ms: 60,
+                })
+            )
+        } finally {
+            jest.restoreAllMocks()
+        }
     })
 
     it('skips views too short to measure', () => {

@@ -5,13 +5,12 @@ from typing import Any, Literal, TypeVar
 import structlog
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.runnables import RunnableConfig
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 from pydantic import BaseModel, ValidationError
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from ee.hogai.llm import MaxChatAnthropic
+from ee.hogai.llm import MaxCallbackHandler, MaxChatAnthropic
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 logger = structlog.get_logger(__name__)
@@ -45,7 +44,7 @@ def invoke_structured(
     callbacks: list[BaseCallbackHandler] = []
     if analytics_client is not None:
         callbacks.append(
-            CallbackHandler(
+            MaxCallbackHandler(
                 analytics_client,
                 distinct_id=user.distinct_id,
                 trace_id=f"workflows-{feature}-{uuid.uuid4()}",

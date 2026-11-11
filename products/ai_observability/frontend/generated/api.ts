@@ -19,6 +19,7 @@ import type {
     AiObservabilityTracesClustersRetrieveParams,
     AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
+    AiObservabilityTracesNodesRawRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
     AiObservabilityTracesRetrieveParams,
@@ -33,6 +34,7 @@ import type {
     DatasetCreateApi,
     DatasetExportCreateApi,
     DatasetExportReadApi,
+    DatasetExtendRetentionApi,
     DatasetItemArchiveApi,
     DatasetItemCreateApi,
     DatasetItemReadApi,
@@ -42,7 +44,10 @@ import type {
     DatasetItemsRetrieveParams,
     DatasetItemsVersionsListParams,
     DatasetReadApi,
+    DatasetRetentionEntryApi,
+    DatasetRetentionReadApi,
     DatasetsListParams,
+    DatasetsRetentionRetrieveParams,
     DatasetsRevisionsListParams,
     EvaluationApi,
     EvaluationBackfillApi,
@@ -134,6 +139,7 @@ import type {
     PatchedTaggerUpdateApi,
     PatchedTraceReviewUpdateApi,
     PersonalSpendAnalysisResponseApi,
+    ProviderKeyDependentConfigsApi,
     ReviewQueueApi,
     ReviewQueueCreateApi,
     ReviewQueueItemApi,
@@ -165,6 +171,7 @@ import type {
     TraceExportFileApi,
     TraceFeedbackApi,
     TraceNodeDetailApi,
+    TraceNodeRawApi,
     TracePullRequestLookupApi,
     TraceReviewApi,
     TraceReviewCreateApi,
@@ -892,7 +899,7 @@ export const getAiObservabilityTracesNodesRetrieveUrl = (
 }
 
 /**
- * One node of a trace: its event properties as ingested, the keys that hold its input, output and tools, its error and its metadata.
+ * One node of a trace: its input and output ready to render, its event name, uuid and timestamp, its error and its metadata. The raw event properties are on the `raw` read.
  */
 export const aiObservabilityTracesNodesRetrieve = async (
     projectId: string,
@@ -902,6 +909,43 @@ export const aiObservabilityTracesNodesRetrieve = async (
     options?: RequestInit
 ): Promise<TraceNodeDetailApi> => {
     return apiMutator<TraceNodeDetailApi>(getAiObservabilityTracesNodesRetrieveUrl(projectId, id, nodeId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getAiObservabilityTracesNodesRawRetrieveUrl = (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRawRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/raw/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/nodes/${nodeId}/raw/`
+}
+
+/**
+ * One node of a trace as ingested: its event properties and the keys that hold its input, output and tools, with nothing normalized.
+ */
+export const aiObservabilityTracesNodesRawRetrieve = async (
+    projectId: string,
+    id: string,
+    nodeId: string,
+    params?: AiObservabilityTracesNodesRawRetrieveParams,
+    options?: RequestInit
+): Promise<TraceNodeRawApi> => {
+    return apiMutator<TraceNodeRawApi>(getAiObservabilityTracesNodesRawRetrieveUrl(projectId, id, nodeId, params), {
         ...options,
         method: 'GET',
     })
@@ -1423,6 +1467,27 @@ export const datasetsExportsContentRetrieve = async (
     })
 }
 
+export const getDatasetsExtendRetentionCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/datasets/${id}/extend_retention/`
+}
+
+/**
+ * Refresh retention for a dataset and optionally one revision, with the same access required to read them.
+ */
+export const datasetsExtendRetentionCreate = async (
+    projectId: string,
+    id: string,
+    datasetExtendRetentionApi?: DatasetExtendRetentionApi,
+    options?: RequestInit
+): Promise<DatasetRetentionEntryApi> => {
+    return apiMutator<DatasetRetentionEntryApi>(getDatasetsExtendRetentionCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(datasetExtendRetentionApi),
+    })
+}
+
 export const getDatasetsRestoreUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/datasets/${id}/restore/`
 }
@@ -1467,6 +1532,36 @@ export const datasetsRevisionsList = async (
     options?: RequestInit
 ): Promise<PaginatedDatasetRevisionReadListApi> => {
     return apiMutator<PaginatedDatasetRevisionReadListApi>(getDatasetsRevisionsListUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getDatasetsRetentionRetrieveUrl = (projectId: string, params?: DatasetsRetentionRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/datasets/retention/?${stringifiedParams}`
+        : `/api/projects/${projectId}/datasets/retention/`
+}
+
+/**
+ * Find accessible datasets and older revisions within seven days of expiry without refreshing their retention.
+ */
+export const datasetsRetentionRetrieve = async (
+    projectId: string,
+    params?: DatasetsRetentionRetrieveParams,
+    options?: RequestInit
+): Promise<DatasetRetentionReadApi> => {
+    return apiMutator<DatasetRetentionReadApi>(getDatasetsRetentionRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -2605,11 +2700,14 @@ export const llmAnalyticsProviderKeysDependentConfigsRetrieve = async (
     projectId: string,
     id: string,
     options?: RequestInit
-): Promise<LLMProviderKeyApi> => {
-    return apiMutator<LLMProviderKeyApi>(getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<ProviderKeyDependentConfigsApi> => {
+    return apiMutator<ProviderKeyDependentConfigsApi>(
+        getLlmAnalyticsProviderKeysDependentConfigsRetrieveUrl(projectId, id),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getLlmAnalyticsProviderKeysModelsListUrl = (projectId: string, id: string) => {

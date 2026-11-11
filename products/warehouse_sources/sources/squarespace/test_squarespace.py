@@ -115,11 +115,18 @@ class TestValidateCredentials:
         with scripted_network(always(ConnectionError("boom"))):
             assert validate_credentials("token") == (False, False)
 
-    def test_schema_probes_that_endpoint_with_its_version(self) -> None:
+    @parameterized.expand(
+        [
+            # products is served from the v2 API.
+            ("versioned_endpoint", "products", "/v2/commerce/products"),
+            # A fan-out path has no parent id to fill in, so the parent list is probed instead.
+            ("fan_out_endpoint", "contact_address_book", "/v1/contacts"),
+        ]
+    )
+    def test_schema_probes_that_endpoint_with_its_version(self, _name: str, schema_name: str, path: str) -> None:
         with scripted_network([ScriptedResponse(json={})]) as network:
-            validate_credentials("token", schema_name="products")
-        # products is served from the v2 API.
-        assert network.requests_log[0].url == f"{SQUARESPACE_BASE_URL}/v2/commerce/products"
+            validate_credentials("token", schema_name=schema_name)
+        assert network.requests_log[0].url == f"{SQUARESPACE_BASE_URL}{path}"
 
 
 class TestGetRowsPagination:
@@ -140,6 +147,7 @@ class TestGetRowsPagination:
             ("inventory", "inventory"),
             ("store_pages", "storePages"),
             ("profiles", "profiles"),
+            ("contacts", "contacts"),
             # Unpaginated: the response carries no `pagination` object.
             ("fulfillment_options", "fulfillmentOptions", False),
         ]
@@ -169,3 +177,81 @@ class TestGetRowsPagination:
         result = self._driver().run("orders", script, resume_state=SquarespaceResumeConfig(cursor="stale-cursor"))
 
         assert isinstance(result.raised, SquarespaceInvalidCursorError)
+
+
+class TestGetOffsetRows:
+    @parameterized.expand(
+        [
+            ("fresh_run", None, ["0", "2"]),
+            ("resumed_run", SquarespaceResumeConfig(cursor="", offset=5), ["5", "7"]),
+        ]
+    )
+    def test_walks_offsets_until_last_page(
+        self, _name: str, resume_state: SquarespaceResumeConfig | None, expected_offsets: list[str]
+    ) -> None:
+        script = [
+            ScriptedResponse(json={"discounts": [{"id": "a"}, {"id": "b"}], "hasNextPage": True}),
+            ScriptedResponse(json={"discounts": [{"id": "c"}], "hasNextPage": False}),
+        ]
+
+        result = TestGetRowsPagination._driver().run("discounts", script, resume_state=resume_state)
+
+        assert result.raised is None
+        assert result.items == [[{"id": "a"}, {"id": "b"}], [{"id": "c"}]]
+        assert result.params("offset") == expected_offsets
+        # Ascending creation order keeps offsets stable while discounts are added mid-sync.
+        assert result.params("sortBy") == ["CREATED_ON", "CREATED_ON"]
+        assert result.params("sortDirection") == ["ASCENDING", "ASCENDING"]
+        assert result.saved_states == [SquarespaceResumeConfig(cursor="", offset=int(expected_offsets[1]))]
+
+
+def _address_book(entries: list[dict[str, Any]], next_cursor: str | None = None) -> ScriptedResponse:
+    pagination = {"hasNextPage": next_cursor is not None, "nextPageCursor": next_cursor}
+    return ScriptedResponse(json={"addressBook": {"addressBookEntries": entries}, "pagination": pagination})
+
+
+class TestGetFanOutRows:
+    def test_walks_every_contact_and_tags_rows_with_the_contact_id(self) -> None:
+        script = [
+            _page("contacts", [{"id": "c1"}, {"id": "c2"}, {"id": "c3"}], next_cursor="contacts-2"),
+            _address_book([{"id": "e1"}], next_cursor="book-2"),
+            _address_book([{"id": "e2"}]),
+            _address_book([]),
+            # c3 was deleted after the contacts page was read.
+            ScriptedResponse(status=404, json={"message": "not found"}),
+            _page("contacts", [{"id": "c4"}]),
+            _address_book([{"id": "e1"}]),
+        ]
+
+        result = TestGetRowsPagination._driver().run("contact_address_book", script)
+
+        assert result.raised is None
+        assert result.items == [
+            [{"id": "e1", "contactId": "c1"}, {"id": "e2", "contactId": "c1"}],
+            [{"id": "e1", "contactId": "c4"}],
+        ]
+        assert result.paths == [
+            "/v1/contacts",
+            "/v1/contacts/c1/address-book",
+            "/v1/contacts/c1/address-book",
+            "/v1/contacts/c2/address-book",
+            "/v1/contacts/c3/address-book",
+            "/v1/contacts",
+            "/v1/contacts/c4/address-book",
+        ]
+        assert result.params("cursor") == [None, None, "book-2", None, None, "contacts-2", None]
+
+    def test_resume_skips_contacts_already_done_on_the_saved_page(self) -> None:
+        script = [
+            _page("contacts", [{"id": "c1"}, {"id": "c2"}]),
+            _address_book([{"id": "e9"}]),
+        ]
+
+        result = TestGetRowsPagination._driver().run(
+            "contact_address_book", script, resume_state=SquarespaceResumeConfig(cursor="contacts-2", offset=1)
+        )
+
+        assert result.items == [[{"id": "e9", "contactId": "c2"}]]
+        assert result.paths == ["/v1/contacts", "/v1/contacts/c2/address-book"]
+        assert result.params("cursor") == ["contacts-2", None]
+        assert result.final_state == SquarespaceResumeConfig(cursor="contacts-2", offset=2)

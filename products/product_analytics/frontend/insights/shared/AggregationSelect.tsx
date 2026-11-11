@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
+import { LemonSelect, LemonSelectOptionLeaf, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { UNIQUE_USERS, getHogQLValue, hogQLToFilterValue } from 'scenes/insights/filters/aggregationTarget'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -15,7 +16,13 @@ import { InsightLogicProps } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'
 
+import { QuillAggregationSelect } from './QuillAggregationSelect'
+
 export const CUSTOM_DATA_WAREHOUSE_ITEMS = '__custom_data_warehouse_items__'
+
+const OPTIONS_TITLE = 'Event Aggregation'
+const CUSTOM_SQL_PLACEHOLDER =
+    "Enter SQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
 
 export function getCustomAggregationEditorValue(value: string, baseValues: string[]): string {
     return !value || baseValues.includes(value) || value === CUSTOM_DATA_WAREHOUSE_ITEMS ? '' : value
@@ -40,6 +47,7 @@ export function AggregationSelect({
 
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
     const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
+    const quillSurface = useQuillSurface()
 
     if (!isInsightQueryNode(querySource)) {
         return null
@@ -115,7 +123,7 @@ export function AggregationSelect({
     const baseValues = [UNIQUE_USERS]
     const optionSections: LemonSelectSection<string>[] = [
         {
-            title: 'Event Aggregation',
+            title: OPTIONS_TITLE,
             options: [
                 {
                     value: UNIQUE_USERS,
@@ -164,8 +172,27 @@ export function AggregationSelect({
         })
     }
 
+    const customAggregationEditorValue = getCustomAggregationEditorValue(value, baseValues)
+
+    if (quillSurface) {
+        return (
+            <QuillAggregationSelect
+                className={className}
+                value={value}
+                title={OPTIONS_TITLE}
+                options={optionSections[0].options as LemonSelectOptionLeaf<string>[]}
+                footer={optionSections[0].footer}
+                onChange={onChange}
+                hogQL={
+                    hogqlAvailable
+                        ? { value: customAggregationEditorValue, placeholder: CUSTOM_SQL_PLACEHOLDER }
+                        : undefined
+                }
+            />
+        )
+    }
+
     if (hogqlAvailable) {
-        const customAggregationEditorValue = getCustomAggregationEditorValue(value, baseValues)
         optionSections[0].options.push({
             label: 'Custom SQL expression',
             options: [
@@ -181,9 +208,7 @@ export function AggregationSelect({
                                 <HogQLEditor
                                     onChange={onSelect}
                                     value={customAggregationEditorValue}
-                                    placeholder={
-                                        "Enter SQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
-                                    }
+                                    placeholder={CUSTOM_SQL_PLACEHOLDER}
                                 />
                             </div>
                         )

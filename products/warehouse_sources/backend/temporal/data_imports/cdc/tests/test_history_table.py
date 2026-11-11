@@ -1,14 +1,18 @@
 import uuid
+import threading
 from io import StringIO
 
 import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import patch
+from posthog.test.base import BaseTest, NonAtomicBaseTest
+from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import OperationalError, connection, transaction
 
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.facade.contracts import HistoryTableDropRefusedError, LegacyHistoryTableError
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
@@ -19,8 +23,10 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import (
     HistoryTableNameTakenError,
+    drop_history_table,
     history_naming,
     history_tables,
+    incremental_history_naming,
     is_another_schemas_history_table,
     new_history_names_taken,
     pin_history_naming,
@@ -30,6 +36,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
 _PH_HISTORY_NAMING_FLAG = (
     "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table.is_source_flag_enabled"
 )
+_GET_S3_CLIENT = "products.data_warehouse.backend.facade.api.get_s3_client"
+# The load queue lives in the warehouse-sources database, which these tests do not create.
+_HAS_QUEUED_BATCHES = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager.has_queued_batches"
+_WORKFLOW_IS_RUNNING = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane._workflow_is_running"
 
 
 @patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
@@ -91,6 +101,36 @@ class TestHistoryNaming(BaseTest):
 
         with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
             assert history_naming(self.schema) == pinned
+
+    @parameterized.expand(
+        [
+            ("flag_off", None, None, False),
+            ("pinned_legacy", LEGACY_HISTORY_NAMING, None, True),
+            ("stamped_table", None, ("orders_history", {"history_table": True, "history_naming": "ph_validity"}), True),
+            # An unmarked `orders_cdc` can be a source table that has not synced yet.
+            ("unmarked_legacy_named_table", None, ("orders_cdc", {}), True),
+        ]
+    )
+    def test_incremental_history_always_takes_the_new_naming(
+        self, _name: str, pinned: HistoryNaming | None, table: tuple[str, dict] | None, flag_on: bool
+    ) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        if pinned is not None:
+            pin_history_naming(self.schema.sync_type_config, pinned)
+        self.schema.save()
+        if table is not None:
+            self._table(*table)
+
+        with patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: flag_on):
+            assert incremental_history_naming(self.schema) == HISTORY_NAMING
+
+    def test_incremental_history_refuses_a_legacy_history_table(self) -> None:
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.save()
+        self._table("orders_cdc", {"history_table": True})
+
+        with pytest.raises(LegacyHistoryTableError, match="orders_cdc"):
+            incremental_history_naming(self.schema)
 
     def test_a_stamped_new_table_wins_over_a_legacy_named_table(self) -> None:
         # An unlinked `orders_cdc` can be a source table that has not synced yet. Taking the legacy naming
@@ -207,3 +247,198 @@ class TestHistoryNaming(BaseTest):
         own_table.refresh_from_db()
         assert legacy.is_history_table is live_run
         assert not own_table.is_history_table
+
+
+@patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+class TestDropHistoryTable(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.source = ExternalDataSource.objects.create(
+            team=self.team, source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), source_type="Postgres"
+        )
+        self.schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=self.source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={
+                "cdc_table_mode": "consolidated",
+                "history_naming": "legacy",
+                "query_folder_state": {"orders__query": {"active": "orders__query_a"}, "orders_cdc__query": {}},
+            },
+        )
+        self.history = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=build_table_name(self.source, "orders_cdc"),
+            format="DeltaS3Wrapper",
+            url_pattern="s3://bucket/orders_cdc",
+            external_data_source=self.source,
+            options={"history_table": True},
+        )
+        folder = f"bucket/{self.schema.folder_path()}"
+        self.s3 = MagicMock()
+        self.s3.ls.return_value = [
+            f"{folder}/orders",
+            f"{folder}/orders__query_a",
+            f"{folder}/orders_cdc",
+            f"{folder}/orders_cdc__query_b",
+            f"{folder}/orders_cdc__query_1700000000_abc",
+            f"{folder}/orders_cdc_ph_staging",
+        ]
+        self.folder = folder
+
+    def _drop(self, *, queued: bool | Exception = False, workflow_running: bool = False) -> DataWarehouseTable | None:
+        queue = {"side_effect": queued} if isinstance(queued, Exception) else {"return_value": queued}
+        with (
+            patch(_GET_S3_CLIENT, return_value=self.s3),
+            patch(_HAS_QUEUED_BATCHES, **queue),
+            patch(_WORKFLOW_IS_RUNNING, return_value=workflow_running),
+        ):
+            return drop_history_table(self.schema)
+
+    def _running_job(self) -> None:
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=self.source,
+            schema=self.schema,
+            status=ExternalDataJob.Status.RUNNING,
+            workflow_id="sync-workflow",
+        )
+
+    @parameterized.expand([("consolidated_kept_it", False), ("cdc_only_linked_it", True)])
+    def test_drop_deletes_the_files_and_the_record_and_forgets_the_naming(self, _name: str, linked: bool) -> None:
+        if linked:
+            self.schema.table = self.history
+            self.schema.save()
+
+        assert self._drop() == self.history
+
+        (targets,), _ = self.s3.rm.call_args
+        assert sorted(targets) == [
+            f"{self.folder}/orders_cdc",
+            f"{self.folder}/orders_cdc__query_1700000000_abc",
+            f"{self.folder}/orders_cdc__query_b",
+            f"{self.folder}/orders_cdc_ph_staging",
+        ]
+        self.history.refresh_from_db()
+        self.schema.refresh_from_db()
+        assert self.history.deleted
+        assert self.schema.table_id is None
+        assert "history_naming" not in self.schema.sync_type_config
+        assert self.schema.sync_type_config["query_folder_state"] == {"orders__query": {"active": "orders__query_a"}}
+
+    def test_switching_back_after_a_drop_starts_a_new_history_table(self) -> None:
+        self._drop()
+        self.schema.sync_type_config["cdc_table_mode"] = "both"
+        self.schema.save()
+
+        # The legacy pin went with the table, so the new table takes the naming of new tables.
+        assert history_naming(self.schema) == HISTORY_NAMING
+
+    @parameterized.expand(
+        [
+            # Saved after the caller loaded the schema, so only the stored row says so.
+            ("history_switched_back_on", "both", False, False),
+            ("job_running", "consolidated", True, False),
+            ("batches_in_the_load_queue", "consolidated", False, True),
+        ]
+    )
+    def test_drop_is_refused_while_the_table_can_still_be_written(
+        self, _name: str, mode: str, job_running: bool, queued: bool
+    ) -> None:
+        ExternalDataSchema.objects.filter(id=self.schema.id).update(
+            sync_type_config={**self.schema.sync_type_config, "cdc_table_mode": mode}
+        )
+        if job_running:
+            self._running_job()
+
+        with pytest.raises(HistoryTableDropRefusedError):
+            self._drop(queued=queued, workflow_running=job_running)
+
+        self.history.refresh_from_db()
+        assert not self.history.deleted
+        self.s3.rm.assert_not_called()
+
+    def test_a_storage_failure_keeps_the_record_so_a_retry_finishes(self) -> None:
+        self.s3.rm.side_effect = OSError("SlowDown")
+
+        with pytest.raises(OSError):
+            self._drop()
+
+        self.history.refresh_from_db()
+        self.schema.refresh_from_db()
+        assert not self.history.deleted
+        assert self.schema.sync_type_config["history_naming"] == "legacy"
+
+    def test_a_running_job_row_whose_workflow_closed_does_not_block_the_drop(self) -> None:
+        self._running_job()
+
+        assert self._drop(workflow_running=False) == self.history
+
+    def test_a_failed_queue_check_refuses_the_drop_instead_of_erroring(self) -> None:
+        with pytest.raises(HistoryTableDropRefusedError, match="couldn't check"):
+            self._drop(queued=OSError("connection refused"))
+
+        self.history.refresh_from_db()
+        assert not self.history.deleted
+
+    def test_an_unmarked_table_under_the_legacy_name_is_not_dropped(self) -> None:
+        DataWarehouseTable.objects.filter(id=self.history.id).update(options={})
+
+        assert self._drop() is None
+
+        self.history.refresh_from_db()
+        assert not self.history.deleted
+        self.s3.rm.assert_not_called()
+
+
+@patch(_PH_HISTORY_NAMING_FLAG, new=lambda *_: True)
+class TestDropHistoryTableLocking(NonAtomicBaseTest):
+    # Needs committed transactions: a second connection must see the row lock the drop holds.
+    def test_a_mode_save_cannot_land_while_the_files_are_deleted(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id=str(uuid.uuid4()), connection_id=str(uuid.uuid4()), source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="orders",
+            team=self.team,
+            source=source,
+            sync_type=ExternalDataSchema.SyncType.CDC,
+            sync_type_config={"cdc_table_mode": "consolidated"},
+        )
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name=build_table_name(source, "orders_cdc"),
+            format="DeltaS3Wrapper",
+            url_pattern="s3://bucket/orders_cdc",
+            external_data_source=source,
+            options={"history_table": True},
+        )
+        row_was_locked: list[bool] = []
+
+        def save_mode_from_another_connection() -> None:
+            try:
+                with transaction.atomic():
+                    ExternalDataSchema.objects.select_for_update(nowait=True).get(id=schema.id)
+                row_was_locked.append(False)
+            except OperationalError:
+                row_was_locked.append(True)
+            finally:
+                connection.close()
+
+        def delete_files(*_args: object, **_kwargs: object) -> None:
+            thread = threading.Thread(target=save_mode_from_another_connection)
+            thread.start()
+            thread.join()
+
+        s3 = MagicMock()
+        s3.ls.return_value = [f"bucket/{schema.folder_path()}/orders_cdc"]
+        s3.rm.side_effect = delete_files
+        with (
+            patch(_GET_S3_CLIENT, return_value=s3),
+            patch(_HAS_QUEUED_BATCHES, return_value=False),
+            patch(_WORKFLOW_IS_RUNNING, return_value=False),
+        ):
+            drop_history_table(schema)
+
+        assert row_was_locked == [True]
