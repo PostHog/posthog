@@ -405,17 +405,25 @@ def blueshift_source(
     emitted = _EmittedKeys()
 
     def build_pass(pass_index: int, page: Optional[int]) -> Resource:
-        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-            if state and state.get("page") is not None:
-                resumable_source_manager.save_state(
-                    BlueshiftResumeConfig(next_page=int(state["page"]), list_pass=pass_index or None)
-                )
-
         pass_params = config.passes[pass_index]
         # The page before the resume position was written already, so it is read again only for its keys.
         replay_page = page - 1 if page is not None and page > FIRST_PAGE else None
         if replay_page is not None:
             page = replay_page
+        current_page = page if page is not None else FIRST_PAGE
+
+        def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+            nonlocal current_page
+            if state and state.get("page") is not None:
+                current_page = int(state["page"])
+                next_page = current_page
+            else:
+                # The last page has no next-page state, and a resume at that page would write it again.
+                next_page = current_page + 1
+            resumable_source_manager.save_state(
+                BlueshiftResumeConfig(next_page=next_page, list_pass=pass_index or None)
+            )
+
         rest_config: RESTAPIConfig = {
             "client": _client_config(region, api_key),
             "resource_defaults": {},

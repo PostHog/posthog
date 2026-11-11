@@ -61,6 +61,7 @@ class TestBlueshiftLists:
         assert {r.headers.get("authorization") for r in result.requests} == {AUTH_VALUE}
         assert len(result.rows) == row_count
         assert len({row["uuid"] for row in result.rows}) == row_count
+        assert result.saved_states[-1] == BlueshiftResumeConfig(next_page=len(pages))
 
     @parameterized.expand(
         [
@@ -108,6 +109,7 @@ class TestBlueshiftLists:
     @parameterized.expand(
         [
             ("later_page_repeating_the_page_before", 7, {6: (0, 100), 7: (0, 100)}, ["6", "7"], []),
+            ("after_the_last_page", 2, {1: (100, 150)}, ["1"], []),
             ("page_one_counting_from_zero", 1, {0: (0, 100), 1: (100, 150)}, ["0", "1"], list(range(100, 150))),
             (
                 "page_one_counting_from_one",
