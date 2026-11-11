@@ -12,8 +12,7 @@ import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderActions({ path, count }: { path: string; count: number }): JSX.Element | null {
-    const { savedItems, folderPaths, takenFolderPaths, folderMutationDisabledReason, fileMoveDisabledReason } =
-        useValues(workflowFoldersLogic)
+    const { savedItems, folderPaths, takenFolderPaths, folderBusyReason } = useValues(workflowFoldersLogic)
     const { moveFileToFolder, renameFolder } = useActions(workflowFoldersLogic)
     const entry = savedItems.find((item) => item.type === 'folder' && item.path === path)
     if (path === 'Unfiled') {
@@ -29,7 +28,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
     }
     const name = splitPath(path).at(-1) ?? path
     const empty = count === 0 && !folderPaths.some((folder) => folder.startsWith(`${path}/`))
-    const busyReason = folderMutationDisabledReason(path) ?? undefined
+    const busyReason = folderBusyReason(path) ?? undefined
     return (
         <div className="flex justify-end items-center gap-1">
             {newSubfolderButton}
@@ -37,7 +36,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                 items={[
                     {
                         label: 'Move to…',
-                        disabledReason: busyReason ?? fileMoveDisabledReason,
+                        disabledReason: busyReason,
                         onClick: () => moveFileToFolder(entry),
                     },
                     {
