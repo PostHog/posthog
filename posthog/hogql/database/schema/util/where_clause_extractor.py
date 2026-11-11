@@ -831,16 +831,25 @@ def build_session_property_pre_aggregation_predicate(
 
 
 def build_global_sessions_join_filter(
-    outer_node: ast.SelectQuery, join_to_add: LazyJoinToAdd, context: HogQLContext
+    outer_node: ast.SelectQuery,
+    join_to_add: LazyJoinToAdd,
+    context: HogQLContext,
+    string_fields: frozenset[str],
 ) -> Optional[ast.Expr]:
     """The session predicate that can filter the sessions side of a ``GLOBAL LEFT JOIN`` without changing results.
 
     The outer WHERE keeps the predicate, so filtering the joined sessions only removes rows that the outer
     WHERE drops anyway, provided that the predicate is false for an event whose session was filtered out.
     Such an event gets the column defaults from the LEFT JOIN, which are empty strings, zeros and NULLs. Only
-    an equality or IN against non-empty string constants is false for all of them, so every lifted term must
-    have that shape. Returns None otherwise, and the caller keeps the plain join.
+    an equality or IN between a string column in ``string_fields`` and non-empty string constants is false for
+    all of them. The column type matters because ClickHouse coerces a string constant to the column type, so
+    ``$session_duration = '0'`` is true for the default 0. Returns None otherwise, and the caller keeps the
+    plain join.
     """
+    # Every events alias in one SELECT shares the same sessions LazyJoin, so with two of them the extractor
+    # would lift one alias's session filter into the other alias's join.
+    if _count_events_scans(outer_node.select_from) > 1:
+        return None
     extractor = WhereClauseExtractor(context)
     extractor.add_local_tables(join_to_add)
     lifted = extractor.get_inner_where(outer_node)
@@ -848,13 +857,28 @@ def build_global_sessions_join_filter(
         return None
 
     terms = lifted.exprs if isinstance(lifted, ast.And) else [lifted]
-    if not all(_is_non_default_string_match(term) for term in terms):
+    if not all(_is_non_default_string_match(term, string_fields) for term in terms):
         return None
     return lifted
 
 
-def _is_non_default_string_match(expr: ast.Expr) -> bool:
+def _count_events_scans(select_from: Optional[ast.JoinExpr]) -> int:
+    from posthog.hogql.database.schema.events import EventsTable
+
+    count = 0
+    ptr = select_from
+    while ptr:
+        table_type = ptr.type.table_type if isinstance(ptr.type, ast.TableAliasType) else ptr.type
+        if isinstance(table_type, ast.TableType) and isinstance(table_type.table, EventsTable):
+            count += 1
+        ptr = ptr.next_join
+    return count
+
+
+def _is_non_default_string_match(expr: ast.Expr, string_fields: frozenset[str]) -> bool:
     if not isinstance(expr, ast.CompareOperation) or not isinstance(expr.left, ast.Field):
+        return False
+    if expr.left.chain[-1] not in string_fields:
         return False
     if expr.op == CompareOperationOp.Eq:
         values = [expr.right]

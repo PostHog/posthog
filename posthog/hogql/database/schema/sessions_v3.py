@@ -482,6 +482,11 @@ def select_from_sessions_table_v3(
     )
 
 
+LAZY_SESSIONS_STRING_FIELDS = frozenset(
+    name for name, field in LAZY_SESSIONS_FIELDS.items() if isinstance(field, StringDatabaseField)
+)
+
+
 class SessionsTableV3(LazyTable):
     description: str = (
         "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, device/geo info, "
@@ -542,7 +547,7 @@ def join_events_table_to_sessions_table_v3(
     # shard reads all the sessions in the date range. GLOBAL runs it once and sends the result to the shards,
     # which is only cheap when a session filter keeps that result small.
     if context.modifiers.sessionFilterGlobalJoin:
-        session_filter = build_global_sessions_join_filter(node, join_to_add, context)
+        session_filter = build_global_sessions_join_filter(node, join_to_add, context, LAZY_SESSIONS_STRING_FIELDS)
         if session_filter is not None:
             sessions_query.having = session_filter
             join_expr.join_type = "GLOBAL LEFT JOIN"

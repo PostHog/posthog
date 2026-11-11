@@ -843,6 +843,7 @@ class TestSessionFilterGlobalJoin(ClickhouseTestMixin, APIBaseTest):
             ("not_eq", "events.session.$entry_referring_domain != 'a.example.com'", False),
             ("empty_string", "events.session.$entry_referring_domain = ''", False),
             ("non_nullable_default", "events.session.$session_duration = 0", False),
+            ("numeric_column_string_default", "events.session.$session_duration = '0'", False),
             ("or_with_event_filter", "events.session.$entry_referring_domain = 'a.example.com' or event = 'x'", False),
         ]
     )
@@ -875,6 +876,18 @@ class TestSessionFilterGlobalJoin(ClickhouseTestMixin, APIBaseTest):
 
         assert responses[True].results == responses[False].results
         assert ("GLOBAL LEFT JOIN" in (responses[True].clickhouse or "")) == expect_global_join
+
+    def test_session_filter_global_join_skips_events_self_join(self):
+        response = execute_hogql_query(
+            query=parse_select(
+                "select count() from events e1 join events e2 on e1.uuid = e2.uuid "
+                "where e2.session.$entry_referring_domain = 'a.example.com'"
+            ),
+            team=self.team,
+            modifiers=HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V3, sessionFilterGlobalJoin=True),
+        )
+
+        assert "GLOBAL LEFT JOIN" not in (response.clickhouse or "")
 
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):

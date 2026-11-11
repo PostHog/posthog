@@ -761,7 +761,6 @@ class TestQueryRunner(BaseTest):
                 "optimizeProjections": True,
                 "personsArgMaxVersion": PersonsArgMaxVersion.AUTO,
                 "personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
-                "sessionFilterGlobalJoin": False,
                 "sessionIdPushdown": False,
                 "sessionPropertyPreAggregation": False,
                 "sessionTableVersion": SessionTableVersion.AUTO,
