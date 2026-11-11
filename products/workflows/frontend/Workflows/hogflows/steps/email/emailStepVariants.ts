@@ -1,5 +1,4 @@
-import type { IntegrationType } from '~/types'
-
+import { type EmailSenderCandidate, isVerifiedEmailSender } from '../../../../Channels/defaultEmailSender'
 import type { HogFlow, HogFlowAction } from '../../types'
 import { type TeamUtmDefaults, matchesTeamUtmDefaults } from '../components/utmDefaults'
 
@@ -46,10 +45,8 @@ export function sandboxSenderAllowed(workflow: Pick<HogFlow, 'origin_product'>, 
     return !editingTemplate && !workflow.origin_product
 }
 
-export function hasOwnSender(integrations: IntegrationType[] | null | undefined): boolean | null {
-    return integrations
-        ? integrations.some((integration) => integration.kind === 'email' && integration.config?.verified === true)
-        : null
+export function hasOwnSender(integrations: EmailSenderCandidate[] | null | undefined): boolean | null {
+    return integrations ? integrations.some(isVerifiedEmailSender) : null
 }
 
 export function sandboxRecipient(action: SandboxEmailAction): string {
