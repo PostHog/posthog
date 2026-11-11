@@ -4,8 +4,11 @@ A subscription delivers the content of its insight, dashboard, selected tiles an
 so a user who cannot view one of those may not see the subscription either. The insight rules
 compose SQL subqueries over the insight table. The dashboard rules read first which dashboards the
 filtered rows point at, then ask the dashboards facade which of those the user may not view and
-which place an insight the user may not view. The filter carries those ids as values, so its cost
-follows the rows it filters, not the size of the project.
+which place an insight the user may not view, so their cost follows the rows, not the project.
+
+The dashboard rules are allow lists: a row is visible only when every dashboard it points at is one
+the first read saw and the user may view. The read and the filter are two queries, and a row written
+between them can point at a dashboard the read never saw. An allow list hides that row.
 """
 
 from collections.abc import Iterator
@@ -13,7 +16,21 @@ from typing import Any, Protocol
 
 from django.contrib.postgres.expressions import ArraySubquery
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import BigIntegerField, BooleanField, CharField, F, Func, JSONField, Q, QuerySet, TextField, Value
+from django.db.models import (
+    BigIntegerField,
+    BooleanField,
+    CharField,
+    Exists,
+    F,
+    Field,
+    Func,
+    JSONField,
+    OuterRef,
+    Q,
+    QuerySet,
+    TextField,
+    Value,
+)
 from django.db.models.expressions import Combinable
 from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Cast, Concat
@@ -27,7 +44,7 @@ from products.dashboards.backend.facade.contracts import DashboardSummary
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SubscriptionRequestInvalidError
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
-from products.subscriptions.backend.models.subscription_context import context_ref
+from products.subscriptions.backend.models.subscription_context import SubscriptionContext, context_ref
 
 
 class _Filterable(Protocol):
@@ -39,45 +56,44 @@ class _Filterable(Protocol):
 class _TargetLookups:
     insight: str
     dashboard: str
+    context_dashboard: str
+    subscription: str
     live_context_insight_lookup: str
-    live_context_dashboard_lookup: str
     context_refs: str | None
     rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
     insights: _Filterable
     include_deleted_dashboards: bool
-    # The fields that name the dashboards a row points at.
-    dashboard_fields: tuple[str, ...]
 
 
 _SUBSCRIPTION_TARGETS = _TargetLookups(
     insight="insight_id__in",
-    dashboard="dashboard_id__in",
+    dashboard="dashboard_id",
+    context_dashboard="contexts__dashboard_id",
+    subscription="pk",
     live_context_insight_lookup="contexts__insight_id__in",
-    live_context_dashboard_lookup="contexts__dashboard_id__in",
     context_refs=None,
     rendered_snapshot=None,
     exported_insights="dashboard_export_insights__id__in",
     no_selection="dashboard_export_insights__isnull",
     insights=Insight.objects,
     include_deleted_dashboards=False,
-    dashboard_fields=("dashboard_id", "contexts__dashboard_id"),
 )
 
 # A delivery keeps the results it rendered, so a soft-deleted target still restricts it.
 _DELIVERY_TARGETS = _TargetLookups(
     insight="subscription__insight_id__in",
-    dashboard="subscription__dashboard_id__in",
+    dashboard="subscription__dashboard_id",
+    context_dashboard="subscription__contexts__dashboard_id",
+    subscription="subscription_id",
     live_context_insight_lookup="subscription__contexts__insight_id__in",
-    live_context_dashboard_lookup="subscription__contexts__dashboard_id__in",
     context_refs="context_refs",
     rendered_snapshot="content_snapshot",
     exported_insights="subscription__dashboard_export_insights__id__in",
     no_selection="subscription__dashboard_export_insights__isnull",
     insights=Insight.objects_including_soft_deleted,
     include_deleted_dashboards=True,
-    dashboard_fields=("subscription__dashboard_id", "subscription__contexts__dashboard_id"),
 )
 
 
@@ -120,18 +136,14 @@ def _context_ref_subquery(kind: str, blocked_ids: QuerySet) -> ArraySubquery:
     return ArraySubquery(references)
 
 
-def _snapshot_renders_any_of(snapshot_field: str, json_path: str, target_ids: Combinable) -> Func:
+def _matches_jsonpath(document: Combinable, json_path: str, ids: Combinable, id_type: Field) -> Func:
     return Func(
-        F(snapshot_field),
+        document,
         Func(Value(json_path), template="%(expressions)s::jsonpath", output_field=CharField()),
         Func(
             Cast(Value("ids"), output_field=TextField()),
-            # An empty target set compiles to a bare NULL, which Postgres cannot type without the cast.
-            Func(
-                Cast(target_ids, output_field=ArrayField(BigIntegerField())),
-                function="to_jsonb",
-                output_field=JSONField(),
-            ),
+            # An empty id set compiles to a bare NULL, which Postgres cannot type without the cast.
+            Func(Cast(ids, output_field=ArrayField(id_type)), function="to_jsonb", output_field=JSONField()),
             function="jsonb_build_object",
             output_field=JSONField(),
         ),
@@ -159,21 +171,42 @@ def _rendered_dashboard_id(value: Any) -> int | None:
     return int(value)
 
 
-def _referenced_dashboard_ids(refs: list[str] | None) -> Iterator[int]:
-    for ref in refs or ():
-        kind, _, raw_id = ref.partition(":")
-        if kind == "dashboard" and raw_id.isdigit():
-            yield int(raw_id)
+def _referenced_dashboard_id(ref: str) -> int | None:
+    kind, _, raw_id = ref.partition(":")
+    if kind != "dashboard" or not raw_id.isdigit() or context_ref(kind, int(raw_id)) != ref:
+        return None
+    return int(raw_id)
 
 
-def _candidate_dashboard_ids(candidates: QuerySet, targets: _TargetLookups) -> set[int]:
+def _dashboard_refs(refs: list[str] | None) -> Iterator[str]:
+    return (ref for ref in refs or () if ref.startswith("dashboard:"))
+
+
+@frozen
+class _CandidateDashboards:
+    """The dashboards the candidate rows point at, and the dashboard refs their deliveries store."""
+
+    ids: frozenset[int]
+    refs: frozenset[str]
+
+
+@frozen
+class _RestrictedDashboards:
+    """Among the candidate dashboards, the ones the user may not view and the ones with a tile of an insight the user may not view."""
+
+    hidden: frozenset[int]
+    with_hidden_insights: frozenset[int]
+
+
+def _candidate_dashboards(candidates: QuerySet, targets: _TargetLookups) -> _CandidateDashboards:
     candidates = candidates.order_by().prefetch_related(None)
     dashboard_ids = {
         dashboard_id
-        for row in candidates.values_list(*targets.dashboard_fields).distinct()
+        for row in candidates.values_list(targets.dashboard, targets.context_dashboard).distinct()
         for dashboard_id in row
         if dashboard_id is not None
     }
+    dashboard_refs: set[str] = set()
     if targets.context_refs is not None and targets.rendered_snapshot is not None:
         rendered = candidates.annotate(
             rendered_dashboard_id=KeyTransform("id", KeyTransform("dashboard", targets.rendered_snapshot))
@@ -182,20 +215,22 @@ def _candidate_dashboard_ids(candidates: QuerySet, targets: _TargetLookups) -> s
             dashboard_id = _rendered_dashboard_id(rendered_dashboard_id)
             if dashboard_id is not None:
                 dashboard_ids.add(dashboard_id)
-            dashboard_ids.update(_referenced_dashboard_ids(refs))
-    return dashboard_ids
+            dashboard_refs.update(_dashboard_refs(refs))
+    dashboard_ids.update(
+        dashboard_id for ref in dashboard_refs if (dashboard_id := _referenced_dashboard_id(ref)) is not None
+    )
+    return _CandidateDashboards(ids=frozenset(dashboard_ids), refs=frozenset(dashboard_refs))
 
 
-def _blocked_dashboard_ids(
+def _restricted_dashboards(
     user_access_control: UserAccessControl,
     team_id: int,
     targets: _TargetLookups,
     target_insights: QuerySet,
-    dashboard_ids: set[int],
-) -> tuple[list[int], list[int]]:
-    """Among these dashboards, the ones the user may not view and the ones with a tile of an insight the user may not view."""
+    dashboard_ids: frozenset[int],
+) -> _RestrictedDashboards:
     if not dashboard_ids:
-        return [], []
+        return _RestrictedDashboards(hidden=frozenset(), with_hidden_insights=frozenset())
     hidden = dashboards_api.hidden_dashboard_ids(
         team_id=team_id,
         dashboard_ids=dashboard_ids,
@@ -209,10 +244,10 @@ def _blocked_dashboard_ids(
     blocked_tile_insights = set(
         blocked_target_ids(user_access_control, tile_insights, "insight").values_list("id", flat=True)
     )
-    with_blocked_tiles = {
+    with_hidden_insights = frozenset(
         placement.dashboard_id for placement in placements if placement.insight_id in blocked_tile_insights
-    }
-    return sorted(hidden), sorted(with_blocked_tiles)
+    )
+    return _RestrictedDashboards(hidden=frozenset(hidden), with_hidden_insights=with_hidden_insights)
 
 
 def _target_filter(
@@ -230,47 +265,69 @@ def _target_filter(
 
     target_insights = targets.insights.filter(team_id=team_id)
     blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
-    blocked_dashboards, dashboards_with_blocked_tiles = _blocked_dashboard_ids(
-        user_access_control, team_id, targets, target_insights, _candidate_dashboard_ids(candidates, targets)
+    candidate = _candidate_dashboards(candidates, targets)
+    restricted = _restricted_dashboards(user_access_control, team_id, targets, target_insights, candidate.ids)
+    viewable_dashboards = sorted(candidate.ids - restricted.hidden)
+    viewable_context_dashboards = candidate.ids - restricted.hidden - restricted.with_hidden_insights
+
+    points_at_viewable_dashboards = Q(
+        Q(**{f"{targets.dashboard}__isnull": True}) | Q(**{f"{targets.dashboard}__in": viewable_dashboards}),
+        ~Exists(
+            # Unscoped: the subquery is correlated to a row of this team and must see every context of that row.
+            SubscriptionContext.objects.unscoped()
+            .filter(subscription_id=OuterRef(targets.subscription), dashboard_id__isnull=False)
+            .exclude(dashboard_id__in=sorted(viewable_context_dashboards))
+        ),
     )
+    if targets.context_refs is not None and targets.rendered_snapshot is not None:
+        viewable_refs = sorted(
+            ref
+            for ref in candidate.refs
+            if (dashboard_id := _referenced_dashboard_id(ref)) is None or dashboard_id in viewable_context_dashboards
+        )
+        points_at_viewable_dashboards &= ~Q(
+            _matches_jsonpath(
+                Func(F(targets.context_refs), function="to_jsonb", output_field=JSONField()),
+                '$[*] ? (@ starts with "dashboard:" && !(@ == $ids[*]))',
+                Value(viewable_refs, output_field=ArrayField(TextField())),
+                TextField(),
+            )
+        )
+        # The subscription can point somewhere else now, so also check the dashboard the delivery rendered.
+        points_at_viewable_dashboards &= ~Q(
+            _matches_jsonpath(
+                F(targets.rendered_snapshot),
+                '$.dashboard.id ? (@.type() == "number" && @ == @.floor() && !(@ == $ids[*]))',
+                Value(viewable_dashboards, output_field=ArrayField(BigIntegerField())),
+                BigIntegerField(),
+            )
+        )
 
     targets_a_blocked_insight = Q(**{targets.insight: blocked_insights})
-    targets_a_blocked_dashboard = Q(**{targets.dashboard: blocked_dashboards})
     exports_a_blocked_insight = Q(**{targets.exported_insights: blocked_insights})
-    renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(**{targets.dashboard: dashboards_with_blocked_tiles})
-    references_a_blocked_context = (
-        Q(**{targets.live_context_insight_lookup: blocked_insights})
-        | Q(**{targets.live_context_dashboard_lookup: blocked_dashboards})
-        | Q(**{targets.live_context_dashboard_lookup: dashboards_with_blocked_tiles})
+    renders_a_blocked_tile = Q(**{targets.no_selection: True}) & Q(
+        **{f"{targets.dashboard}__in": sorted(restricted.with_hidden_insights)}
     )
+    references_a_blocked_insight = Q(**{targets.live_context_insight_lookup: blocked_insights})
     if targets.context_refs is not None:
-        context_ref_overlap = f"{targets.context_refs}__overlap"
-        references_a_blocked_context |= Q(**{context_ref_overlap: _context_ref_subquery("insight", blocked_insights)})
-        references_a_blocked_context |= Q(
-            **{
-                context_ref_overlap: [
-                    context_ref("dashboard", dashboard_id)
-                    for dashboard_id in sorted({*blocked_dashboards, *dashboards_with_blocked_tiles})
-                ]
-            }
+        references_a_blocked_insight |= Q(
+            **{f"{targets.context_refs}__overlap": _context_ref_subquery("insight", blocked_insights)}
         )
-
-    # The subscription can point somewhere else now, so also check what the delivery rendered.
-    rendered_a_blocked_target = Q()
+    rendered_a_blocked_insight = Q()
     if targets.rendered_snapshot is not None:
-        rendered_a_blocked_target = _snapshot_renders_any_of(
-            targets.rendered_snapshot, "$.insights[*] ? (@.id == $ids[*])", ArraySubquery(blocked_insights)
-        ) | _snapshot_renders_any_of(
-            targets.rendered_snapshot,
-            "$.dashboard ? (@.id == $ids[*])",
-            Value(blocked_dashboards, output_field=ArrayField(BigIntegerField())),
+        rendered_a_blocked_insight = Q(
+            _matches_jsonpath(
+                F(targets.rendered_snapshot),
+                "$.insights[*] ? (@.id == $ids[*])",
+                ArraySubquery(blocked_insights),
+                BigIntegerField(),
+            )
         )
 
-    return ~(
+    return points_at_viewable_dashboards & ~(
         targets_a_blocked_insight
-        | targets_a_blocked_dashboard
         | exports_a_blocked_insight
         | renders_a_blocked_tile
-        | references_a_blocked_context
-        | rendered_a_blocked_target
+        | references_a_blocked_insight
+        | rendered_a_blocked_insight
     )

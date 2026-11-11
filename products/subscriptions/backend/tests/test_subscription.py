@@ -28,6 +28,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.slo.context import slo_operation
 from posthog.test.insight_queries import browser_filtered_pageview_query, default_pageview_query
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -46,6 +47,7 @@ from products.subscriptions.backend.facade.api import (
 )
 from products.subscriptions.backend.facade.contracts import ProcessSubscriptionWorkflowInputs, SubscriptionTriggerType
 from products.subscriptions.backend.facade.testing import AI_QUERY_PLAN_VERSION
+from products.subscriptions.backend.logic.visibility import viewable_deliveries, viewable_subscriptions
 from products.subscriptions.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     AIQueryPlanStatus,
@@ -4562,6 +4564,48 @@ class TestSubscriptionObjectAccessControl(APILicensedTest):
         self.restricted_dashboard.deleted = True
         self.restricted_dashboard.save(update_fields=["deleted"])
         return subscription
+
+    def _delivery_rendering_a_restricted_dashboard_after_the_read(self, viewer: UserAccessControl) -> bool:
+        subscription = self._sub_on_an_open_insight()
+        visible = viewable_deliveries(
+            SubscriptionDelivery.objects.filter(subscription=subscription), viewer, self.team.id
+        )
+        late = self._delivery_for(
+            subscription, content_snapshot={"dashboard": {"id": self.restricted_dashboard.id}, "insights": []}
+        )
+        return visible.filter(pk=late.pk).exists()
+
+    def _subscription_repointed_at_a_restricted_dashboard_after_the_read(self, viewer: UserAccessControl) -> bool:
+        subscription = self._sub_on_an_open_insight()
+        visible = viewable_subscriptions(Subscription.objects.filter(pk=subscription.pk), viewer, self.team.id)
+        Subscription.objects.filter(pk=subscription.pk).update(insight=None, dashboard=self.restricted_dashboard)
+        return visible.exists()
+
+    def _context_on_a_restricted_dashboard_added_after_the_read(self, viewer: UserAccessControl) -> bool:
+        subscription = self._sub_on_an_ai_prompt()
+        visible = viewable_subscriptions(Subscription.objects.filter(pk=subscription.pk), viewer, self.team.id)
+        SubscriptionContext.objects.for_team(self.team.id).create(
+            team_id=self.team.id, subscription=subscription, dashboard=self.restricted_dashboard
+        )
+        return visible.exists()
+
+    @parameterized.expand(
+        [
+            (
+                "a delivery that renders a restricted dashboard",
+                "_delivery_rendering_a_restricted_dashboard_after_the_read",
+            ),
+            (
+                "a subscription repointed at a restricted dashboard",
+                "_subscription_repointed_at_a_restricted_dashboard_after_the_read",
+            ),
+            ("a context on a restricted dashboard", "_context_on_a_restricted_dashboard_added_after_the_read"),
+        ]
+    )
+    def test_a_row_written_between_the_dashboard_read_and_the_filter_stays_hidden(self, _name, write_after_the_read):
+        viewer = UserAccessControl(user=self.user, team=self.team)
+
+        assert getattr(self, write_after_the_read)(viewer) is False
 
     def _assert_visibility(self, subscription: Subscription, *, sees_subscription: bool, sees_deliveries: bool) -> None:
         listed = self.client.get(f"/api/projects/{self.team.id}/subscriptions")
