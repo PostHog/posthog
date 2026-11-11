@@ -38,7 +38,7 @@ from posthog.clickhouse.query_tagging import Product, get_query_tags, tag_querie
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_date_range import MAX_DATE_BUCKETS, QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import UNFILTERED_EARLIEST_TIMESTAMP_FLOOR
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.user import User
@@ -173,12 +173,15 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
         self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
         # The window comes from the request, and every day in it costs one row per variant in _fill_date_gaps and one
-        # precompute window. The check runs before any timezone conversion, which raises OverflowError near year 1 or 9999.
+        # precompute window. The checks run before any timezone conversion, which raises OverflowError near year 1 or 9999.
+        latest_allowed = datetime.now(UTC) + timedelta(days=1)
         if self.window_start is not None and ensure_utc(self.window_start) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
             raise ValidationError("The experiment start date is before 2015. Set a later start date.")
-        if self.window_end_date is not None and ensure_utc(self.window_end_date) > datetime.now(UTC) + timedelta(
-            days=1
-        ):
+        if self.window_start is not None and ensure_utc(self.window_start) > latest_allowed:
+            raise ValidationError("Exposures can't be calculated for a start date in the future.")
+        if self.window_end_date is not None and ensure_utc(self.window_end_date) < UNFILTERED_EARLIEST_TIMESTAMP_FLOOR:
+            raise ValidationError("The experiment end date is before 2015. Set a later end date.")
+        if self.window_end_date is not None and ensure_utc(self.window_end_date) > latest_allowed:
             raise ValidationError(
                 "Exposures can't be calculated for an end date in the future. Clear the end date to see exposures while the experiment runs."
             )
@@ -202,6 +205,12 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             raise ValidationError(
                 "This experiment's feature flag has no variants. Restore the flag's variants to see exposure data."
             )
+
+        if self.window_start is not None:
+            window_days = (ensure_utc(self.window_end_date or latest_allowed) - ensure_utc(self.window_start)).days + 1
+            # The variants come from the request too, and _fill_date_gaps adds one more series for $multiple.
+            if window_days * (len(self.variants) + 1) > MAX_DATE_BUCKETS:
+                raise ValidationError("The exposure query has too many variants for its date range.")
 
         self.date_range = self._get_date_range()
         self.date_range_query = QueryDateRange(

@@ -155,19 +155,40 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "in the future",
             ),
             ("naive_start_in_year_one", "UTC", "0001-01-01T00:00:00", "2024-01-10T00:00:00", "before 2015"),
+            ("start_in_year_9999_east_of_utc", "Asia/Tokyo", "9999-12-31T23:00:00+00:00", None, "in the future"),
+            (
+                "end_in_year_one_west_of_utc",
+                "America/New_York",
+                "2020-01-01T00:00:00+00:00",
+                "0001-01-01T00:00:00+00:00",
+                "before 2015",
+            ),
+            ("twenty_variants_since_2015", "UTC", "2015-01-01T00:00:00+00:00", None, None, 20),
+            ("hundred_variants_since_2015", "UTC", "2015-01-01T00:00:00+00:00", None, "too many variants", 100),
         ]
     )
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_out_of_range_window_is_a_validation_error(
-        self, _name: str, timezone: str, start_date: str, end_date: str | None, error: str | None
+        self,
+        _name: str,
+        timezone: str,
+        start_date: str,
+        end_date: str | None,
+        error: str | None,
+        variant_count: int | None = None,
     ) -> None:
         self.team.timezone = timezone
         self.team.save()
+        feature_flag = model_to_dict(self.feature_flag)
+        if variant_count is not None:
+            feature_flag["filters"]["multivariate"]["variants"] = [
+                {"key": f"variant-{i}", "rollout_percentage": 0} for i in range(variant_count)
+            ]
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
             experiment_name=self.experiment.name,
-            feature_flag=model_to_dict(self.feature_flag),
+            feature_flag=feature_flag,
             start_date=start_date,
             end_date=end_date,
             exposure_criteria=None,
