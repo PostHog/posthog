@@ -27,14 +27,33 @@ export type FakeSesDelivery = {
     configurationSetName: string
 }
 
+type NameValue = { Name: string; Value: string }
+
+type SentMail = {
+    timestamp: string
+    source: string
+    messageId: string
+    destination: string[]
+    headers: { name: string; value: string }[]
+    commonHeaders: { subject: string }
+    tags: Record<string, string[]>
+}
+
+export type FakeSesClickEvent = {
+    eventType: 'Click'
+    mail: SentMail
+    click: { link: string; timestamp: string }
+}
+
 const ANCHOR = /<a\b[^>]*>/gi
 const HREF = /\bhref\s*=\s*"(https?:\/\/[^"]*)"/i
 const NO_TRACK = /\sses:no-track(?=[\s>=/])/i
 
 export class FakeSes {
     readonly deliveries: FakeSesDelivery[] = []
+    readonly clickEvents: FakeSesClickEvent[] = []
     opened = 0
-    private links: string[] = []
+    private links: { href: string; mail: SentMail }[] = []
     private origin = ''
     private server: Server | null = null
 
@@ -57,8 +76,14 @@ export class FakeSes {
             chunks.push(chunk as Buffer)
         }
         const click = req.method === 'GET' && req.url?.match(/^\/L0\/(\d+)$/)
-        if (click && this.links[Number(click[1])]) {
-            res.writeHead(302, { Location: this.links[Number(click[1])] })
+        const tracked = click && this.links[Number(click[1])]
+        if (tracked) {
+            this.clickEvents.push({
+                eventType: 'Click',
+                mail: tracked.mail,
+                click: { link: tracked.href, timestamp: new Date().toISOString() },
+            })
+            res.writeHead(302, { Location: tracked.href })
             return void res.end()
         }
         if (req.method === 'GET' && req.url === '/I0/open.gif') {
@@ -79,23 +104,39 @@ export class FakeSes {
             return this.refuse(res, 404, 'NotFoundException', `Configuration set ${request.ConfigurationSetName}`)
         }
         const simple = request.Content?.Simple
+        const messageId = `fake-ses-${this.deliveries.length + 1}`
+        const subject = simple?.Subject?.Data ?? ''
+        const mail: SentMail = {
+            timestamp: new Date().toISOString(),
+            source: request.FromEmailAddress ?? '',
+            messageId,
+            destination: request.Destination?.ToAddresses ?? [],
+            headers: ((simple?.Headers ?? []) as NameValue[]).map(({ Name, Value }) => ({ name: Name, value: Value })),
+            commonHeaders: { subject },
+            tags: Object.fromEntries(
+                ((request.EmailTags ?? []) as NameValue[]).map(({ Name, Value }) => [Name, [Value]])
+            ),
+        }
         this.deliveries.push({
             to: request.Destination?.ToAddresses ?? [],
-            subject: simple?.Subject?.Data ?? '',
-            html: this.track(simple?.Body?.Html?.Data ?? '', configurationSet),
+            subject,
+            html: this.track(simple?.Body?.Html?.Data ?? '', configurationSet, mail),
             configurationSetName: request.ConfigurationSetName ?? '',
         })
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ MessageId: `fake-ses-${this.deliveries.length}` }))
+        res.end(JSON.stringify({ MessageId: messageId }))
     }
 
-    private track(html: string, configurationSet: FakeSesConfigurationSet | undefined): string {
+    private track(html: string, configurationSet: FakeSesConfigurationSet | undefined, mail: SentMail): string {
         let tracked = html
         if (configurationSet?.clicks) {
             tracked = tracked.replace(ANCHOR, (tag) =>
                 NO_TRACK.test(tag)
                     ? tag
-                    : tag.replace(HREF, (_m, href: string) => `href="${this.origin}/L0/${this.links.push(href) - 1}"`)
+                    : tag.replace(
+                          HREF,
+                          (_m, href: string) => `href="${this.origin}/L0/${this.links.push({ href, mail }) - 1}"`
+                      )
             )
         }
         if (configurationSet?.opens) {

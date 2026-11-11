@@ -47,6 +47,7 @@ import {
     teamEmailCapBucket,
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
+import { SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
 import { MessageAssetsService } from './message-assets.service'
 import { RecipientTokensService } from './recipient-tokens.service'
@@ -1319,6 +1320,7 @@ describe('EmailService', () => {
         beforeEach(async () => {
             fakeSes.deliveries.length = 0
             fakeSes.opened = 0
+            fakeSes.clickEvents.length = 0
             service = createService({
                 sesEndpoint,
                 sesTrackedConfigurationSet: 'posthog-messaging',
@@ -1407,6 +1409,14 @@ describe('EmailService', () => {
                 subject: false,
             },
             {
+                case: "a code send marked sensitive that turns clicks on, on a template's workflow that isn't sensitive",
+                sensitive: false,
+                send: { sensitive: true, tracking: { clicks: true } },
+                links: clicksTracked,
+                opens: true,
+                subject: false,
+            },
+            {
                 case: 'a code send marked not sensitive that turns opens off',
                 sensitive: true,
                 send: { sensitive: false, tracking: { opens: false } },
@@ -1481,6 +1491,20 @@ describe('EmailService', () => {
                     .filter(({ event }) => event === '$workflows_email_sent')
                     .map(({ properties }) => properties.$email_subject)
             ).toEqual([subject ? 'Test Subject' : undefined])
+            const reported = await new SesWebhookHandler(
+                new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL)
+            ).handleWebhook({ body: fakeSes.clickEvents, headers: {} })
+            expect(
+                (reported.metrics ?? [])
+                    .filter(({ metricName }) => metricName === 'email_link_clicked')
+                    .map(({ properties }) => [properties?.$email_subject, properties?.$link_url])
+            ).toEqual(
+                links
+                    .filter((link) => link.startsWith('tracked '))
+                    .map(() =>
+                        subject ? ['Test Subject', 'https://example.com/a'] : [undefined, 'https://example.com']
+                    )
+            )
         })
     })
     describe('native email sending with ses', () => {
