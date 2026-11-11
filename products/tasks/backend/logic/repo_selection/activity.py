@@ -160,20 +160,34 @@ def _has_activity(figures: RepositoryFigures | None) -> bool:
     )
 
 
+@frozen(order=True)
+class _ActivityRank:
+    # Field order is the sort order: candidates with activity first, then more recent authors,
+    # then more merged pull requests, then name.
+    no_activity: bool
+    fewer_recent_authors: int
+    fewer_merged_pull_requests: int
+    name: str
+
+
+def _activity_rank(repo: str, figures: RepositoryFigures | None) -> _ActivityRank:
+    if figures is None or not _has_activity(figures):
+        return _ActivityRank(no_activity=True, fewer_recent_authors=0, fewer_merged_pull_requests=0, name=repo)
+    return _ActivityRank(
+        no_activity=False,
+        fewer_recent_authors=-_recent_authors(figures),
+        fewer_merged_pull_requests=-(figures.merged_pull_request_count or 0),
+        name=repo,
+    )
+
+
 def order_by_activity(candidates: Collection[str], figures: Mapping[str, RepositoryFigures]) -> list[str]:
     """Most recent authors first, then most merged pull requests. Candidates without activity go last, by name.
 
     Author counts are capped at the floor the prompt renders, so two busy repositories with the
     same tree, such as a source and its mirror, are ordered by merged pull requests.
     """
-
-    def key(repo: str) -> tuple[bool, int, int, str]:
-        repo_figures = figures.get(repo)
-        if repo_figures is None or not _has_activity(repo_figures):
-            return (True, 0, 0, repo)
-        return (False, -_recent_authors(repo_figures), -(repo_figures.merged_pull_request_count or 0), repo)
-
-    return sorted(candidates, key=key)
+    return sorted(candidates, key=lambda repo: _activity_rank(repo, figures.get(repo)))
 
 
 def _merged_or_unknown(figures: RepositoryFigures) -> int:

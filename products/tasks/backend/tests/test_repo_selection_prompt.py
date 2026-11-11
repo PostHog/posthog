@@ -91,7 +91,6 @@ def test_prompt_labels_candidate_visibility() -> None:
 
 
 def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> None:
-    busy = {"commits_last_30_days": 8012, "top_extensions": ("py", "ts")}
     figures = {
         "acme/app": RepositoryFigures(
             file_count=54321,
@@ -99,7 +98,8 @@ def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> No
             tree_hash="t1",
             recent_author_count=40,
             merged_pull_request_count=73210,
-            **busy,
+            commits_last_30_days=8012,
+            top_extensions=("py", "ts"),
         ),
         # A mirror copies the commits and their authors, so only merged pull requests tell it apart.
         "acme/app-mirror": RepositoryFigures(
@@ -108,7 +108,8 @@ def test_prompt_orders_candidates_by_activity_and_marks_same_tree_copies() -> No
             tree_hash="t1",
             recent_author_count=41,
             merged_pull_request_count=0,
-            **busy,
+            commits_last_30_days=8012,
+            top_extensions=("py", "ts"),
         ),
         "acme/kudos": RepositoryFigures(
             file_count=5712,
