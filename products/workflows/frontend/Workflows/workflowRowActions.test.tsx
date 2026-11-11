@@ -1,7 +1,6 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { ToastContainer } from 'react-toastify'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -12,6 +11,8 @@ import {
     restoreWorkflowToDraft,
     setWorkflowStatus,
 } from './workflowRowActions'
+
+const { ToastContainer, toast } = jest.requireActual('react-toastify')
 
 // A child environment's team id differs from its project id; these calls address the team.
 const TEAM_ID = '4242'
@@ -56,6 +57,7 @@ describe('workflowRowActions', () => {
 
     afterEach(() => {
         cleanup()
+        toast.dismiss()
         document.body.innerHTML = ''
     })
 
