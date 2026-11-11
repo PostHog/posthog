@@ -1854,6 +1854,12 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                     "JOIN persons p ON a.id = p.id AND p.calls.distinct_id != '' "
                     "WHERE p.calls.event = '$feature_flag_called'",
                 ),
+                (
+                    "another_lazy_join_in_on_clause",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.pdi.distinct_id != '' "
+                    "WHERE p.calls.event = '$feature_flag_called'",
+                ),
             ]
         )
     )
@@ -1861,21 +1867,44 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         self._create_lazy_join_sources()
 
         with self.assertRaisesRegex(
-            QueryError, _join_refusal("p.calls", re.escape("the query reads p.calls in a join condition"))
+            QueryError,
+            _join_refusal(
+                "p.calls", re.escape("a join condition reads a lazy join of the table that p.calls comes from")
+            ),
         ):
             self._query_events(query, union=union)
 
-    def test_lazy_join_raises_when_its_subquery_does_not_pass_rows_through(self):
+    @parameterized.expand(
+        [
+            ("limit", lambda subquery: setattr(subquery, "limit", ast.Constant(value=10))),
+            ("group_by", lambda subquery: setattr(subquery, "group_by", [ast.Field(chain=["distinct_id"])])),
+            ("distinct", lambda subquery: setattr(subquery, "distinct", True)),
+            ("aggregate", lambda subquery: subquery.select.append(ast.Call(name="count", args=[]))),
+            (
+                "window_function",
+                lambda subquery: subquery.select.append(
+                    ast.WindowFunction(
+                        name="row_number",
+                        over_expr=ast.WindowExpr(order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]))]),
+                    )
+                ),
+            ),
+            ("qualify", lambda subquery: setattr(subquery, "qualify", ast.Constant(value=True))),
+        ]
+    )
+    def test_lazy_join_raises_when_its_subquery_does_not_pass_rows_through(
+        self, _name: str, change_subquery: Callable[[ast.SelectQuery], None]
+    ):
         self._create_lazy_join_sources()
 
-        def limited_join(join_to_add, context, node):
+        def changed_join(join_to_add, context, node):
             join = resolve_data_warehouse_join(join_to_add, context, node)
             assert isinstance(join.table, ast.SelectQuery)
-            join.table.limit = ast.Constant(value=10)
+            change_subquery(join.table)
             return join
 
         with (
-            patch.dict(RESOLVERS, {DATA_WAREHOUSE: limited_join}),
+            patch.dict(RESOLVERS, {DATA_WAREHOUSE: changed_join}),
             self.assertRaisesRegex(QueryError, _join_refusal("persons.calls", "the subquery of persons.calls groups")),
         ):
             self._query_events("SELECT calls.distinct_id FROM persons WHERE calls.event = '$feature_flag_called'")
@@ -1925,6 +1954,18 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
                     "join_that_does_not_read_events",
                     "SELECT console_logs.level FROM session_replay_events "
                     "WHERE console_logs.message = '$feature_flag_called'",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                ),
+                (
+                    "join_condition_reads_it_on_mode_1",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.event = '$feature_flag_called'",
+                    FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                ),
+                (
+                    "join_condition_reads_it_without_flag_calls",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.distinct_id != ''",
                     FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 ),
             ]

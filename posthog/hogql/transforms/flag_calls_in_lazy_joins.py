@@ -7,7 +7,7 @@ from posthog.hogql.constants import FLAG_CALLED_EVENT
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyJoinToAdd
 from posthog.hogql.database.schema.util.where_clause_extractor import event_field_type
-from posthog.hogql.property import has_aggregation
+from posthog.hogql.property import has_aggregation, has_window_function
 from posthog.hogql.resolver_utils import get_long_table_name
 from posthog.hogql.transforms.events_predicate_pushdown import PREDICATE_SAFE_JOIN_TYPES
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
@@ -45,7 +45,7 @@ def read_flag_calls_in_lazy_join(
     Without a pin from `node`, it runs `swap_flag_calls` only when `swaps_flag_calls` accepts the subquery.
 
     For an organization whose flag calls are only in `flag_evaluations`, a subquery that does not pin `event` to flag
-    calls itself gets a pin on its own scan when both of these hold:
+    calls itself gets a pin on its own scan when all of these hold:
 
     - A top-level condition of the WHERE or PREWHERE of `node` pins the join's `event` to flag calls, so every row
       that `node` keeps has `event = '$feature_flag_called'` on the joined side. The condition is matched by the
@@ -53,8 +53,8 @@ def read_flag_calls_in_lazy_join(
     - The join type, without a `GLOBAL` prefix, is one of `PREDICATE_SAFE_JOIN_TYPES`. Each output row of those joins
       comes from one pair of rows, and the pin is false on the row a missing match produces. An ASOF or ANY join picks
       one row among several matches, so a filter before the join can pick a different row.
-    - The subquery passes each row of its scan through on its own. A filter before a GROUP BY, an aggregate, a LIMIT or
-      DISTINCT changes which rows come out.
+    - The subquery passes each row of its scan through on its own. A filter before a GROUP BY, an aggregate, a window
+      function, a LIMIT or DISTINCT changes which rows come out.
 
     It raises when `node` compares the join's `event` with `$feature_flag_called` by `=` or `IN` and one of these
     does not hold. The function builds the pin on the subquery's scan, so no name from `node` has to resolve in the
@@ -90,8 +90,8 @@ def read_flag_calls_in_lazy_join(
             )
         if not _passes_rows_through(subquery):
             raise flag_calls_only_in_flag_evaluations_error(
-                f"the subquery of {join_name} groups, limits or aggregates its rows, so it can't take a filter on "
-                "event before the join",
+                f"the subquery of {join_name} groups, limits, aggregates or windows its rows, so it can't take a "
+                "filter on event before the join",
                 scope,
             )
         pin = ast.CompareOperation(
@@ -127,7 +127,8 @@ def refuse_flag_calls_in_wrapped_lazy_join(
         return
     join_name = f"{join_scope.from_table}.{join_scope.lazy_join_type.field}"
     raise flag_calls_only_in_flag_evaluations_error(
-        f"the query reads {join_name} in a join condition, so a filter on {join_name}.event can't move into the join",
+        f"a join condition reads a lazy join of the table that {join_name} comes from, so a filter on "
+        f"{join_name}.event can't move into the join",
         FlagCallScope.join(join_name),
     )
 
@@ -136,13 +137,14 @@ def _passes_rows_through(subquery: ast.SelectQuery) -> bool:
     return not (
         subquery.group_by
         or subquery.having
+        or subquery.qualify
         or subquery.limit
         or subquery.offset
         or subquery.limit_by
         or subquery.distinct
         or subquery.array_join_op
         or subquery.window_exprs
-        or any(has_aggregation(expr) for expr in subquery.select)
+        or any(has_aggregation(expr) or has_window_function(expr) for expr in subquery.select)
     )
 
 

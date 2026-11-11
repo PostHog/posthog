@@ -865,9 +865,13 @@ class LazyTableResolver(TraversingVisitor):
         # This must happen BEFORE we add lazy joins to avoid forward reference issues.
         tables_to_wrap = self._find_tables_needing_lazy_preresolution(node, select_type)
         wrapped_table_types = [select_type.tables[table_alias] for table_alias in tables_to_wrap]
-        for join_scope in joins_to_add.values():
-            if any(_hops_to_table(join_scope.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types):
-                refuse_flag_calls_in_wrapped_lazy_join(join_scope, node, original_select_type, self.context)
+        joins_in_wrappers = {
+            name
+            for name, join_scope in joins_to_add.items()
+            if any(_hops_to_table(join_scope.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types)
+        }
+        for name in joins_in_wrappers:
+            refuse_flag_calls_in_wrapped_lazy_join(joins_to_add[name], node, original_select_type, self.context)
         unexpanded_scans: dict[str, UnexpandedScan] = {}
         for table_alias in tables_to_wrap:
             wrapped_scan = self._wrap_table_for_lazy_resolution(node, table_alias, select_type)
@@ -875,11 +879,7 @@ class LazyTableResolver(TraversingVisitor):
                 unexpanded_scans[table_alias] = wrapped_scan
 
         # Remove lazy joins that are now resolved inside wrapped subqueries
-        joins_to_add = {
-            k: v
-            for k, v in joins_to_add.items()
-            if not any(_hops_to_table(v.lazy_join_type, wrapped) is not None for wrapped in wrapped_table_types)
-        }
+        joins_to_add = {k: v for k, v in joins_to_add.items() if k not in joins_in_wrappers}
 
         # For all the collected tables, create the subqueries, and add them to the table.
         for table_name, table_to_add in tables_to_add.items():
