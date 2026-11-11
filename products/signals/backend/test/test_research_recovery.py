@@ -1,3 +1,4 @@
+import asyncio
 from datetime import timedelta
 
 from posthog.test.base import BaseTest
@@ -112,3 +113,28 @@ class TestRecoverStuckResearchReports(BaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.IN_PROGRESS
         assert recovered == 0
+
+    def test_sweep_recovers_completed_lookups_when_another_lookup_hangs(self) -> None:
+        recovered_report = self._in_progress_report(STUCK_RESEARCH_CUTOFF + timedelta(minutes=2))
+        hanging_report = self._in_progress_report(STUCK_RESEARCH_CUTOFF + timedelta(minutes=1))
+        hanging_id = SignalReportSummaryWorkflow.workflow_id_for(self.team.id, str(hanging_report.id))
+
+        class PartiallyResponsiveTemporal(_FakeTemporal):
+            def get_workflow_handle(self, workflow_id: str) -> Mock:
+                if workflow_id == hanging_id:
+
+                    async def hang(**kwargs: object) -> Mock:
+                        await asyncio.Event().wait()
+                        raise AssertionError("unreachable")
+
+                    return Mock(describe=hang)
+                return super().get_workflow_handle(workflow_id)
+
+        with patch("products.signals.backend.research_recovery.STUCK_RESEARCH_LOOKUP_TIMEOUT", 1):
+            recovered = self._sweep(PartiallyResponsiveTemporal({}))
+
+        recovered_report.refresh_from_db()
+        hanging_report.refresh_from_db()
+        assert recovered == 1
+        assert recovered_report.status == SignalReport.Status.CANDIDATE
+        assert hanging_report.status == SignalReport.Status.IN_PROGRESS
