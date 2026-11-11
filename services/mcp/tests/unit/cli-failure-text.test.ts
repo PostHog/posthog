@@ -17,6 +17,12 @@ describe('CLI failure text', () => {
         ['CI=true', { CI: 'true' }, true],
         ['CI=false', { CI: 'false' }, false],
         ['Jenkins, which does not set CI', { JENKINS_URL: 'https://jenkins.example.com/' }, true],
+        ['Cloudflare Workers', { WORKERS_CI: '1' }, true],
+        ['Cloudflare Workers with CI=false', { CI: 'false', WORKERS_CI: '1' }, true],
+        ['Render', { RENDER: 'true' }, true],
+        ['Railway', { RAILWAY_SERVICE_ID: 'synthetic-service' }, true],
+        ['Heroku CI', { HEROKU_TEST_RUN_ID: 'synthetic-run' }, true],
+        ['Xcode Cloud', { CI_XCODE_CLOUD: 'TRUE' }, true],
         ['a terminal', {}, false],
     ])('detects CI from %s', (_name, env, expected) => {
         expect(isRunningInCI(env)).toBe(expected)

@@ -1,7 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 
 // Providers that set no `CI` variable, or set one a job can override, still set one of these.
-const CI_PROVIDER_VARS: [&str; 21] = [
+const CI_PROVIDER_VARS: [&str; 26] = [
     "GITHUB_ACTIONS",
     "GITLAB_CI",
     "CIRCLECI",
@@ -22,6 +22,11 @@ const CI_PROVIDER_VARS: [&str; 21] = [
     "DEPOT_JOB_URL",
     "NETLIFY",
     "CF_PAGES",
+    "WORKERS_CI",
+    "RENDER",
+    "RAILWAY_SERVICE_ID",
+    "HEROKU_TEST_RUN_ID",
+    "CI_XCODE_CLOUD",
     "BUILDER_OUTPUT",
 ];
 
@@ -67,6 +72,12 @@ mod tests {
             (vec![("CI", "False")], false),
             (vec![("JENKINS_URL", "https://jenkins.example.com")], true),
             (vec![("CI", "false"), ("TF_BUILD", "True")], true),
+            (vec![("WORKERS_CI", "1")], true),
+            (vec![("CI", "false"), ("WORKERS_CI", "1")], true),
+            (vec![("RENDER", "true")], true),
+            (vec![("RAILWAY_SERVICE_ID", "synthetic-service")], true),
+            (vec![("HEROKU_TEST_RUN_ID", "synthetic-run")], true),
+            (vec![("CI_XCODE_CLOUD", "TRUE")], true),
             (vec![("HOME", "/home/user")], false),
         ] {
             let lookup = |name: &str| {

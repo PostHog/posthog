@@ -98,6 +98,11 @@ mod tests {
                 false,
                 format!("{base}. PostHog's error details are hidden in CI. Run the command outside CI to see them."),
             ),
+            (
+                r#"{"type":"validation_error\u001b","code":"invalid\u009d","detail":"café\n\tvalue\u0007","attr":"field\u009c"}"#,
+                true,
+                format!("{base} error='validation_error\\u001b' code='invalid\\u009d' details='café\n\tvalue\\u0007', attributes='field\\u009c'"),
+            ),
             ("<html>BODY_SECRET</html>", true, base.to_string()),
             ("<html>BODY_SECRET</html>", false, base.to_string()),
         ] {
@@ -181,7 +186,15 @@ fn api_error_message(status: u16, url: &Url, body: &str, show_detail: bool) -> S
     if let Some(attr) = &api_error.attr {
         message.push_str(&format!(", attributes='{attr}'"));
     }
-    message
+    let mut escaped = String::with_capacity(message.len());
+    for character in message.chars() {
+        if character.is_control() && !matches!(character, '\n' | '\t') {
+            escaped.push_str(&format!("\\u{:04x}", character as u32));
+        } else {
+            escaped.push(character);
+        }
+    }
+    escaped
 }
 
 impl Debug for ClientError {

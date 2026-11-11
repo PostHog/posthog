@@ -31,6 +31,11 @@ const CI_SERVICE_VARIABLES = [
     'DEPOT_JOB_URL',
     'NETLIFY',
     'CF_PAGES',
+    'WORKERS_CI',
+    'RENDER',
+    'RAILWAY_SERVICE_ID',
+    'HEROKU_TEST_RUN_ID',
+    'CI_XCODE_CLOUD',
     'BUILDER_OUTPUT',
 ]
 
