@@ -1,10 +1,11 @@
 import math
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
+from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
@@ -13,7 +14,13 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
-from posthog.permissions import posthog_feature_flag_enabled
+from posthog.models.user import User
+from posthog.permissions import (
+    AccessControlPermission,
+    APIScopePermission,
+    TeamMemberAccessPermission,
+    posthog_feature_flag_enabled,
+)
 from posthog.rate_limit import AEOPromptSuggestionsBurstRateThrottle, AEOPromptSuggestionsSustainedRateThrottle
 
 from products.aeo.backend.facade.api import (
@@ -25,6 +32,7 @@ from products.aeo.backend.facade.api import (
     MAX_STATS_WORDS,
     archive_prompt,
     create_brand,
+    create_visibility_dashboard,
     get_brand,
     get_prompt,
     get_prompt_set_overview,
@@ -92,6 +100,13 @@ from products.aeo.backend.facade.contracts import (
     RankedBrandDay,
     RankedDomain,
     RankedPage,
+    VisibilityDashboard,
+)
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
 )
 
 MAX_PROMPTS_PER_IMPORT = 2000
@@ -610,7 +625,7 @@ class AEORankedPageSerializer(DataclassSerializer):
 class AEOPromptSetRankingsSerializer(DataclassSerializer):
     brands = AEORankedBrandSerializer(
         many=True,
-        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks. A competitor counts as named when its domain's name appears as a word, so a common-word name can over-count.",
+        help_text=f"The project's brand and up to {MAX_RANKED_COMPETITORS} competitors, most visible first. Competitors are the ones confirmed in the brand catalog, matched by name and aliases. Until any are confirmed, they are the brands behind the domains the engines cite most, leaving out the project's own brand on any domain and a fixed list of review sites, forums and social networks, and a common-word domain name can over-count.",
     )
     daily = AEORankedBrandDaySerializer(
         many=True, help_text="Visibility per brand and day in the current window, ordered by day then domain."
@@ -632,6 +647,9 @@ class AEOPromptSetRankingsSerializer(DataclassSerializer):
             "window_to": {"help_text": "Last day of the current window (today), in the project's timezone."},
             "branded": {"help_text": BRANDED_SEGMENT_ECHO_HELP},
             "answers": {"help_text": "Answered checks in the current window: the denominator of every share."},
+            "competitors_confirmed": {
+                "help_text": "Whether the competitors are the ones confirmed in the brand catalog (matched by name and aliases). False means they were derived from the most cited domains."
+            },
         }
 
 
@@ -654,6 +672,18 @@ class AEOPromptSetOverviewQuerySerializer(serializers.Serializer):
             + BRANDED_PROMPT_HELP
         ),
     )
+
+
+class AEOVisibilityDashboardSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = VisibilityDashboard
+        ref_name = "AEOVisibilityDashboard"
+        extra_kwargs = {
+            "id": {
+                "help_text": "Id of the new dashboard. Subscribe to it with the subscriptions API to get it weekly."
+            },
+            "name": {"help_text": "Name of the new dashboard."},
+        }
 
 
 class AEOPromptUpdateRequestSerializer(serializers.Serializer):
@@ -901,6 +931,12 @@ class AEOBrandListQuerySerializer(serializers.Serializer):
     status = serializers.ChoiceField(
         choices=BrandStatus.choices, required=False, help_text="Only list brands with this review status."
     )
+    search = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        max_length=200,
+        help_text="Only list brands whose domain or name contains this text, ignoring case.",
+    )
 
 
 class AEOBrandCreateRequestSerializer(serializers.Serializer):
@@ -958,6 +994,18 @@ class _AEOFlagGateMixin(TeamAndOrgViewSetMixin):
             raise PermissionDenied("This feature is not available.")
 
 
+class _WebAnalyticsReadAccessPermission(AccessControlPermission):
+    """Requires only read access to web analytics, for an action whose writes land in other resources.
+
+    The default permission maps any `:write` entry in `required_scopes` to editor access on the view's
+    scope object, so a web analytics viewer could not create a dashboard. The action checks its
+    dashboard and insight writes itself.
+    """
+
+    def _get_required_access_level(self, request: Request, view: Any) -> Literal["viewer"]:
+        return "viewer"
+
+
 class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     scope_object = "web_analytics"
     scope_object_read_actions = [
@@ -974,6 +1022,16 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
     # suggest saves nothing, but it spends model credits, so it needs write access.
     scope_object_write_actions = ["partial_update", "destroy", "bulk_import", "suggest"]
     pagination_class = PrecountedLimitOffsetPagination
+
+    def dangerously_get_permissions(self) -> list[BasePermission]:
+        if self.action != "create_dashboard":
+            raise NotImplementedError()
+        return [
+            IsAuthenticated(),
+            APIScopePermission(),
+            _WebAnalyticsReadAccessPermission(),
+            TeamMemberAccessPermission(),
+        ]
 
     @validated_request(
         query_serializer=AEOPromptListQuerySerializer,
@@ -1162,6 +1220,39 @@ class AEOPromptViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
         return Response(AEOPromptSetRankingsSerializer(rankings).data)
 
     @validated_request(
+        operation_id="aeo_prompts_create_dashboard",
+        summary="Create the AI visibility weekly dashboard",
+        description=(
+            "Creates a dashboard named 'AI visibility weekly' with SQL insights over the citation checks of "
+            "non-branded prompts: visibility and citation rate for the last 7 complete days against the 7 before, "
+            "visibility per topic, the pages to watch per topic, and an 8-week trend. The queries read the brand "
+            "catalog when they run, so they follow catalog edits. Each call creates a new dashboard. Subscribe to it "
+            "with the subscriptions API to get it weekly in Slack or email."
+        ),
+        responses={201: OpenApiResponse(response=AEOVisibilityDashboardSerializer)},
+        tags=["web_analytics"],
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        pagination_class=None,
+        required_scopes=["web_analytics:read", "dashboard:write", "insight:write"],
+    )
+    def create_dashboard(self, request: Request, **kwargs: Any) -> Response:
+        # required_scopes only constrains API keys, and session RBAC on this viewset checks only web_analytics,
+        # so the caller's access to the dashboard and the insights it creates is checked here.
+        for resource_type, message in (
+            (ResourceType.DASHBOARD, "Creating a dashboard requires dashboard edit access."),
+            (ResourceType.INSIGHT, "Creating a dashboard requires insight edit access."),
+        ):
+            if not authorization.check(
+                resource=Resource(type=resource_type, project_id=self.team_id), action=AuthorizationAction.CREATE
+            ):
+                raise PermissionDenied(message)
+        created = create_visibility_dashboard(self.team, cast(User, request.user))
+        return Response(AEOVisibilityDashboardSerializer(created).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
         operation_id="aeo_prompts_topics",
         summary="List AEO prompt topics",
         description="Lists the topics in the project's AEO prompt set, with the number of prompts in each.",
@@ -1256,6 +1347,7 @@ class AEOBrandViewSet(_AEOFlagGateMixin, viewsets.GenericViewSet):
             offset=paginator.get_offset(request),
             kind=request.validated_query_data.get("kind"),
             status=request.validated_query_data.get("status"),
+            search=request.validated_query_data.get("search") or None,
         )
         paginator.set_count(count)
         page = self.paginate_queryset(page_brands)

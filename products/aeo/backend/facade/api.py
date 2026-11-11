@@ -23,9 +23,10 @@ from django.utils import timezone
 from posthog.exceptions_capture import capture_exception
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.redis import get_client
 
-from products.aeo.backend import catalog, gaps, rankings, suggestions
+from products.aeo.backend import catalog, dashboard, gaps, keywords, rankings, suggestions
 from products.aeo.backend.brand import (
     SEGMENT_SQL,
     brand_names,
@@ -50,6 +51,10 @@ from products.aeo.backend.facade.contracts import (
     BrandUpdate,
     CitationGap,
     CitationRunSummary,
+    Keyword,
+    KeywordCreateResult,
+    KeywordModifierReport,
+    KeywordReport,
     Prompt,
     PromptAuthor,
     PromptCheck,
@@ -78,6 +83,7 @@ from products.aeo.backend.facade.contracts import (
     PromptUpdate,
     PromptUpdateError,
     PromptVersion,
+    VisibilityDashboard,
 )
 from products.aeo.backend.models import AEOBrand, AEOCitationCheck, AEOPrompt, AEOPromptVersion
 from products.aeo.backend.runner import run_citation_checks
@@ -572,6 +578,13 @@ def get_prompt_set_rankings(
     )
 
 
+def create_visibility_dashboard(team: Team, user: User) -> VisibilityDashboard:
+    """Create the "AI visibility weekly" dashboard. Each call creates a new one, so a person who deleted or
+    edited theirs can start over."""
+    created = dashboard.create_visibility_dashboard(team, user)
+    return VisibilityDashboard(id=created.id, name=created.name or dashboard.DASHBOARD_NAME)
+
+
 MAX_CONSENSUS_DOMAINS = 10
 MAX_STATS_WORDS = 20
 MIN_SEARCH_WORD_LENGTH = 3
@@ -669,9 +682,12 @@ def list_brands(
     offset: int,
     kind: BrandKind | None = None,
     status: BrandStatus | None = None,
+    search: str | None = None,
 ) -> tuple[list[Brand], int]:
     """One page of the team's brand catalog, by domain, and the total count."""
     rows = AEOBrand.objects.for_team(team_id)
+    if search:
+        rows = rows.filter(Q(domain__icontains=search) | Q(name__icontains=search))
     if kind is not None:
         rows = rows.filter(kind=kind)
     if status is not None:
@@ -792,6 +808,42 @@ def _to_brand(brand: AEOBrand) -> Brand:
         created_at=brand.created_at,
         updated_at=brand.updated_at,
     )
+
+
+def list_keywords(team_id: int) -> list[Keyword]:
+    """The project's whole keyword list, by keyword. It is capped, so it is never paged."""
+    return keywords.list_keywords(team_id)
+
+
+def get_keyword(team_id: int, keyword_id: str) -> Keyword:
+    """Raises KeywordNotFoundError when the project has no such keyword."""
+    return keywords.get_keyword(team_id, keyword_id)
+
+
+def create_keywords(team_id: int, texts: list[str]) -> KeywordCreateResult:
+    """Raises KeywordLimitError when the new keywords would take the project past its cap."""
+    return keywords.create_keywords(team_id, texts)
+
+
+def delete_keyword(team_id: int, keyword_id: str) -> None:
+    """Raises KeywordNotFoundError when the project has no such keyword."""
+    keywords.delete_keyword(team_id, keyword_id)
+
+
+def get_keyword_report(team_id: int, *, timezone_name: str, days: int) -> KeywordReport:
+    """How each keyword shows up in the prompts, the engines' searches and the answers over the last
+    `days` days in the team's timezone."""
+    return keywords.get_keyword_report(
+        team_id, target_domains=catalog.own_domains(team_id), timezone_name=timezone_name, days=days
+    )
+
+
+def get_keyword_modifiers(
+    team_id: int, *, timezone_name: str, days: int, keyword: str | None = None
+) -> KeywordModifierReport:
+    """The words the engines added to their searches beyond the prompt over the last `days` days,
+    optionally only in answers whose searches contain `keyword`."""
+    return keywords.get_keyword_modifiers(team_id, timezone_name=timezone_name, days=days, keyword=keyword)
 
 
 def start_prompt_suggestions(team_id: int, request: PromptSuggestionRequest) -> PromptSuggestionJob:
