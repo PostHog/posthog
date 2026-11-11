@@ -17,13 +17,17 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from .. import feature_flags
-from ..logic import releases as logic
+from ..logic import (
+    imports,
+    releases as logic,
+)
 from ..models import Release
 from . import contracts
 
 ReleaseNotFoundError = contracts.ReleaseNotFoundError
 UnknownFeatureFlagsError = contracts.UnknownFeatureFlagsError
 UnknownBroadcastsError = contracts.UnknownBroadcastsError
+ImportFlag = contracts.ImportFlag
 
 
 FlagVisibilityLookup = Callable[[list[int]], contracts.FlagVisibility]
@@ -139,6 +143,18 @@ def update(team_id: int, release_id: UUID, changes: dict[str, Any], lookups: Lin
                 list(changes["broadcast_ids"]), list(current.broadcast_ids), lookups.broadcasts
             )
     return _visible_dto(logic.update_release(team_id, release_id, changes), lookups)
+
+
+def import_all(team_id: int, flags: list[contracts.ImportFlag]) -> int:
+    candidates = imports.group_import_candidates(flags, imports.linked_flag_ids(team_id))
+    created = imports.create_unlinked_releases(
+        team_id, [(candidate.name, candidate.feature_flag_ids) for candidate in candidates]
+    )
+    return len(created)
+
+
+def create_release_for_new_flag(flag_id: int, team_id: int) -> None:
+    imports.create_release_for_new_flag(flag_id, team_id, releases_enabled)
 
 
 def releases_enabled(

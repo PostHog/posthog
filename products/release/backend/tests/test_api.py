@@ -119,7 +119,12 @@ class TestReleaseAPI(APIBaseTest):
         assert kept == [hidden_id]
 
     @parameterized.expand(
-        [("list", "get", ""), ("create", "post", ""), ("update", "patch", "00000000-0000-0000-0000-000000000000/")]
+        [
+            ("list", "get", ""),
+            ("create", "post", ""),
+            ("update", "patch", "00000000-0000-0000-0000-000000000000/"),
+            ("import_all", "post", "import_all/"),
+        ]
     )
     def test_every_action_is_closed_without_the_flag(self, _name: str, method: str, suffix: str) -> None:
         with patch(FLAG_PATCH, return_value=False):
@@ -233,3 +238,75 @@ class TestReleaseAPI(APIBaseTest):
         assert body["count"] == 2
         assert [release["name"] for release in body["results"]] == ["First"]
         assert body["next"] is not None
+
+    def _flag(self, key: str, **extra) -> int:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/", {"key": key, **extra}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        return response.json()["id"]
+
+    def test_import_all_creates_releases_only_for_active_unlinked_flags(self) -> None:
+        linked = self._flag("linked-flag")
+        self._flag("inactive-flag", active=False)
+        self._flag("remote-config", is_remote_configuration=True)
+        archived = self._flag("archived-flag")
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{archived}/",
+            {"active": False, "archived": True},
+            format="json",
+        )
+        experiment = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {"name": "Pricing test", "feature_flag_key": "pricing-test"},
+            format="json",
+        )
+        assert experiment.status_code == status.HTTP_201_CREATED, experiment.json()
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{experiment.json()['feature_flag']['id']}/",
+            {"active": True},
+            format="json",
+        )
+        self._flag("quiet-theme")
+        self.client.post(self._url(), {"name": "Linked", "feature_flag_ids": [linked]}, format="json")
+
+        first = self.client.post(self._url("import_all/"))
+        second = self.client.post(self._url("import_all/"))
+
+        assert first.status_code == status.HTTP_201_CREATED, first.json()
+        assert first.json()["created_count"] == 2
+        assert second.json()["created_count"] == 0
+        assert sorted(release["name"] for release in self.client.get(self._url()).json()["results"]) == [
+            "Linked",
+            "Pricing test",
+            "Quiet theme",
+        ]
+
+    @parameterized.expand(
+        [
+            ("import_all", "post", "feature_flag:write", status.HTTP_201_CREATED),
+            ("import_all", "post", "feature_flag:read", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_import_actions_follow_feature_flag_scopes(
+        self, action: str, method: str, scope: str, expected: int
+    ) -> None:
+        self._flag("checkout-v2")
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(token), scopes=[scope])
+        self.client.logout()
+
+        response = getattr(self.client, method)(
+            self._url(f"{action}/"),
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand([("enabled", True, ["Quiet theme"]), ("disabled", False, [])])
+    def test_a_new_flag_gets_its_own_release(self, _name: str, enabled: bool, expected: list[str]) -> None:
+        with patch(FLAG_PATCH, return_value=enabled), self.captureOnCommitCallbacks(execute=True):
+            self._flag("quiet-theme")
+
+        assert [release["name"] for release in self.client.get(self._url()).json()["results"]] == expected

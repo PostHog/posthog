@@ -10,6 +10,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+from posthog.enums import LabeledStrEnum
+
 
 class ReleaseNotFoundError(Exception):
     pass
@@ -92,3 +94,30 @@ class CreateReleaseInput:
     owner_id: int | None = None
     feature_flag_ids: tuple[int, ...] = ()
     broadcast_ids: tuple[UUID, ...] = ()
+
+
+class ImportReason(LabeledStrEnum):
+    EXPERIMENT = "experiment", "Experiment"
+    EARLY_ACCESS = "early_access", "Early access"
+    RELATED_FLAGS = "related_flags", "Related flags"
+    FLAG = "flag", "Flag"
+
+
+@dataclass(frozen=True)
+class ImportFlag:
+    id: int
+    key: str
+    created_at: datetime
+    created_by_id: int | None
+    experiment_names: tuple[str, ...] = ()
+    early_access_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ImportCandidateDTO:
+    key: str
+    name: str
+    reason: ImportReason
+    feature_flag_ids: list[int]
+    flag_keys: list[str]
+    created_at: datetime

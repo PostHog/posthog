@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     BroadcastOptionApi,
+    ImportAllResponseApi,
     PaginatedReleaseDTOListApi,
     PatchedUpdateReleaseApi,
     ReleaseDTOApi,
@@ -133,5 +134,22 @@ export const releasesBroadcastSearchRetrieve = async (
     return apiMutator<BroadcastOptionApi[]>(getReleasesBroadcastSearchRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getReleasesImportAllCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/releases/import_all/`
+}
+
+/**
+ * Create a release for every suggestion at once. Flags already in a release are skipped.
+ */
+export const releasesImportAllCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ImportAllResponseApi> => {
+    return apiMutator<ImportAllResponseApi>(getReleasesImportAllCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }

@@ -82,3 +82,7 @@ class WriteReleaseSerializer(serializers.Serializer):
 
 class UpdateReleaseSerializer(WriteReleaseSerializer):
     name = serializers.CharField(max_length=255, required=False, help_text="Name of the release.")
+
+
+class ImportAllResponseSerializer(serializers.Serializer):
+    created_count = serializers.IntegerField(help_text="How many releases the import created.")

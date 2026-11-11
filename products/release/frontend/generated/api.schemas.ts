@@ -104,6 +104,11 @@ export interface BroadcastOptionApi {
     status: string
 }
 
+export interface ImportAllResponseApi {
+    /** How many releases the import created. */
+    created_count: number
+}
+
 export type ReleasesListParams = {
     /**
      * Number of results to return per page.
