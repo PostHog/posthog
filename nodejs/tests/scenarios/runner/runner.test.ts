@@ -32,9 +32,9 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
-import { LoadedCard, Profile, load } from '../cards'
-import { Environment, defaultStateDir } from '../environment/environment'
-import { RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
+import { LoadedCard, Profile, ValveEntry, load } from '../cards'
+import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
+import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
@@ -74,6 +74,7 @@ describe('runner', () => {
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
         role: (name) => ({ name, metricsUrl: '' }),
+        actuate: () => Promise.reject(new Error('these runs schedule no valves')),
         health: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         down: () => Promise.resolve(),
@@ -375,6 +376,12 @@ describe('runner through seed, drive and judge', () => {
     let results: RunResult[]
     let cdp: Cdp
 
+    let exits: RoleExit[]
+    let killExits: (role: Role) => RoleExit[]
+    const exitOfTheKill = (role: Role): RoleExit[] => [
+        { role, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
+    ]
+
     const environmentOf = (delivering: 'none' | 'all' | 'all, leaving one job running'): Environment => ({
         up: () => Promise.resolve(),
         async reset(settings: Profile['settings']) {
@@ -390,15 +397,19 @@ describe('runner through seed, drive and judge', () => {
         },
         edgeUrl: () => edge.url,
         role: (name) => ({ name, metricsUrl: '' }),
+        actuate(action) {
+            exits.push(...killExits(action.role))
+            return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
+        },
         health: () => Promise.resolve({ healthy: true, down: [] }),
-        exits: () => [],
+        exits: () => [...exits],
         down: async () => {
             await roles?.stop()
             roles = undefined
         },
     })
 
-    const shortSmoke = (): LoadedCard => {
+    const shortSmoke = (valves: ValveEntry[] = []): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
@@ -406,7 +417,8 @@ describe('runner through seed, drive and judge', () => {
             stringify({
                 ...SMOKE.card,
                 drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: 'event_email' }] },
-                convergeWithin: '3s',
+                valves,
+                convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
         )
         writeFileSync(
@@ -417,6 +429,8 @@ describe('runner through seed, drive and judge', () => {
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
+                    CYCLOTRON_NODE_JANITOR_STALL_TIMEOUT_MS: '0',
+                    CYCLOTRON_NODE_JANITOR_CLEANUP_INTERVAL_MS: '0',
                 },
             })
         )
@@ -454,6 +468,8 @@ describe('runner through seed, drive and judge', () => {
         }
         edge = await startProviderEdge({ port: 0, trackingKeys: secretsOf(env).encryptionSaltKeys })
         results = []
+        exits = []
+        killExits = exitOfTheKill
         await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
     })
 
@@ -499,8 +515,11 @@ describe('runner through seed, drive and judge', () => {
         await api.close()
     }
 
-    const run = async (delivering: Parameters<typeof environmentOf>[0]): Promise<RunResult> => {
-        const result = await createRunner(environmentOf(delivering), env).run(shortSmoke(), NEVER_ABORTED)
+    const run = async (
+        delivering: Parameters<typeof environmentOf>[0],
+        valves: ValveEntry[] = []
+    ): Promise<RunResult> => {
+        const result = await createRunner(environmentOf(delivering), env).run(shortSmoke(valves), NEVER_ABORTED)
         results.push(result)
         return result
     }
@@ -582,6 +601,54 @@ describe('runner through seed, drive and judge', () => {
                 delivered ? offered.map(({ unitId }) => `${unitId}/email/200`).sort() : []
             )
             expect(offered).not.toHaveLength(0)
+        },
+        30_000
+    )
+    const KILL_EMAIL_WORKER: ValveEntry = {
+        valve: 'role.kill',
+        target: 'cdp-cyclotron-worker-email',
+        dose: {},
+        at: '0s',
+        for: '1s',
+    }
+
+    it.each<[string, (role: Role) => RoleExit[], object]>([
+        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }],
+        [
+            'fails a run in which a role exits that no valve killed',
+            () => [
+                {
+                    role: 'cdp-cyclotron-worker-hogflow',
+                    at: new Date().toISOString(),
+                    code: 1,
+                    signal: null,
+                    byValve: false,
+                },
+            ],
+            {
+                status: 'failed',
+                statusReason: 'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it',
+            },
+        ],
+    ])(
+        '%s, and keeps the valve timeline',
+        async (_story, exitsOfKill, verdict) => {
+            killExits = exitsOfKill
+
+            const result = await run('all', [KILL_EMAIL_WORKER])
+
+            expect(result).toMatchObject({
+                ...verdict,
+                timeline: [
+                    {
+                        valve: 'role.kill',
+                        target: 'cdp-cyclotron-worker-email',
+                        observedAt: expect.any(String),
+                        releasedAt: expect.any(String),
+                    },
+                ],
+            })
+            expect(api.captured[0]?.properties.valve_timeline).toEqual(result.timeline)
         },
         30_000
     )

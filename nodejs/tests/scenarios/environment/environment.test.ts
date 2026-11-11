@@ -1294,6 +1294,25 @@ describe('scenario environment', () => {
             expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: false })])
         }, 30_000)
 
+        it('kills a role on a valve, sees the old process gone, records the exit as the valve and starts it again', async () => {
+            const role = 'cdp-cyclotron-worker-email'
+            environment = environmentOf()
+            await environment.up()
+            const health = `http://127.0.0.1:${ROLE_PORTS[role]}/_health`
+            const killed = Number(await (await internalFetch(health)).text())
+
+            const actuation = await environment.actuate({ kind: 'kill', role })
+
+            expect(await actuation.observed()).toBe(true)
+            expect(() => process.kill(killed, 0)).toThrow()
+            await waitForExpect(async () => {
+                const answer = await internalFetch(health)
+                expect(Number(await answer.text())).not.toBe(killed)
+            }, 15_000)
+            await actuation.release()
+            expect(environment.exits()).toEqual([expect.objectContaining({ role, signal: 'SIGKILL', byValve: true })])
+        }, 30_000)
+
         it('brings every role up healthy', async () => {
             environment = environmentOf()
 

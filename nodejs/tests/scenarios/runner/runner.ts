@@ -22,6 +22,7 @@ import { createCyclotronProbe } from '../probe/cyclotron-probe'
 import { provenanceOf } from '../scorecard/provenance'
 import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
+import { ValveTimelineEntry, createValves } from '../valves/valves'
 import { Status, statusOf } from './status'
 
 export type RunResult = {
@@ -39,7 +40,7 @@ export type RunResult = {
     convergence?: Convergence
     invariants: InvariantResult[]
     measurements: Measurement[]
-    timeline: never[]
+    timeline: ValveTimelineEntry[]
     startedAt: string
     endedAt: string
     evidenceDir: string
@@ -158,7 +159,9 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     topics: [eventsTopic],
                 },
             ] = consumerGroupsOf(specs)
-            const judge = createJudge({ edgeUrl, probe: createCyclotronProbe(cyclotronUrlOf(specs[0])) })
+            const probe = createCyclotronProbe(cyclotronUrlOf(specs[0]))
+            const judge = createJudge({ edgeUrl, probe })
+            const valves = createValves()
             const postgres = new PostgresRouter(
                 {
                     DATABASE_URL: specs[0].env.DATABASE_URL || STACK.postgresUrl,
@@ -181,11 +184,14 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 })
                 const seeded = await seed(loaded, postgres)
                 await judge.open(seeded)
+                const exitsBefore = environment.exits().length
                 stopHealth = watchHealth(environment)
                 sampler = await startSampler(
                     CdpRole.options.map((role) => ({ role, metricsUrl: environment.role(role).metricsUrl }))
                 )
+                await valves.start(card.valves, { environment, probe, teams: seeded.teamIds })
                 const units = await drive(loaded, seeded, judge, signal, { producer, eventsTopic, cdpApi, runId })
+                await valves.releaseAll()
                 const convergence = await judge.converge(durationMs(card.convergeWithin), signal)
                 samples = await sampler.stop()
                 const down = await stopHealth()
@@ -195,7 +201,15 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     samples,
                     sampledFrom: sampler.sampledFrom,
                 })
-                const verdict = statusOf({ minOffered: card.drive.minOffered, units, down, convergence, invariants })
+                const verdict = statusOf({
+                    minOffered: card.drive.minOffered,
+                    units,
+                    down,
+                    convergence,
+                    invariants,
+                    timeline: valves.timeline(),
+                    exits: environment.exits().slice(exitsBefore),
+                })
                 outcome = { ...verdict, units, convergence, invariants, measurements }
                 if (signal.aborted) {
                     outcome = { ...outcome, status: 'invalid', statusReason: 'the run was interrupted' }
@@ -207,6 +221,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                     statusReason: `the run stopped: ${(error as Error).message}`,
                 }
             } finally {
+                await valves.releaseAll()
                 await stopHealth?.()
                 samples = (await sampler?.stop()) ?? samples
                 try {
@@ -233,7 +248,7 @@ export function createRunner(environment: Environment, env: NodeJS.ProcessEnv = 
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
                 origin: 'local-agent',
-                timeline: [],
+                timeline: valves.timeline(),
                 startedAt,
                 endedAt: new Date().toISOString(),
                 evidenceDir,

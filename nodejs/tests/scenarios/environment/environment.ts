@@ -33,12 +33,17 @@ export interface Environment {
     reset(settings: Profile['settings']): Promise<void>
     edgeUrl(): string
     role(name: Role): RoleHandle
+    actuate(action: Action): Promise<Actuation>
     health(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     down(): Promise<void>
 }
 
 export type RoleHandle = { name: Role; metricsUrl: string }
+
+export type Action = { kind: 'kill'; role: Role }
+
+export type Actuation = { observed(): Promise<boolean>; release(): Promise<void> }
 
 const NODEJS_DIR = realpathSync(path.resolve(__dirname, '..', '..', '..'))
 const REPO_ROOT = path.dirname(NODEJS_DIR)
@@ -51,6 +56,7 @@ const GROUP_DRAINS_WITHIN_MS = 60_000
 const GROUPS_EMPTY_WITHIN_MS = 45_000
 const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
+const KILL_OBSERVED_WITHIN_MS = 10_000
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
     specs.map(({ role }) => ({ port: ROLE_PORTS[role], owner: role }))
@@ -126,6 +132,12 @@ export function createEnvironment({
         async health() {
             const down = await downServices(edge?.url, postgresUrl, sesRateLimiterValkey)
             return { healthy: down.length === 0, down }
+        },
+
+        actuate(action) {
+            const gone = supervisor.kill(action.role, KILL_OBSERVED_WITHIN_MS)
+            gone.catch(() => undefined)
+            return Promise.resolve({ observed: () => gone, release: () => Promise.resolve() })
         },
 
         exits: (): RoleExit[] => supervisor.exits(),

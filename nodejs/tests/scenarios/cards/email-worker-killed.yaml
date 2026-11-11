@@ -1,0 +1,34 @@
+id: email-worker-killed
+version: 1
+clock: real
+profile: synthetic
+seed: 2
+setup:
+    teams: 1
+drive:
+    for: 30s
+    traffic:
+        - name: event_email
+        - name: transactional_email
+valves:
+    - valve: role.kill
+      target: cdp-cyclotron-worker-email
+      dose: {}
+      when:
+          name: running_on_queue
+          params:
+              queue: email
+              atLeast: 1
+      for: 1s
+convergeWithin: 2m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+gates:
+    duplicate_sends: 3
+    refused_at_intake: 0
+measure:
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms
