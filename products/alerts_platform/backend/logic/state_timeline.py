@@ -74,7 +74,8 @@ class _GroupStates:
             self._counts[self._states.pop(_CONFIGURATION_KEY)] -= 1
 
     def reset(self) -> None:
-        for key in [key for key, state in self._states.items() if state == PlatformAlertState.BROKEN]:
+        # A reset clears every instance, as `reset_broken` does, so a group shown firing is cleared too.
+        for key in list(self._states):
             self.set(key, PlatformAlertState.NOT_FIRING)
 
     def whole(self, snoozed: bool) -> PlatformAlertState:
@@ -146,12 +147,13 @@ def state_timeline(
     ):
         seed[_CONFIGURATION_KEY] = first_control.previous_state
     group_states = _GroupStates(seed)
-    first_snooze = next((move for move in moves if move.snoozed is not None), None)
-    snoozed = (
-        not first_snooze.snoozed
-        if first_snooze is not None
-        else snooze_until is not None and snooze_until > window_start
-    )
+    # The first snooze change records whether the alert was snoozed before it, which an extension of a
+    # snooze that began before the window needs. With none, a snooze that runs out in the window began before it.
+    first_snooze_change = next((change for change in control_changes if change.kind in _SNOOZES), None)
+    if first_snooze_change is not None:
+        snoozed = first_snooze_change.previous_state == PlatformAlertState.SNOOZED
+    else:
+        snoozed = snooze_until is not None and snooze_until > window_start
     enabled = _enabled_at_start(control, moves, current_enabled)
 
     intervals: list[StateInterval] = []

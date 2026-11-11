@@ -110,6 +110,26 @@ SNOOZED = PlatformAlertState.SNOOZED
             [(START, MID, PlatformAlertState.BROKEN, True), (MID, END, OK, True)],
         ),
         (
+            "a snooze extended in the window was snoozed before the extension",
+            None,
+            _control((MID, ControlChangeKind.SNOOZE, SNOOZED)),
+            {"": OK},
+            END + timedelta(hours=1),
+            [(START, END, SNOOZED, True)],
+        ),
+        (
+            "a reset clears a group that was firing as well as the break",
+            _history((START + timedelta(hours=1), OK, FIRING, "checkout")),
+            _control((MID, ControlChangeKind.RESET, PlatformAlertState.BROKEN)),
+            {"checkout": OK},
+            None,
+            [
+                (START, START + timedelta(hours=1), OK, True),
+                (START + timedelta(hours=1), MID, FIRING, True),
+                (MID, END, OK, True),
+            ],
+        ),
+        (
             "a snooze ends when it runs out, though no check moved",
             None,
             _control((MID, ControlChangeKind.SNOOZE)),
