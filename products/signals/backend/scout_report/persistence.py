@@ -1428,6 +1428,11 @@ def _merge_forward_reviewer_evidence(*, report_id: str, suggested_reviewers: Sug
             # leaving autostart's owner exclusion resting on the best-effort tally alone.
             "is_skill_owner": entry.is_skill_owner,
             "source_skill": entry.source_skill,
+            # The supplied entry's own value, which is False for a fresh scout pick. A stored entry sent
+            # back unchanged (`add_scout_report_reviewers`) keeps the flags that bar it from the
+            # autostart identity.
+            "is_research_selected": entry.is_research_selected,
+            "is_default_owner": entry.is_default_owner,
         }
         try:
             merged.append(SuggestedReviewerEntry.model_validate(candidate))

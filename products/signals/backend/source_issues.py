@@ -34,6 +34,7 @@ from products.signals.backend.models import (
     SignalReportGithubComment,
     SignalTeamConfig,
 )
+from products.signals.backend.pr_owner_assignments import github_identity_source
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = logging.getLogger(__name__)
@@ -177,9 +178,10 @@ def open_report_for_source_issue(*, team_id: int, url: str) -> SignalReport | No
     )
 
 
-def _issue_author_login(
+def _issue_author(
     team_id: int, issue: SourceIssue, integrations: dict[str, GitHubIntegration | None]
-) -> str | None:
+) -> tuple[str, int] | None:
+    """The author's lowercased login and immutable GitHub user id, or None for a bot or an unreadable issue."""
     if issue.repository not in integrations:
         integrations[issue.repository] = GitHubIntegration.first_for_team_repository(
             team_id, issue.repository, source=AUTHOR_LOOKUP_EGRESS_SOURCE, priority=Priority.NORMAL
@@ -199,23 +201,30 @@ def _issue_author_login(
     if not isinstance(user, dict) or user.get("type") == "Bot":
         return None
     login = user.get("login")
+    github_id = user.get("id")
     if not isinstance(login, str) or not login.strip() or login.lower().endswith("[bot]"):
         return None
-    return login.strip().lower()
+    if not isinstance(github_id, int) or isinstance(github_id, bool):
+        return None
+    return login.strip().lower(), github_id
 
 
 def source_issue_author_reviewers(*, team_id: int, issues: Sequence[SourceIssue]) -> list[SuggestedReviewerEntry]:
     """The organization members who filed these GitHub issues, as reviewer entries in issue order.
+
+    A member matches only when the GitHub account they linked has the author's user id as well as the
+    login. Anyone can file an issue in a public repository, and a login a member gave up can be
+    registered by someone else, so the login alone would route the report to the wrong person.
 
     Best effort: an issue no team installation can read, a failed or shed GitHub call, a bot author,
     and an author outside the team's organization each add no one, and none of them fails the
     report write. Costs one GitHub call per issue, so call it before the report transaction opens.
     """
     integrations: dict[str, GitHubIntegration | None] = {}
-    authors: dict[str, SourceIssue] = {}
+    authors: dict[str, tuple[int, SourceIssue]] = {}
     for issue in issues:
         try:
-            login = _issue_author_login(team_id, issue, integrations)
+            author = _issue_author(team_id, issue, integrations)
         except Exception:
             logger.warning(
                 "signals.source_issue_author_lookup_failed",
@@ -223,15 +232,21 @@ def source_issue_author_reviewers(*, team_id: int, issues: Sequence[SourceIssue]
                 exc_info=True,
             )
             continue
-        if login is not None:
-            authors.setdefault(login, issue)
+        if author is not None:
+            login, github_id = author
+            authors.setdefault(login, (github_id, issue))
     members = resolve_org_github_login_to_users(team_id, authors) if authors else {}
-    return [
-        SuggestedReviewerEntry(
-            github_login=login,
-            user_uuid=str(members[login].uuid),
-            reason=f"Filed the source issue {issue.repository}#{issue.number}.",
+    entries: list[SuggestedReviewerEntry] = []
+    for login, (github_id, issue) in authors.items():
+        member = members.get(login)
+        identity = github_identity_source(member, login) if member is not None else None
+        if member is None or identity is None or identity[1] != github_id:
+            continue
+        entries.append(
+            SuggestedReviewerEntry(
+                github_login=login,
+                user_uuid=str(member.uuid),
+                reason=f"Filed the source issue {issue.repository}#{issue.number}.",
+            )
         )
-        for login, issue in authors.items()
-        if login in members
-    ]
+    return entries

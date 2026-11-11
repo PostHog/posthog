@@ -717,17 +717,25 @@ class TestScoutReportAPI(APIBaseTest):
 
     def test_source_issue_authors_who_are_organization_members_become_reviewers(self) -> None:
         run = _make_run(self.team)
-        for login in ("filer", "second-filer"):
-            member = User.objects.create(email=f"{login}@example.com")
-            OrganizationMembership.objects.create(user=member, organization=self.organization)
+        members: dict[str, User] = {}
+        for login, github_id in (
+            ("filer", 1001),
+            ("second-filer", 1002),
+            ("given-up-login", 1003),
+            ("researcher", 1004),
+        ):
+            members[login] = User.objects.create(email=f"{login}@example.com")
+            OrganizationMembership.objects.create(user=members[login], organization=self.organization)
             UserSocialAuth.objects.create(
-                user=member, provider="github", uid=f"gh-{login}", extra_data={"login": login}
+                user=members[login], provider="github", uid=str(github_id), extra_data={"login": login}
             )
         authors = {
-            42: {"login": "Filer", "type": "User"},
-            43: {"login": "outside-reporter", "type": "User"},
-            44: {"login": "dependabot[bot]", "type": "Bot"},
-            45: {"login": "second-filer", "type": "User"},
+            42: {"login": "Filer", "id": 1001, "type": "User"},
+            43: {"login": "outside-reporter", "id": 2001, "type": "User"},
+            44: {"login": "dependabot[bot]", "id": 2002, "type": "Bot"},
+            # Another account registered the login a member gave up.
+            45: {"login": "given-up-login", "id": 2003, "type": "User"},
+            46: {"login": "second-filer", "id": 1002, "type": "User"},
         }
 
         def read_issue(_method: str, path: str, **_kwargs) -> MagicMock:
@@ -748,25 +756,52 @@ class TestScoutReportAPI(APIBaseTest):
         ):
             created = self.client.post(
                 self._emit_url(str(run.id)),
-                data=self._payload(source_issues=[{"url": issue(42)}, {"url": issue(43)}, {"url": issue(44)}]),
+                data=self._payload(source_issues=[{"url": issue(number)} for number in (42, 43, 44, 45)]),
                 format="json",
             )
             assert created.status_code == status.HTTP_200_OK, created.json()
             report_id = created.json()["report_id"]
             assert self._reviewer_logins(report_id) == ["filer"]
 
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=SuggestedReviewers.model_validate(
+                    [
+                        {"github_login": "filer", "user_uuid": str(members["filer"].uuid)},
+                        {"github_login": None, "user_uuid": str(self.user.uuid), "is_default_owner": True},
+                        {
+                            "github_login": "researcher",
+                            "user_uuid": str(members["researcher"].uuid),
+                            "is_research_selected": True,
+                        },
+                    ]
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
             # An edit that sets no reviewers adds the new issue's author to the list the report holds.
             for _ in range(2):
                 edited = self.client.post(
                     self._edit_url(str(run.id)),
-                    data={"report_id": report_id, "source_issues": [{"url": issue(42)}, {"url": issue(45)}]},
+                    data={"report_id": report_id, "source_issues": [{"url": issue(42)}, {"url": issue(46)}]},
                     format="json",
                 )
                 assert edited.status_code == status.HTTP_200_OK, edited.json()
 
-        assert self._reviewer_logins(report_id) == ["filer", "second-filer"]
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        assert [
+            (entry["user_uuid"], entry["is_default_owner"], entry["is_research_selected"])
+            for entry in json.loads(artefact.content)
+        ] == [
+            (str(members["filer"].uuid), False, False),
+            (str(self.user.uuid), True, False),
+            (str(members["researcher"].uuid), False, True),
+            (str(members["second-filer"].uuid), False, False),
+        ]
         # The retried edit names only issues the report holds, so it reads nothing from GitHub.
-        assert github.api_request.call_count == 4
+        assert github.api_request.call_count == 5
 
     @parameterized.expand(
         [
