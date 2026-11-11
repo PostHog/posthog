@@ -18,9 +18,10 @@ import { SigningKeyLoader } from './auth/registry'
 import { PostgresReplayStore } from './auth/replay-postgres'
 import { Envelope } from './crypto/envelope'
 import { createKms } from './crypto/kms'
+import { deleteExpiredIdempotencyKeys } from './db/idempotency'
 import { createPool, pingDatabase } from './db/pool'
 import { isProductionEnv, runtimeRoleRefusal } from './db/role-guard'
-import { type AppOptions, createApp } from './http/app'
+import { type AppOptions, type IntegrationDeps, createApp } from './http/app'
 import { AuditQueue } from './integrations/audit'
 import { IntegrationsService } from './integrations/service'
 import type { Config, DatabaseConfig } from './lib/config'
@@ -37,6 +38,9 @@ const AUDIT_DRAIN_TIMEOUT_MS = 5_000
 
 /** How often to try the database again when it was unreachable at boot. */
 const DATABASE_RETRY_MS = 5_000
+
+/** How often to delete idempotency keys that passed their 24 hour window. */
+const IDEMPOTENCY_CLEANUP_MS = 10 * 60 * 1000
 
 interface DrainableServer {
     close(cb: () => void): void
@@ -78,6 +82,7 @@ export class CredentialsServer {
     private signingKeys: SigningKeyLoader | undefined
     private pool: Pool | undefined
     private audit: AuditQueue | undefined
+    private integrations: IntegrationDeps | undefined
     private secretsReady = false
     private databaseReady = false
     private databaseRefused = false
@@ -185,11 +190,52 @@ export class CredentialsServer {
         }
         logger.error('startup:database_unreachable', {})
         const cancel = every(DATABASE_RETRY_MS, async () => {
-            if (!this.databaseReady && !this.databaseRefused && (await this.admitDatabase(pool, config))) {
-                cancel()
+            if (!this.databaseReady && !this.databaseRefused && !(await this.admitDatabase(pool, config))) {
+                return
             }
+            // A throw here retries on the next tick, because the database is now admitted.
+            await this.enableIntegrations()
+            cancel()
         })
         this.cancelTimers.push(cancel)
+    }
+
+    /**
+     * Turns on the integration routes once the pool is admitted. In production the pool serves
+     * integrations only after the runtime role check passed. A database that answers late
+     * enables them from the retry loop, so a pod never turns ready with the routes missing.
+     */
+    private async enableIntegrations(): Promise<void> {
+        const config = this.config
+        if (this.integrations) {
+            return
+        }
+        const pool = this.pool
+        const poolAdmitted = pool !== undefined && (this.databaseReady || !isProductionEnv(config.env))
+        if (pool && poolAdmitted && config.kms && config.integrationCallerPublicKeysDir) {
+            const integrationKeys = new IntegrationKeyLoader(config.integrationCallerPublicKeysDir)
+            await integrationKeys.load()
+            this.cancelTimers.push(every(config.reloadSeconds * 1000, () => integrationKeys.reload()))
+            this.cancelTimers.push(
+                every(IDEMPOTENCY_CLEANUP_MS, () => deleteExpiredIdempotencyKeys(pool).then(() => undefined))
+            )
+            this.audit = new AuditQueue(pool)
+            this.audit.start()
+            this.integrations = {
+                verifier: new IntegrationVerifier(integrationKeys, { replay: new PostgresReplayStore(pool) }),
+                service: new IntegrationsService({
+                    pool,
+                    envelope: new Envelope(createKms(config.kms)),
+                    audit: this.audit,
+                }),
+            }
+        } else if (pool || config.kms) {
+            logger.warn('integrations:disabled', {
+                database: poolAdmitted,
+                kms: Boolean(config.kms),
+                keys: Boolean(config.integrationCallerPublicKeysDir),
+            })
+        }
     }
 
     async start(): Promise<void> {
@@ -216,34 +262,12 @@ export class CredentialsServer {
             await this.connectDatabase(this.pool, config.database)
         }
 
+        await this.enableIntegrations()
         const appOptions: AppOptions = {
             verifier: new JwtVerifier(signingKeys),
             lifecycle: this.lifecycle,
             secrets: () => mount.current(),
-        }
-        // In production the pool serves integrations only after the runtime role check passed.
-        // A database that is unreachable at boot leaves them off until the pod restarts.
-        const poolAdmitted = this.pool !== undefined && (this.databaseReady || !isProductionEnv(config.env))
-        if (this.pool && poolAdmitted && config.kms && config.integrationCallerPublicKeysDir) {
-            const integrationKeys = new IntegrationKeyLoader(config.integrationCallerPublicKeysDir)
-            await integrationKeys.load()
-            this.cancelTimers.push(every(config.reloadSeconds * 1000, () => integrationKeys.reload()))
-            this.audit = new AuditQueue(this.pool)
-            this.audit.start()
-            appOptions.integrations = {
-                verifier: new IntegrationVerifier(integrationKeys, { replay: new PostgresReplayStore(this.pool) }),
-                service: new IntegrationsService({
-                    pool: this.pool,
-                    envelope: new Envelope(createKms(config.kms)),
-                    audit: this.audit,
-                }),
-            }
-        } else if (this.pool || config.kms) {
-            logger.warn('integrations:disabled', {
-                database: poolAdmitted,
-                kms: Boolean(config.kms),
-                keys: Boolean(config.integrationCallerPublicKeysDir),
-            })
+            integrations: () => this.integrations,
         }
         if (this.pool) {
             this.startAuditMaintenance(this.pool)

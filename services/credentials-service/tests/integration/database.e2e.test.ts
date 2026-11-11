@@ -213,8 +213,9 @@ describe('integrations queries', () => {
         ['another owner', slack({ owner: OTHER_TEAM }), 'ok'],
         ['another kind', slack({ kind: 'hubspot' }), 'ok'],
         ['another external id', slack({ externalId: 'T0002' }), 'ok'],
+        ['the same legacy id as the first row', slack({ owner: OTHER_TEAM, legacyId: 7 }), 'conflict'],
     ] as const)('a second live row with %s returns %s', async (_label, second, expected) => {
-        await insertOk(slack())
+        await insertOk(slack({ legacyId: 7 }))
         expect((await insertIntegration(db, second)).status).toBe(expected)
     })
 
@@ -505,5 +506,34 @@ describe('server readiness with a database', () => {
                 expect((await fetch(`http://127.0.0.1:${port}/v1/integrations`)).status).toBe(status)
             }
         )
+
+        it.each([
+            ['DELETE on the default partition', 'GRANT DELETE ON audit_log_default TO'],
+            ['TRUNCATE on the default partition', 'GRANT TRUNCATE ON audit_log_default TO'],
+            ['column UPDATE on the audit log', 'GRANT UPDATE (outcome) ON audit_log TO'],
+        ])('refuses a runtime role with %s', async (_label, grant) => {
+            const role = `credentials_guard_${Math.random().toString(36).slice(2, 10)}`
+            await pool.query(`CREATE ROLE ${role} LOGIN PASSWORD '${PASSWORD}'`)
+            const url = new URL(migratedUrl)
+            url.username = role
+            url.password = PASSWORD
+            const db = new Pool({ connectionString: migratedUrl })
+            try {
+                await db.query(`GRANT SELECT, INSERT ON audit_log TO ${role}`)
+                await db.query(`${grant} ${role}`)
+            } finally {
+                await db.end()
+            }
+
+            await boot({ url: url.toString(), poolSize: 2 }, undefined, false, 'prod-us')
+
+            expect(bootedServer().integrationsPool()).toBeUndefined()
+        })
+
+        it.each(['Prod-us', 'prod_us', 'PRODUCTION'])('treats the typo %s as production', async (env) => {
+            await boot({ url: migratedUrl, poolSize: 2 }, undefined, false, env)
+
+            expect(bootedServer().integrationsPool()).toBeUndefined()
+        })
     })
 })

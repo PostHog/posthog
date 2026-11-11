@@ -28,6 +28,7 @@ interface AuditRow {
     deployment: string
     caller: string | null
     user_id: string | null
+    owner_type: string | null
     owner_id: string | null
     integration_id: string | null
     kind: string | null
@@ -60,6 +61,7 @@ export function toCaptureEvent(row: AuditRow): CaptureEvent {
             deployment: row.deployment,
             caller: row.caller,
             user_id: row.user_id === null ? null : Number(row.user_id),
+            owner_type: row.owner_type,
             owner_id: row.owner_id === null ? null : Number(row.owner_id),
             integration_id: row.integration_id,
             kind: row.kind,
@@ -156,7 +158,7 @@ export class AuditExporter {
         await client.query('BEGIN')
         try {
             const result = await client.query<AuditRow>(
-                `SELECT id, occurred_at, (extract(epoch FROM occurred_at) * 1000000)::bigint AS occurred_at_us, deployment, caller, user_id, owner_id, integration_id, kind,
+                `SELECT id, occurred_at, (extract(epoch FROM occurred_at) * 1000000)::bigint AS occurred_at_us, deployment, caller, user_id, owner_type, owner_id, integration_id, kind,
                         operation, fields, outcome, request_id
                  FROM audit_log
                  WHERE exported_at IS NULL

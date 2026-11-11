@@ -20,8 +20,13 @@ async function main(): Promise<void> {
         throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not set')
     }
     const pool = new Pool({ connectionString: config.url, max: 2, application_name: 'credentials-service-maintenance' })
+    // A dropped connection emits 'error' on the pool. Without a listener it would end the run with an uncaught exception.
+    pool.on('error', (err) => logger.error('maintenance:pool_error', { error: err.message }))
     try {
-        const deleted = await pruneAuditLog(pool, { retentionDays: config.retentionDays })
+        const deleted = await pruneAuditLog(pool, {
+            retentionDays: config.retentionDays,
+            deleteUnexported: config.deleteUnexported,
+        })
         logger.info('maintenance:complete', { command, deleted, skipped: deleted === null })
     } finally {
         await pool.end()

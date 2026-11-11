@@ -12,6 +12,8 @@ const DAY_MS = 86_400_000
 
 export interface RetentionOptions {
     retentionDays: number
+    /** Also delete rows with no `exported_at`. Without it, only exported rows go. */
+    deleteUnexported?: boolean
     batchSize?: number
     now?: () => Date
 }
@@ -33,8 +35,9 @@ export async function pruneAuditLog(pool: Pool, opts: RetentionOptions): Promise
             const result = await client.query(
                 `DELETE FROM audit_log
                  WHERE (occurred_at, id) IN (
-                    SELECT occurred_at, id FROM audit_log WHERE occurred_at < $1 LIMIT $2)`,
-                [cutoff, batchSize]
+                    SELECT occurred_at, id FROM audit_log
+                    WHERE occurred_at < $1 AND ($3::boolean OR exported_at IS NOT NULL) LIMIT $2)`,
+                [cutoff, batchSize, opts.deleteUnexported === true]
             )
             const deleted = result.rowCount ?? 0
             total += deleted

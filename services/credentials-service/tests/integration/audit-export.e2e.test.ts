@@ -147,6 +147,7 @@ describe('AuditExporter', () => {
             deployment: 'cdp-api',
             caller: 'tests',
             user_id: 7,
+            owner_type: 'team',
             owner_id: 101,
             integration_id: '5b1f2c52-7c0e-4c3c-9d0e-0f4c6e0b6a11',
             kind: 'hubspot',
@@ -292,9 +293,21 @@ describe('pruneAuditLog', () => {
         await ageRows(31, 'old')
         await ageRows(29, 'recent')
 
-        expect(await pruneAuditLog(pool, { retentionDays: 30, batchSize: 2 })).toBe(5)
+        expect(await pruneAuditLog(pool, { retentionDays: 30, batchSize: 2, deleteUnexported: true })).toBe(5)
         const left = await pool.query('SELECT operation FROM audit_log')
         expect(left.rows.map((row) => row.operation)).toEqual(['recent', 'recent'])
+    })
+
+    it('keeps old rows that were never exported, and deletes old rows that were', async () => {
+        await seed(3, 'old')
+        await ageRows(40, 'old')
+        await pool.query(
+            `UPDATE audit_log SET exported_at = now()
+             WHERE id = (SELECT id FROM audit_log ORDER BY id LIMIT 1)`
+        )
+
+        expect(await pruneAuditLog(pool, { retentionDays: 30 })).toBe(1)
+        expect((await pool.query('SELECT 1 FROM audit_log')).rowCount).toBe(2)
     })
 
     it('keeps everything when nothing is old enough', async () => {
@@ -309,7 +322,7 @@ describe('pruneAuditLog', () => {
         const holder = await pool.connect()
         try {
             await holder.query('SELECT pg_advisory_lock($1)', [7_201_002])
-            expect(await pruneAuditLog(pool, { retentionDays: 30 })).toBeNull()
+            expect(await pruneAuditLog(pool, { retentionDays: 30, deleteUnexported: true })).toBeNull()
             expect((await pool.query('SELECT 1 FROM audit_log')).rowCount).toBe(1)
         } finally {
             await holder.query('SELECT pg_advisory_unlock($1)', [7_201_002])

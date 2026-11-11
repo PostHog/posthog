@@ -322,6 +322,8 @@ export function loadMigrateConfig(): MigrateConfig | undefined {
 export interface MaintenanceConfig {
     url: string
     retentionDays: number
+    /** Delete rows that were never exported. Off by default, so an export that is off keeps its rows. */
+    deleteUnexported: boolean
 }
 
 /** Undefined without a migrate URL. The command does not fall back to the runtime URL. */
@@ -334,7 +336,11 @@ export function loadMaintenanceConfig(): MaintenanceConfig | undefined {
     if (retentionDays > MAX_AUDIT_RETENTION_DAYS) {
         throw new Error(`CREDENTIALS_SERVICE_AUDIT_RETENTION_DAYS must be at most ${MAX_AUDIT_RETENTION_DAYS}`)
     }
-    return { url, retentionDays }
+    return {
+        url,
+        retentionDays,
+        deleteUnexported: process.env.CREDENTIALS_SERVICE_AUDIT_RETENTION_DELETE_UNEXPORTED === 'true',
+    }
 }
 
 export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
