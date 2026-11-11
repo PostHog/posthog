@@ -38,6 +38,8 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
     MetricSearchBurstRateThrottle,
     MetricSearchSustainedRateThrottle,
+    MetricWriteBurstRateThrottle,
+    MetricWriteSustainedRateThrottle,
 )
 
 from ..facade import api
@@ -160,9 +162,12 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 return [HogQLQueryThrottle()]
             if kind in _STRUCTURED_QUERY_KINDS:
                 return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
-        # A search can embed its query, which spends model provider budget.
-        if getattr(self, "action", None) == "list" and self.request.query_params.get(api_settings.SEARCH_PARAM):
+        # A search can embed its query, and a write can embed the metric, which spends model provider budget.
+        action = getattr(self, "action", None)
+        if action == "list" and self.request.query_params.get(api_settings.SEARCH_PARAM):
             return [*super().get_throttles(), MetricSearchBurstRateThrottle(), MetricSearchSustainedRateThrottle()]
+        if action in ("create", "update", "partial_update"):
+            return [*super().get_throttles(), MetricWriteBurstRateThrottle(), MetricWriteSustainedRateThrottle()]
         return super().get_throttles()
 
     @extend_schema(

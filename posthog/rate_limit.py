@@ -737,6 +737,18 @@ class MetricSearchSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "1200/hour"
 
 
+# A metric write that changes its name, description or unit schedules an embedding call, so writes get
+# the same kind of team bucket. Setting up a catalog creates a few dozen metrics at a time.
+class MetricWriteBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_burst"
+    rate = "60/minute"
+
+
+class MetricWriteSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "metric_write_sustained"
+    rate = "600/hour"
+
+
 # Site discovery can fetch several small public resources per request and holds the web worker for
 # the complete chain. The project-wide API throttles do not cover session-authenticated requests,
 # so this separate team bucket also limits browser callers.
