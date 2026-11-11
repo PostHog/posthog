@@ -60,7 +60,6 @@ from products.slack_app.backend.logic.connect_tool import CONNECT_TOOL_SKIP_ACTI
 from products.slack_app.backend.logic.daily_focus import (
     DAILY_FOCUS_OFF_ACTION_ID,
     daily_focus_off_blocks,
-    read_off_click,
     turn_off_daily_focus,
 )
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
@@ -4756,7 +4755,7 @@ def _handle_work_focus_task_click(payload: dict) -> HttpResponse:
 def _handle_daily_focus_off(payload: dict) -> HttpResponse:
     """Turn the daily work focus off from its DM, and say so where the button was. The DM is the person's own, so
     the clicker is the person it is for."""
-    integration_id = read_off_click(payload)
+    integration_id, _ = _extract_action_value_hints(payload, DAILY_FOCUS_OFF_ACTION_ID)
     slack_team_id = payload.get("team", {}).get("id", "")
     slack_user_id = payload.get("user", {}).get("id", "")
     integration = get_workspace_integration(integration_id, slack_team_id) if integration_id else None
@@ -6556,6 +6555,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         or interview_recruitment.interview_integration_hint(payload)
         or onboarding_interactivity.onboarding_integration_hint(payload)
         or _extract_action_value_hints(payload, CONNECT_TOOL_SKIP_ACTION_ID)[0]
+        or _extract_action_value_hints(payload, DAILY_FOCUS_OFF_ACTION_ID)[0]
     )
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
