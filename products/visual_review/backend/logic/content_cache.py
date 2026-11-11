@@ -18,9 +18,7 @@ T = TypeVar("T")
 _TIMEOUT_SECONDS = 60 * 60
 
 
-def load_by_hash(
-    kind: str, content_hash: str, load: Callable[[], T | None], timeout_seconds: int = _TIMEOUT_SECONDS
-) -> T | None:
+def load_by_hash(kind: str, content_hash: str, load: Callable[[], T | None]) -> T | None:
     """The parsed content that a hash names, from the cache or from `load`.
 
     None is never cached, so content that could not be read this time is read again next time.
@@ -31,5 +29,5 @@ def load_by_hash(
         return cached
     value = load()
     if value is not None:
-        safe_cache_set(key, value, timeout=timeout_seconds)
+        safe_cache_set(key, value, timeout=_TIMEOUT_SECONDS)
     return value

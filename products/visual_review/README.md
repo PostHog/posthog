@@ -134,30 +134,31 @@ A trusted run is a full run on the default branch without a pull request, or a f
 The default branch comes from GitHub, not from the branch name.
 When a trusted run finishes, the backend looks at the trusted runs of the same run type from the last `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
 
-A flake is proven when the same code renders a story both ways against the same baseline:
+One failure followed by a clean run is not enough.
+A pull request that broke the story and a later one that fixed or reverted it render the same way, and so does the default branch moving on between the two runs.
+A flake is proven only when the finishing run fails the story, and one of these holds:
 
-- **Superset proof.** The story changed in run A and was unchanged in run B, and B's tree holds all of A's tree.
-  A default-branch run holds an earlier default-branch commit by ancestry, and a re-run of the same commit holds it too.
-  A merge queue run holds another when its batch holds every pull request of the other batch and the other batch's base commit.
-  A default-branch run never holds a merge queue run, because a squash merge writes new commits.
-- **Disjoint proof.** The story changed in two runs that share no pull request, and was unchanged in a run created after the earlier of the two.
+- **Same commit.** A clean run of the finishing run's commit rendered another picture against the same baseline. The code is identical, so only the rendering differs.
+- **Chain.** The story failed in run A, was clean in run B, and failed again in the finishing run C, where B's commit descends from A's and C's from B's. A deterministic story would need a break, a fix and a second break inside the window, all without a baseline edit.
 
-Every proof includes the finishing run, as a failing run or as the clean run, because a proof without it was already there when its last run finished.
-That bounds the work: when the finishing run failed the story, only the newest `AUTO_QUARANTINE_CLEAN_RUNS_READ` window runs and the runs of its own commit are read for a clean render.
-At most `AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY` candidate proofs are checked per story, superset first and newest first.
-The decision is a pure function over the runs, the batches and the ancestry answers, and GitHub is asked only what the candidates need.
+Tree order is plain git ancestry of the run commits, which GitHub answers; equal commits count.
+A default-branch run never descends from a merge queue run, because a squash merge writes new commits.
+The clean picture must differ from each failing picture, because a tolerated match of the failing picture is the same render.
 
-The batch of a merge queue run comes from GitHub: Trunk writes one `Merging <head sha> into trunk-temp/...` commit per pull request, and the compare against the default branch names the base commit.
-A batch GitHub cannot read proves nothing.
+The finishing run's failing rows are read first, so a run that fails no story leaves after one query.
+Then up to `AUTO_QUARANTINE_RUNS_READ` window runs created before it or on its commit are read as possible ancestors.
+At most `AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY` candidate proofs are checked per story, built lazily and checked one at a time, and one evaluation stops after `AUTO_QUARANTINE_BUDGET_SECONDS`, leaving the rest to a later run.
+The decision is a pure function over the runs and the ancestry answers.
+Branch and pull request number are client-supplied, so before a proof counts, GitHub confirms where its runs came from: a default-branch run's commit must be in the default branch head, and a merge queue run must test the pull request its branch names.
 
 Guards:
 
 - Only `changed` counts. `new` and `removed` are problems of the baseline file.
-- The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means a pull request in the batch edited it, and the failure belongs to that pull request.
+- The baseline of a failing run must be the default branch's baseline for the story, which the newest full default-branch run holds. A different baseline means the run's changes edited it, and the failure belongs to them.
 - An approved, tolerated, or quarantined result is no evidence either way.
 - At most `AUTO_QUARANTINE_MAX_STORIES_PER_RUN` stories are checked per finishing run.
 - At most `AUTO_QUARANTINE_DAILY_LIMIT` automatic quarantines per repository in 24 hours. Past that, a proof is logged and not applied, because many new flakes at once mean the capture harness regressed. The first proof the limit blocks in a window sends one Slack notice to whoever owns `products/visual_review/`, routed like the digest's items that no team owns.
-- Two runs that finish together take a short claim per story before they quarantine it, so only one quarantine and one notice go out.
+- The limit is counted again, and the story checked for an active quarantine, under a lock on the repository row, so two runs that finish together create one quarantine and stay within the limit.
 - A proof that is not applied is reported once per story per `AUTO_QUARANTINE_PROOF_WINDOW_HOURS`.
 
 The check runs before the finishing run is counted, so when that run completes a proof, it passes.

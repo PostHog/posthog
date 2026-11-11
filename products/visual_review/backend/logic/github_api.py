@@ -144,100 +144,6 @@ def commit_contains(repo: Repo, ancestor_sha: str, head_sha: str) -> bool:
 
 _MERGE_QUEUE_BRANCH_RE = re.compile(r"^trunk-merge/pr-(?P<pr_number>\d+)/")
 
-# Trunk writes one such commit for each pull request it merges into a test branch.
-_TRUNK_MERGE_COMMIT_RE = re.compile(r"^Merging (?P<head_sha>[0-9a-f]{40}) into trunk-temp/")
-
-_COMPARE_PAGE_SIZE = 100
-# A batch whose commits do not fit is unknown rather than partly known, because a missing head
-# would make two batches look disjoint.
-_COMPARE_MAX_PAGES = 30
-
-# A test branch never changes its commits, so a batch can stay cached for as long as an automatic
-# quarantine looks back for proof.
-_BATCH_CACHE_SECONDS = 25 * 60 * 60
-
-
-@frozen
-class MergeQueueBatch:
-    """The pull requests a merge queue test branch holds, on top of the default branch commit it starts from."""
-
-    base_sha: str
-    pull_request_heads: frozenset[str]
-
-
-def _compare_page(github: GitHubIntegration, repo: Repo, base: str, head_sha: str, page: int) -> dict | None:
-    try:
-        response = github.api_request(
-            "GET",
-            f"/repos/{repo.repo_full_name}/compare/{quote(base, safe='')}...{quote(head_sha, safe='')}",
-            params={"per_page": _COMPARE_PAGE_SIZE, "page": page},
-        )
-    except GitHubRateLimitError:
-        raise
-    except Exception:
-        logger.warning("visual_review.merge_queue_batch_fetch_failed", repo_id=str(repo.id), head_sha=head_sha)
-        return None
-    if response.status_code != 200:
-        logger.warning(
-            "visual_review.merge_queue_batch_fetch_failed",
-            repo_id=str(repo.id),
-            head_sha=head_sha,
-            status=response.status_code,
-        )
-        return None
-    return response.json()
-
-
-def _read_merge_queue_batch(repo: Repo, head_sha: str) -> dict | None:
-    """The batch as plain data for the cache, or None when GitHub cannot say or the branch merged nothing."""
-    branch = default_branch_name(repo)
-    if branch is None:
-        return None
-    github = get_github_integration_for_repo(repo)
-    base_sha: str | None = None
-    heads: set[str] = set()
-    for page in range(1, _COMPARE_MAX_PAGES + 1):
-        data = _compare_page(github, repo, branch, head_sha, page)
-        if data is None:
-            return None
-        base_sha = (data.get("merge_base_commit") or {}).get("sha")
-        commits = data.get("commits") or []
-        for commit in commits:
-            first_line = ((commit.get("commit") or {}).get("message") or "").split("\n", 1)[0]
-            match = _TRUNK_MERGE_COMMIT_RE.match(first_line)
-            if match:
-                heads.add(match.group("head_sha"))
-        if len(commits) < _COMPARE_PAGE_SIZE:
-            break
-    else:
-        logger.warning("visual_review.merge_queue_batch_too_large", repo_id=str(repo.id), head_sha=head_sha)
-        return None
-    if not base_sha or not heads:
-        return None
-    return {"base_sha": base_sha, "pull_request_heads": sorted(heads)}
-
-
-def merge_queue_batch(repo: Repo, head_sha: str) -> MergeQueueBatch | None:
-    """The pull requests merged into the test branch at `head_sha`, or None when that is unknown.
-
-    Trunk stacks test branches on each other, so every merge commit between the default branch and
-    the head belongs to the batch the head tests. A known answer is cached by the head commit, and
-    an unknown one is asked again next time.
-    """
-    try:
-        data = content_cache.load_by_hash(
-            "merge_queue_batch",
-            f"{repo.id}:{head_sha}",
-            lambda: _read_merge_queue_batch(repo, head_sha),
-            timeout_seconds=_BATCH_CACHE_SECONDS,
-        )
-    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
-        logger.warning("visual_review.merge_queue_batch_unknown", repo_id=str(repo.id), head_sha=head_sha)
-        return None
-    if data is None:
-        return None
-    return MergeQueueBatch(base_sha=data["base_sha"], pull_request_heads=frozenset(data["pull_request_heads"]))
-
 
 def is_merge_queue_branch(branch: str) -> bool:
     return _MERGE_QUEUE_BRANCH_RE.match(branch) is not None
@@ -300,6 +206,20 @@ def _verified_merge_queue_source_pr(
         return None
 
     return pr_number
+
+
+def is_verified_merge_queue_run(repo: Repo, branch: str, commit_sha: str) -> bool:
+    """Whether a run's merge queue branch really tests the pull request its name claims.
+
+    The branch name is client-supplied, so a run only counts as a merge queue run once GitHub
+    confirms that the claimed pull request's head is in the run's commit. False when GitHub cannot say.
+    """
+    try:
+        github = get_github_integration_for_repo(repo)
+        return _verified_merge_queue_source_pr(github, repo.repo_full_name, branch, head_ref=commit_sha) is not None
+    except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+        logger.warning("visual_review.merge_queue_run_unverified", repo_id=str(repo.id), branch=branch)
+        return False
 
 
 def get_github_integration_for_repo(repo: Repo):

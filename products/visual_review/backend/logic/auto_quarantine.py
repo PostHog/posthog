@@ -2,70 +2,71 @@
 
 A trusted run is a full run on the default branch without a pull request, or a full run on a merge
 queue branch. Every baseline in its tree was approved, so a failure there is either a flake or a
-pull request in the batch that broke the story.
+change in the run's code that broke the story.
 
-A flake is proven when the same code renders a story both ways against the same baseline:
+One failure followed by a clean run is no proof: a break and then a fix, or a revert, renders the
+same way. A flake is proven only when the finishing run fails the story and one of these holds:
 
-- superset: the story changed in run A and was unchanged in run B, and B's tree holds all of A's tree.
-- disjoint: the story changed in two runs that share no pull request, and was unchanged in a run
-  created after the earlier of the two.
+- same commit: a clean run of the finishing run's commit rendered another picture against the same
+  baseline. The code is identical, so only the rendering can differ.
+- chain: the story failed in run A, was clean in run B, and failed again in the finishing run C,
+  where B's commit descends from A's and C's from B's. A deterministic story would need a break, a
+  fix and a second break inside the window, all without a baseline edit.
 
 Only a `changed` result against the default branch's baseline counts as a failure. `new` and
-`removed` are problems of the baseline file, and a different baseline means a pull request in the
-batch edited it, so the failure belongs to that pull request.
+`removed` are problems of the baseline file, and a different baseline means the run's own changes
+edited it. A clean render must be another picture than each failure, because a tolerated match of the
+failing picture is the same render.
 
-Every proof includes the finishing run, as a failing run or as the clean run. A proof without it was
-already available when its last run finished. That bounds the work per run.
-
-The decision is a functional core: `proof_candidates`, `batch_runs`, `ancestry_questions`,
-`first_proof` and `proof_action` read no database, call no client and read no clock. The shell
-around them reads the runs, asks GitHub the questions the candidates name, and acts on the answer.
+The decision is a functional core: `proof_candidates`, `ancestry_questions`, `is_proven` and
+`proof_action` read no database, call no client and read no clock. The shell reads the runs, asks
+GitHub what a candidate needs, verifies where the runs came from, and acts on the answer.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+import time
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import StrEnum
+from itertools import islice
+from typing import Any
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.utils import timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import safe_cache_add
 
 from ..db import WRITER_DB
 from ..facade.contracts import (
-    AUTO_QUARANTINE_CLEAN_RUNS_READ,
+    AUTO_QUARANTINE_BUDGET_SECONDS,
     AUTO_QUARANTINE_DAILY_LIMIT,
     AUTO_QUARANTINE_DAYS,
     AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY,
     AUTO_QUARANTINE_MAX_STORIES_PER_RUN,
     AUTO_QUARANTINE_PROOF_WINDOW_HOURS,
+    AUTO_QUARANTINE_RUNS_READ,
 )
 from ..facade.enums import ActorType, AutoQuarantineMode, ReviewState, RunStatus, SnapshotResult
 from ..models import QuarantinedIdentifier, Repo, Run, RunSnapshot
-from . import github_api, quarantine, retention
-from .github_api import MergeQueueBatch
+from . import errors, github_api, quarantine, retention
 
 logger = structlog.get_logger(__name__)
 
 _MAX_REASON_CHARS = 255
 _PROOF_WINDOW_SECONDS = AUTO_QUARANTINE_PROOF_WINDOW_HOURS * 60 * 60
-# Long enough for a quarantine to commit, after which the story leaves every later evaluation.
-_CLAIM_SECONDS = 10 * 60
-
-Batches = Mapping[UUID, MergeQueueBatch | None]
-Ancestry = Mapping[tuple[str, str], bool]
 
 
 class ProofKind(StrEnum):
-    SUPERSET = "superset"
-    DISJOINT = "disjoint"
+    SAME_COMMIT = "same_commit"
+    CHAIN = "chain"
 
 
 class ProofAction(StrEnum):
@@ -78,6 +79,7 @@ class ProofAction(StrEnum):
 class TrustedRun:
     id: UUID
     commit_sha: str
+    branch: str
     created_at: datetime
     # False for a merge queue run
     on_default_branch: bool
@@ -91,20 +93,36 @@ class Observation:
     result: str
     review_state: str
     baseline_hash: str
+    current_hash: str
     is_quarantined: bool
 
 
 @frozen
 class ProofCandidate:
-    """Runs that prove a flake if their trees relate as the kind says."""
+    """Runs that prove a flake if their commits descend from each other as the kind says.
+
+    `failing_runs` ends with the finishing run. A chain has the earlier failure first.
+    """
 
     kind: ProofKind
     failing_runs: tuple[TrustedRun, ...]
     clean_run: TrustedRun
 
     @property
+    def runs(self) -> tuple[TrustedRun, ...]:
+        return (*self.failing_runs, self.clean_run)
+
+    @property
     def newest_failing_run(self) -> TrustedRun:
-        return max(self.failing_runs, key=lambda run: run.created_at)
+        return self.failing_runs[-1]
+
+
+@frozen
+class AncestryQuestion:
+    """Whether `head_sha` descends from `ancestor_sha`."""
+
+    ancestor_sha: str
+    head_sha: str
 
 
 def _is_failing(observation: Observation, default_baseline_hash: str) -> bool:
@@ -124,148 +142,74 @@ def _is_clean(observation: Observation, default_baseline_hash: str) -> bool:
     )
 
 
-def _newest_first(runs: list[TrustedRun]) -> list[TrustedRun]:
-    return sorted(runs, key=lambda run: run.created_at, reverse=True)
+def _newest_first(observations: list[Observation]) -> list[Observation]:
+    return sorted(observations, key=lambda observation: observation.run.created_at, reverse=True)
 
 
-def _may_contain(later: TrustedRun, earlier: TrustedRun) -> bool:
-    # A squash merge gives the default branch new commits, so no ancestry check can tell whether
-    # a default branch commit holds a test branch.
-    return earlier.on_default_branch or not later.on_default_branch
+def _may_descend(later: TrustedRun, earlier: TrustedRun) -> bool:
+    """A check without GitHub: whether `later`'s commit can descend from `earlier`'s at all."""
+    if later.commit_sha == earlier.commit_sha:
+        return True
+    # A squash merge gives the default branch new commits, so it never descends from a test branch.
+    if later.on_default_branch and not earlier.on_default_branch:
+        return False
+    return earlier.created_at < later.created_at
 
 
-def _candidates_for_clean_finish(failing: list[TrustedRun], finishing: TrustedRun) -> list[ProofCandidate]:
-    supersets = [
-        ProofCandidate(kind=ProofKind.SUPERSET, failing_runs=(failing_run,), clean_run=finishing)
-        for failing_run in failing
-        if _may_contain(finishing, failing_run)
-    ]
-    disjoint = []
-    for index, first in enumerate(failing):
-        for second in failing[index + 1 :]:
-            earlier = min(first, second, key=lambda run: run.created_at)
-            if finishing.created_at > earlier.created_at:
-                disjoint.append(
-                    ProofCandidate(kind=ProofKind.DISJOINT, failing_runs=(first, second), clean_run=finishing)
-                )
-    return supersets + disjoint
-
-
-def _candidates_for_failing_finish(
-    failing: list[TrustedRun], clean: list[TrustedRun], finishing: TrustedRun
-) -> list[ProofCandidate]:
-    supersets = [
-        ProofCandidate(kind=ProofKind.SUPERSET, failing_runs=(finishing,), clean_run=clean_run)
-        for clean_run in clean
-        if (clean_run.commit_sha == finishing.commit_sha or clean_run.created_at > finishing.created_at)
-        and _may_contain(clean_run, finishing)
-    ]
-    disjoint = []
-    for other in failing:
-        if other == finishing:
+def _all_candidates(
+    observations: Sequence[Observation], default_baseline_hash: str, finishing_run: TrustedRun
+) -> Iterator[ProofCandidate]:
+    closing = next((o for o in observations if o.run == finishing_run), None)
+    if not default_baseline_hash or closing is None or not _is_failing(closing, default_baseline_hash):
+        return
+    clean = _newest_first([o for o in observations if _is_clean(o, default_baseline_hash)])
+    earlier_failures = _newest_first(
+        [o for o in observations if o.run != finishing_run and _is_failing(o, default_baseline_hash)]
+    )
+    for clean_obs in clean:
+        if clean_obs.run.commit_sha == finishing_run.commit_sha and clean_obs.current_hash != closing.current_hash:
+            yield ProofCandidate(kind=ProofKind.SAME_COMMIT, failing_runs=(finishing_run,), clean_run=clean_obs.run)
+    for clean_obs in clean:
+        if clean_obs.run.commit_sha == finishing_run.commit_sha:
             continue
-        earlier = min(finishing, other, key=lambda run: run.created_at)
-        clean_after = [clean_run for clean_run in clean if clean_run.created_at > earlier.created_at]
-        if clean_after:
-            disjoint.append(
-                ProofCandidate(kind=ProofKind.DISJOINT, failing_runs=(finishing, other), clean_run=clean_after[0])
-            )
-    return supersets + disjoint
+        if clean_obs.current_hash == closing.current_hash or not _may_descend(finishing_run, clean_obs.run):
+            continue
+        for failure in earlier_failures:
+            if failure.current_hash == clean_obs.current_hash or failure.run == clean_obs.run:
+                continue
+            if _may_descend(clean_obs.run, failure.run):
+                yield ProofCandidate(
+                    kind=ProofKind.CHAIN, failing_runs=(failure.run, finishing_run), clean_run=clean_obs.run
+                )
 
 
 def proof_candidates(
     observations: Sequence[Observation], default_baseline_hash: str, finishing_run: TrustedRun
-) -> list[ProofCandidate]:
-    """The proofs of one story that include the finishing run, superset first and newest first."""
-    if not default_baseline_hash:
+) -> Iterator[ProofCandidate]:
+    """Proofs of one story that the finishing run closes, same commit first, then chains by newest runs.
+
+    Lazy, so a story with many runs never builds more candidates than are checked.
+    """
+    return islice(
+        _all_candidates(observations, default_baseline_hash, finishing_run), AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY
+    )
+
+
+def ancestry_questions(candidate: ProofCandidate) -> list[AncestryQuestion]:
+    """What GitHub must confirm for the candidate to hold. Equal commits need no question."""
+    if candidate.kind == ProofKind.SAME_COMMIT:
         return []
-    failing = _newest_first([o.run for o in observations if _is_failing(o, default_baseline_hash)])
-    clean = _newest_first([o.run for o in observations if _is_clean(o, default_baseline_hash)])
-    if finishing_run in clean:
-        candidates = _candidates_for_clean_finish(failing, finishing_run)
-    elif finishing_run in failing:
-        candidates = _candidates_for_failing_finish(failing, clean, finishing_run)
-    else:
-        return []
-    return candidates[:AUTO_QUARANTINE_MAX_CANDIDATES_PER_STORY]
+    earlier, closing = candidate.failing_runs
+    pairs = [
+        AncestryQuestion(ancestor_sha=earlier.commit_sha, head_sha=candidate.clean_run.commit_sha),
+        AncestryQuestion(ancestor_sha=candidate.clean_run.commit_sha, head_sha=closing.commit_sha),
+    ]
+    return [question for question in pairs if question.ancestor_sha != question.head_sha]
 
 
-def _runs_compared(candidate: ProofCandidate) -> tuple[TrustedRun, TrustedRun]:
-    """The two runs whose trees the candidate compares: (earlier, later) for a superset."""
-    if candidate.kind == ProofKind.SUPERSET:
-        return candidate.failing_runs[0], candidate.clean_run
-    first, second = candidate.failing_runs
-    return first, second
-
-
-def batch_runs(candidates: Sequence[ProofCandidate]) -> list[TrustedRun]:
-    """The merge queue runs whose batch a check of the candidates needs."""
-    needed: dict[UUID, TrustedRun] = {}
-    for candidate in candidates:
-        first, second = _runs_compared(candidate)
-        if not first.on_default_branch and not second.on_default_branch:
-            needed.setdefault(first.id, first)
-            needed.setdefault(second.id, second)
-    return list(needed.values())
-
-
-def _ancestry_question(later: TrustedRun, earlier: TrustedRun, batches: Batches) -> tuple[str, str] | None:
-    """The ancestry `later` must have for its tree to hold `earlier`'s, or None when it cannot hold it."""
-    if earlier.on_default_branch:
-        return (earlier.commit_sha, later.commit_sha)
-    if later.on_default_branch:
-        return None
-    earlier_batch = batches.get(earlier.id)
-    later_batch = batches.get(later.id)
-    if earlier_batch is None or later_batch is None:
-        return None
-    if not later_batch.pull_request_heads >= earlier_batch.pull_request_heads:
-        return None
-    # Without this, a default branch commit that broke the story, present under `earlier` and not
-    # under `later`, reads as a flake.
-    return (earlier_batch.base_sha, later.commit_sha)
-
-
-def ancestry_questions(candidates: Sequence[ProofCandidate], batches: Batches) -> list[tuple[str, str]]:
-    """The (ancestor, head) pairs a check of the candidates needs. Equal commits need no question."""
-    questions: dict[tuple[str, str], None] = {}
-    for candidate in candidates:
-        if candidate.kind != ProofKind.SUPERSET:
-            continue
-        question = _ancestry_question(candidate.clean_run, candidate.failing_runs[0], batches)
-        if question is not None and question[0] != question[1]:
-            questions[question] = None
-    return list(questions)
-
-
-def contains(later: TrustedRun, earlier: TrustedRun, batches: Batches, ancestry: Ancestry) -> bool:
-    """Whether the tree of `later` holds all of the tree of `earlier`. A missing answer holds nothing."""
-    question = _ancestry_question(later, earlier, batches)
-    if question is None:
-        return False
-    ancestor_sha, head_sha = question
-    return ancestor_sha == head_sha or ancestry.get(question) is True
-
-
-def shares_no_pull_request(first: TrustedRun, second: TrustedRun, batches: Batches) -> bool:
-    if first.on_default_branch or second.on_default_branch:
-        return True
-    first_batch = batches.get(first.id)
-    second_batch = batches.get(second.id)
-    if first_batch is None or second_batch is None:
-        return False
-    return not (first_batch.pull_request_heads & second_batch.pull_request_heads)
-
-
-def first_proof(candidates: Sequence[ProofCandidate], batches: Batches, ancestry: Ancestry) -> ProofCandidate | None:
-    """The first candidate that the batches and ancestry answers prove."""
-    for candidate in candidates:
-        first, second = _runs_compared(candidate)
-        if candidate.kind == ProofKind.SUPERSET and contains(second, first, batches, ancestry):
-            return candidate
-        if candidate.kind == ProofKind.DISJOINT and shares_no_pull_request(first, second, batches):
-            return candidate
-    return None
+def is_proven(candidate: ProofCandidate, answers: Mapping[AncestryQuestion, bool]) -> bool:
+    """Whether every question the candidate needs is answered yes. A missing answer proves nothing."""
+    return all(answers.get(question) is True for question in ancestry_questions(candidate))
 
 
 def proof_action(mode: str, automatic_today: int, limit: int) -> ProofAction:
@@ -276,22 +220,14 @@ def proof_action(mode: str, automatic_today: int, limit: int) -> ProofAction:
     return ProofAction.APPLY
 
 
-def _run_label(run: TrustedRun) -> str:
-    return run.commit_sha[:7]
-
-
 def proof_reason(proof: ProofCandidate) -> str:
-    if proof.kind == ProofKind.SUPERSET:
-        failing = proof.failing_runs[0]
-        reason = (
-            f"Flake proven: changed in {_run_label(failing)} and unchanged in "
-            f"{_run_label(proof.clean_run)}, which contains it"
-        )
+    if proof.kind == ProofKind.SAME_COMMIT:
+        reason = f"Flake proven: changed and unchanged in two runs of {proof.clean_run.commit_sha[:7]}"
     else:
-        first, second = proof.failing_runs
+        earlier, closing = proof.failing_runs
         reason = (
-            f"Flake proven: changed in {_run_label(first)} and {_run_label(second)}, which share no pull request, "
-            f"and unchanged in {_run_label(proof.clean_run)} after them"
+            f"Flake proven: changed in {earlier.commit_sha[:7]}, unchanged in {proof.clean_run.commit_sha[:7]} "
+            f"which contains it, changed again in {closing.commit_sha[:7]} which contains that"
         )
     return reason[:_MAX_REASON_CHARS]
 
@@ -313,7 +249,11 @@ def trusted_run(run: Run, default_branch: str) -> TrustedRun | None:
     else:
         return None
     return TrustedRun(
-        id=run.id, commit_sha=run.commit_sha, created_at=run.created_at, on_default_branch=on_default_branch
+        id=run.id,
+        commit_sha=run.commit_sha,
+        branch=run.branch,
+        created_at=run.created_at,
+        on_default_branch=on_default_branch,
     )
 
 
@@ -348,14 +288,60 @@ def first_report(kind: str, repo: Repo, run_type: str, identifier: str, within_s
     return safe_cache_add(f"visual_review:{kind}:{repo.id}:{run_type}:{identifier}", True, timeout=within_seconds)
 
 
-def _window_runs(run: Run, default_branch: str, now: datetime) -> list[TrustedRun]:
-    """The trusted completed runs that may complete a proof together with `run`, newest first."""
+@frozen
+class _SnapshotRow:
+    run_id: UUID
+    identifier: str
+    result: str
+    review_state: str
+    baseline_hash: str
+    current_hash: str
+    is_quarantined: bool
+
+
+def _rows(queryset: QuerySet[RunSnapshot]) -> list[_SnapshotRow]:
+    return [
+        _SnapshotRow(
+            run_id=run_id,
+            identifier=identifier,
+            result=result,
+            review_state=review_state,
+            baseline_hash=baseline_hash,
+            current_hash=current_hash,
+            is_quarantined=is_quarantined,
+        )
+        for run_id, identifier, result, review_state, baseline_hash, current_hash, is_quarantined in queryset.values_list(
+            "run_id", "identifier", "result", "review_state", "baseline_hash", "current_hash", "is_quarantined"
+        )
+    ]
+
+
+def _finishing_failures(run: Run) -> list[str]:
+    """The stories the finishing run fails and nobody quarantined, in one query."""
+    return sorted(
+        set(
+            RunSnapshot.objects.using(WRITER_DB)
+            .filter(run_id=run.id, team_id=run.team_id, result=SnapshotResult.CHANGED)
+            .exclude(review_state__in=(ReviewState.APPROVED, ReviewState.TOLERATED))
+            .exclude(
+                identifier__in=quarantine.active_quarantined_identifiers(
+                    run.repo_id, run.team_id, run.run_type, using=WRITER_DB
+                )
+            )
+            .values_list("identifier", flat=True)
+        )
+    )
+
+
+def _possible_ancestors(run: Run, current: TrustedRun, default_branch: str, now: datetime) -> list[TrustedRun]:
+    """Window runs created before the finishing run or on its commit, newest first."""
     since = now - timedelta(hours=AUTO_QUARANTINE_PROOF_WINDOW_HOURS)
     candidates = (
         trusted_runs_since(run, default_branch, since)
         .exclude(id=run.id)
+        .filter(Q(created_at__lt=current.created_at) | Q(commit_sha=current.commit_sha))
         .order_by("-created_at")
-        .only("id", "branch", "pr_number", "commit_sha", "created_at", "is_partial")
+        .only("id", "branch", "pr_number", "commit_sha", "created_at", "is_partial")[:AUTO_QUARANTINE_RUNS_READ]
     )
     return [trusted for candidate in candidates if (trusted := trusted_run(candidate, default_branch)) is not None]
 
@@ -379,18 +365,18 @@ def _newest_default_branch_run_id(run: Run, default_branch: str) -> UUID | None:
 
 
 def _default_baseline_run_id(
-    run: Run, current: TrustedRun, window: list[TrustedRun], default_branch: str
+    run: Run, current: TrustedRun, ancestors: list[TrustedRun], default_branch: str
 ) -> UUID | None:
     """The newest full default-branch run, whose baselines are the default branch's."""
     if current.on_default_branch:
         return current.id
-    on_default_branch = [trusted for trusted in window if trusted.on_default_branch]
+    on_default_branch = [trusted for trusted in ancestors if trusted.on_default_branch]
     if on_default_branch:
-        return max(on_default_branch, key=lambda trusted: trusted.created_at).id
+        return on_default_branch[0].id
     return _newest_default_branch_run_id(run, default_branch)
 
 
-def _default_baselines(run: Run, baseline_run_id: UUID | None, identifiers: set[str]) -> dict[str, str]:
+def _default_baselines(run: Run, baseline_run_id: UUID | None, identifiers: list[str]) -> dict[str, str]:
     if baseline_run_id is None:
         return {}
     return dict(
@@ -401,108 +387,82 @@ def _default_baselines(run: Run, baseline_run_id: UUID | None, identifiers: set[
     )
 
 
-def _active_quarantines(run: Run, now: datetime) -> set[str]:
-    return set(
-        QuarantinedIdentifier.objects.using(WRITER_DB)
-        .filter(repo_id=run.repo_id, team_id=run.team_id, run_type=run.run_type)
-        .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
-        .values_list("identifier", flat=True)
-    )
-
-
-@frozen
-class _SnapshotRow:
-    run_id: UUID
-    identifier: str
-    result: str
-    review_state: str
-    baseline_hash: str
-    is_quarantined: bool
-
-
-def _rows(queryset: QuerySet[RunSnapshot]) -> list[_SnapshotRow]:
-    return [
-        _SnapshotRow(
-            run_id=run_id,
-            identifier=identifier,
-            result=result,
-            review_state=review_state,
-            baseline_hash=baseline_hash,
-            is_quarantined=is_quarantined,
-        )
-        for run_id, identifier, result, review_state, baseline_hash, is_quarantined in queryset.values_list(
-            "run_id", "identifier", "result", "review_state", "baseline_hash", "is_quarantined"
-        )
-    ]
-
-
-def _failing_rows(run: Run, run_ids: list[UUID], quarantined: set[str]) -> list[_SnapshotRow]:
-    return _rows(
-        RunSnapshot.objects.using(WRITER_DB)
-        .filter(run_id__in=run_ids, team_id=run.team_id, result=SnapshotResult.CHANGED)
-        # The finishing run is not stamped yet, so only a past run's flag counts.
-        .filter(Q(is_quarantined=False) | Q(run_id=run.id))
-        .exclude(review_state__in=(ReviewState.APPROVED, ReviewState.TOLERATED))
-        .exclude(identifier__in=quarantined)
-    )
-
-
-def _candidate_identifiers(run: Run, failing_rows: list[_SnapshotRow], defaults: Mapping[str, str]) -> list[str]:
-    """Stories with a failing observation in the window, the finishing run's first."""
-    failing = [row for row in failing_rows if defaults.get(row.identifier) == row.baseline_hash]
-    in_current = sorted({row.identifier for row in failing if row.run_id == run.id})
-    elsewhere = sorted({row.identifier for row in failing} - set(in_current))
-    return (in_current + elsewhere)[:AUTO_QUARANTINE_MAX_STORIES_PER_RUN]
-
-
-def _clean_rows(run: Run, current: TrustedRun, window: list[TrustedRun], identifiers: list[str]) -> list[_SnapshotRow]:
-    """Clean renders in the only runs a candidate can use as its clean run."""
-    same_commit = [trusted.id for trusted in window if trusted.commit_sha == current.commit_sha]
-    newest = [trusted.id for trusted in window[:AUTO_QUARANTINE_CLEAN_RUNS_READ]]
-    return _rows(
-        RunSnapshot.objects.using(WRITER_DB).filter(
-            run_id__in=list({current.id, *same_commit, *newest}),
-            team_id=run.team_id,
-            identifier__in=identifiers,
-            result=SnapshotResult.UNCHANGED,
-        )
-    )
-
-
 def _observations(
-    run: Run, runs_by_id: Mapping[UUID, TrustedRun], identifiers: list[str], rows: list[_SnapshotRow]
+    run: Run, runs_by_id: Mapping[UUID, TrustedRun], identifiers: list[str]
 ) -> dict[str, list[Observation]]:
     by_identifier: dict[str, list[Observation]] = {identifier: [] for identifier in identifiers}
+    rows = _rows(
+        RunSnapshot.objects.using(WRITER_DB).filter(
+            run_id__in=list(runs_by_id), team_id=run.team_id, identifier__in=identifiers
+        )
+    )
     for row in rows:
-        if row.identifier not in by_identifier:
-            continue
         by_identifier[row.identifier].append(
             Observation(
                 run=runs_by_id[row.run_id],
                 result=row.result,
                 review_state=row.review_state,
                 baseline_hash=row.baseline_hash,
-                # The finishing run is not stamped yet, and the stories under an active quarantine are excluded.
+                current_hash=row.current_hash,
+                # The finishing run is not stamped yet, and its stories under an active quarantine are excluded.
                 is_quarantined=row.is_quarantined and row.run_id != run.id,
             )
         )
     return by_identifier
 
 
-def _confirm(
-    repo: Repo,
-    candidates: list[ProofCandidate],
-    batches: dict[UUID, MergeQueueBatch | None],
-    ancestry: dict[tuple[str, str], bool],
+class _Evidence:
+    """GitHub answers for one evaluation, each asked once."""
+
+    def __init__(self, repo: Repo) -> None:
+        self.repo = repo
+        self._answers: dict[AncestryQuestion, bool] = {}
+        self._provenance: dict[UUID, bool] = {}
+        self._head_sha: str | None = None
+        self._head_read = False
+
+    def answers(self, questions: list[AncestryQuestion]) -> dict[AncestryQuestion, bool]:
+        for question in questions:
+            if question not in self._answers:
+                self._answers[question] = github_api.commit_contains(
+                    self.repo, question.ancestor_sha, question.head_sha
+                )
+        return {question: self._answers[question] for question in questions}
+
+    def _default_branch_head(self) -> str | None:
+        if not self._head_read:
+            self._head_read = True
+            try:
+                self._head_sha = github_api.default_branch_head_sha(self.repo)
+            except (errors.GitHubIntegrationNotFoundError, GitHubRateLimitError):
+                self._head_sha = None
+        return self._head_sha
+
+    def is_verified(self, trusted: TrustedRun) -> bool:
+        """Whether GitHub confirms the run's client-supplied branch: its commit is where the branch says."""
+        if trusted.id not in self._provenance:
+            if trusted.on_default_branch:
+                head_sha = self._default_branch_head()
+                verified = head_sha is not None and github_api.commit_contains(self.repo, trusted.commit_sha, head_sha)
+            else:
+                verified = github_api.is_verified_merge_queue_run(self.repo, trusted.branch, trusted.commit_sha)
+            self._provenance[trusted.id] = verified
+        return self._provenance[trusted.id]
+
+
+def _first_proof(
+    candidates: Iterator[ProofCandidate], evidence: _Evidence, deadline: float, identifier: str
 ) -> ProofCandidate | None:
-    """Ask GitHub what the candidates need, once per evaluation, and return the first proof."""
-    for trusted in batch_runs(candidates):
-        if trusted.id not in batches:
-            batches[trusted.id] = github_api.merge_queue_batch(repo, trusted.commit_sha)
-    for ancestor_sha, head_sha in ancestry_questions(candidates, batches):
-        if (ancestor_sha, head_sha) not in ancestry:
-            ancestry[(ancestor_sha, head_sha)] = github_api.commit_contains(repo, ancestor_sha, head_sha)
-    return first_proof(candidates, batches, ancestry)
+    for candidate in candidates:
+        if time.monotonic() >= deadline:
+            return None
+        if not is_proven(candidate, evidence.answers(ancestry_questions(candidate))):
+            continue
+        if all(evidence.is_verified(trusted) for trusted in candidate.runs):
+            return candidate
+        logger.warning("visual_review.flake_proof_unverified", identifier=identifier, kind=candidate.kind.value)
+        return None
+    return None
 
 
 def _recent_automatic_quarantines(repo: Repo, now: datetime) -> int:
@@ -513,11 +473,38 @@ def _recent_automatic_quarantines(repo: Repo, now: datetime) -> int:
     )
 
 
-def _claim(repo: Repo, run_type: str, identifier: str) -> bool:
-    # Two runs that finish together can prove the same story, and only one may quarantine it and notify.
-    return safe_cache_add(
-        f"visual_review:auto_quarantine_claim:{repo.id}:{run_type}:{identifier}", True, timeout=_CLAIM_SECONDS
-    )
+class _ApplyOutcome(StrEnum):
+    APPLIED = "applied"
+    CAPPED = "capped"
+    ALREADY_QUARANTINED = "already_quarantined"
+
+
+def _apply(repo: Repo, run: Run, identifier: str, proof: ProofCandidate, now: datetime) -> _ApplyOutcome:
+    # The repo row lock makes the count and the create one step across runs, so two runs that finish
+    # together can neither pass the daily limit nor quarantine one story twice.
+    with transaction.atomic(using=WRITER_DB):
+        Repo.objects.using(WRITER_DB).select_for_update().filter(id=repo.id, team_id=repo.team_id).exists()
+        if _recent_automatic_quarantines(repo, now) >= AUTO_QUARANTINE_DAILY_LIMIT:
+            return _ApplyOutcome.CAPPED
+        if (
+            quarantine.active_quarantined_identifiers(repo.id, repo.team_id, run.run_type, using=WRITER_DB)
+            .filter(identifier=identifier)
+            .exists()
+        ):
+            return _ApplyOutcome.ALREADY_QUARANTINED
+        quarantine.quarantine_identifier(
+            repo_id=repo.id,
+            identifier=identifier,
+            run_type=run.run_type,
+            reason=proof_reason(proof),
+            user_id=None,
+            team_id=repo.team_id,
+            expires_at=now + timedelta(days=AUTO_QUARANTINE_DAYS),
+            source_run_id=proof.newest_failing_run.id,
+            source=ActorType.AUTO,
+            notify_owners=True,
+        )
+    return _ApplyOutcome.APPLIED
 
 
 def _notify_daily_limit(repo: Repo, automatic_today: int) -> None:
@@ -537,32 +524,15 @@ def _notify_daily_limit(repo: Repo, automatic_today: int) -> None:
         logger.warning("visual_review.auto_quarantine_limit_notice_enqueue_failed", repo_id=str(repo.id), exc_info=True)
 
 
-def _capture_proof(
-    repo: Repo, run: Run, identifier: str, proof: ProofCandidate, mode: str, action: ProofAction
+def _report(
+    capture_ph_event: Callable[..., Any],
+    repo: Repo,
+    run: Run,
+    identifier: str,
+    proof: ProofCandidate,
+    mode: str,
+    action: ProofAction,
 ) -> None:
-    """Best effort, like `runs.capture_run_processing_metrics`: instrumentation never fails the run."""
-    try:
-        with ph_scoped_capture() as capture_ph_event:
-            capture_ph_event(
-                distinct_id=repo.repo_full_name or str(repo.id),
-                event="vr_flake_proven",
-                properties={
-                    "repo": repo.repo_full_name,
-                    "team_id": repo.team_id,
-                    "run_id": str(run.id),
-                    "run_type": run.run_type,
-                    "identifier": identifier,
-                    "proof_kind": proof.kind.value,
-                    "mode": mode,
-                    "applied": action == ProofAction.APPLY,
-                    "capped": action == ProofAction.REPORT_CAPPED,
-                },
-            )
-    except Exception:
-        logger.warning("visual_review.flake_proof_capture_failed", run_id=str(run.id), exc_info=True)
-
-
-def _report(repo: Repo, run: Run, identifier: str, proof: ProofCandidate, mode: str, action: ProofAction) -> None:
     logger.info(
         "visual_review.flake_proven",
         repo_id=str(repo.id),
@@ -573,20 +543,78 @@ def _report(repo: Repo, run: Run, identifier: str, proof: ProofCandidate, mode: 
         mode=mode,
         action=action.value,
     )
-    _capture_proof(repo, run, identifier, proof, mode, action)
+    # Best effort, like `runs.capture_run_processing_metrics`: instrumentation never fails the run.
+    try:
+        capture_ph_event(
+            distinct_id=repo.repo_full_name or str(repo.id),
+            event="vr_flake_proven",
+            properties={
+                "repo": repo.repo_full_name,
+                "team_id": repo.team_id,
+                "run_id": str(run.id),
+                "run_type": run.run_type,
+                "identifier": identifier,
+                "proof_kind": proof.kind.value,
+                "mode": mode,
+                "applied": action == ProofAction.APPLY,
+                "capped": action == ProofAction.REPORT_CAPPED,
+            },
+        )
+    except Exception:
+        logger.warning("visual_review.flake_proof_capture_failed", run_id=str(run.id), exc_info=True)
 
 
-def quarantine_proven_flakes(run: Run) -> None:
-    """Find the stories that this run completes a flake proof for, and act on them as the repo's mode says.
+def _act(
+    capture_ph_event: Callable[..., Any],
+    repo: Repo,
+    run: Run,
+    identifier: str,
+    proof: ProofCandidate,
+    automatic_today: int,
+    now: datetime,
+) -> int:
+    """Act on one proof as the repo's mode says. Returns the automatic quarantines of the last 24 hours."""
+    mode = repo.auto_quarantine_mode
+    action = proof_action(mode, automatic_today, AUTO_QUARANTINE_DAILY_LIMIT)
+    if action == ProofAction.APPLY:
+        outcome = _apply(repo, run, identifier, proof, now)
+        if outcome == _ApplyOutcome.ALREADY_QUARANTINED:
+            return automatic_today
+        if outcome == _ApplyOutcome.CAPPED:
+            action = ProofAction.REPORT_CAPPED
+            automatic_today = max(automatic_today, AUTO_QUARANTINE_DAILY_LIMIT)
+        else:
+            automatic_today += 1
+    if action != ProofAction.APPLY and not first_report(
+        "flake_proven", repo, run.run_type, identifier, _PROOF_WINDOW_SECONDS
+    ):
+        return automatic_today
+    if action == ProofAction.REPORT_CAPPED:
+        logger.warning(
+            "visual_review.auto_quarantine_daily_limit",
+            repo_id=str(repo.id),
+            run_id=str(run.id),
+            identifier=identifier,
+            limit=AUTO_QUARANTINE_DAILY_LIMIT,
+        )
+        _notify_daily_limit(repo, automatic_today)
+    _report(capture_ph_event, repo, run, identifier, proof, mode, action)
+    return automatic_today
+
+
+def quarantine_proven_flakes(run: Run, budget_seconds: float = AUTO_QUARANTINE_BUDGET_SECONDS) -> None:
+    """Find the stories whose flake proof this run closes, and act on them as the repo's mode says.
 
     Runs before the finishing run is recounted, so a quarantine created here already keeps the
-    story out of this run's gate.
+    story out of this run's gate. A run that fails no story leaves after one query.
     """
     if not _may_be_trusted(run):
         return
+    failing = _finishing_failures(run)
+    if not failing:
+        return
     repo = run.repo
-    mode = repo.auto_quarantine_mode
-    if mode == AutoQuarantineMode.OFF:
+    if repo.auto_quarantine_mode == AutoQuarantineMode.OFF:
         return
     # Not the branch name alone: a run on a branch called master is not on the default branch of
     # a repo whose default branch is main.
@@ -597,58 +625,25 @@ def quarantine_proven_flakes(run: Run) -> None:
     if current is None:
         return
 
+    deadline = time.monotonic() + budget_seconds
     now = timezone.now()
-    window = _window_runs(run, default_branch, now)
-    runs_by_id = {trusted.id: trusted for trusted in [current, *window]}
-    failing_rows = _failing_rows(run, list(runs_by_id), _active_quarantines(run, now))
-    if not failing_rows:
-        return
-    defaults = _default_baselines(
-        run, _default_baseline_run_id(run, current, window, default_branch), {row.identifier for row in failing_rows}
-    )
-    identifiers = _candidate_identifiers(run, failing_rows, defaults)
-    if not identifiers:
-        return
-    observations = _observations(
-        run, runs_by_id, identifiers, failing_rows + _clean_rows(run, current, window, identifiers)
-    )
+    identifiers = failing[:AUTO_QUARANTINE_MAX_STORIES_PER_RUN]
+    ancestors = _possible_ancestors(run, current, default_branch, now)
+    defaults = _default_baselines(run, _default_baseline_run_id(run, current, ancestors, default_branch), identifiers)
+    observations = _observations(run, {trusted.id: trusted for trusted in [current, *ancestors]}, identifiers)
 
-    batches: dict[UUID, MergeQueueBatch | None] = {}
-    ancestry: dict[tuple[str, str], bool] = {}
-    automatic_today = _recent_automatic_quarantines(repo, now) if mode == AutoQuarantineMode.ON else 0
-    for identifier in identifiers:
-        candidates = proof_candidates(observations[identifier], defaults[identifier], current)
-        if not candidates:
-            continue
-        proof = _confirm(repo, candidates, batches, ancestry)
-        if proof is None:
-            continue
-        action = proof_action(mode, automatic_today, AUTO_QUARANTINE_DAILY_LIMIT)
-        if action == ProofAction.APPLY:
-            if not _claim(repo, run.run_type, identifier):
-                continue
-            quarantine.quarantine_identifier(
-                repo_id=repo.id,
-                identifier=identifier,
-                run_type=run.run_type,
-                reason=proof_reason(proof),
-                user_id=None,
-                team_id=repo.team_id,
-                expires_at=now + timedelta(days=AUTO_QUARANTINE_DAYS),
-                source_run_id=proof.newest_failing_run.id,
-                source=ActorType.AUTO,
-                notify_owners=True,
-            )
-            automatic_today += 1
-        elif not first_report("flake_proven", repo, run.run_type, identifier, _PROOF_WINDOW_SECONDS):
-            continue
-        elif action == ProofAction.REPORT_CAPPED:
-            logger.warning(
-                "visual_review.auto_quarantine_daily_limit",
-                repo_id=str(repo.id),
-                run_id=str(run.id),
-                identifier=identifier,
-                limit=AUTO_QUARANTINE_DAILY_LIMIT,
-            )
-            _notify_daily_limit(repo, automatic_today)
-        _report(repo, run, identifier, proof, mode, action)
+    evidence = _Evidence(repo)
+    automatic_today = _recent_automatic_quarantines(repo, now)
+    with ph_scoped_capture() as capture_ph_event:
+        for index, identifier in enumerate(identifiers):
+            if time.monotonic() >= deadline:
+                logger.warning(
+                    "visual_review.auto_quarantine_budget_spent",
+                    run_id=str(run.id),
+                    stories_left=len(identifiers) - index,
+                )
+                return
+            candidates = proof_candidates(observations[identifier], defaults.get(identifier, ""), current)
+            proof = _first_proof(candidates, evidence, deadline, identifier)
+            if proof is not None:
+                automatic_today = _act(capture_ph_event, repo, run, identifier, proof, automatic_today, now)
