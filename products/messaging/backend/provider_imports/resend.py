@@ -12,8 +12,6 @@ from typing import Any
 
 from django.utils.dateparse import parse_datetime
 
-from posthog.helpers.email_utils import email_domain
-
 from products.messaging.backend.models.message_preferences import (
     ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
     MessageRecipientPreference,
@@ -34,6 +32,7 @@ from products.messaging.backend.provider_imports.base import (
     StepCheckpoint,
     UnknownImportStep,
 )
+from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
 from products.messaging.backend.services.imported_data import (
     ImportedCategory,
     ImportedSuppression,
@@ -182,18 +181,6 @@ def _next_checkpoint(next_after: str | None) -> StepCheckpoint | None:
     return {"after": next_after} if next_after else None
 
 
-def _normalized_email(value: Any) -> str | None:
-    if not isinstance(value, str):
-        return None
-    email = value.strip().lower()
-    return email if email_domain(email) and not email.startswith("@") and len(email) <= 512 else None
-
-
-def _contact_email(value: Any) -> str | None:
-    # Unlike a suppression row, an opt-out matches the address a send names exactly, so the case stays as Resend has it.
-    return value.strip() if _normalized_email(value) else None
-
-
 def _topic_key(topic_id: str) -> str:
     return f"{TOPIC_KEY_PREFIX}{topic_id}"[:64]
 
@@ -250,7 +237,7 @@ def _save_suppressions(context: ImportContext, entries: list[dict[str, Any]]) ->
     imported: dict[str, ImportedSuppression] = {}
     invalid = 0
     for entry in entries:
-        email = _normalized_email(entry.get("email"))
+        email = normalized_email(entry.get("email"))
         origin = _SUPPRESSION_ORIGINS.get(str(entry.get("origin")))
         if email is None or origin is None:
             invalid += 1
@@ -297,7 +284,7 @@ def _save_opt_outs(context: ImportContext, contacts: list[dict[str, Any]]) -> Sa
     unsubscribed = {
         email: [ALL_MESSAGE_PREFERENCE_CATEGORY_ID]
         for contact in contacts
-        if contact.get("unsubscribed") is True and (email := _contact_email(contact.get("email")))
+        if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
     }
     changed = import_opt_outs(context.team_id, unsubscribed, context.created_by_id)
     return SavedPage(
@@ -321,7 +308,7 @@ def _fetch_topic_opt_outs(
         opted_out_of_all = _emails_opted_out_of_all(context.team_id, page.data)
         topics_by_email: dict[str, list[dict[str, Any]]] = {}
         for contact in page.data:
-            email = _contact_email(contact.get("email"))
+            email = exact_email(contact.get("email"))
             contact_id = contact.get("id")
             if email and contact_id and email not in opted_out_of_all:
                 topics_by_email[email] = [
@@ -343,7 +330,7 @@ def _emails_opted_out_of_all(team_id: int, contacts: list[dict[str, Any]]) -> se
     unsubscribed = [
         email
         for contact in contacts
-        if contact.get("unsubscribed") is True and (email := _contact_email(contact.get("email")))
+        if contact.get("unsubscribed") is True and (email := exact_email(contact.get("email")))
     ]
     return {
         identifier
