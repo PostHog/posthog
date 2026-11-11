@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconGear, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDialog, LemonSelect, LemonTabs } from '@posthog/lemon-ui'
 
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { ContentAutopilotKeywords } from './ContentAutopilotKeywords'
 import { type ContentAutopilotWorkspaceTab, contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { ContentAutopilotPageHeader } from './ContentAutopilotPageHeader'
 import { ContentAutopilotPromptAddModal } from './ContentAutopilotPromptAddModal'
 import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
@@ -103,6 +104,15 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                         <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={beginOnboarding}>
                             Add site
                         </LemonButton>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconGear />}
+                            active={workspaceTab === 'settings'}
+                            onClick={() => selectTab('settings')}
+                            tooltip="Site settings"
+                            aria-label="Site settings"
+                            data-attr="content-autopilot-settings"
+                        />
                     </div>
                 ) : null}
             </div>
@@ -125,6 +135,16 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
 
                     {promptId ? (
                         <ContentAutopilotPromptDetail />
+                    ) : workspaceTab === 'settings' && profile ? (
+                        <div className="flex flex-col gap-4" data-attr="content-autopilot-settings-page">
+                            <ContentAutopilotPageHeader
+                                title="Site settings"
+                                backLabel="Overview"
+                                backDataAttr="content-autopilot-settings-back"
+                                onBack={() => setWorkspaceTab('overview')}
+                            />
+                            <ContentAutopilotSetup />
+                        </div>
                     ) : (
                         <LemonTabs<AiVisibilityTab>
                             activeKey={bots?.active ? 'bots' : workspaceTab}
@@ -173,7 +193,10 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                 bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
                                 {
                                     key: 'opportunities',
-                                    label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
+                                    label:
+                                        profile && visibleOpportunities.length
+                                            ? `Opportunities (${visibleOpportunities.length})`
+                                            : 'Opportunities',
                                     content: (
                                         <ContentAutopilotSiteGate>
                                             <ContentAutopilotOpportunities />
@@ -185,21 +208,12 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                           key: 'drafts',
                                           label: readyDraftCount
                                               ? `Drafts (${readyDraftCount} ready to review)`
-                                              : `Drafts (${draftRows.length})`,
+                                              : draftRows.length
+                                                ? `Drafts (${draftRows.length})`
+                                                : 'Drafts',
                                           content: (
                                               <ContentAutopilotSiteGate>
                                                   <ContentAutopilotDrafts />
-                                              </ContentAutopilotSiteGate>
-                                          ),
-                                      }
-                                    : null,
-                                profile
-                                    ? {
-                                          key: 'settings',
-                                          label: 'Settings',
-                                          content: (
-                                              <ContentAutopilotSiteGate>
-                                                  <ContentAutopilotSetup />
                                               </ContentAutopilotSiteGate>
                                           ),
                                       }

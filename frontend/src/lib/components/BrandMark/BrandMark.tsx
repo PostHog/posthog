@@ -4,7 +4,7 @@ import { IconBrain, IconLaptop, IconLogomark, IconQuestion } from '@posthog/icon
 
 import { cn } from 'lib/utils/css-classes'
 
-import { BRAND_MARKS, type BrandMarkName, type IconMarkName } from '../brandMarks'
+import { BRAND_MARKS, type BrandMarkName, type IconMarkName } from './brandMarks'
 
 // The outline icons are filled shapes, not strokes, so a stroke in the fill color thickens their lines
 // to sit closer to the solid brand marks around them.

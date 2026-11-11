@@ -20,7 +20,6 @@ import {
     contentAutopilotLogic,
 } from './contentAutopilotLogic'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
-import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import {
     EXAMPLE_FAILED_DRAFT_OPPORTUNITY,
     EXAMPLE_FAILED_PROPOSAL_LIST,
@@ -156,11 +155,7 @@ Onboarding.decorators = [workspaceHandlers({ profiles: [] })]
 export const MultipleSites: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />
 MultipleSites.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE, EXAMPLE_SECOND_PROFILE] })]
 
-export const SiteSettings: StoryFn<typeof ContentAutopilotSetup> = () => (
-    <div className="p-6">
-        <ContentAutopilotSetup />
-    </div>
-)
+export const SiteSettings: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="settings" />
 SiteSettings.decorators = [workspaceHandlers({ profiles: [EXAMPLE_PROFILE] })]
 
 export const ReadyForReview: StoryFn<typeof ContentAutopilot> = () => <WorkspaceTabStory tab="opportunities" />

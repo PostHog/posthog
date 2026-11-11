@@ -13,8 +13,9 @@ import { AiTableCard } from 'products/web_analytics/frontend/searchAndAi/AiTable
 
 import type { AiTrafficTrendMetric } from './aiTraffic'
 import { contentAutopilotAiTrafficLogic } from './contentAutopilotAiTrafficLogic'
-import { ContentAutopilotPromptKpiCard } from './ContentAutopilotPromptKpiCard'
+import { ContentAutopilotKpiStat } from './ContentAutopilotKpiStat'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
+import { ContentAutopilotStatStrip } from './ContentAutopilotStatStrip'
 import { ContentAutopilotTrafficEmptyState } from './ContentAutopilotTrafficEmptyState'
 import { ContentAutopilotTrafficPages } from './ContentAutopilotTrafficPages'
 
@@ -32,7 +33,7 @@ const ConversionKpi = (): JSX.Element => {
             : { value: formatRate(conversion.aiRate), note: `All visitors: ${formatRate(conversion.allRate)}` }
 
     return (
-        <ContentAutopilotPromptKpiCard
+        <ContentAutopilotKpiStat
             label="Conversion rate from AI"
             description="Share of visitors from AI assistants who completed the conversion goal, next to the same rate for all visitors."
             delta={null}
@@ -89,16 +90,20 @@ export const ContentAutopilotTraffic = (): JSX.Element => {
                 <ContentAutopilotTrafficEmptyState />
             ) : (
                 <>
-                    <div className="grid grid-cols-1 @xl/ai-traffic:grid-cols-3 gap-3">
-                        <ContentAutopilotPromptKpiCard
+                    <ContentAutopilotStatStrip
+                        className="grid-cols-1 @xl/ai-traffic:grid-cols-3"
+                        data-attr="content-autopilot-ai-traffic-kpis"
+                    >
+                        <ContentAutopilotKpiStat
                             label="Visitors from AI"
                             description="Unique visitors whose session started from an AI assistant's answer."
                             value={humanFriendlyNumber(summary.aiVisitors)}
                             note="Referred by an AI assistant"
                             delta={null}
+                            onClick={() => setTrendMetric('visitors')}
                             data-attr="content-autopilot-ai-traffic-kpi-visitors"
                         />
-                        <ContentAutopilotPromptKpiCard
+                        <ContentAutopilotKpiStat
                             label="Sessions from AI"
                             description="Sessions that started from an AI assistant's answer."
                             value={humanFriendlyNumber(summary.aiSessions)}
@@ -106,10 +111,11 @@ export const ContentAutopilotTraffic = (): JSX.Element => {
                                 share === null ? 'No sessions in this range' : `${percentage(share, 1)} of all sessions`
                             }
                             delta={null}
+                            onClick={() => setTrendMetric('sessions')}
                             data-attr="content-autopilot-ai-traffic-kpi-sessions"
                         />
                         <ConversionKpi />
-                    </div>
+                    </ContentAutopilotStatStrip>
 
                     <ContentAutopilotPromptQueryTile
                         title={trendMetric === 'visitors' ? 'Visitors from AI over time' : 'Sessions from AI over time'}

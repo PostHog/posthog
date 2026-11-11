@@ -6,7 +6,7 @@ import type {
     AEOPromptStatsApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
-export type PromptVisibilityMetric = 'cited' | 'mentioned'
+export type PromptVisibilityMetric = 'cited' | 'mentioned' | 'position'
 
 export interface PromptRateKpi {
     /** Pooled rate over the window: all answers that qualify over all answers. */

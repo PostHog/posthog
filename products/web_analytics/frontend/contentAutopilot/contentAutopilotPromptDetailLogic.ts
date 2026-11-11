@@ -35,6 +35,7 @@ import {
     promptConsensusMatrix,
     promptReportKpis,
     promptSentimentSummary,
+    statsWindowDates,
 } from './promptReport'
 import {
     PromptReportWindow,
@@ -45,6 +46,9 @@ import {
     promptVisibilityQuery,
 } from './promptReportQueries'
 import { promptEditPatch, sortEngines } from './utils'
+import { type EngineVisibilityChart, engineVisibilityChart } from './visibilityChart'
+
+export type PromptReportTab = 'overview' | 'answers' | 'sources' | 'sentiment' | 'searches' | 'history'
 
 export const PROMPT_CHECKS_PAGE_SIZE = 10
 
@@ -74,6 +78,7 @@ export interface contentAutopilotPromptDetailLogicValues {
     promptLoading: boolean
     promptSaving: boolean
     reportKpis: PromptReportKpis | null
+    reportTab: PromptReportTab
     reportWindow: PromptReportWindow | null
     searchesQuery: DataTableNode | null
     selectedCheck: AEOPromptCheckApi | null
@@ -87,6 +92,7 @@ export interface contentAutopilotPromptDetailLogicValues {
     versions: AEOPromptVersionApi[] | null
     versionsFailed: boolean
     versionsLoading: boolean
+    visibilityChart: EngineVisibilityChart | null
     visibilityMetric: PromptVisibilityMetric
     visibilityQuery: DataVisualizationNode | null
 }
@@ -248,6 +254,9 @@ export interface contentAutopilotPromptDetailLogicActions {
     setPromptEditing: (editing: boolean) => {
         editing: boolean
     }
+    setReportTab: (tab: PromptReportTab) => {
+        tab: PromptReportTab
+    }
     setVisibilityMetric: (metric: PromptVisibilityMetric) => {
         metric: PromptVisibilityMetric
     }
@@ -268,6 +277,10 @@ export interface contentAutopilotPromptDetailLogicMeta {
         consensusMatrix: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptConsensusMatrix | null
         sentimentSummary: (stats: AEOPromptStatsApi | null, engines: string[]) => PromptSentimentSummary | null
         reportWindow: (promptId: string | null, stats: AEOPromptStatsApi | null) => PromptReportWindow | null
+        visibilityChart: (
+            stats: AEOPromptStatsApi | null,
+            visibilityMetric: PromptVisibilityMetric
+        ) => EngineVisibilityChart | null
         visibilityQuery: (
             reportWindow: PromptReportWindow | null,
             visibilityMetric: PromptVisibilityMetric
@@ -318,6 +331,7 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
         selectCheck: (check: AEOPromptCheckApi) => ({ check }),
         setChecksPage: (page: number) => ({ page }),
         setVisibilityMetric: (metric: PromptVisibilityMetric) => ({ metric }),
+        setReportTab: (tab: PromptReportTab) => ({ tab }),
     }),
     loaders(({ values }) => ({
         prompt: [
@@ -478,6 +492,15 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
                 setVisibilityMetric: (_, { metric }) => metric,
             },
         ],
+        reportTab: [
+            'overview' as PromptReportTab,
+            {
+                openPromptDetail: () => 'overview',
+                setReportTab: (_, { tab }) => tab,
+                // Picking a check in the history shows its answer.
+                selectCheck: () => 'answers',
+            },
+        ],
         detailError: [
             null as ContentAutopilotPromptDetailError | null,
             {
@@ -547,6 +570,11 @@ export const contentAutopilotPromptDetailLogic = kea<contentAutopilotPromptDetai
             (s) => [s.promptId, s.stats],
             (promptId: string | null, stats: AEOPromptStatsApi | null): PromptReportWindow | null =>
                 promptId && stats ? { promptId, from: stats.daily_from, brandNames: stats.brand_names } : null,
+        ],
+        visibilityChart: [
+            (s) => [s.stats, s.visibilityMetric],
+            (stats: AEOPromptStatsApi | null, visibilityMetric: PromptVisibilityMetric): EngineVisibilityChart | null =>
+                stats ? engineVisibilityChart(stats.daily, statsWindowDates(stats), visibilityMetric) : null,
         ],
         visibilityQuery: [
             (s) => [s.reportWindow, s.visibilityMetric],

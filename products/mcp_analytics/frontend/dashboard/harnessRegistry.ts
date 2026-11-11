@@ -1,9 +1,9 @@
 import { type ChartTheme } from '@posthog/quill-charts'
 
+import { type AiLab } from 'lib/components/BrandMark/aiLabShades'
+import { type BrandMarkName } from 'lib/components/BrandMark/brandMarks'
 import { hashCodeForString } from 'lib/utils/strings'
 
-import { type AiLab } from '../aiLabs'
-import { type BrandMarkName } from '../brandMarks'
 import { labColor, shadeColor } from '../colors'
 
 const HARNESS_BRAND_COLORS = {
