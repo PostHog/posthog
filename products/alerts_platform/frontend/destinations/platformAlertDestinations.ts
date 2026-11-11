@@ -65,12 +65,15 @@ const TEAMS_URL_SHAPES: { host: RegExp; path: (path: string) => boolean }[] = [
 function parsedHttpsUrl(value: string): URL | null {
     try {
         const url = new URL(value)
-        return url.protocol === 'https:' && !url.username && !url.password && ['', '443'].includes(url.port)
-            ? url
-            : null
+        return url.protocol === 'https:' && !url.username && !url.password ? url : null
     } catch {
         return null
     }
+}
+
+// Teams and Discord URLs only ever use the default port. A generic webhook may run on any.
+function usesDefaultPort(url: URL): boolean {
+    return ['', '443'].includes(url.port)
 }
 
 export function destinationUrlError(type: PlatformAlertDestinationTypeEnumApi, value: string): string | undefined {
@@ -83,13 +86,14 @@ export function destinationUrlError(type: PlatformAlertDestinationTypeEnumApi, v
         return 'Enter an https URL'
     }
     if (type === PlatformAlertDestinationTypeEnumApi.Discord) {
-        return url.hostname === 'discord.com' && url.pathname.startsWith('/api/webhooks/')
+        return usesDefaultPort(url) && url.hostname === 'discord.com' && url.pathname.startsWith('/api/webhooks/')
             ? undefined
             : 'Enter a Discord webhook URL, starting https://discord.com/api/webhooks/'
     }
     if (type === PlatformAlertDestinationTypeEnumApi.Teams) {
         const host = url.hostname.toLowerCase()
-        return TEAMS_URL_SHAPES.some((shape) => shape.host.test(host) && shape.path(url.pathname))
+        return usesDefaultPort(url) &&
+            TEAMS_URL_SHAPES.some((shape) => shape.host.test(host) && shape.path(url.pathname))
             ? undefined
             : 'Enter the URL from a Teams workflow or incoming webhook'
     }

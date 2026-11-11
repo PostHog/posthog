@@ -3,7 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { platformAlertsDestinationsList } from '../generated/api'
+import { platformAlertsDestinationsCreate, platformAlertsDestinationsList } from '../generated/api'
 import { PlatformAlertDestinationTypeEnumApi } from '../generated/api.schemas'
 import { MAX_DESTINATIONS_PER_ALERT } from './platformAlertDestinations'
 import { platformAlertDestinationsLogic } from './platformAlertDestinationsLogic'
@@ -19,6 +19,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 }))
 
 const mockList = platformAlertsDestinationsList as jest.MockedFunction<typeof platformAlertsDestinationsList>
+const mockCreate = platformAlertsDestinationsCreate as jest.MockedFunction<typeof platformAlertsDestinationsCreate>
 
 describe('platformAlertDestinationsLogic', () => {
     let logic: ReturnType<typeof platformAlertDestinationsLogic.build>
@@ -66,6 +67,12 @@ describe('platformAlertDestinationsLogic', () => {
         [PlatformAlertDestinationTypeEnumApi.Webhook, 'http://example.com/hook', 'https URL'],
         [PlatformAlertDestinationTypeEnumApi.Discord, 'https://discord.com/api/webhooks/1/abc', undefined],
         [
+            PlatformAlertDestinationTypeEnumApi.Discord,
+            'https://discord.com:8443/api/webhooks/1/abc',
+            'Discord webhook URL',
+        ],
+        [PlatformAlertDestinationTypeEnumApi.Webhook, 'https://example.com:8443/hook', undefined],
+        [
             PlatformAlertDestinationTypeEnumApi.Teams,
             'https://prod-01.westus.logic.azure.com/workflows/abc/triggers/manual/paths/invoke?sig=x',
             undefined,
@@ -77,6 +84,25 @@ describe('platformAlertDestinationsLogic', () => {
         expect(logic.values.addDisabledReason ?? null).toEqual(
             expectedError ? expect.stringContaining(expectedError) : null
         )
+    })
+
+    it('does not send a destination removed while an earlier one is saving', async () => {
+        let releaseFirst: () => void = () => {}
+        mockCreate.mockReset()
+        mockCreate.mockImplementationOnce(() => new Promise((resolve) => (releaseFirst = () => resolve({} as never))))
+        logic.actions.setSelectedType(PlatformAlertDestinationTypeEnumApi.Webhook)
+        for (const url of ['https://hooks.example.com/first', 'https://hooks.example.com/second']) {
+            logic.actions.setWebhookUrl(url)
+            logic.actions.addSelectedDestination()
+        }
+
+        const saving = logic.asyncActions.createPendingDestinations('alert-1')
+        logic.actions.removePendingDestination(1)
+        releaseFirst()
+        await saving
+
+        expect(mockCreate.mock.calls.map(([, , body]) => body.webhook_url)).toEqual(['https://hooks.example.com/first'])
+        expect(logic.values.pendingDestinations).toEqual([])
     })
 
     it('reports a failed load rather than an empty list', async () => {
