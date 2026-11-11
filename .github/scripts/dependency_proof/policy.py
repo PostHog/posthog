@@ -12,6 +12,7 @@ from typing import Any
 RENOVATE_BOT_USER_ID = 29139614
 ALLOWED_AUTHOR_IDS = frozenset({RENOVATE_BOT_USER_ID})
 MINIMUM_RELEASE_AGE = timedelta(days=7)
+MINIMUM_RELEASE_AGE_MINUTES = MINIMUM_RELEASE_AGE // timedelta(minutes=1)
 LOCKFILE = "pnpm-lock.yaml"
 MANIFEST = "package.json"
 WORKSPACE_FILE = "pnpm-workspace.yaml"
@@ -179,9 +180,10 @@ def check_workspace(
     dependency range, so it is judged as a manifest's is, against the merge base.
     Returns the names of the catalog entries that move.
     """
-    minutes = int(MINIMUM_RELEASE_AGE.total_seconds() // 60)
-    if str(default.get("minimumReleaseAge")) != str(minutes):
-        raise Refused(f"{path} does not set minimumReleaseAge to the {minutes} minutes this proof replays with")
+    if str(default.get("minimumReleaseAge")) != str(MINIMUM_RELEASE_AGE_MINUTES):
+        raise Refused(
+            f"{path} does not set minimumReleaseAge to the {MINIMUM_RELEASE_AGE_MINUTES} minutes this proof replays with"
+        )
     return _moved_ranges(path, CATALOG, base, head)
 
 
@@ -307,7 +309,7 @@ def release_age_reason(name: str, version: str, metadata: Mapping[str, Any], now
 
 
 def settings_paths(directory: str, workspace: Mapping[str, Any]) -> list[str]:
-    """Files whose head blob must equal the default branch for the proof to hold."""
+    """The files pnpm takes settings from, each of which the proof holds to the default branch."""
     paths = list(SETTINGS_FILES)
     if directory:
         paths += [join(directory, name) for name in SETTINGS_FILES]
