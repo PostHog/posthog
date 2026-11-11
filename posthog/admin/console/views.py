@@ -29,6 +29,7 @@ from posthog.admin.console.tools import ConsoleTool, Page, ToolOperation
 from posthog.dataclasses import frozen
 from posthog.git import get_git_commit_short
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -170,6 +171,22 @@ def _find_user(query: str) -> User | None:
     return EmailLookupHandler.get_user_by_email(query, is_active=None)
 
 
+def _as_uuid(query: str) -> uuid.UUID | None:
+    try:
+        return uuid.UUID(query)
+    except ValueError:
+        return None
+
+
+def _find_by_uuid(record_id: uuid.UUID) -> HttpResponse | None:
+    # Both lookups hit a unique index: the organization primary key, then the team UUID.
+    organization = Organization.objects.filter(pk=record_id).only("pk").first()
+    if organization is not None:
+        return redirect("admin_console_organization", pk=organization.pk)
+    team = Team.objects.filter(uuid=record_id).only("pk").first()
+    return redirect("admin_console_team", pk=team.pk) if team is not None else None
+
+
 def console_home(request: HttpRequest) -> HttpResponse:
     query = request.GET.get("q", "").strip()
     user = _find_user(query)
@@ -177,7 +194,16 @@ def console_home(request: HttpRequest) -> HttpResponse:
         return HttpResponseRedirect(
             _with_kept_query(reverse("admin_console_user", kwargs={"pk": user.pk}), request, (SUPPORT_TICKET_PARAM,))
         )
-    teams = _search_teams(query)
+    record_id = _as_uuid(query)
+    if record_id is not None:
+        found = _find_by_uuid(record_id)
+        if found is not None:
+            return found
+        # A project API token can have the form of a UUID, and the token match uses a unique index.
+        # A UUID is never a name, so the name scan across every team stays skipped.
+        teams = list(Team.objects.select_related("organization").filter(api_token=query)[:1])
+    else:
+        teams = _search_teams(query)
     if len(teams) == 1:
         if not query.isdigit():
             messages.info(request, f'Opened the only team that matches "{query}".')
