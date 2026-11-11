@@ -2,7 +2,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { getContext } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -290,13 +290,12 @@ describe('workflowFoldersLogic', () => {
         ['a retry when the server gives no reason', 500, {}, "Couldn't create the folder. Try again."],
     ])('reports a failed folder creation with %s and allows retry', async (_, status, body, message) => {
         await expectLogic(logic).toFinishAllListeners()
-        const toast = jest.spyOn(lemonToast, 'error')
+        showToasts()
         useMocks({ post: { '/api/projects/:team_id/file_system/': () => [status, body] } })
         await logic.asyncActions.createFolder('Invoices', 'Billing')
         expect(logic.values.folderCreationError).toBeTruthy()
-        expect(toast).toHaveBeenCalledWith(message)
+        expect(await screen.findByText(message)).toBeInTheDocument()
         expect(logic.values.creatingFolder).toBe(false)
-        toast.mockRestore()
     })
 
     it.each([
@@ -320,7 +319,7 @@ describe('workflowFoldersLogic', () => {
         },
     ])('$name', async ({ status, body, toast }) => {
         let recursive: string | null | undefined
-        const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+        showToasts()
         useMocks({
             delete: {
                 '/api/projects/:team_id/file_system/empty/': ({ request }) => {
@@ -329,15 +328,14 @@ describe('workflowFoldersLogic', () => {
                 },
             },
         })
-        try {
-            await expectLogic(logic).toFinishAllListeners()
-            await logic.asyncActions.deleteFolder('Empty')
-            expect(recursive).toBe('false')
-            expect(logic.values.folderPaths.includes('Empty')).toBe(status !== 204)
-            expect(errorToast.mock.calls.map(([message]) => message)).toEqual(toast)
-        } finally {
-            errorToast.mockRestore()
-        }
+        await expectLogic(logic).toFinishAllListeners()
+        await logic.asyncActions.deleteFolder('Empty')
+        expect(recursive).toBe('false')
+        expect(logic.values.folderPaths.includes('Empty')).toBe(status !== 204)
+        await act(() => new Promise((resolve) => setTimeout(resolve, 0)))
+        expect(screen.queryAllByText(/^Couldn't delete the folder/).map((element) => element.textContent)).toEqual(
+            toast
+        )
     })
 
     it('drops a workflow into Unfiled without creating a new unfiled location', async () => {
