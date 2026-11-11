@@ -35,6 +35,7 @@ from products.signals.backend.artefact_schemas import (
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_access import may_read_reports
 from products.signals.backend.report_claims import get_active_claims, responsible_user
+from products.signals.backend.run_finished_notification import notify_run_finished
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_inbox_notifications import resolve_org_suggested_reviewer_user_ids
 from products.tasks.backend.facade.api import (
@@ -258,6 +259,11 @@ def notify_report_task_update(
                 on_enqueued=on_enqueued,
             )
         )
+        if task.created_by_id is not None and any(
+            run.task_id == str(task.id) and run.type == TASK_RUN_TYPE_IMPLEMENTATION
+            for run in task_runs.get(str(report.id), [])
+        ):
+            notify_run_finished(report=report, task_run_id=str(task_run.id), kind=kind, recipient_id=task.created_by_id)
     return True
 
 

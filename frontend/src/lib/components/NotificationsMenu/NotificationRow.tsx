@@ -97,6 +97,10 @@ export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; de
         label: 'Self-driving report takeovers',
         description: 'When someone takes over a Self-driving report you were working on',
     },
+    report_run_finished: {
+        label: 'Self-driving runs',
+        description: 'When a Self-driving run you started finishes or stops',
+    },
     feature_flag_failure: {
         label: 'Feature flag failures',
         description: 'When a feature flag in your project fails to evaluate',

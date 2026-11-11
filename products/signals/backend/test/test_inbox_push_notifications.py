@@ -17,6 +17,7 @@ from posthog.models.user_push_token import UserPushToken
 from posthog.tasks.push_notifications import send_user_push
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.notifications.backend.models import NotificationEvent
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.inbox_push_notifications import _push_report, notify_pull_request_ready
 from products.signals.backend.models import (
@@ -319,6 +320,52 @@ class TestInboxPushNotifications(BaseTest):
             self.assertEqual(self.send_push.call_args.args[3]["taskRunId"], str(run.id))
             self.assertIn(report.title, self.send_push.call_args.args[2])
             self.assertNotIn(task.title, self.send_push.call_args.args[2])
+
+    @parameterized.expand(
+        [
+            ("implementation_finished", "implementation", True, [notify_task_run_completed], ["finished"]),
+            (
+                "implementation_turn_then_finished",
+                "implementation",
+                True,
+                [notify_task_run_turn_completed, notify_task_run_completed],
+                ["finished"],
+            ),
+            ("implementation_failed", "implementation", True, [notify_task_run_failed], ["failed"]),
+            ("research_finished", "research", True, [notify_task_run_completed], []),
+            ("flag_off", "implementation", False, [notify_task_run_completed], []),
+        ]
+    )
+    def test_report_run_end_notifies_the_run_creator_once(self, _name, relationship, flag_on, notifies, outcomes):
+        report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
+        task = Task.objects.create(
+            team=self.team,
+            title="Internal task",
+            created_by=self.user,
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            signal_report=report,
+        )
+        run = TaskRun.objects.create(task=task, team=self.team)
+        append_task_run_artefact(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            product="signals",
+            type=relationship,
+            task_id=str(task.id),
+            run_id=str(run.id),
+        )
+        enabled_flags = {"real-time-notifications", *(["inbox-run-finished-notices"] if flag_on else [])}
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *_a, **_kw: flag in enabled_flags),
+        ):
+            for notify in notifies:
+                notify(task_run_id=str(run.id), team_id=run.team_id)
+                notify(task_run_id=str(run.id), team_id=run.team_id)
+
+        events = NotificationEvent.objects.filter(team_id=self.team.id, notification_type="report_run_finished")
+        assert [event.title for event in events] == [f'The run for "{report.title}" {outcome}' for outcome in outcomes]
+        assert all(event.target_id == str(self.user.id) for event in events)
 
     @parameterized.expand(
         [

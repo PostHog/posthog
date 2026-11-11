@@ -78,6 +78,9 @@ from products.signals.backend.report_inbox_state import reconcile_report_inbox_s
 from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
+from products.signals.backend.run_finished_notification import (
+    send_run_finished_notification as send_run_finished_notification,
+)
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
 from products.signals.backend.scout_harness.inactivity import sweep_inactive_scouts
 from products.signals.backend.scout_harness.slack_delivery import (
