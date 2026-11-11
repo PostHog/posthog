@@ -77,7 +77,7 @@ export interface workflowFoldersLogicValues {
     currentFolder: string | null
     displayedValue: FacetSearchValue
     expandedFolders: string[]
-    fileMoveDisabledReason: string | null
+    fileMoveDisabledReason: string | undefined
     folderActionPending: boolean
     folderCounts: Record<string, number>
     folderCreationError: unknown
@@ -251,7 +251,10 @@ export interface workflowFoldersLogicMeta {
             pendingActions: ProjectTreeAction[],
             folderActionPending: boolean
         ) => (folder: string) => string | null
-        fileMoveDisabledReason: (pendingActions: ProjectTreeAction[], folderActionPending: boolean) => string | null
+        fileMoveDisabledReason: (
+            pendingActions: ProjectTreeAction[],
+            folderActionPending: boolean
+        ) => string | undefined
         folderDraftError: (
             folderDraft: WorkflowFolderDraft | null,
             takenFolderPaths: string[] | null,
@@ -691,12 +694,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
         // The shared Move to dialog lets a person pick any folder, so a file move waits while any folder move is pending.
         fileMoveDisabledReason: [
             (s) => [s.pendingActions, s.folderActionPending],
-            (pendingActions: ProjectTreeAction[], folderActionPending: boolean): string | null =>
+            (pendingActions: ProjectTreeAction[], folderActionPending: boolean): string | undefined =>
                 folderActionPending
                     ? 'A folder action is in progress'
                     : pendingActions.some((action) => action.item.type === 'folder')
                       ? 'Wait until the folder finishes moving'
-                      : null,
+                      : undefined,
         ],
         folderDraftError: [
             (s) => [s.folderDraft, s.takenFolderPaths, s.folderMutationDisabledReason],
@@ -990,7 +993,12 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             }
             actions.setFolderActionPending(true)
             try {
-                await fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false })
+                await withTimeout(
+                    (signal) =>
+                        fileSystemDestroy(String(values.currentTeamId), entry.id, { recursive: false }, { signal }),
+                    FOLDER_REQUEST_TIMEOUT_MS,
+                    'workflowFoldersLogic: deleting a folder timed out'
+                )
                 projectTreeDataLogic.actions.deleteSavedItem(entry)
             } catch (error) {
                 const reason =
@@ -1180,7 +1188,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             try {
                 await projectTreeDataLogic.asyncActions.syncTypeAndRef('hog_flow', id)
                 const entry = values.filesByRef[`hog_flow::${id}`]
-                if (entry && !entry.shortcut) {
+                if (values.fileMoveDisabledReason) {
+                    lemonToast.info(`${values.fileMoveDisabledReason}, then try again.`)
+                } else if (entry && !entry.shortcut) {
                     moveToLogic.actions.openMoveToModal([entry])
                 } else {
                     lemonToast.error("Couldn't find this workflow in project files")

@@ -15,7 +15,7 @@ import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 export function WorkflowRowMenu({ row }: { row: WorkflowListRow }): JSX.Element {
     const { pendingRowActions } = useValues(workflowsListV2Logic)
-    const { movingWorkflowId } = useValues(workflowFoldersLogic)
+    const { movingWorkflowId, fileMoveDisabledReason } = useValues(workflowFoldersLogic)
     const { moveWorkflowToFolder } = useActions(workflowFoldersLogic)
     const { toggleWorkflowStatus, duplicateWorkflow, archiveWorkflow, restoreWorkflow, deleteWorkflow } =
         useActions(workflowsListV2Logic)
@@ -35,7 +35,7 @@ export function WorkflowRowMenu({ row }: { row: WorkflowListRow }): JSX.Element 
                             disabledReason={
                                 movingWorkflowId && movingWorkflowId !== row.id
                                     ? 'Wait for the current move'
-                                    : undefined
+                                    : fileMoveDisabledReason
                             }
                             data-attr="workflow-move-to"
                         >

@@ -592,6 +592,7 @@ describe('workflowFoldersLogic', () => {
 
     it('blocks every other change to a folder and its subfolders until its rename lands', async () => {
         await expectLogic(logic).toFinishAllListeners()
+        const unmountMoveTo = moveToLogic.mount()
         let releaseMove: () => void = () => {}
         const moveHeld = new Promise<void>((resolve) => (releaseMove = resolve))
         const moves: string[] = []
@@ -626,17 +627,45 @@ describe('workflowFoldersLogic', () => {
         logic.actions.setFolderDraftName('Statements')
         expect(logic.values.folderDraftError).not.toBeNull()
         logic.actions.cancelFolderDraft()
-        expect(logic.values.fileMoveDisabledReason).not.toBeNull()
+        expect(logic.values.fileMoveDisabledReason).toBeTruthy()
         logic.actions.dropFile('project/nested', 'project://Empty')
+        await logic.asyncActions.moveWorkflowToFolder(FIXTURE_WORKFLOWS[1].id)
+        expect(moveToLogic.values.movingItems).toEqual([])
         releaseMove()
         await waitFor(() => expect(logic.values.folderMutationDisabledReason('Invoices')).toBeNull())
         await expectLogic(logic).toFinishAllListeners()
 
         expect(moves).toEqual(['Invoices'])
-        expect(logic.values.fileMoveDisabledReason).toBeNull()
+        expect(logic.values.fileMoveDisabledReason).toBeUndefined()
         expect(deletes).toBe(0)
         expect(logic.values.folderPaths).toEqual(expect.arrayContaining(['Invoices', 'Invoices/Cards']))
         expect(logic.values.folderPaths).not.toContain('Billing/Cards')
+        unmountMoveTo()
+    })
+
+    it('releases file moves when deleting a folder stalls', async () => {
+        await expectLogic(logic).toFinishAllListeners()
+        const signals: AbortSignal[] = []
+        useMocks({
+            delete: {
+                '/api/projects/:team_id/file_system/:id/': ({ request }) => {
+                    signals.push(request.signal)
+                    return new Promise(() => {})
+                },
+            },
+        })
+        jest.useFakeTimers()
+        try {
+            const deleted = logic.asyncActions.deleteFolder('Empty')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(logic.values.fileMoveDisabledReason).toBeTruthy()
+            await jest.advanceTimersByTimeAsync(FOLDER_REQUEST_TIMEOUT_MS)
+            await deleted
+            expect(logic.values.fileMoveDisabledReason).toBeUndefined()
+            expect(signals.map((signal) => signal.aborted)).toEqual([true])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 
     it('releases every move when counting a renamed folder stalls', async () => {
@@ -655,9 +684,9 @@ describe('workflowFoldersLogic', () => {
         try {
             logic.actions.renameFolder('Billing', 'Invoices')
             await jest.advanceTimersByTimeAsync(0)
-            expect(logic.values.fileMoveDisabledReason).not.toBeNull()
+            expect(logic.values.fileMoveDisabledReason).toBeTruthy()
             await jest.advanceTimersByTimeAsync(MOVE_TIMEOUT_MS)
-            expect(logic.values.fileMoveDisabledReason).toBeNull()
+            expect(logic.values.fileMoveDisabledReason).toBeUndefined()
             expect(logic.values.folderMutationDisabledReason('Billing')).toBeNull()
             expect(moves).toEqual([])
         } finally {

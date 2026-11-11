@@ -52,7 +52,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
                         size="small"
                         type="secondary"
                         onClick={moveSelectedFiles}
-                        disabledReason={fileMoveDisabledReason ?? undefined}
+                        disabledReason={fileMoveDisabledReason}
                     >
                         Move to…
                     </LemonButton>

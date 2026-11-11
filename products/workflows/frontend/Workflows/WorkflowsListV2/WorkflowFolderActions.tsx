@@ -37,7 +37,7 @@ export function WorkflowFolderActions({ path, count }: { path: string; count: nu
                 items={[
                     {
                         label: 'Move to…',
-                        disabledReason: busyReason ?? fileMoveDisabledReason ?? undefined,
+                        disabledReason: busyReason ?? fileMoveDisabledReason,
                         onClick: () => moveFileToFolder(entry),
                     },
                     {

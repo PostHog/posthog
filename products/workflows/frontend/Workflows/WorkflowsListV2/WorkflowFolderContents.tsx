@@ -225,7 +225,7 @@ export function WorkflowFolderContents(): JSX.Element {
                                         onClick: () => moveFileToFolder(item.entry),
                                         disabledReason: ['viewer', 'none'].includes(item.entry.user_access_level ?? '')
                                             ? 'Editor access is required'
-                                            : (fileMoveDisabledReason ?? undefined),
+                                            : fileMoveDisabledReason,
                                     },
                                 ]}
                             >
