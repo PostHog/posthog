@@ -212,6 +212,7 @@ The placeholder is a flat name because `values` wraps each top-level value as a 
 Scoping keeps each account to its own rows.
 It is not an access boundary, because the query runs with the viewer's normal SQL access.
 `AccountSqlQueryTile` renders a read-only `DataTableNode`.
+It disables execution telemetry through `QueryContext.dataTableCaptureQueryTelemetry`, so saved SQL, account values, and generated SQL reach the query API but stay out of query analytics events.
 The entry's `ConfigEditor`, `AccountSqlQueryTileConfiguration`, edits the query in a HogQL code editor, and the entry's `getConfigError` blocks a save without the placeholder.
 `accountPropertyDataLogic` shares live values by project and account, while tile-keyed editor state remains separate from sidebar pins.
 `accountPropertyUpdatesLogic` broadcasts native account updates and refreshes mounted Relationships tiles.
