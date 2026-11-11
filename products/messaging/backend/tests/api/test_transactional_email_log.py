@@ -67,6 +67,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         workflow_id: str | None = None,
         domain: str = "mail.example.com",
         keyed: bool = False,
+        status_consumer_behind: bool = False,
     ) -> str:
         queued_at = NOW - timedelta(minutes=minutes_ago)
         message_id = (
@@ -75,7 +76,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             else str(UUIDT(unix_time_ms=int(queued_at.timestamp() * 1000)))
         )
         rows = [("queued", 0, ""), *statuses]
-        if keyed:
+        if keyed and not status_consumer_behind:
             # Both tables read the same topic, and a keyed id is found through email_status's sort key.
             sync_execute(
                 f"""
@@ -197,9 +198,13 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         assert [r["recipient"] for r in response.json()["results"]] == expected_recipients
         assert response.json()["has_more"] == expected_has_more
 
-    @parameterized.expand([("uuidt", False), ("keyed", True)])
-    def test_finds_a_send_by_message_id_only_inside_the_date_range(self, _flag, _name, keyed):
-        message_id = self._send(60, "jane@example.com", [("sent", 1, "")], keyed=keyed)
+    @parameterized.expand(
+        [("uuidt", False, False), ("keyed", True, False), ("keyed_status_consumer_behind", True, True)]
+    )
+    def test_finds_a_send_by_message_id_only_inside_the_date_range(self, _flag, _name, keyed, status_consumer_behind):
+        message_id = self._send(
+            60, "jane@example.com", [("sent", 1, "")], keyed=keyed, status_consumer_behind=status_consumer_behind
+        )
         self._send(10, "bob@example.com", [("sent", 1, "")])
 
         inside = self.client.get(self._url(), {"search": message_id}).json()
@@ -227,10 +232,16 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS, response.json()
 
-    @parameterized.expand([("uuidt", False), ("keyed", True)])
-    def test_shows_one_send_with_its_timeline(self, _flag, _name, keyed):
+    @parameterized.expand(
+        [("uuidt", False, False), ("keyed", True, False), ("keyed_status_consumer_behind", True, True)]
+    )
+    def test_shows_one_send_with_its_timeline(self, _flag, _name, keyed, status_consumer_behind):
         message_id = self._send(
-            10, "jane@example.com", [("failed", 1, "provider_error"), ("run_failed", 2, "hog_error")], keyed=keyed
+            10,
+            "jane@example.com",
+            [("failed", 1, "provider_error"), ("run_failed", 2, "hog_error")],
+            keyed=keyed,
+            status_consumer_behind=status_consumer_behind,
         )
 
         response = self.client.get(self._url(f"{message_id}/"))

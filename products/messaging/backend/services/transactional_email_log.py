@@ -39,6 +39,7 @@ from products.messaging.backend.models.email_status_sql import (
     EMAIL_ENGAGEMENT_STATUSES,
     EMAIL_STATUS_EVENTS_TABLE,
     EMAIL_STATUS_RETENTION_DAYS,
+    EMAIL_STATUS_TABLE,
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -91,6 +92,14 @@ def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
     # The send API stamps a message with its own clock, so "now" reaches a little ahead. A given end stays exact.
     end = min(date_to, now + _CLOCK_SKEW) if date_to else now + _CLOCK_SKEW
     return _Period(start=start, end=end)
+
+
+def _message_created_at(team_id: int, message_id: UUID) -> datetime | None:
+    # The log reads email_status_events, which its own consumer fills, so a send the email_status consumer has not
+    # reached yet is still found.
+    return message_created_at(
+        team_id, message_id, Workload.ONLINE, tables=(EMAIL_STATUS_TABLE, EMAIL_STATUS_EVENTS_TABLE)
+    )
 
 
 def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:
@@ -201,7 +210,7 @@ def list_transactional_emails(
     search = (search or "").strip()
     message_id = UUID(search) if search and _is_uuid(search) else None
     if message_id:
-        sent_around = message_created_at(team_id, message_id, Workload.ONLINE)
+        sent_around = _message_created_at(team_id, message_id)
         if sent_around is None:
             return [], False
         params["message_id"] = str(message_id)
@@ -262,7 +271,7 @@ def get_transactional_email(
 ) -> TransactionalEmailLogDetail | None:
     """One send with every status it went through, or None when the project has no send with this id, or the reader
     may not view its workflow."""
-    queued = message_created_at(team_id, message_id, Workload.ONLINE)
+    queued = _message_created_at(team_id, message_id)
     if queued is None:
         return None
     params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}

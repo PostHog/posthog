@@ -30,11 +30,11 @@ GROUP BY message_id
 """
 
 
-# A keyed send's ID holds no time, so its own rows say when it was queued. The sort key starts with the team and
-# the message, so this reads one message's rows in each partition the retention keeps.
-_KEYED_CREATED_AT_QUERY = f"""
+# A keyed send's ID holds no time, so its own rows say when it was queued. email_status's sort key starts with the
+# team and the message, so this reads one message's rows in each partition the retention keeps.
+_KEYED_CREATED_AT_QUERY = """
 SELECT created_at
-FROM {EMAIL_STATUS_TABLE}
+FROM {table}
 WHERE team_id = %(team_id)s
   AND message_id = %(message_id)s
   AND created_at >= %(start)s
@@ -51,21 +51,29 @@ def is_keyed_message_id(message_id: UUID) -> bool:
     return message_id.version == 5
 
 
-def message_created_at(team_id: int, message_id: UUID, workload: Workload) -> datetime | None:
-    """When the send was queued, or None when no send the table still keeps can have this ID."""
+def message_created_at(
+    team_id: int, message_id: UUID, workload: Workload, tables: tuple[str, ...] = (EMAIL_STATUS_TABLE,)
+) -> datetime | None:
+    """When the send was queued, or None when no send the tables still keep can have this ID.
+
+    A keyed ID is looked up in each table in turn, so a reader can fall back to the table it reads itself.
+    """
     if not is_keyed_message_id(message_id):
         return queued_at(message_id)
-    tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
-    rows = cast(
-        list,
-        sync_execute(
-            _KEYED_CREATED_AT_QUERY,
-            {"team_id": team_id, "message_id": str(message_id), "start": datetime.now(UTC) - _RETENTION},
-            workload=workload,
-            team_id=team_id,
-        ),
-    )
-    return rows[0][0].replace(tzinfo=UTC) if rows else None
+    for table in tables:
+        tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
+        rows = cast(
+            list,
+            sync_execute(
+                _KEYED_CREATED_AT_QUERY.format(table=table),
+                {"team_id": team_id, "message_id": str(message_id), "start": datetime.now(UTC) - _RETENTION},
+                workload=workload,
+                team_id=team_id,
+            ),
+        )
+        if rows:
+            return rows[0][0].replace(tzinfo=UTC)
+    return None
 
 
 def queued_at(message_id: UUID) -> datetime | None:
