@@ -12,6 +12,8 @@ import { ProviderEdge, startProviderEdge } from '../provider-edge'
 import { StackConflictError, holdRunLock, planCleanup, readProcs, strangerConflict, terminate } from './processes'
 import { ROLE_PORTS, Role, RoleSpec, roleSpecs, secretsOf } from './roles'
 import {
+    Hogli,
+    STACK,
     downServices,
     eventsConsumerGroup,
     expectOk,
@@ -54,7 +56,13 @@ export function defaultStateDir(env: NodeJS.ProcessEnv): string {
     return path.join(env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'posthog-scenarios')
 }
 
-export function createEnvironment(): Environment {
+export type EnvironmentOptions = { hogli: Hogli; docker: string; postgresUrl: string }
+
+export function createEnvironment({
+    hogli = { command: path.join(REPO_ROOT, 'bin', 'hogli'), cwd: REPO_ROOT },
+    docker = 'docker',
+    postgresUrl = STACK.postgresUrl,
+}: Partial<EnvironmentOptions> = {}): Environment {
     const env = process.env
     const stateDir = defaultStateDir(env)
     const secrets = secretsOf(env)
@@ -122,7 +130,7 @@ export function createEnvironment(): Environment {
         role: (name) => ({ name, metricsUrl: `http://127.0.0.1:${ROLE_PORTS[name]}/_metrics` }),
 
         async health() {
-            const down = await downServices(edge?.url)
+            const down = await downServices(edge?.url, postgresUrl)
             return { healthy: down.length === 0, down }
         },
 
@@ -173,13 +181,13 @@ export function createEnvironment(): Environment {
             throw strangerConflict(plan.strangers)
         }
         await terminate(plan, STOP_GRACE_MS)
-        await startStack(REPO_ROOT, stateDir, env)
+        await startStack(hogli, stateDir, env)
         const specs = roleSpecs(env, `http://127.0.0.1:${EDGE_PORT}`, secrets)
         await refuseHeldPorts(specs.map((spec) => spec.role))
         const group = eventsConsumerGroup(specs)
         await waitForExpect(
             async () => {
-                if ((await groupMembers(group)) > 0) {
+                if ((await groupMembers(group, docker)) > 0) {
                     throw new StackConflictError(
                         `The CDP events consumer group ${group} has a member the runner did not start. Run \`hogli down\`, then run the scenario again.`
                     )
@@ -192,12 +200,12 @@ export function createEnvironment(): Environment {
         const others = specs.filter((spec) => spec.role !== 'cdp-api')
         specs.filter((spec) => spec.role === 'cdp-api').forEach(start)
         await untilHealthy(['cdp-api'], exitsBefore)
-        if ((await missingTemplates()).length > 0) {
-            await syncTemplates(REPO_ROOT, stateDir, env)
+        if ((await missingTemplates(postgresUrl)).length > 0) {
+            await syncTemplates(hogli, stateDir, env)
         }
         await waitForExpect(
             async () => {
-                const missing = await missingTemplates()
+                const missing = await missingTemplates(postgresUrl)
                 if (missing.length > 0) {
                     throw new Error(`Django has not synced the templates ${missing.join(', ')}.`)
                 }
