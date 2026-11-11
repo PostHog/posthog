@@ -26,13 +26,12 @@ import { HogFunctionMonitoringService } from '../monitoring/hog-function-monitor
 import { EmailStatusService } from './email-status.service'
 import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
+import { replaceHrefAnchors } from './helpers/href-anchors'
 import { hasClickTrackingOptOut, hasSesNoTrack } from './helpers/link-tags'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler, SnsEnvelope } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
-const LINK_REGEX =
-    /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
 // Matches an existing `ses:tags` attribute so our link tag can be merged into its value.
 const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+))/i
@@ -51,7 +50,12 @@ const SES_TAGS_ATTR_REGEX = /\bses:tags\s*=\s*(?:"([^"]*)"|'([^']*)'|([^'">\s]+)
 export type EmailTrackingMode = 'redirect' | 'ses'
 
 const addAttributeToOpeningTag = (openingTag: string, attribute: string): string => {
-    return openingTag.replace(/\s*\/?>$/, ` ${attribute}>`)
+    if (!openingTag.endsWith('>')) {
+        return openingTag
+    }
+    const attributes = openingTag.slice(0, -1)
+    const withoutSelfClose = attributes.endsWith('/') ? attributes.slice(0, -1) : attributes
+    return `${withoutSelfClose.trimEnd()} ${attribute}>`
 }
 
 const withSesLinkIndexTag = (openingTag: string, linkIndex: number): string => {
@@ -220,7 +224,7 @@ export const addTrackingToEmail = (
     const trackingInvocation = { ...invocation, distinctId, workflowVersion: invocation.state.renderedWorkflowVersion }
     const trackingUrl = signer.pixelUrl(trackingInvocation, isTest)
 
-    // Incremented for every anchor LINK_REGEX matches, including ones that turn out to be opted
+    // Incremented for every anchor with an href, including ones that turn out to be opted
     // out or unsafe, so the index stays tied to document position instead of shifting with how
     // many anchors happened to be trackable. The same template therefore yields the same indices
     // on every send, which is what makes counts comparable across recipients.
@@ -229,10 +233,10 @@ export const addTrackingToEmail = (
     // a click-tracking redirect. Opens and deliveries are still tracked.
     const sensitive = invocation.hogFunction?.metadata?.sensitive === true
 
-    html = html.replace(LINK_REGEX, (m, d, s, u) => {
+    html = replaceHrefAnchors(html, ({ html: m, href: rawHref }) => {
         const linkIndex = anchorIndex++
-        const href = decodeHtmlEntitiesInHref(d || s || u || '')
-        // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
+        const href = decodeHtmlEntitiesInHref(rawHref)
+        // The anchor scan skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
         if (isJavascriptHref(href)) {
             return m
