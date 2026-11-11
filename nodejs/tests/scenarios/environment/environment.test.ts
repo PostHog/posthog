@@ -684,30 +684,50 @@ describe('scenario environment', () => {
             const path = require('path')
             const args = process.argv.slice(2)
             const command = args.join(' ')
+            const flags = { with: [], without: [] }
+            const words = []
+            for (let i = 0; i < args.length; i++) {
+                const [flag, inline] = args[i].split('=')
+                if (['--with', '--without', '--custom', '--timeout'].includes(flag)) {
+                    const value = inline ?? args[++i]
+                    const name = flag.slice(2)
+                    Array.isArray(flags[name]) ? flags[name].push(value) : (flags[name] = value)
+                } else {
+                    words.push(args[i])
+                }
+            }
             const stateFile = path.join(__dirname, 'stack.json')
             const stack = JSON.parse(fs.readFileSync(stateFile, 'utf8'))
             const fail = (why) => {
                 process.stderr.write(why + '\\n')
                 process.exit(1)
             }
-            if (command === 'wait --timeout 0') {
-                process.exit(stack.running ? 0 : 3)
-            } else if (command === 'wait') {
-                process.exit(stack.running ? 0 : 1)
-            } else if (command === 'dev:generate --with workflows --without nodejs') {
-                const units = ['backend', 'frontend', 'workflows']
+            const verb = words.join(' ')
+            if (verb === 'wait') {
+                if (flags.timeout === '0') {
+                    process.exit(stack.ready ? 0 : 3)
+                }
+                if (!stack.running) {
+                    fail('No stack runs')
+                }
+                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: true }))
+            } else if (verb === 'dev:generate') {
+                const units = ['backend', 'frontend', 'nodejs', ...flags.with].filter((unit) => !flags.without.includes(unit))
                 fs.writeFileSync(
                     process.env.HOGLI_MPROCS_PATH,
                     'procs:\\n' + units.map((unit) => '  ' + unit + ':\\n    shell: bin/start-' + unit + '\\n').join('')
                 )
-            } else if (args[0] === 'up' && args.length === 4 && args[1] === '-d' && args[2] === '--custom') {
-                if (!fs.existsSync(args[3])) {
-                    fail('No mprocs config at ' + args[3])
+            } else if (verb === 'up -d' && flags.custom) {
+                if (stack.running) {
+                    fail('phrocs: detached phrocs already running')
                 }
-                if (/^  nodejs:/m.test(fs.readFileSync(args[3], 'utf8'))) {
-                    fail('The config at ' + args[3] + ' starts nodejs')
+                if (!fs.existsSync(flags.custom)) {
+                    fail('No mprocs config at ' + flags.custom)
                 }
-                fs.writeFileSync(stateFile, JSON.stringify({ running: true, starts: stack.starts + 1 }))
+                if (/^  nodejs:/m.test(fs.readFileSync(flags.custom, 'utf8'))) {
+                    fail('The config at ' + flags.custom + ' starts nodejs')
+                }
+                fs.writeFileSync(stateFile, JSON.stringify({ running: true, ready: false }))
             } else if (command === 'dev:sync-hog-templates') {
                 const { Client } = require(${JSON.stringify(require.resolve('pg'))})
                 const client = new Client({ connectionString: ${JSON.stringify(templatesUrl)} })
@@ -806,9 +826,9 @@ describe('scenario environment', () => {
         const answerMembers = (members: number): void => writeFileSync(path.join(fakes, 'members'), String(members))
         const answersSoFar = (): number =>
             existsSync(path.join(fakes, 'answers')) ? Number(readFileSync(path.join(fakes, 'answers'), 'utf8')) : 0
-        const writeStack = (stack: { running: boolean; starts: number }): void =>
+        const writeStack = (stack: { running: boolean; ready: boolean }): void =>
             writeFileSync(path.join(fakes, 'stack.json'), JSON.stringify(stack))
-        const stackOf = (): { running: boolean; starts: number } =>
+        const stackOf = (): { running: boolean; ready: boolean } =>
             parseJSON(readFileSync(path.join(fakes, 'stack.json'), 'utf8'))
         const environmentOf = (): Environment =>
             createEnvironment({
@@ -850,7 +870,7 @@ describe('scenario environment', () => {
             fakes = mkdtempSync(path.join(os.tmpdir(), 'scenario-fakes-'))
             writeFake(path.join(fakes, 'hogli'), fakeHogli)
             writeFake(path.join(fakes, 'docker'), fakeDocker)
-            writeStack({ running: true, starts: 0 })
+            writeStack({ running: true, ready: true })
             answerMembers(0)
             process.env.CYCLOTRON_NODE_DATABASE_URL = cyclotronUrl
             await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
@@ -951,14 +971,14 @@ describe('scenario environment', () => {
             await expect(upping).resolves.toBeUndefined()
         }, 30_000)
 
-        it.each<[string, boolean, string[], number]>([
-            ['a running stack', true, STACK.templates, 0],
-            ['a stack hogli cannot reach', false, STACK.templates, 1],
-            ['a stack whose Django lacks the templates', true, [], 0],
+        it.each<[string, boolean, string[]]>([
+            ['a running stack', true, STACK.templates],
+            ['a stack hogli cannot reach', false, STACK.templates],
+            ['a stack whose Django lacks the templates', true, []],
         ])(
             'brings up %s through hogli and ends with the templates in Django',
-            async (_name, running, templates, starts) => {
-                writeStack({ running, starts: 0 })
+            async (_name, running, templates) => {
+                writeStack({ running, ready: running })
                 await withPostgres(
                     (client) =>
                         client.query('DELETE FROM posthog_hogfunctiontemplate WHERE NOT (template_id = ANY($1))', [
@@ -971,7 +991,7 @@ describe('scenario environment', () => {
                 await environment.up()
 
                 expect({ stack: stackOf(), templates: await templatesInDjango() }).toEqual({
-                    stack: { running: true, starts },
+                    stack: { running: true, ready: true },
                     templates: [...STACK.templates].sort(),
                 })
             },
