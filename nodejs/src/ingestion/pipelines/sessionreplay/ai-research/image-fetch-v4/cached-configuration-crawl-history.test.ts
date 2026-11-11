@@ -126,14 +126,29 @@ describe('CachedConfigurationCrawlHistory', () => {
         expect(store.readKeys).toHaveLength(1)
     })
 
-    it('asks the store again after a write that failed, because the row may hold the written item', async () => {
-        const { history, store } = build(robots())
-        await history.read([ROBOTS])
-        const refused = robots({ status: 'refused', body: undefined, fetchedAtMs: NOW_MS + 1 })
-        store.writeError = new Error('the write timed out')
+    it.each([
+        ['after it read the row', false],
+        ['while its read of the older row was in flight', true],
+    ])(
+        'asks the store again after a write that failed %s, because the row may hold the written item',
+        async (_name, readInFlight) => {
+            const { history, store } = build(robots())
+            const refused = robots({ status: 'refused', body: undefined, fetchedAtMs: NOW_MS + 1 })
+            let releaseRead: () => void = () => undefined
+            if (readInFlight) {
+                store.readGate = new Promise((resolve) => (releaseRead = resolve))
+            }
+            const olderRead = history.read([ROBOTS])
+            if (!readInFlight) {
+                await olderRead
+            }
+            store.writeError = new Error('the write timed out')
 
-        await expect(history.write([refused])).rejects.toThrow('the write timed out')
+            await expect(history.write([refused])).rejects.toThrow('the write timed out')
+            releaseRead()
+            await olderRead
 
-        expect((await history.read([ROBOTS])).get(ROBOTS)).toBe(refused)
-    })
+            expect((await history.read([ROBOTS])).get(ROBOTS)).toBe(refused)
+        }
+    )
 })

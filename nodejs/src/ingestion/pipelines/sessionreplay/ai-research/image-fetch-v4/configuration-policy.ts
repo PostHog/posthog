@@ -1,4 +1,5 @@
 import type { ParsedRobots, RobotsParseHandler } from '@trybyte/robotstxt-parser'
+import { LRUCache } from 'lru-cache'
 import { Token, parseDictionary } from 'structured-headers'
 
 import { parseJSON } from '~/common/utils/json-parse'
@@ -221,15 +222,21 @@ interface ParsedRobotsConfiguration {
     fields: Array<{ name: string; value: string }>
 }
 
-/** Keyed by the item object, so a parse is used only for the body it came from, and it is freed with the item. */
+const PARSED_BODIES_MAX_BYTES = 32 * 1024 * 1024
+
+/** Keyed by the body, so every item that holds a body shares its parse, also the items of jobs that waited on one fetch. */
 interface ParsedConfigurationCache {
-    robots: WeakMap<ConfigurationCacheItem, Promise<ParsedRobotsConfiguration>>
-    tdmrep: WeakMap<ConfigurationCacheItem, { document: unknown }>
+    robots: LRUCache<string, Promise<ParsedRobotsConfiguration>>
+    tdmrep: LRUCache<string, { document: unknown }>
+}
+
+function parsedBodies<V extends object>(): LRUCache<string, V> {
+    return new LRUCache({ maxSize: PARSED_BODIES_MAX_BYTES, sizeCalculation: (_parsed, body) => 2 * body.length + 1 })
 }
 
 export class ConfigurationPolicyService {
     private readonly inFlight = new Map<string, Promise<ConfigurationFetchResult>>()
-    private readonly parsed: ParsedConfigurationCache = { robots: new WeakMap(), tdmrep: new WeakMap() }
+    private readonly parsed: ParsedConfigurationCache = { robots: parsedBodies(), tdmrep: parsedBodies() }
 
     constructor(private readonly fetcher: HttpConfigurationFetcher) {}
 
@@ -666,21 +673,22 @@ async function parsedRobotsConfiguration(
     item: ConfigurationCacheItem,
     parsed: ParsedConfigurationCache
 ): Promise<ParsedRobotsConfiguration> {
-    let configuration = parsed.robots.get(item)
+    const body = item.body ?? ''
+    let configuration = parsed.robots.get(body)
     if (!configuration) {
-        configuration = parseRobotsConfiguration(item.body ?? '')
-        parsed.robots.set(item, configuration)
-        // A failed parse must not answer for the item for as long as the process holds it.
-        configuration.catch(() => parsed.robots.delete(item))
+        configuration = parseRobotsConfiguration(body)
+        parsed.robots.set(body, configuration)
+        configuration.catch(() => parsed.robots.delete(body))
     }
     return await configuration
 }
 
 function parsedTdmrepDocument(item: ConfigurationCacheItem, parsed: ParsedConfigurationCache): unknown {
-    let held = parsed.tdmrep.get(item)
+    const body = item.body ?? ''
+    let held = parsed.tdmrep.get(body)
     if (!held) {
-        held = { document: parseTdmrepDocument(item.body ?? '') }
-        parsed.tdmrep.set(item, held)
+        held = { document: parseTdmrepDocument(body) }
+        parsed.tdmrep.set(body, held)
     }
     return held.document
 }

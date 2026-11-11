@@ -33,6 +33,9 @@ interface HeldItem {
  */
 export class CachedConfigurationCrawlHistory implements CrawlHistoryStore {
     private readonly held: LRUCache<string, HeldItem>
+    /** The keys a write wrote while each read was in flight. What such a read returns for them can be the older row. */
+    private readonly reads = new Set<Set<string>>()
+    private readonly writing = new Map<string, number>()
     private readonly lifetimeMs: number
     private readonly now: () => number
 
@@ -74,12 +77,13 @@ export class CachedConfigurationCrawlHistory implements CrawlHistoryStore {
         if (asked.length === 0) {
             return result
         }
-        const stored = await this.store.read(asked)
+        const written = new Set(asked.filter((key) => this.writing.has(key)))
+        this.reads.add(written)
+        const stored = await this.store.read(asked).finally(() => this.reads.delete(written))
         const readAtMs = this.now()
         for (const [key, item] of stored) {
             result.set(key, item)
-            // A write of this process that finished during the read is newer than what the read returned.
-            if (item.kind !== 'url' && !this.heldItem(key, readAtMs)) {
+            if (item.kind !== 'url' && !written.has(key)) {
                 this.hold(item, readAtMs)
             }
         }
@@ -89,10 +93,23 @@ export class CachedConfigurationCrawlHistory implements CrawlHistoryStore {
     public async write(items: CrawlHistoryItem[]): Promise<void> {
         const configurationItems = items.filter((item): item is ConfigurationCacheItem => item.kind !== 'url')
         // A write that fails can still have reached the store, so the entry goes first and the next read asks the store.
-        for (const item of configurationItems) {
-            this.held.delete(item.key)
+        for (const { key } of configurationItems) {
+            this.held.delete(key)
+            this.writing.set(key, (this.writing.get(key) ?? 0) + 1)
+            this.reads.forEach((written) => written.add(key))
         }
-        await this.store.write(items)
+        try {
+            await this.store.write(items)
+        } finally {
+            for (const { key } of configurationItems) {
+                const left = this.writing.get(key)! - 1
+                if (left > 0) {
+                    this.writing.set(key, left)
+                } else {
+                    this.writing.delete(key)
+                }
+            }
+        }
         const nowMs = this.now()
         for (const item of configurationItems) {
             this.hold(item, nowMs)

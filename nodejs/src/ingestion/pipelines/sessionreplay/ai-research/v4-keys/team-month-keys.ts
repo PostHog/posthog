@@ -91,7 +91,9 @@ export class TeamMonthKeys {
             const result = this.resolve(teamId, keyMonth, controller.signal).then((key) => {
                 // Only a key row and a tombstone are held, as in the v3 row cache.
                 if (key.status !== 'missing') {
-                    this.cache.set(id, key)
+                    // A reused plaintext is held no longer than the plaintext itself.
+                    const plaintextLeftMs = key.status === 'ok' ? this.unwrapped.getRemainingTTL(id) : Infinity
+                    this.cache.set(id, key, { ttl: Math.max(1, Math.min(CACHE_LIFETIME_MS, plaintextLeftMs)) })
                 }
                 return key
             })
