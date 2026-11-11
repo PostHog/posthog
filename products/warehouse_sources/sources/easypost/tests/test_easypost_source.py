@@ -3,7 +3,13 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.easypost._config import EasypostSourceConfig
 from products.warehouse_sources.sources.easypost.settings import EASYPOST_ENDPOINTS
 from products.warehouse_sources.sources.easypost.source import EasypostSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    error_message_matches,
+    scripted_network,
+)
 
 
 def _config() -> EasypostSourceConfig:
@@ -53,6 +59,29 @@ class TestValidateCredentials:
         assert ok is False
         assert error is not None
         assert network.requests_log[0].path == "/v2/shipments"
+
+
+class TestGetRetryableErrors:
+    @parameterized.expand(
+        [
+            (
+                "connection_error_wrapping_read_timeout",
+                "HTTPSConnectionPool(host='api.easypost.com', port=443): Max retries exceeded with url: "
+                "/v2/refunds?page_size=100&start_datetime=2018-07-26T20%3A58%3A03Z&end_datetime="
+                '2018-08-25T20%3A58%3A04Z (Caused by ReadTimeoutError("HTTPSConnectionPool(host='
+                "'api.easypost.com', port=443): Read timed out. (read timeout=60.0)\"))",
+            ),
+            (
+                "exhausted_retryable_status",
+                "EasyPost API error (retryable): status=503, url=https://api.easypost.com/v2/shipments",
+            ),
+        ]
+    )
+    def test_retryable_errors_cover_exhausted_transient_failures(self, _name: str, error_msg: str) -> None:
+        # `_fetch_page` already retries these with backoff; once that budget exhausts they must
+        # stay classified as retryable (self-recovering via Temporal) rather than tracked
+        # exception noise.
+        assert error_message_matches(error_msg, EasypostSource().get_retryable_errors())
 
 
 class TestSourceForPipeline:
