@@ -1,6 +1,8 @@
 import { Message } from 'node-rdkafka'
 import pLimit from 'p-limit'
 
+import type { UrlJob } from '@posthog/ai-research-v4-native'
+
 import { logger } from '~/common/utils/logger'
 
 import {
@@ -19,6 +21,7 @@ import {
     FetchAttempt,
     FetchPass,
     HOPS_EXHAUSTED,
+    URL_TOO_OLD,
     isTransientOutcome,
 } from './fetch-runner'
 import { FrontierDeadLetterReason, FrontierDeadLetterSink } from './frontier-dead-letter-sink'
@@ -28,6 +31,7 @@ import { ImageFetchConsumerMetrics, ImageFetchRequestMetrics } from './metrics'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { urlHistoryExpiresAtMs, urlHistoryStorageExpiresAtMs } from './url-history-expiry'
+import { urlJob } from './v4-native'
 
 const ONE_HOUR_MS = 60 * 60 * 1000
 const REPUBLISH_DEADLINE_FROM_BATCH_START_MS = 200_000
@@ -109,6 +113,7 @@ export class UrlFetchConsumer {
                 }
                 for (const candidate of parsed.candidates) {
                     const partitionCandidate = { ...candidate, sourcePartitions: [message.partition] }
+                    this.topHogMetrics?.recordFilteredUrl(partitionCandidate, 'received')
                     const existing = candidatesByRef.get(partitionCandidate.originalRef)
                     if (existing) {
                         dedupedInBatch += 1
@@ -179,24 +184,30 @@ export class UrlFetchConsumer {
             const refreshDue: { candidate: FetchCandidate; history: UrlCrawlHistoryItem }[] = []
             for (const candidate of candidates) {
                 const history = stored.get(candidate.originalRef)
-                if (history?.kind === 'url' && history.nextFetchAtMs > nowMs) {
-                    if (this.isRefreshDue(history, nowMs)) {
+                if (history?.kind === 'url') {
+                    const job = this.storedUrlJob(history, nowMs)
+                    if (job === 'refresh') {
                         refreshDue.push({ candidate, history })
                         continue
                     }
-                    ImageFetchConsumerMetrics.incDeduped('store', 1)
-                    for (const sourcePartition of candidate.sourcePartitions ?? []) {
-                        ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'store_deduped', 1)
+                    if (job === 'drop') {
+                        ImageFetchConsumerMetrics.incDeduped('store', 1)
+                        this.topHogMetrics?.recordFilteredUrl(candidate, 'store_deduped')
+                        for (const sourcePartition of candidate.sourcePartitions ?? []) {
+                            ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'store_deduped', 1)
+                        }
+                        continue
                     }
-                    continue
                 }
                 if (candidate.notBeforeMs > nowMs) {
                     notReady.push(candidate)
+                    this.topHogMetrics?.recordFilteredUrl(candidate, 'not_ready')
                     for (const sourcePartition of candidate.sourcePartitions ?? []) {
                         ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'not_ready', 1)
                     }
                 } else {
                     fetchable.push(candidate)
+                    this.topHogMetrics?.recordFilteredUrl(candidate, 'fetchable')
                     for (const sourcePartition of candidate.sourcePartitions ?? []) {
                         ImageFetchConsumerMetrics.incPartitionUrls(sourcePartition, 'fetchable', 1)
                     }
@@ -410,9 +421,9 @@ export class UrlFetchConsumer {
         }
     }
 
-    private isRefreshDue(history: UrlCrawlHistoryItem, nowMs: number): boolean {
-        const sink = this.options.refreshingSink
-        return !!sink && history.storedAtMs !== undefined && nowMs - history.storedAtMs >= sink.refreshIntervalMs
+    private storedUrlJob(history: UrlCrawlHistoryItem, nowMs: number): UrlJob {
+        const job = urlJob(history.nextFetchAtMs, history.storedAtMs, nowMs)
+        return job === 'refresh' && !this.options.refreshingSink ? 'drop' : job
     }
 
     private async republishNotReady(
@@ -437,6 +448,9 @@ export class UrlFetchConsumer {
             'not_ready',
             waitMs
         )
+        if (result === 'refused_age') {
+            return this.terminalAttempt(candidate, URL_TOO_OLD, nowMs)
+        }
         if (result === 'refused_delay' || waitMs > ONE_HOUR_MS) {
             return this.terminalAttempt(candidate, DELAY_TOO_LONG, nowMs)
         }

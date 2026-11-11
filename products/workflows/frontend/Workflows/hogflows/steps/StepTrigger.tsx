@@ -20,7 +20,6 @@ import {
     LemonDivider,
     LemonDropdown,
     LemonInput,
-    LemonInputSelect,
     LemonLabel,
     LemonSegmentedButton,
     LemonSelect,
@@ -32,6 +31,7 @@ import { AccountAssignmentFilter } from 'lib/components/AccountAssignmentFilter/
 import type { AssignmentStatus } from 'lib/components/AccountAssignmentFilter/accountAssignmentFilterTypes'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconAdsClick } from 'lib/lemon-ui/icons'
@@ -45,7 +45,6 @@ import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohor
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { tagsModel } from '~/models/tagsModel'
 import { PropertyFilterType } from '~/types'
 
 import { accountsColumnConfigLogic } from 'products/customer_analytics/frontend/components/Accounts/accountsColumnConfigLogic'
@@ -59,6 +58,7 @@ import {
     PERSON_FREQUENCY_OPTIONS,
     TriggerFrequencyOption,
     getRegisteredTriggerTypes,
+    getTriggerDisplayType,
 } from '../registry/triggers/triggerTypeRegistry'
 import { HogFlowAction } from '../types'
 import { createAccountAssignmentFilterUpdate, parseAccountAssignmentFilter } from './accountAssignmentFilter'
@@ -91,14 +91,6 @@ type TriggerOptionItem = {
     icon: JSX.Element
     group?: string
     tag?: JSX.Element
-}
-
-function getTriggerDisplayType(type: string, config: any): string {
-    // Several tiles can share one config type (`event`, `internal-event`), so the tile is whichever
-    // one claims this config, not the type itself. Types owned by a single tile fall through to the
-    // type, which is that tile's value.
-    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(config))
-    return match ? match.value : type
 }
 
 function TriggerTypeDropdown({
@@ -230,7 +222,7 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     const { featureFlags } = useValues(featureFlagLogic)
 
     const type = node.data.config.type
-    const displayType = getTriggerDisplayType(type, node.data.config)
+    const displayType = getTriggerDisplayType(node.data.config)
     const validationResult = actionValidationErrorsById[node.id]
 
     const allTriggerItems = useMemo(() => {
@@ -660,7 +652,6 @@ function StepTriggerBatchAccountFilters({
     filters: BatchTriggerFilters
 }): JSX.Element {
     const { partialSetWorkflowActionConfig } = useActions(workflowLogic)
-    const { tags: tagsAvailable } = useValues(tagsModel)
     const { customPropertyTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const setFilters = (update: Partial<BatchTriggerFilters>): void => {
@@ -680,13 +671,10 @@ function StepTriggerBatchAccountFilters({
                 won't fill in. Use the "Get account" step to read account data.
             </LemonBanner>
             <div className="flex flex-wrap gap-2 items-center">
-                <LemonInputSelect
-                    mode="multiple"
-                    allowCustomValues
+                <TagsInputSelect
                     size="small"
                     className="min-w-48"
                     value={filters.tag_names ?? []}
-                    options={(tagsAvailable || []).map((tag: string) => ({ key: tag, label: tag }))}
                     onChange={(tag_names) => setFilters({ tag_names })}
                     placeholder="Filter by tags"
                     data-attr="workflows-batch-account-tags-filter"

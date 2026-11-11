@@ -1,6 +1,7 @@
 """Read the `$anomaly_score` events of a project back, as anomaly rates per series and as scored buckets.
 
 A bucket can be scored more than once, so every read keeps the newest result of each series and bucket.
+A bucket is its declared `$anomaly_bucket_start`. Ingestion can move the event timestamp by some milliseconds.
 Warm-up rows have a null score and count nowhere. A bucket that was not scored is unknown, never 0.
 A raw score ranks buckets within one series only, so a ranking across series uses rates, never scores.
 """
@@ -30,7 +31,7 @@ from products.signals.backend.anomaly_scores.scoring import bucket_end
 
 # The window before the requested range that `baseline_rate` covers.
 BASELINE_WINDOW = datetime.timedelta(days=30)
-# One row is one series. Far more than the series of every watched insight of one project.
+# One row is one series. Far more than the series of every active insight of one project.
 MAX_SERIES = 10_000
 MAX_BUCKETS = 2_000
 # Each rate shrinks toward its baseline by this many buckets, so 1 flagged of 1 scored does not top a ranking.
@@ -40,12 +41,17 @@ DEFAULT_PRIOR_RATE = 0.05
 # The intervals the scorer writes. Any member can capture a row with another interval, such as `second`,
 # and stepping through its buckets over a long range would take hours.
 SCORED_INTERVALS = frozenset(DEFAULT_PROFILE.intervals)
+# The event scan reaches this far past the range, so a row whose timestamp ingestion moved stays in the scan.
+TIMESTAMP_DRIFT = datetime.timedelta(hours=1)
+# A project's scores are ready to rely on once this many days of the window have a scored daily bucket.
+SCORED_HISTORY_WINDOW = datetime.timedelta(days=28)
+SCORED_HISTORY_READY_DAYS = 14
 
 _LATEST_BUCKETS = """
 SELECT
     toInt(properties.$anomaly_insight_id) AS insight_id,
     properties.$anomaly_series_key AS series_key,
-    timestamp AS bucket_start,
+    coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp) AS bucket_start,
     toFloat(properties.$anomaly_score) AS score,
     toInt(properties.$anomaly_flag) AS flag,
     toFloat(properties.$anomaly_value) AS value,
@@ -60,8 +66,10 @@ SELECT
 FROM events
 WHERE event = {event}
     AND properties.$anomaly_source = {source}
-    AND timestamp >= {since}
-    AND timestamp <= {until}
+    AND timestamp >= {scan_since}
+    AND timestamp <= {scan_until}
+    AND bucket_start >= {since}
+    AND bucket_start <= {until}
     AND {scope}
 ORDER BY scored_at DESC
 LIMIT 1 BY series_key, bucket_start
@@ -95,6 +103,22 @@ FROM ({_LATEST_BUCKETS})
 WHERE bucket_start >= {{date_from}} AND {{keep}}
 ORDER BY bucket_start DESC, series_key
 LIMIT {{limit}}
+"""
+
+
+_SCORED_DAYS_QUERY = """
+SELECT count(DISTINCT toDate(toTimeZone(bucket_start, 'UTC')))
+FROM (
+    SELECT coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp) AS bucket_start
+    FROM events
+    WHERE event = {event}
+        AND properties.$anomaly_source = {source}
+        AND properties.$anomaly_interval = {interval}
+        AND toFloat(properties.$anomaly_score) IS NOT NULL
+        AND timestamp >= {scan_since}
+        AND timestamp <= {scan_until}
+)
+WHERE bucket_start >= {since} AND bucket_start <= {until}
 """
 
 
@@ -262,6 +286,8 @@ def _placeholders(
         "source": ast.Constant(value=SOURCE_INSIGHT),
         "since": ast.Constant(value=since),
         "until": ast.Constant(value=until),
+        "scan_since": ast.Constant(value=since - TIMESTAMP_DRIFT),
+        "scan_until": ast.Constant(value=until + TIMESTAMP_DRIFT),
         "scope": _scope(insight_ids, series_key),
     }
 
@@ -342,6 +368,23 @@ def series_summaries(
             )
         )
     return SeriesSummaries(series=series, truncated=len(rows) > MAX_SERIES)
+
+
+def scored_days(team: Team, *, now: datetime.datetime) -> int:
+    """Distinct UTC days with a scored daily bucket of any insight series from ``SCORED_HISTORY_WINDOW`` before ``now``."""
+    tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    response = execute_hogql_query(
+        _SCORED_DAYS_QUERY,
+        team,
+        query_type="AnomalyScoresScoredDays",
+        placeholders={
+            **_placeholders(since=now - SCORED_HISTORY_WINDOW, until=now, insight_ids=None, series_key=None),
+            "interval": ast.Constant(value=IntervalType.DAY.value),
+        },
+        ch_user=ClickHouseUser.DEFAULT,
+    )
+    rows = cast(list[tuple[Any, ...]], response.results or [])
+    return int(rows[0][0]) if rows else 0
 
 
 def latest_buckets(

@@ -16,16 +16,24 @@ import { urls } from 'scenes/urls'
 import type { HogFlowMinimalApi } from 'products/workflows/frontend/generated/api.schemas'
 
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
+import { emailEngagement } from './broadcastPerformanceLogic'
 import { BroadcastsEmptyState } from './BroadcastsEmptyState'
-import { BROADCASTS_PAGE_SIZE, BroadcastsStatusFilter, broadcastsLogic, getBroadcastStatus } from './broadcastsLogic'
+import {
+    BROADCASTS_PAGE_SIZE,
+    BroadcastsStatusFilter,
+    broadcastsLogic,
+    getBroadcastChannel,
+    getBroadcastStatus,
+} from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 
-const METRIC_COLUMNS: { title: string; metricName: string }[] = [
-    { title: 'Sent', metricName: 'email_sent' },
-    { title: 'Delivered', metricName: 'email_delivered' },
-    { title: 'Opened', metricName: 'email_opened' },
-    { title: 'Clicked', metricName: 'email_link_clicked' },
-    { title: 'Converted', metricName: 'conversion' },
+// Push has no delivery receipts or link tracking, so those columns stay empty for a push broadcast.
+const METRIC_COLUMNS: { title: string; metricName: string; pushMetricName: string | null }[] = [
+    { title: 'Sent', metricName: 'email_sent', pushMetricName: 'push_sent' },
+    { title: 'Delivered', metricName: 'email_delivered', pushMetricName: null },
+    { title: 'Opened', metricName: 'email_opened', pushMetricName: 'push_opened' },
+    { title: 'Clicked', metricName: 'email_link_clicked', pushMetricName: null },
+    { title: 'Converted', metricName: 'conversion', pushMetricName: 'conversion' },
 ]
 
 export function BroadcastsTable(): JSX.Element {
@@ -37,7 +45,6 @@ export function BroadcastsTable(): JSX.Element {
         filters,
         filtersPending,
         loadFailed,
-        tags: allTags,
         savingTagsFor,
     } = useValues(broadcastsLogic)
     // Rows from other filters stay behind the loading state, and are dropped once the load for these fails.
@@ -74,7 +81,8 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
+                const details = rowDetailsById[item.id]
+                return <BroadcastStatusTag status={getBroadcastStatus(item, details)} />
             },
         },
         {
@@ -100,24 +108,34 @@ export function BroadcastsTable(): JSX.Element {
                         {...shown}
                         onChange={(tags) => saveBroadcastTags(item.id, tags)}
                         saving={savingTagsFor === item.id}
-                        tagsAvailable={allTags}
                     />
                 )
             },
         },
-        ...METRIC_COLUMNS.map(({ title, metricName }) => ({
+        ...METRIC_COLUMNS.map(({ title, metricName, pushMetricName }) => ({
             title,
             width: 0,
             align: 'right' as const,
             render: (_: unknown, item: HogFlowMinimalApi) => {
                 const details = rowDetailsById[item.id]
-                if (item.status === 'draft') {
+                const metric = getBroadcastChannel(item.actions as any) === 'push' ? pushMetricName : metricName
+                if (item.status === 'draft' || !metric) {
                     return <span className="text-muted">-</span>
                 }
                 if (!details?.totals) {
                     return <span className="text-muted">…</span>
                 }
-                return <span>{humanFriendlyNumber(details.totals[metricName] ?? 0)}</span>
+                const engagement =
+                    metric === 'email_opened' ? 'opened' : metric === 'email_link_clicked' ? 'clicked' : null
+                return (
+                    <span>
+                        {humanFriendlyNumber(
+                            engagement
+                                ? emailEngagement(details.totals, engagement, details.latestBatchJob?.created_at)
+                                : (details.totals[metric] ?? 0)
+                        )}
+                    </span>
+                )
             },
         })),
         createdByColumn() as LemonTableColumns<HogFlowMinimalApi>[number],
@@ -207,6 +225,7 @@ export function BroadcastsTable(): JSX.Element {
                             { label: 'Scheduled', value: 'scheduled' },
                             { label: 'Sending', value: 'sending' },
                             { label: 'Sent', value: 'sent' },
+                            { label: 'Partly failed', value: 'partially_failed' },
                             { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}

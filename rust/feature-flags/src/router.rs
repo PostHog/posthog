@@ -10,8 +10,10 @@ use crate::billing::{BillingAggregator, FeatureFlagsLimiter, SessionReplayLimite
 use crate::database_pools::DatabasePools;
 use axum::{
     error_handling::HandleErrorLayer,
-    extract::{DefaultBodyLimit, Extension},
-    http::{Method, StatusCode},
+    extract::{DefaultBodyLimit, Extension, Request},
+    http::{header, HeaderValue, Method, StatusCode},
+    middleware::Next,
+    response::Response,
     routing::{any, get, post},
     Router,
 };
@@ -40,9 +42,11 @@ use crate::{
         body_read_metrics::{record_body_read, MAX_FLAGS_BODY_BYTES},
         concurrency_metrics::{record_concurrency_enter, record_concurrency_wait},
         endpoint, flag_definitions,
+        flag_definitions::DefinitionsBillableCache,
         flag_definitions_rate_limiter::{FlagDefinitionsRateLimiter, RemoteConfigRateLimiter},
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
         remote_config,
+        request_outcome::{precreate_request_outcome_counters, record_request_outcome},
     },
     cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
     config::{Config, ServiceMode, TeamIdCollection},
@@ -66,6 +70,9 @@ use crate::{
     rayon_dispatcher::RayonDispatcher,
     utils::bot_detection,
 };
+
+/// `/flags` and its legacy `/decide` alias, with and without a trailing slash.
+pub(crate) const FLAGS_ROUTES: [&str; 4] = ["/flags", "/flags/", "/decide", "/decide/"];
 
 #[derive(Clone)]
 pub struct FlagsEndpointRateLimiters<C = clock::DefaultClock>
@@ -109,6 +116,10 @@ pub struct State {
     /// Pre-initialized HyperCacheReader for feature flags with cohorts (flags_with_cohorts.json)
     /// Used by the /flags/definitions endpoint
     pub flags_with_cohorts_hypercache_reader: Arc<HyperCacheReader>,
+    /// Billable status of each team's current flag definitions, keyed by ETag, so a 304 on
+    /// /flags/definitions for survey-only or product-tour-only definitions goes unbilled
+    /// without a payload read on every poll
+    pub definitions_billable_cache: DefinitionsBillableCache,
     /// Pre-initialized HyperCacheReader for team metadata (full_metadata.json)
     /// Uses token-based lookup instead of team_id
     pub team_hypercache_reader: Arc<HyperCacheReader>,
@@ -428,6 +439,10 @@ where
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        definitions_billable_cache: DefinitionsBillableCache::new(
+            config.definitions_billable_cache_capacity,
+            std::time::Duration::from_secs(config.definitions_billable_cache_ttl_seconds),
+        ),
         cohort_membership_provider,
         auth_token_cache,
         billing_aggregator,
@@ -454,9 +469,12 @@ where
         .route("/", get(index))
         .route(
             "/_readiness",
-            get(move || {
+            get({
                 let r = readiness.clone();
-                async move { r.check().await }
+                move || {
+                    let r = r.clone();
+                    async move { r.check().await }
+                }
             }),
         )
         .route(
@@ -472,8 +490,9 @@ where
         );
 
     // Layer ordering (outermost to innermost, last `.layer()` is outermost):
-    //   HandleErrorLayer → TimeoutLayer → record_concurrency_enter →
-    //   ConcurrencyLimitLayer → record_concurrency_wait → (per-sub-router).
+    //   record_request_outcome → HandleErrorLayer → TimeoutLayer →
+    //   record_concurrency_enter → ConcurrencyLimitLayer →
+    //   record_concurrency_wait → (per-sub-router).
     //
     // The body-read shim and `DefaultBodyLimit` are per-sub-router and only
     // attached to `/flags|/decide`. `/flags/definitions` is GET-only and
@@ -483,11 +502,10 @@ where
     // body is being buffered. Both are required.
     let mut flags_endpoints: Router<State> = Router::new();
     if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        for route in FLAGS_ROUTES {
+            flags_endpoints = flags_endpoints.route(route, any(endpoint::flags::<C>));
+        }
         flags_endpoints = flags_endpoints
-            .route("/flags", any(endpoint::flags::<C>))
-            .route("/flags/", any(endpoint::flags::<C>))
-            .route("/decide", any(endpoint::flags::<C>))
-            .route("/decide/", any(endpoint::flags::<C>))
             .layer(axum::middleware::from_fn(record_body_read))
             .layer(DefaultBodyLimit::max(MAX_FLAGS_BODY_BYTES))
             .layer(Extension(rate_limiters));
@@ -592,7 +610,9 @@ where
                 .layer(TimeoutLayer::new(Duration::from_millis(
                     config.request_timeout_ms,
                 ))),
-        );
+        )
+        // Outside the timeout, so it also counts the requests that the timeout drops.
+        .layer(axum::middleware::from_fn(record_request_outcome));
 
     let router = Router::new()
         .merge(status_router)
@@ -600,6 +620,10 @@ where
         .merge(internal_endpoints)
         .layer(TraceLayer::new_for_http())
         .layer(cors)
+        .layer(axum::middleware::from_fn_with_state(
+            readiness,
+            close_connection_unless_ready,
+        ))
         .with_state(state);
 
     // Don't install metrics unless asked to
@@ -607,11 +631,14 @@ where
     // In other words, only turn these on in production
     if config.enable_metrics {
         common_metrics::set_label_filter(team_id_label_filter(config.team_ids_to_track.clone()));
-        setup_metrics_routes_for_product_with_overrides(
+        let router = setup_metrics_routes_for_product_with_overrides(
             router,
             "feature_flags",
             &bucket_overrides(),
-        )
+        );
+        // After the recorder exists.
+        precreate_request_outcome_counters();
+        router
     } else {
         router
     }
@@ -697,24 +724,45 @@ fn spawn_rate_limiter_cleanup_task<C>(
     });
 }
 
-/// Tests a single database pool by acquiring a connection and optionally running a test query.
+/// Opens `min_connections` connections in a pool (at least one) and optionally runs a test
+/// query on one of them.
+///
+/// A lazy sqlx pool with an `idle_timeout` does not open `min_connections` at startup. It
+/// tops up only after it reaps an idle connection, so a pool that stays busy never reaches
+/// its minimum. Holding all connections at once makes the pool open each of them.
 ///
 /// When `skip_query` is true (because `test_before_acquire` is enabled), only connection
 /// acquisition is tested since sqlx already validates connections on acquire.
-async fn test_pool_connection(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
-    let mut conn = pool
-        .acquire()
+async fn warm_pool_connections(pool: &PgPool, name: &str, skip_query: bool) -> Result<(), String> {
+    let count = pool.options().get_min_connections().max(1) as usize;
+    let mut conns = futures::future::try_join_all((0..count).map(|_| pool.acquire()))
         .await
         .map_err(|e| format!("{name} pool unavailable: {e}"))?;
 
     if !skip_query {
         sqlx::query("SELECT 1")
-            .execute(&mut *conn)
+            .execute(&mut *conns[0])
             .await
             .map_err(|e| format!("{name} connection test failed: {e}"))?;
     }
 
     Ok(())
+}
+
+/// Asks HTTP/1.1 clients to close the connection after this response once the pod is not
+/// ready, so their next request opens a new connection through the Service to a pod that stays.
+async fn close_connection_unless_ready(
+    axum::extract::State(readiness): axum::extract::State<ReadinessHandler>,
+    request: Request,
+    next: Next,
+) -> Response {
+    let mut response = next.run(request).await;
+    if !readiness.is_ready() {
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, HeaderValue::from_static("close"));
+    }
+    response
 }
 
 pub async fn index() -> &'static str {
@@ -744,19 +792,19 @@ pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
     // Best-effort warmup: try all pools in parallel, log failures, never block startup
     let skip_query = database_pools.test_before_acquire;
     let (reader_result, writer_result, persons_reader_result, persons_writer_result) = tokio::join!(
-        test_pool_connection(
+        warm_pool_connections(
             &database_pools.non_persons_reader,
             "non_persons_reader",
             skip_query
         ),
-        test_pool_connection(
+        warm_pool_connections(
             &database_pools.non_persons_writer,
             "non_persons_writer",
             skip_query
         ),
         async {
             if persons_reader_is_distinct {
-                test_pool_connection(&database_pools.persons_reader, "persons_reader", skip_query)
+                warm_pool_connections(&database_pools.persons_reader, "persons_reader", skip_query)
                     .await
             } else {
                 Ok(()) // Already warmed via non_persons_reader
@@ -764,7 +812,7 @@ pub async fn startup(database_pools: Arc<DatabasePools>) -> &'static str {
         },
         async {
             if persons_writer_is_distinct {
-                test_pool_connection(&database_pools.persons_writer, "persons_writer", skip_query)
+                warm_pool_connections(&database_pools.persons_writer, "persons_writer", skip_query)
                     .await
             } else {
                 Ok(()) // Already warmed via non_persons_writer
@@ -803,36 +851,32 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_pool_connection_success() {
-        let database_url = std::env::var("DATABASE_URL")
-            .unwrap_or("postgres://posthog:posthog@localhost:5432/test_database".to_string());
+    async fn test_warm_pool_connections_success() {
+        let database_url = crate::config::Config::default_test_config().read_database_url;
 
         let pool = sqlx::postgres::PgPoolOptions::new()
-            .max_connections(1)
+            .min_connections(3)
+            .max_connections(5)
+            .idle_timeout(std::time::Duration::from_secs(300))
             .connect_lazy(&database_url)
             .expect("Failed to create pool");
 
-        let result = test_pool_connection(&pool, "test_pool", false).await;
+        warm_pool_connections(&pool, "test_pool", false)
+            .await
+            .expect("warmup should succeed");
 
-        // If database is available, connection test should succeed
-        // If not, it will fail - both are acceptable in test environment
-        match result {
-            Ok(()) => {}
-            Err(e) => {
-                assert!(e.contains("test_pool"));
-            }
-        }
+        assert_eq!(pool.size(), 3);
     }
 
     #[tokio::test]
-    async fn test_pool_connection_failure_includes_pool_name() {
+    async fn test_warm_pool_connections_failure_includes_pool_name() {
         let pool = sqlx::postgres::PgPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_millis(100))
             .connect_lazy("postgres://invalid:invalid@localhost:54321/nonexistent")
             .expect("Failed to create pool");
 
-        let result = test_pool_connection(&pool, "test_pool", false).await;
+        let result = warm_pool_connections(&pool, "test_pool", false).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err();

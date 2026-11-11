@@ -1,5 +1,7 @@
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { retryImport } from 'lib/utils/retryImport'
+import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
@@ -44,6 +46,17 @@ jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/
 }))
 jest.mock('products/subscriptions/frontend/components/Subscriptions/exportNudge/ExportNudgeToast', () => ({
     claimExportNudgeMessage: jest.fn(() => null),
+}))
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    delay: jest.fn(async () => {}),
+}))
+jest.mock('lib/utils/retryImport', () => ({
+    ...jest.requireActual('lib/utils/retryImport'),
+    retryImport: jest.fn((factory: () => unknown) => factory()),
+}))
+jest.mock('scenes/cohorts/cohortSavedToast', () => ({
+    cohortSavedToast: jest.fn(),
 }))
 
 // The nudge body stands in as an opaque element that echoes the headline it was rendered under,
@@ -122,6 +135,35 @@ describe('exportsLogic', () => {
             expect(startExportSpy).toHaveBeenCalledTimes(1)
             expect(startExportSpy.mock.calls[0][0].export_context?.skip_inactivity).toBe(expected)
         })
+    })
+
+    describe('createStaticCohort', () => {
+        it.each([
+            { toastLoads: true, expectedRichToasts: 1, expectedPlainToasts: 0 },
+            { toastLoads: false, expectedRichToasts: 0, expectedPlainToasts: 1 },
+        ])(
+            'saves the cohort and confirms it when the toast loads: $toastLoads',
+            async ({ toastLoads, expectedRichToasts, expectedPlainToasts }) => {
+                jest.clearAllMocks()
+                if (!toastLoads) {
+                    jest.mocked(retryImport).mockRejectedValueOnce(
+                        new Error('Failed to fetch dynamically imported module')
+                    )
+                }
+                const createSpy = jest.spyOn(api, 'create').mockResolvedValue({ id: 5, name: 'Buyers' })
+                initKeaTests()
+                const logic = exportsLogic()
+                logic.mount()
+
+                logic.actions.createStaticCohort('Buyers', { kind: 'HogQLQuery', query: 'select 1' } as any)
+                await new Promise((resolve) => setTimeout(resolve, 0))
+
+                expect(createSpy).toHaveBeenCalledTimes(1)
+                expect(lemonToast.error).not.toHaveBeenCalled()
+                expect(jest.mocked(cohortSavedToast).mock.calls).toHaveLength(expectedRichToasts)
+                expect(jest.mocked(lemonToast.success).mock.calls).toHaveLength(expectedPlainToasts)
+            }
+        )
     })
 
     describe('createExport toast', () => {
@@ -668,6 +710,28 @@ describe('exportsLogic', () => {
                 // The export is neither dropped nor prematurely notified as complete/failed.
                 expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toContain(31)
                 expect(lemonToast.success).not.toHaveBeenCalled()
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('keeps polling a tracked export while its fetcher says it is still rendering', async () => {
+            // A retry records an exception on the generic row, so only the owner's fetcher knows it is not done.
+            jest.useFakeTimers()
+            try {
+                const pending = asset({ id: 32, export_format: ExporterFormat.JSON })
+                const retrying = asset({ id: 32, export_format: ExporterFormat.JSON, exception: 'Too busy' })
+                const fetchLatest = jest.fn().mockResolvedValue(pending)
+                jest.spyOn(api.exports, 'list').mockResolvedValue({ results: [retrying], count: 1 } as any)
+                const loadExportsSpy = jest.spyOn(logic.actions, 'loadExports')
+
+                logic.actions.trackExport(pending, fetchLatest)
+                await jest.advanceTimersByTimeAsync(30000)
+
+                // The first load comes from tracking the export; any later one is the poll.
+                expect(loadExportsSpy.mock.calls.length).toBeGreaterThan(1)
+                expect(logic.values.freshUndownloadedExports.map((a) => a.id)).toContain(32)
                 expect(lemonToast.error).not.toHaveBeenCalled()
             } finally {
                 jest.useRealTimers()

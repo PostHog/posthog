@@ -1,25 +1,30 @@
+import json
 import logging
 from dataclasses import replace
 from datetime import datetime
+from typing import Literal
 from xml.etree import ElementTree
 
 import pytest
-from unittest.mock import patch
 
 from pydantic import ValidationError
 
+from products.signals.backend.artefact_schemas import artefact_type_for_model
 from products.signals.backend.enums import ReportLinkKind
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_checks import MAX_ACTIVE_CHECKS_PER_REPORT
 from products.signals.backend.report_generation.research import (
     MAX_LINKED_REPORT_CONTEXT_CHARS,
+    DataOnlySignalFindingUpdate,
     FixVerificationOutput,
     LinkedReportContext,
+    RecurrenceReportContext,
     ReportPresentationOutput,
     SignalFinding,
     _render_linked_report_context,
     _render_previous_metrics_context,
     _render_signal_for_research,
+    _resolve_finding_response,
     build_actionability_prompt,
     build_fix_verification_prompt,
     build_initial_research_prompt,
@@ -52,6 +57,47 @@ def _make_signal(extra: dict) -> SignalData:
 
 
 class TestRenderSignalForResearch:
+    @pytest.mark.parametrize("code_available", [False, True])
+    def test_research_only_requests_code_evidence_when_available(self, code_available):
+        prompt = build_initial_research_prompt(_make_signal({}), 1, code_available=code_available)
+        assert ("**Git blame:**" in prompt) is code_available
+        assert ("full PostHog repository is available" in prompt) is code_available
+        assert ("No repository is checked out for this run." in prompt) is not code_available
+        for guidance in [
+            "<writing_guide>",
+            "Attached images",
+            "`remediation`",
+            "inbox-report-artefacts-list",
+            "**Budget:**",
+            "**Work already in flight:**",
+            "experiment-get-by-flag-key",
+        ]:
+            assert guidance in prompt
+        presentation = build_report_presentation_prompt(
+            1, code_available=code_available, reviewer_selection_enabled=True
+        )
+        assert ("Use repository ownership files" in presentation) is code_available
+        assert ("inspect their relevant changes" in presentation) is code_available
+        followup = build_signal_investigation_prompt(_make_signal({}), 2, 2, code_available=code_available)
+        for finding_prompt in [prompt, followup]:
+            schema = json.loads(finding_prompt.split("<jsonschema>")[1].split("</jsonschema>")[0])
+            finding = schema["$defs"]["SignalFinding" if code_available else "DataOnlySignalFinding"]
+            commits = finding["properties"]["relevant_commit_hashes"]
+            assert ("minProperties" in commits) is code_available
+            assert ("git blame" in commits["description"]) is code_available
+        if not code_available:
+            response = DataOnlySignalFindingUpdate.model_validate(
+                {
+                    "previous_finding_correct": False,
+                    "finding": {"signal_id": "sig-1", "data_queried": "Error counts", "verified": True},
+                }
+            )
+            assert response.finding is not None
+            assert response.finding.relevant_commit_hashes == {}
+            finding, is_new = _resolve_finding_response(response, None, "sig-1")
+            assert is_new
+            assert artefact_type_for_model(type(finding)) == "signal_finding"
+
     def test_renders_attached_images_with_author_prefix(self):
         signal = _make_signal(
             {
@@ -124,19 +170,25 @@ class TestBuildInitialResearchPrompt:
         for snippet in extra_checks:
             assert snippet in prompt
 
-    def test_resolved_report_context_present_when_provided(self):
+    @pytest.mark.parametrize("parent_status", ["resolved", "closed"])
+    def test_recurrence_report_context_preserves_outcome(self, parent_status: Literal["resolved", "closed"]) -> None:
         signal = _make_signal({})
         prompt = build_initial_research_prompt(
             signal,
             1,
-            resolved_report_title="fix(funnel): drop off after step 2",
-            resolved_report_summary="Users were falling out of the funnel.",
+            recurrence_report=RecurrenceReportContext(
+                title="fix(funnel): drop off after step 2",
+                summary="Users were falling out of the funnel.",
+                status=parent_status,
+            ),
         )
         assert "## Previously closed report" in prompt
         assert "fix(funnel): drop off after step 2" in prompt
         assert "Users were falling out of the funnel." in prompt
+        assert ("marked as **fixed**" in prompt) is (parent_status == "resolved")
+        assert ("without proving resolution" in prompt) is (parent_status == "closed")
 
-    def test_resolved_report_context_absent_by_default(self):
+    def test_recurrence_report_context_absent_by_default(self) -> None:
         signal = _make_signal({})
         prompt = build_initial_research_prompt(signal, 1)
         assert "## Previously closed report" not in prompt
@@ -309,8 +361,16 @@ class TestBuildFixVerificationPrompt:
         assert ("70-80% confidence" in prompt) is preferred
         assert ('Prefer `kind: "metric_threshold"`' in prompt) is preferred
         assert ("4-8 hours" in prompt) is preferred
-        assert ("Default\n24 hours" in prompt) is (not preferred and (metric_checks_enabled or agent_checks_enabled))
+        assert ("Default\n24 hours" in prompt) is (
+            not preferred and not monitoring_enabled and (metric_checks_enabled or agent_checks_enabled)
+        )
         assert ('Use `kind: "agent"`' in prompt) is agent_checks_enabled
+        if monitoring_enabled and (metric_checks_enabled or agent_checks_enabled):
+            assert "recorded Monitoring start through start + soak_hours" in prompt
+            assert "PR completion uses the latest implementation PR merge timestamp" in prompt
+            assert "Manual entry uses the time Monitoring starts" in " ".join(prompt.split())
+            assert "wait before measuring" not in prompt
+            assert "deployment delay of several hours" not in prompt
 
     def test_reresearch_reviews_approved_checks_without_gating_them(self):
         prompt = build_fix_verification_prompt(
@@ -374,8 +434,9 @@ class TestBuildFixVerificationPrompt:
 
     @pytest.mark.parametrize("with_check", [False, True])
     @pytest.mark.parametrize("existing_wait", [None, 72])
+    @pytest.mark.parametrize("monitoring_enabled", [False, True])
     def test_formats_plan_as_a_note_with_the_expected_headings(
-        self, with_check: bool, existing_wait: int | None
+        self, with_check: bool, existing_wait: int | None, monitoring_enabled: bool
     ) -> None:
         current_state = (
             'Run query-trends with {"kind":"TrendsQuery","dateRange":{"date_from":"-1h"},'
@@ -413,13 +474,18 @@ class TestBuildFixVerificationPrompt:
             else None,
         )
         proposed = (
-            "\n\n_Proposed follow-up check: **Uploads recover**, with a minimum wait of "
-            f"{existing_wait or 24} hours after this report is resolved._"
+            "\n\n_Proposed follow-up check: **Uploads recover**, "
+            + (
+                f"observing the full {existing_wait or 24} hours from the recorded Monitoring start "
+                "(the merge time for PR completion)._"
+                if monitoring_enabled
+                else f"with a minimum wait of {existing_wait or 24} hours after this report is resolved._"
+            )
             if with_check
             else ""
         )
 
-        assert result.to_note().note == (
+        assert result.to_note(monitoring_enabled=monitoring_enabled).note == (
             f"## Verification plan\n\n"
             f"### Confirm the current state\n\n{current_state}\n\n"
             f"### Confirm the outcome\n\n{outcome}{proposed}"
@@ -438,11 +504,9 @@ class TestBuildFixVerificationPrompt:
             * (MAX_ACTIVE_CHECKS_PER_REPORT + 1),
         ],
     )
-    def test_invalid_checks_preserve_prose_without_requesting_reconciliation(
-        self, checks: list[dict[str, object]]
-    ) -> None:
-        with patch("products.signals.backend.report_generation.research.logger.warning") as warning:
-            result = FixVerificationOutput.model_validate(
+    def test_invalid_checks_require_correction(self, checks: list[dict[str, object]]) -> None:
+        with pytest.raises(ValidationError):
+            FixVerificationOutput.model_validate(
                 {
                     "current_state": "Check the current issue.",
                     "outcome": "Check it again after the fix.",
@@ -450,17 +514,6 @@ class TestBuildFixVerificationPrompt:
                 },
                 context={"report_id": "test-report"},
             )
-        assert result.checks is None
-        assert result.to_note().note == (
-            "## Verification plan\n\n### Confirm the current state\n\nCheck the current issue.\n\n"
-            "### Confirm the outcome\n\nCheck it again after the fix."
-        )
-
-        warning.assert_called_once()
-        details = warning.call_args.kwargs["extra"]
-        assert details["report_id"] == "test-report"
-        assert details["validation_rules"]
-        assert "checks" not in details
 
 
 def _make_chart() -> ReportChart:
@@ -519,6 +572,29 @@ class TestBuildReportPresentationPrompt:
         assert "owners.yaml" not in prompt
         assert ("Match reviewer UUIDs" in prompt) == enabled
         assert ("not a global ban" in prompt) == enabled
+
+    @pytest.mark.parametrize("selection", [False, True])
+    @pytest.mark.parametrize("evidence", [False, True])
+    @pytest.mark.parametrize("code", [False, True])
+    def test_assignee_evidence_requires_both_flags_and_a_repository(
+        self, selection: bool, evidence: bool, code: bool
+    ) -> None:
+        prompt = build_report_presentation_prompt(
+            1, reviewer_selection_enabled=selection, assignee_evidence_enabled=evidence, code_available=code
+        )
+        assert ("posthog-assignee-evidence" in prompt) == (selection and evidence and code)
+        if selection and evidence and code:
+            assert "--paths-file" in prompt
+            assert "`owners.yaml`, and standard CODEOWNERS rules" in prompt
+            assert "organization-qualified GitHub teams" in prompt
+            assert "without a GitHub account" in prompt
+            assert "not an eligibility list" in prompt
+            assert "If absent in an older image" in prompt
+            assert "Team membership, implementation authorship, and review alone do not establish" in prompt
+            assert "leave that candidate unselected" in prompt
+            assert "Do not add the original author as an extra reviewer" in prompt
+        else:
+            assert "leave that candidate unselected" not in prompt
 
     def test_metric_guidance_and_schema_field_only_present_when_enabled(self):
         off = build_report_presentation_prompt(2, metrics_enabled=False)
@@ -663,6 +739,31 @@ class TestReportPresentationOutputCharts:
         assert parsed.summary == "Signups fell 60% over the week."
 
 
+class TestReportPresentationOutputTags:
+    @pytest.mark.parametrize(
+        "tags,expected",
+        [
+            (["Session Replay", "session_replay", "!!!", 3], ["session-replay"]),
+            ("billing", None),
+            (None, None),
+        ],
+    )
+    def test_invalid_tags_are_dropped_and_the_prose_survives(self, tags: object, expected: list[str] | None):
+        parsed = ReportPresentationOutput.model_validate(
+            {"title": "fix(checkout): Handle the timeout", "summary": "Checkout times out.", "tags": tags}
+        )
+
+        assert parsed.tags == expected
+        assert parsed.summary == "Checkout times out."
+
+    def test_prompt_offers_current_and_team_tags(self) -> None:
+        prompt = build_report_presentation_prompt(1, current_tags=["billing"], team_tags=["api", "billing"])
+
+        assert 'Current tags on this report: ["billing"]' in prompt
+        assert 'most-used first: ["api", "billing"]' in prompt
+        assert "Do not repeat the title type" in prompt
+
+
 class TestReportPresentationOutputSourceSuggestion:
     @pytest.mark.parametrize(
         "suggestion",
@@ -689,6 +790,47 @@ _WINDOW_GOAL = {"goal_value": 0.01, "goal_direction": "at_most", "decision_windo
 
 
 class TestReportPresentationOutputMetrics:
+    @pytest.mark.parametrize("keep_valid_metric", [False, True])
+    def test_invalid_metrics_preserve_prose_and_valid_metrics(
+        self, keep_valid_metric: bool, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        valid_metric = {
+            "metric_id": "upload-failures",
+            "title": "Upload failures",
+            "kind": "occurrences",
+            "role": "primary",
+            "value_format": "count",
+            "query": trends_metric_query(series=[{"kind": "EventsNode", "event": "upload_failed"}]),
+            "series": [1, 2],
+            **_WINDOW_GOAL,
+        }
+        with caplog.at_level(logging.WARNING):
+            parsed = ReportPresentationOutput.model_validate(
+                {
+                    "title": "fix(uploads): Handle failed uploads",
+                    "summary": "Uploads can fail.",
+                    "metrics": [
+                        {**valid_metric, "title": "private-metric-title", "query": {"private-filter": "private-value"}},
+                        None,
+                        *([valid_metric] if keep_valid_metric else []),
+                    ],
+                }
+            )
+
+        assert parsed.title == "fix(uploads): Handle failed uploads"
+        assert parsed.summary == "Uploads can fail."
+        assert [metric.metric_id for metric in parsed.metrics] == (["upload-failures"] if keep_valid_metric else [])
+        if keep_valid_metric:
+            assert parsed.metrics[0].query == valid_metric["query"]
+            assert parsed.metrics[0].series is None
+            assert parsed.metrics[0].goal_value is None
+        warning = "".join(record.getMessage() for record in caplog.records)
+        assert "dropped metric at index 0" in warning
+        assert "query: value_error" in warning
+        assert "private-metric-title" not in warning
+        assert "private-filter" not in warning
+        assert "private-value" not in warning
+
     @pytest.mark.parametrize(
         "goal",
         [

@@ -3,8 +3,8 @@ import { useActions, useValues } from 'kea'
 
 import { Spinner } from '@posthog/lemon-ui'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { TreeNodeDroppable } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 
 import { panelLayoutLogic } from '../../panelLayoutLogic'
 import { ProjectTree } from '../../ProjectTree/ProjectTree'

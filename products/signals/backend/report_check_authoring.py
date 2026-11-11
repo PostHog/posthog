@@ -5,8 +5,8 @@ they must agree on what a check row means, so the cap, the metric-query copy, an
 live here rather than three times over. `report_checks.py` still owns the shapes and the bounds;
 this module owns the write.
 
-Checks execute only during enabled Monitoring. Pending checks retain provisional dates until
-Monitoring entry anchors their soak to the implementation-complete timestamp.
+Monitoring entry anchors pending checks to implementation completion. With Monitoring disabled,
+resolution starts the soak for legacy agent checks.
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from products.signals.backend.report_checks import (
     CheckConfigValidationError,
     CheckSpec,
     MetricThresholdConfig,
+    MetricThresholdReplacementConfig,
     authored_monitoring_interval_minutes,
     check_schedule_expires_at,
     monitoring_interval_minutes,
@@ -53,6 +54,7 @@ from products.signals.backend.report_checks import (
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
 from products.signals.backend.report_lifecycle import effective_report_status
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
+from products.signals.backend.report_monitoring_attempts import complete_implementation, current_monitoring_attempt
 
 logger = structlog.get_logger(__name__)
 
@@ -84,8 +86,7 @@ def create_check(
     """Write one check on a report, armed or pending.
 
     Legacy authoring accepts explicit dates or a soak duration. Pending dates remain provisional
-    until Monitoring entry anchors the measurement window. Stored schedules on Resolved reports
-    do not authorize execution.
+    until Monitoring entry, or resolution for agent checks while Monitoring is disabled.
 
     The report row is locked for the same reason the REST path locks it: the per-report cap is a
     count followed by an insert, which only holds if concurrent creates serialize. The status
@@ -103,7 +104,9 @@ def create_check(
     now = timezone.now()
 
     with transaction.atomic():
-        locked_report = SignalReport.objects.select_for_update().filter(id=report.id, team_id=report.team_id).first()
+        locked_report = (
+            SignalReport.objects.select_for_update(no_key=True).filter(id=report.id, team_id=report.team_id).first()
+        )
         if locked_report is None:
             raise CheckCreationError("The report this check belongs to is gone.")
         if soak_minutes is None:
@@ -349,7 +352,10 @@ def create_checks_from_specs(
     replacements start unapproved. If a new spec cannot be stored, the transaction rolls back and
     leaves the old checks running.
     """
-    specs = _without_unrunnable_agent_specs(report, specs)
+    runnable_specs = _without_unrunnable_agent_specs(report, specs)
+    if specs and not runnable_specs:
+        return CheckReconciliation(applied=False, created=[])
+    specs = runnable_specs
     try:
         with transaction.atomic():
             report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
@@ -441,7 +447,7 @@ def create_checks_from_specs(
         return CheckReconciliation(applied=False, created=[])
 
 
-def replace_metric_check(
+def replace_check_with_metric(
     *,
     check: SignalReportCheck,
     title: str,
@@ -449,38 +455,82 @@ def replace_metric_check(
     config: dict,
     attribution: ArtefactAttribution,
     access_policy: ReportMetricAccessPolicy,
+    soak_minutes: int | None = None,
+    run_interval_minutes: int | None = None,
+    runs_remaining: int | None = None,
 ) -> SignalReportCheck:
-    """Replace one open metric check atomically, keeping it live if the new check is invalid."""
-    if check.kind != SignalReportCheck.Kind.METRIC_THRESHOLD:
-        raise CheckCreationError("Only metric checks can be replaced this way.")
+    """Keep the previous check live if replacement validation fails."""
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().get(id=check.report_id, team_id=check.team_id)
+        report = SignalReport.objects.select_for_update(no_key=True).get(id=check.report_id, team_id=check.team_id)
         locked = SignalReportCheck.objects.for_team(check.team_id).select_for_update().get(id=check.id)
         if locked.report_id != report.id:
             raise CheckCreationError("This check moved to another report. Reload the report before replacing it.")
+        attempt = current_monitoring_attempt(report)
+        if (
+            report.status != SignalReport.Status.MONITORING
+            and attempt is not None
+            and str(locked.id) in attempt.check_versions
+        ):
+            raise CheckCreationError("Return this report to Monitoring before replacing this check.")
+        if runs_remaining not in (None, 1):
+            raise CheckCreationError("Monitoring supports exactly one terminal evaluation.")
+        try:
+            MetricThresholdReplacementConfig.model_validate(config)
+            duration = soak_minutes if soak_minutes is not None else locked.soak_minutes
+            if duration is None:
+                duration = DEFAULT_CHECK_SOAK_HOURS * 60
+            interval = authored_monitoring_interval_minutes(duration, run_interval_minutes)
+        except ValueError as error:
+            raise CheckCreationError(str(error)) from None
         stored_config = _stored_config(report, SignalReportCheck.Kind.METRIC_THRESHOLD, config)
         if not access_policy.may_read_query(stored_config):
             raise CheckQueryAccessError("The measurement query is not available to you.")
         if not cancel_check(locked, reason="replaced_by_request", attribution=attribution):
             raise CheckCreationError("This check has already finished. Review its result before adding another.")
-        return create_check(
+        replacement = create_check(
             report=report,
             title=title,
             rationale=rationale,
             kind=SignalReportCheck.Kind.METRIC_THRESHOLD,
             config=config,
             attribution=attribution,
-            soak_minutes=locked.soak_minutes if locked.soak_minutes is not None else DEFAULT_CHECK_SOAK_HOURS * 60,
-            run_interval_minutes=locked.run_interval_minutes,
-            runs_remaining=locked.runs_remaining,
+            soak_minutes=duration,
+            run_interval_minutes=interval,
+            runs_remaining=1,
         )
+        if report.status == SignalReport.Status.MONITORING:
+            try:
+                attempt = complete_implementation(
+                    team_id=report.team_id,
+                    report_id=report.id,
+                    monitoring_started_at=timezone.now(),
+                    attribution=attribution,
+                    restart_monitoring=True,
+                )
+            except ValueError as error:
+                raise CheckCreationError(str(error)) from None
+            if attempt is None:
+                raise CheckCreationError("Monitoring is not available for this report.")
+            arm_pending_checks(
+                team_id=report.team_id,
+                report_id=report.id,
+                resolved_at=attempt.monitoring_started_at,
+                expected_monitoring_started_at=attempt.monitoring_started_at,
+            )
+            replacement.refresh_from_db()
+        return replacement
 
 
 def cancel_check(
     check: SignalReportCheck,
     *,
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ],
     attribution: ArtefactAttribution,
     from_statuses: Sequence[str] = SignalReportCheck.OPEN_STATUSES,
@@ -507,7 +557,13 @@ def cancel_check(
 
 
 def _arm_pending_checks(
-    *, team_id: int, report_id: str | uuid.UUID, resolved_at: datetime, armed_at: datetime, monitoring: bool = False
+    *,
+    team_id: int,
+    report_id: str | uuid.UUID,
+    resolved_at: datetime,
+    armed_at: datetime,
+    monitoring: bool = False,
+    agent_only: bool = False,
 ) -> int:
     """Arm rows individually because each check carries its own soak and schedule.
 
@@ -521,6 +577,8 @@ def _arm_pending_checks(
     )
     armed = 0
     for check in pending:
+        if agent_only and check.kind != SignalReportCheck.Kind.AGENT:
+            continue
         next_run_at = resolved_at + timedelta(minutes=check.soak_minutes or 0)
         interim = (
             monitoring
@@ -582,21 +640,36 @@ def arm_pending_checks(
     expected_monitoring_started_at: datetime | None = None,
 ) -> int:
     with transaction.atomic():
-        report = SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).first()
+        report = SignalReport.objects.select_for_update(no_key=True).filter(team_id=team_id, id=report_id).first()
         if report is None:
             return 0
-        status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
-        if status != SignalReport.Status.MONITORING or report.monitoring_started_at is None:
-            return 0
-        if (
-            expected_monitoring_started_at is not None
-            and report.monitoring_started_at != expected_monitoring_started_at
+        if not (
+            SignalReportCheck.objects.for_team(team_id)
+            .filter(report_id=report_id, status=SignalReportCheck.Status.PENDING)
+            .exists()
         ):
+            return 0
+        if monitoring_enabled is None:
+            monitoring_enabled = team_report_monitoring_enabled(team_id)
+        status = effective_report_status(report.status, team_id=team_id, monitoring_enabled=monitoring_enabled)
+        if expected_monitoring_started_at is not None:
+            if (
+                status != SignalReport.Status.MONITORING
+                or report.monitoring_started_at != expected_monitoring_started_at
+            ):
+                return 0
+        if status == SignalReport.Status.MONITORING and report.monitoring_started_at is not None:
+            resolved_at = report.monitoring_started_at
+            armed_at = timezone.now()
+        elif status == SignalReport.Status.RESOLVED and not monitoring_enabled:
+            armed_at = resolved_at
+        else:
             return 0
         return _arm_pending_checks(
             team_id=team_id,
             report_id=report_id,
-            resolved_at=report.monitoring_started_at,
-            armed_at=timezone.now(),
-            monitoring=True,
+            resolved_at=resolved_at,
+            armed_at=armed_at,
+            monitoring=status == SignalReport.Status.MONITORING,
+            agent_only=not monitoring_enabled,
         )

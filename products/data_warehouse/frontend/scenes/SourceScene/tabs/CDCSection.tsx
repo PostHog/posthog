@@ -15,13 +15,11 @@ import {
 
 import api, { ApiConfig } from 'lib/api'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { humanizeBytes } from 'lib/utils/numbers'
 
@@ -32,7 +30,6 @@ import {
     externalDataSourcesResumeCdcCreate,
 } from 'products/warehouse_sources/frontend/generated/api'
 
-import { CDC_SOURCE_TYPES } from '../../../shared/cdc'
 import { sourceSettingsLogic } from './sourceSettingsLogic'
 
 type ManagementMode = 'posthog' | 'self_managed'
@@ -150,15 +147,12 @@ function confirmThen(opts: {
 }
 
 export function CDCSection({ source }: { source: ExternalDataSource }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { sourceFieldConfig } = useValues(sourceSettingsLogic)
 
-    if (!CDC_SOURCE_TYPES.includes(source.source_type)) {
+    if (!sourceFieldConfig?.cdcEngine) {
         return null
     }
     if (source.access_method !== 'warehouse') {
-        return null
-    }
-    if (!featureFlags[FEATURE_FLAGS.DWH_POSTGRES_CDC]) {
         return null
     }
 

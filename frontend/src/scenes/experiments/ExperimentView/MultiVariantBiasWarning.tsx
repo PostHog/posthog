@@ -41,7 +41,7 @@ export function MultiVariantBiasWarning(): JSX.Element | null {
         <LemonBanner type="warning" className="mt-4">
             <div className="flex items-start justify-between gap-4 flex-wrap">
                 <div className="flex-1 min-w-[300px]">
-                    <div className="font-semibold">Setup likely introduced bias</div>
+                    <div className="font-semibold">The uneven split may bias the results</div>
                     <p className="m-0">
                         <strong>{risk.multiple_variant_percentage.toFixed(1)}%</strong> of users were exposed to
                         multiple variants. With your uneven variant split and the current <strong>Exclude</strong>{' '}

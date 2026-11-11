@@ -2,7 +2,8 @@
 
 Each pair has a queue state row. One cursor per input source reads the new rows of all enrolled teams
 and adds them to the pending units and the weighted pending score of their pair. `select_pairs` then
-ranks the due pairs and fills the tick budget in two passes: paying organizations first, then free
+ranks the due pairs. It fills a reserved share of the tick budget with the first summaries of pairs
+that opened the Inbox, then the rest in two passes: paying organizations first, then free
 organizations with the budget that is left. Row counts here are only a queue estimate.
 `update_activity_summary` still applies the real drop rules and `min_units`, and backs a pair off when
 it skips, so the pair leaves the queue head.
@@ -15,7 +16,6 @@ day per day.
 
 import math
 import uuid
-import hashlib
 import datetime
 import dataclasses
 from collections.abc import Callable, Iterable, Sequence
@@ -27,6 +27,7 @@ from django.db.models import (
     Case,
     Count,
     DateTimeField,
+    Exists,
     F,
     FloatField,
     Max,
@@ -42,23 +43,38 @@ from django.db.models import (
 from django.db.models.expressions import Combinable
 from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, RowNumber
 
+import redis
+import structlog
+
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, FileSystemViewLog, Team
 
+from products.signals.backend import org_rollout
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights
-from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
+from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS, mcp_redis_client
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
-from products.signals.backend.activity_summary.prompt import COMPUTED_MAX_CHARS, PROMPT_VERSION, system_prompt
+from products.signals.backend.activity_summary.mcp_buffer import DIRTY_KEY, parse_record, records_key, window_days
+from products.signals.backend.activity_summary.prompt import (
+    COMPUTED_MAX_CHARS,
+    MIN_PROMPT_VERSION,
+    PROMPT_VERSION,
+    system_prompt,
+)
 from products.signals.backend.activity_summary.render import (
     DEFAULT_LIMITS,
     MAX_LIMITS,
     MAX_SUMMARY_CHARS,
+    MIN_RENDER_VERSION,
     NOISY_ACTIVITY_SCOPES,
+    PERSON_SCOPE,
     RENDER_VERSION,
     SANDBOX_PROMPT_TITLE_PREFIX,
     SCENE_VIEW_TYPE,
     SCOUT_CLIENT_PREFIX,
+    SETUP_SCOPES,
+    McpItem,
     RenderLimits,
+    is_plumbing_route,
 )
 from products.signals.backend.activity_summary.summaries import DEFAULT_MODEL, MAX_ATTEMPTS, MODEL_PRICES, cost_usd
 from products.signals.backend.models import (
@@ -68,12 +84,18 @@ from products.signals.backend.models import (
 )
 from products.tasks.backend.facade.user_task_summaries import list_user_task_times
 
+logger = structlog.get_logger(__name__)
+
 DAY = datetime.timedelta(days=1)
 # Fewer characters per token than the render estimate, so the bound is high, not low.
 _BOUND_CHARS_PER_TOKEN = 2
 # The cost bound when the model has no price. One update of the default model costs far less.
 _UNPRICED_UPDATE_COST_USD = 0.05
-_CALLED_MODEL = (UserActivitySummary.Status.OK, UserActivitySummary.Status.FAILED)
+_CALLED_MODEL = (
+    UserActivitySummary.Status.OK,
+    UserActivitySummary.Status.FAILED,
+    UserActivitySummary.Status.EMPTY_PROFILE,
+)
 
 SOURCE_ACTIVITY_LOG = "activity_log"
 SOURCE_TASKS = "tasks"
@@ -86,6 +108,9 @@ TIER_PAYING = "paying"
 TIER_FREE = "free"
 # A summary younger than this many target intervals counts as fresh on the tick event.
 _FRESH_STALENESS = 2
+# One tick drains at most this many members of the MCP dirty set. The other members wait for the next tick.
+MAX_MCP_FEED_PAIRS = 2_000
+_MCP_FEED_BATCH = 200
 
 # Why the queue picked a pair.
 TRIGGER_ACTIVITY = "activity"
@@ -94,8 +119,23 @@ TRIGGER_VIEWS = "views"
 # A pair with no summary and a pending score below `min_score`, due on its days with views.
 TRIGGER_COLD_START_VIEWS = "cold_start_views"
 TRIGGER_STALE = "stale"
-TRIGGERS = (TRIGGER_ACTIVITY, TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS, TRIGGER_STALE)
+# MCP sessions make up at least half of the weighted pending score.
+TRIGGER_MCP = "mcp"
+# A pair with no summary that opened the Inbox in the window. Opening the Inbox asks for a personal ranking,
+# and the ranking needs a summary. It is not a view trigger: a pair with a summary never gets it again, so
+# the view update interval has no repeat updates to space out.
+TRIGGER_INBOX_VISIT = "inbox_visit"
+TRIGGERS = (
+    TRIGGER_ACTIVITY,
+    TRIGGER_VIEWS,
+    TRIGGER_COLD_START_VIEWS,
+    TRIGGER_STALE,
+    TRIGGER_MCP,
+    TRIGGER_INBOX_VISIT,
+)
 VIEW_TRIGGERS = frozenset({TRIGGER_VIEWS, TRIGGER_COLD_START_VIEWS})
+# The frontend scene id of the Inbox, which is the ref of its scene view rows.
+INBOX_SCENE_ID = "Inbox"
 
 
 @frozen(order=True)
@@ -122,6 +162,9 @@ class PairSelection:
     due_pairs: int
     tiers: list[ActivitySummaryTierStats]
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
+    # Pairs with activity in the window whose summary is outdated but not due, so they wait for a normal update.
+    outdated_pairs: int = 0
+    current_version_share: float | None = None
 
 
 @frozen
@@ -196,18 +239,15 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
 # A new salt reorders every organization, so change the version only to start a new rollout order.
 _ROLLOUT_SALT = "activity-summary-self-driving-v1"
-_ROLLOUT_BUCKETS = 10_000
 
 
 def organization_rollout_bucket(organization_id: uuid.UUID) -> int:
-    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
-    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{organization_id}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
+    """The organization's fixed place in the percentage rollout, from 0 to 9999."""
+    return org_rollout.organization_rollout_bucket(_ROLLOUT_SALT, organization_id)
 
 
-def _in_rollout(config: ActivitySummaryConfig, organization_id: uuid.UUID) -> bool:
-    threshold = config.self_driving_organization_percentage * _ROLLOUT_BUCKETS / 100
-    return organization_rollout_bucket(organization_id) < threshold
+def _in_rollout(percentage: float, organization_id: uuid.UUID) -> bool:
+    return org_rollout.in_rollout(_ROLLOUT_SALT, percentage, organization_id)
 
 
 @frozen
@@ -216,6 +256,17 @@ class Enrollment:
     organization_ids: list[uuid.UUID]
     # The organizations that a 100 percent rollout enrolls, with or without manual enrollment.
     qualifying_organization_ids: list[uuid.UUID]
+    # The organization of each enrolled team.
+    team_organization_ids: dict[int, uuid.UUID] = dataclasses.field(default_factory=dict)
+
+
+def _unblocked_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
+    """The teams of `teams` that AI data processing approval, `skip_team_ids` and the denylist keep."""
+    return (
+        teams.filter(organization__is_ai_data_processing_approved=True)
+        .exclude(id__in=config.skip_team_ids)
+        .exclude(organization_id__in=_parse_organization_ids(config.deny_organization_ids))
+    )
 
 
 def enrollment(config: ActivitySummaryConfig) -> Enrollment:
@@ -227,11 +278,7 @@ def enrollment(config: ActivitySummaryConfig) -> Enrollment:
     )
 
     listed = _parse_organization_ids(config.organization_ids)
-    teams = (
-        Team.objects.filter(organization__is_ai_data_processing_approved=True)
-        .exclude(id__in=config.skip_team_ids)
-        .exclude(organization_id__in=_parse_organization_ids(config.deny_organization_ids))
-    )
+    teams = _unblocked_teams(config, Team.objects.all())
     # The teams with an enabled source come first, because they are far fewer than the approved teams.
     with_source: dict[int, uuid.UUID] = dict(
         teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
@@ -244,17 +291,30 @@ def enrollment(config: ActivitySummaryConfig) -> Enrollment:
         enrolled |= {
             team_id: organization_id
             for team_id, organization_id in with_source.items()
-            if _in_rollout(config, organization_id)
+            if _in_rollout(config.self_driving_organization_percentage, organization_id)
         }
     return Enrollment(
         team_ids=sorted(enrolled),
         organization_ids=sorted(set(enrolled.values())),
         qualifying_organization_ids=sorted(set(with_source.values())),
+        team_organization_ids=enrolled,
     )
 
 
 def enrolled_team_ids(config: ActivitySummaryConfig) -> list[int]:
     return enrollment(config).team_ids
+
+
+def mcp_buffer_team_ids(config: ActivitySummaryConfig, enrolled: Enrollment) -> list[int]:
+    """The enrolled teams whose MCP intents the buffer keeps. The percentage never adds a team that is not enrolled."""
+    if not config.mcp_buffer_enabled:
+        return []
+    listed = _parse_organization_ids(config.mcp_buffer_organization_ids)
+    return sorted(
+        team_id
+        for team_id, organization_id in enrolled.team_organization_ids.items()
+        if organization_id in listed or _in_rollout(config.mcp_buffer_percentage, organization_id)
+    )
 
 
 def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -> bool:
@@ -271,7 +331,7 @@ def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -
         return False
     if config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids):
         return True
-    if not _in_rollout(config, team.organization_id):
+    if not _in_rollout(config.self_driving_organization_percentage, team.organization_id):
         return False
     from products.signals.backend.facade.api import (
         has_enabled_source,  # noqa: PLC0415 — the facade imports this module through `read`
@@ -281,26 +341,23 @@ def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -
 
 
 def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool:
-    """The API and MCP tools read summaries only for these teams. The percentage rollout and the denylist do not apply.
+    """The API, the MCP tools and personal ranking read summaries only for these teams.
 
-    A disabled config enrolls no team.
+    Read enrollment is generation enrollment, so every generated summary is readable.
     """
-    if not config.enabled or team.id in config.skip_team_ids:
-        return False
-    if team.organization.is_ai_data_processing_approved is not True:
-        return False
-    return config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids)
+    return is_team_enrolled_for_generation(config, team)
 
 
-def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]:
-    # A UUID parse, so an id in another UUID format still matches, and an invalid id matches nothing.
-    parsed: set[uuid.UUID] = set()
-    for organization_id in organization_ids:
-        try:
-            parsed.add(uuid.UUID(organization_id))
-        except ValueError:
-            continue
-    return parsed
+def read_enrolled_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
+    """The teams of `teams` that `is_team_enrolled_for_read` enrolls, in a fixed number of queries."""
+    if not config.enabled:
+        return teams.none()
+    if config.enroll_all_approved:
+        return _unblocked_teams(config, teams)
+    return teams.filter(id__in=enrollment(config).team_ids)
+
+
+_parse_organization_ids = org_rollout.parse_organization_ids
 
 
 def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime, score: float = 0.0) -> None:
@@ -341,7 +398,10 @@ def _after_watermark(
 def _activity_rows(
     team_ids: list[int], start: datetime.datetime, end: datetime.datetime, after_watermark: bool
 ) -> _Pending:
-    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`."""
+    """Activity log rows per pair in [start, end), with the filters of `inputs.user_activity`.
+
+    Setup rows do not make a pair due, even with an intent. A setup row with an intent still renders
+    when the pair is due for another reason."""
     rows = (
         ActivityLog.objects.filter(
             team_id__in=team_ids, user_id__isnull=False, created_at__gte=start, created_at__lt=end
@@ -350,6 +410,8 @@ def _activity_rows(
         .exclude(was_impersonated=True)
         .exclude(scope__in=NOISY_ACTIVITY_SCOPES)
         .exclude(client__startswith=SCOUT_CLIENT_PREFIX)
+        .exclude(scope__in=SETUP_SCOPES)
+        .exclude(scope=PERSON_SCOPE, activity="deleted")
     )
     unit_count = Count("id")
     if after_watermark:
@@ -560,6 +622,122 @@ def feed_queue(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: 
     return fed
 
 
+@frozen
+class McpFeed:
+    pairs: int = 0
+    sessions: int = 0
+    # Dirty members of teams that are not enrolled, or members that do not parse.
+    ignored: int = 0
+    error: bool = False
+
+
+def _mcp_pair(member: bytes | str | int | float, team_ids: set[int]) -> ActivitySummaryPair | None:
+    text = member.decode() if isinstance(member, bytes) else str(member)
+    team_id, _, user_id = text.partition(":")
+    try:
+        pair = ActivitySummaryPair(team_id=int(team_id), user_id=int(user_id))
+    except ValueError:
+        return None
+    return pair if pair.team_id in team_ids else None
+
+
+def _mcp_sessions(records: Iterable[McpItem]) -> tuple[int, datetime.datetime | None]:
+    """The distinct sessions of the records without plumbing routes, and the time of the newest one.
+
+    A record with no session id counts as its own session."""
+    sessions: set[str] = set()
+    without_session = 0
+    last_at: datetime.datetime | None = None
+    for record in records:
+        if is_plumbing_route(record.route_name):
+            continue
+        if record.session_id:
+            sessions.add(record.session_id)
+        else:
+            without_session += 1
+        last_at = record.at if last_at is None else max(last_at, record.at)
+    return len(sessions) + without_session, last_at
+
+
+def _read_mcp(
+    client: redis.Redis,
+    pairs: list[ActivitySummaryPair],
+    watermarks: dict[ActivitySummaryPair, datetime.datetime | None],
+    config: ActivitySummaryConfig,
+    now: datetime.datetime,
+) -> dict[ActivitySummaryPair, list[McpItem]]:
+    """The buffered records of each pair after its watermark, from the newest `mcp_buffer_days` days, in one pipeline."""
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
+    starts: dict[ActivitySummaryPair, datetime.datetime] = {}
+    keys: list[tuple[ActivitySummaryPair, str]] = []
+    for pair in pairs:
+        watermark = watermarks.get(pair)
+        starts[pair] = window_start if watermark is None else max(window_start, watermark)
+        for day in window_days(starts[pair], now, config.mcp_buffer_days):
+            keys.append((pair, records_key(pair.team_id, pair.user_id, day)))
+    pipeline = client.pipeline(transaction=False)
+    for _, key in keys:
+        pipeline.lrange(key, 0, -1)
+    records: dict[ActivitySummaryPair, list[McpItem]] = {pair: [] for pair in pairs}
+    for (pair, _), values in zip(keys, pipeline.execute()):
+        for value in values:
+            record = parse_record(value)
+            if record is not None and record.at > starts[pair]:
+                records[pair].append(record)
+    return records
+
+
+def _set_mcp_score(pair: ActivitySummaryPair, score: float, last_at: datetime.datetime | None) -> None:
+    fields: dict[str, Any] = {
+        # Postgres reads the old `pending_mcp_score` on the right side of every assignment.
+        "pending_score": F("pending_score") - F("pending_mcp_score") + score,
+        "pending_mcp_score": score,
+    }
+    if last_at is not None:
+        fields["last_activity_at"] = Greatest("last_activity_at", last_at)
+    UserActivitySummaryQueueState.objects.for_team(pair.team_id).filter(user_id=pair.user_id).update(**fields)
+
+
+def feed_mcp_queue(
+    config: ActivitySummaryConfig,
+    now: datetime.datetime,
+    team_ids: list[int],
+    redis_client: Callable[[], redis.Redis] = mcp_redis_client,
+) -> McpFeed:
+    """Drain the MCP buffer's dirty set into the queue state of the enrolled pairs.
+
+    Each drained pair gets its MCP score again from the records after its watermark: the `mcp` weight
+    times its distinct sessions. The score replaces the earlier MCP part, so a record never counts twice.
+    The buffer is optional context, so this never raises. A member that left the set before an error
+    comes back with the user's next MCP call.
+    """
+    enrolled = set(team_ids)
+    pairs_fed = sessions_fed = ignored = 0
+    try:
+        client = redis_client()
+        drained = 0
+        while drained < MAX_MCP_FEED_PAIRS:
+            members = client.spop(DIRTY_KEY, min(_MCP_FEED_BATCH, MAX_MCP_FEED_PAIRS - drained))
+            if not members:
+                break
+            drained += len(members)
+            pairs = sorted({pair for member in members if (pair := _mcp_pair(member, enrolled)) is not None})
+            ignored += len(members) - len(pairs)
+            if not pairs:
+                continue
+            records = _read_mcp(client, pairs, _watermarks(sorted({pair.team_id for pair in pairs})), config, now)
+            counted = {pair: _mcp_sessions(records[pair]) for pair in pairs}
+            _create_missing_states([pair for pair, (sessions, _) in counted.items() if sessions])
+            for pair, (sessions, last_at) in counted.items():
+                _set_mcp_score(pair, sessions * config.source_weights.mcp, last_at)
+                pairs_fed += sessions > 0
+                sessions_fed += sessions
+    except Exception:
+        logger.warning("activity_summary.mcp_queue_feed_failed", exc_info=True)
+        return McpFeed(pairs=pairs_fed, sessions=sessions_fed, ignored=ignored, error=True)
+    return McpFeed(pairs=pairs_fed, sessions=sessions_fed, ignored=ignored)
+
+
 def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime.datetime) -> int:
     """Set the queue state of these teams from the rows in the window before `end`.
 
@@ -584,7 +762,7 @@ def seed_queue(config: ActivitySummaryConfig, team_ids: list[int], end: datetime
     with transaction.atomic():
         # nosemgrep: idor-lookup-without-team (operator backfill with no user input; filtered to the given teams)
         UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids).update(
-            pending_units=0, pending_score=0.0, pending_view_score=0.0, view_active_days=0
+            pending_units=0, pending_score=0.0, pending_view_score=0.0, pending_mcp_score=0.0, view_active_days=0
         )
         _add_pending(pending)
         _add_pending(viewed, views)
@@ -618,18 +796,32 @@ def sync_pair_state(team_id: int, user_id: int) -> None:
     watermark = stored["input_watermark"]
     cleared = {
         name: F(name) if watermark is None else Case(When(last_activity_at__lte=watermark, then=zero), default=F(name))
-        for name, zero in (("pending_units", 0), ("pending_score", 0.0), ("pending_view_score", 0.0))
+        for name, zero in (
+            ("pending_units", 0),
+            ("pending_score", 0.0),
+            ("pending_view_score", 0.0),
+            ("pending_mcp_score", 0.0),
+        )
     }
     UserActivitySummaryQueueState.objects.for_team(team_id).filter(user_id=user_id).update(
         **_state_fields(stored), **cleared
     )
 
 
-def _current(config: ActivitySummaryConfig) -> Q:
-    """Queue states with no summary, or a summary that `logic.is_stale` does not mark stale."""
-    current = Q(prompt_version=PROMPT_VERSION, render_version=RENDER_VERSION)
+def _up_to_date() -> Q:
+    """Queue states whose summary `logic.is_outdated` does not mark outdated."""
+    return Q(prompt_version=PROMPT_VERSION, render_version=RENDER_VERSION)
+
+
+def _not_stale(config: ActivitySummaryConfig, now: datetime.datetime) -> Q:
+    """Queue states with no summary, or a summary that `logic.is_stale` does not mark stale and that
+    `outdated_rebuild_after_days` does not make due."""
+    current = Q(prompt_version__gte=MIN_PROMPT_VERSION, render_version__gte=MIN_RENDER_VERSION)
     if config.rebuild_before is not None:
         current &= Q(summarized_at__gte=config.rebuild_before)
+    if config.outdated_rebuild_after_days is not None:
+        cutoff = now - datetime.timedelta(days=config.outdated_rebuild_after_days)
+        current &= _up_to_date() | Q(summarized_at__gte=cutoff)
     return Q(summarized_at__isnull=True) | current
 
 
@@ -640,6 +832,9 @@ def _hours_since(now: datetime.datetime, at: Coalesce) -> Combinable:
 
 def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: list[int]) -> QuerySet:
     """The queue states of these teams, with their tier, staleness, pending score and priority score.
+
+    `stale` marks a summary due for a rebuild without new rows. `outdated` marks a summary from an older
+    prompt or render.
 
     Staleness is the summary age over the tier's target interval. A pair with no summary counts its age
     from its first queued row. The pending score leaves out the view part when views do not count. The
@@ -653,7 +848,12 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
         output_field=FloatField(),
     )
     age_hours = _hours_since(now, Coalesce("summarized_at", "created_at"))
-    stale = Case(When(_current(config), then=Value(False)), default=Value(True), output_field=BooleanField())
+    stale = Case(When(_not_stale(config, now), then=Value(False)), default=Value(True), output_field=BooleanField())
+    outdated = Case(
+        When(Q(summarized_at__isnull=False) & ~_up_to_date(), then=Value(True)),
+        default=Value(False),
+        output_field=BooleanField(),
+    )
     cold_bonus = Case(
         When(summarized_at__isnull=True, then=Value(config.cold_start_bonus)),
         # A stale pair often has no pending units, so its staleness orders it among the other rebuilds.
@@ -665,7 +865,7 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
     return (
         # nosemgrep: idor-lookup-without-team (system tick with no user input; filtered to the enrolled teams)
         UserActivitySummaryQueueState.all_teams.filter(team_id__in=team_ids)
-        .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale)
+        .annotate(organization_id=F("team__organization_id"), paying=paying, stale=stale, outdated=outdated)
         .annotate(
             staleness=age_hours / target_hours,
             write_score=write_score,
@@ -677,18 +877,36 @@ def _states(config: ActivitySummaryConfig, now: datetime.datetime, team_ids: lis
 
 def _due(states: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime) -> QuerySet:
     """The due states, each with the trigger that made it due."""
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
     reason = Q(weighted_score__gte=config.min_score) | Q(stale=True)
+    inbox_visit: list[When] = []
     if config.count_views:
+        states = states.annotate(
+            inbox_visit=Exists(
+                FileSystemViewLog.objects.filter(
+                    team_id=OuterRef("team_id"),
+                    user_id=OuterRef("user_id"),
+                    type=SCENE_VIEW_TYPE,
+                    ref=INBOX_SCENE_ID,
+                    viewed_at__gte=window_start,
+                )
+            )
+        )
+        first_summary_for_inbox = Q(summarized_at__isnull=True, inbox_visit=True)
         reason |= Q(summarized_at__isnull=True, view_active_days__gte=config.cold_start_min_active_days)
+        reason |= first_summary_for_inbox
+        inbox_visit = [When(first_summary_for_inbox, then=Value(TRIGGER_INBOX_VISIT))]
     return states.filter(
         reason,
         Q(due_at__isnull=True) | Q(due_at__lte=now),
-        last_activity_at__gte=now - datetime.timedelta(days=config.limits.window_days),
+        last_activity_at__gte=window_start,
     ).annotate(
         trigger=Case(
             When(stale=True, then=Value(TRIGGER_STALE)),
+            *inbox_visit,
             # A due pair below `min_score` that is not stale is due only on its days with views.
             When(weighted_score__lt=config.min_score, then=Value(TRIGGER_COLD_START_VIEWS)),
+            When(pending_mcp_score__gte=F("weighted_score") / 2, then=Value(TRIGGER_MCP)),
             When(write_score__lt=F("weighted_score") / 2, then=Value(TRIGGER_VIEWS)),
             default=Value(TRIGGER_ACTIVITY),
         )
@@ -705,11 +923,11 @@ def _cap_rebuilds(due: QuerySet, max_rebuilds: int) -> QuerySet:
     return due.filter(Q(stale=False) | Q(id__in=rebuild_ids))
 
 
-def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[dict[str, Any]]:
+def _fill_pass(due: QuerySet, limit: int, max_org_share: float, *, paying_first: bool = False) -> list[dict[str, Any]]:
     """The highest scores first, with at most `max_org_share` of `limit` from one organization."""
     if limit <= 0:
         return []
-    order = (F("score").desc(), "team_id", "user_id")
+    order = (*((F("paying").desc(),) if paying_first else ()), F("score").desc(), "team_id", "user_id")
     return list(
         due.annotate(org_rank=Window(RowNumber(), partition_by=[F("organization_id")], order_by=order))
         .filter(org_rank__lte=max(1, int(max_org_share * limit)))
@@ -721,6 +939,26 @@ def _fill_pass(due: QuerySet, limit: int, max_org_share: float) -> list[dict[str
 def _due_by_trigger(due: QuerySet) -> dict[str, int]:
     counts = {row["trigger"]: row["pairs"] for row in due.values("trigger").annotate(pairs=Count("id"))}
     return {trigger: counts.get(trigger, 0) for trigger in TRIGGERS}
+
+
+@frozen
+class _VersionStats:
+    outdated_pairs: int
+    current_version_share: float | None
+
+
+def _version_stats(
+    states: QuerySet, due: QuerySet, config: ActivitySummaryConfig, now: datetime.datetime
+) -> _VersionStats:
+    window_start = now - datetime.timedelta(days=config.limits.window_days)
+    counts = states.filter(last_activity_at__gte=window_start, summarized_at__isnull=False).aggregate(
+        summarized=Count("id"), outdated_count=Count("id", filter=Q(outdated=True))
+    )
+    outdated_due = due.filter(outdated=True).count()
+    return _VersionStats(
+        outdated_pairs=counts["outdated_count"] - outdated_due,
+        current_version_share=1 - counts["outdated_count"] / counts["summarized"] if counts["summarized"] else None,
+    )
 
 
 def _tier_stats(
@@ -767,11 +1005,17 @@ def select_pairs(
     with a current summary also needs a pending score of at least `min_score`. When views count, a pair
     with no summary is also due once it opened objects or scenes on `cold_start_min_active_days` days.
     A pair with a stale summary needs no pending score, because its update reads the full window, and it
-    ranks with the pairs with no summary. Each returned pair carries the trigger that made it due.
+    ranks with the pairs with no summary. When views count, a pair with no summary that opened the Inbox
+    in the window is also due. A pair with an outdated summary that is not stale needs a pending score like
+    a current one, until `outdated_rebuild_after_days` makes it stale. Each returned pair carries the
+    trigger that made it due.
     Stale pairs take at most `rebuild_budget_share` of `limit`, paying pairs first, so a version change
-    does not stop the other updates. The first pass ranks the paying pairs and the free pairs with at
-    least `max_overdue_factor` staleness, for `paying_budget_share` of `limit`. The second pass ranks the
-    other free pairs for the budget that is left. `team_ids` defaults to the enrolled teams.
+    does not stop the other updates. The Inbox visit pairs fill `inbox_visit_budget_share` of `limit`
+    first, paying pairs first. The part of that share they do not use goes to the other passes, and an
+    Inbox visit pair that does not fit the share still ranks there. The first pass ranks the paying pairs
+    and the free pairs with at least `max_overdue_factor` staleness, for `paying_budget_share` of the
+    budget that is left. The second pass ranks the other free pairs for the rest. `team_ids` defaults to
+    the enrolled teams.
     """
     if team_ids is None:
         team_ids = enrolled_team_ids(config)
@@ -781,23 +1025,34 @@ def select_pairs(
     due = _due(states, config, now)
     tiers = _tier_stats(states, due, config, now)
     due_by_trigger = _due_by_trigger(due)
+    versions = _version_stats(states, due, config, now)
     due = _cap_rebuilds(due, math.ceil(limit * config.rebuild_budget_share))
+    reserved = _fill_pass(
+        due.filter(trigger=TRIGGER_INBOX_VISIT),
+        math.ceil(limit * config.inbox_visit_budget_share),
+        config.max_org_share,
+        paying_first=True,
+    )
+    due = due.exclude(id__in=[row["id"] for row in reserved])
+    left = limit - len(reserved)
     first = _fill_pass(
         due.filter(Q(paying=True) | Q(staleness__gte=config.max_overdue_factor)),
-        int(limit * config.paying_budget_share),
+        int(left * config.paying_budget_share),
         config.max_org_share,
     )
     second = _fill_pass(
         due.filter(paying=False).exclude(id__in=[row["id"] for row in first]),
-        limit - len(first),
+        left - len(first),
         config.max_org_share,
     )
     return PairSelection(
         pairs=[
             ActivitySummaryPair(team_id=row["team_id"], user_id=row["user_id"], trigger=row["trigger"])
-            for row in first + second
+            for row in reserved + first + second
         ],
         due_pairs=sum(tier.due_pairs for tier in tiers),
         tiers=tiers,
         due_by_trigger=due_by_trigger,
+        outdated_pairs=versions.outdated_pairs,
+        current_version_share=versions.current_version_share,
     )

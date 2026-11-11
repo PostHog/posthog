@@ -61,7 +61,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -109,7 +109,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -153,7 +153,7 @@
                breakdown_value AS breakdown_value
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY breakdown_value)
@@ -195,7 +195,7 @@
                breakdown_value AS breakdown_value
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY breakdown_value)
@@ -453,7 +453,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(e.person_properties.`$some_prop`), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), toJSONString(e.person_properties.`$some_prop`), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -501,7 +501,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(nullIf(toString(e.person_properties.`$some_prop`), '')), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.person_properties.`$some_prop`), '[]'), '{}'), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(concat(ifNull(toString(if(notEquals(toJSONString(e.person_properties.^`$some_prop`), '{}'), toJSONString(e.person_properties.^`$some_prop`), if(isNull(e.person_properties.`$some_prop`), NULL, if(and(in(ascii(toString(e.person_properties.`$some_prop`)), tuple(91, 123)), in(ascii(toJSONString(e.person_properties.`$some_prop`)), tuple(91, 123))), toJSONString(e.person_properties.`$some_prop`), toString(e.person_properties.`$some_prop`))))), ''), ' : ', ifNull(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), ''))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -549,7 +549,7 @@
         FROM
           (SELECT ifNull(avg(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -597,7 +597,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,
@@ -645,7 +645,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session end'))
            GROUP BY day_start,
@@ -693,7 +693,7 @@
         FROM
           (SELECT ifNull(sum(accurateCastOrNull(e.properties.xyz, 'Float64')), 0) AS total,
                   toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
-                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(nullIf(toString(e.properties.location), '')), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), nullIf(nullIf(toJSONString(e.properties.location), '[]'), '{}'), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
+                  ifNull(nullIf(leftUTF8(toString(if(notEquals(toJSONString(e.properties.^location), '{}'), toJSONString(e.properties.^location), if(isNull(e.properties.location), NULL, if(and(in(ascii(toString(e.properties.location)), tuple(91, 123)), in(ascii(toJSONString(e.properties.location)), tuple(91, 123))), toJSONString(e.properties.location), toString(e.properties.location))))), 400), ''), '$$_posthog_breakdown_null_$$') AS breakdown_value
            FROM events_json AS e
            WHERE and(equals(e.team_id, 99999), greaterOrEquals(e.timestamp, toDateTime64(toStartOfInterval(assumeNotNull(toDateTime('2019-12-28 00:00:00', 'UTC')), toIntervalDay(1)), 6, 'UTC')), lessOrEquals(e.timestamp, assumeNotNull(toDateTime('2020-01-04 23:59:59', 'UTC'))), equals(e.event, 'session start'))
            GROUP BY day_start,

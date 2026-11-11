@@ -1,7 +1,7 @@
 from collections.abc import Collection
 from datetime import datetime
 
-from django.db.models import Count, Max, QuerySet
+from django.db.models import Count, Max, Q, QuerySet
 
 from products.subscriptions.backend.facade.contracts import FailedDeliveryCount
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
@@ -33,6 +33,34 @@ def failed_delivery_counts(*, team_id: int, since: datetime, limit: int) -> list
 
 def subscription_ids_in_team(*, team_id: int, subscription_ids: Collection[int]) -> set[int]:
     return set(Subscription.objects.filter(team_id=team_id, id__in=subscription_ids).values_list("id", flat=True))
+
+
+def insight_short_ids_subscribed_by(*, team_id: int, user_id: int, email: str, now: datetime, limit: int) -> list[str]:
+    email_target = Subscription.SubscriptionTarget.EMAIL
+    rows = (
+        Subscription.objects.filter(
+            team_id=team_id,
+            deleted=False,
+            enabled=True,
+            next_delivery_date__isnull=False,
+            insight__isnull=False,
+            insight__deleted=False,
+        )
+        .filter(Q(until_date__isnull=True) | Q(until_date__gt=now))
+        .filter(
+            Q(target_type=email_target, target_value__icontains=email)
+            | (~Q(target_type=email_target) & Q(created_by_id=user_id))
+        )
+        .order_by("-id")
+        .values_list("insight__short_id", "target_type", "target_value")[: limit * 4]
+    )
+    recipient = email.strip().lower()
+    received = (
+        short_id
+        for short_id, target_type, target_value in rows
+        if target_type != email_target or recipient in {address.strip().lower() for address in target_value.split(",")}
+    )
+    return list(dict.fromkeys(received))[:limit]
 
 
 def user_has_slack_subscription(*, team_id: int, user_id: int) -> bool:
@@ -73,6 +101,31 @@ def insight_has_active_subscription(insight_id: int) -> bool:
         .exclude(dashboard_export_insights__deleted=False)
         .exists()
     )
+
+
+def insight_ids_with_active_subscriptions(*, team_ids: Collection[int]) -> set[int]:
+    """The insights that an enabled subscription of these teams delivers today.
+
+    The three cases of `insight_has_active_subscription` apply, but only live tiles of a live dashboard
+    count, because a hidden tile is not delivered.
+    """
+    if not team_ids:
+        return set()
+    active = Subscription.objects.filter(team_id__in=team_ids, deleted=False, enabled=True)
+    insight_ids = set(active.filter(insight_id__isnull=False).values_list("insight_id", flat=True))
+    insight_ids.update(
+        active.filter(dashboard_export_insights__deleted=False).values_list("dashboard_export_insights", flat=True)
+    )
+    insight_ids.update(
+        active.exclude(dashboard_export_insights__deleted=False)
+        .filter(
+            Q(dashboard__tiles__deleted=False) | Q(dashboard__tiles__deleted__isnull=True),
+            dashboard__deleted=False,
+            dashboard__tiles__insight_id__isnull=False,
+        )
+        .values_list("dashboard__tiles__insight_id", flat=True)
+    )
+    return insight_ids
 
 
 def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:

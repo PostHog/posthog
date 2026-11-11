@@ -3,23 +3,13 @@ import { InvalidRequestError, ResolutionError, SecureRequestError, fetchStreamed
 import type { ImageFetchBlockReason } from './block-reason'
 import { OriginPolicyReason, ResponseOptOutReason, responseOptOutReason } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
+import { SIGNATURE_BYTES } from './image-transport'
 import { ImageFetchRequestMetrics } from './metrics'
-import { canonicalizeUrl } from './politeness-key'
 import { REQUEST_IDENTITY_HEADERS } from './request-identity'
+import { URL_ASSET_RULES } from './url-asset-rules'
+import { canonicalizeUrl } from './v4-native'
+import type { V4UrlAsset } from './v4-native'
 import { WebBotAuthRequestSigner } from './web-bot-auth'
-
-/**
- * The raster formats that the fetch lane accepts.
- *
- * SVG is absent on purpose. It is a text format that can carry the page's own data, so its redaction
- * belongs on the inline path rather than on an image model.
- *
- * AVIF is absent because the image store validates only PNG, JPEG, GIF and WebP bytes
- * (`image-transport.ts`), so it would reject every AVIF image that this lane fetched.
- */
-const ALLOWED_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
-
-export type ImageContentType = (typeof ALLOWED_CONTENT_TYPES)[number]
 
 export type FetchOutcome =
     | 'ok'
@@ -51,7 +41,7 @@ export interface ImageFetchResult {
     currentUrl: string
     status?: number
     bytes?: Buffer
-    contentType?: ImageContentType
+    contentType?: string
     contentEncoding?: string
     cache?: HttpCacheMetadata
     refusalReason?: FetchRefusalReason
@@ -66,6 +56,7 @@ export interface ImageFetchResult {
 }
 
 export interface ImageFetchOptions {
+    asset: V4UrlAsset
     sourcePartitions?: readonly number[]
     maxBytes: number
     /** Covers the redirect chain as a whole, so a chain of slow hops cannot outlive one hop's budget. */
@@ -110,7 +101,6 @@ export interface ImageFetcher {
 
 const REQUEST_HEADERS: Record<string, string> = {
     ...REQUEST_IDENTITY_HEADERS,
-    accept: 'image/*',
     'accept-encoding': 'gzip, deflate, br, zstd',
 }
 
@@ -153,6 +143,7 @@ export class HttpImageFetcher implements ImageFetcher {
                 scheduled = await options.scheduleRequest(new URL(target), deadlineMs, () =>
                     this.hop(
                         target,
+                        options.asset,
                         Math.max(1, deadlineMs - Date.now()),
                         options.maxBytes,
                         currentCache,
@@ -221,6 +212,7 @@ export class HttpImageFetcher implements ImageFetcher {
 
     private async hop(
         url: string,
+        asset: V4UrlAsset,
         timeoutMs: number,
         maxBytes: number,
         previousCache: HttpCacheMetadata | undefined,
@@ -230,7 +222,12 @@ export class HttpImageFetcher implements ImageFetcher {
         const requestTimeMs = Date.now()
         const canonical = canonicalizeUrl(url)
         let requestOutcome = ImageFetchRequestMetrics.outcomeForHttpStatus()
-        const headers: Record<string, string> = { ...REQUEST_HEADERS, ...this.webBotAuthSigner.headersForGet(url) }
+        const rules = URL_ASSET_RULES[asset]
+        const headers: Record<string, string> = {
+            ...REQUEST_HEADERS,
+            accept: rules.accept,
+            ...this.webBotAuthSigner.headersForGet(url),
+        }
         if (previousCache?.etag) {
             headers['if-none-match'] = previousCache.etag
         } else if (previousCache?.lastModified) {
@@ -269,7 +266,9 @@ export class HttpImageFetcher implements ImageFetcher {
                 }
             }
 
-            const contentTypes = headerValues(response.headerLines, 'content-type').map(normalizeContentType)
+            const contentTypes = headerValues(response.headerLines, 'content-type').map((header) =>
+                normalizeContentType(header, rules.contentTypes)
+            )
             const contentType = contentTypes[0]
             if (!contentType || contentTypes.some((candidate) => candidate !== contentType)) {
                 response.discard()
@@ -289,9 +288,17 @@ export class HttpImageFetcher implements ImageFetcher {
                 return { kind: 'done', result: { outcome: 'too_large', status, cache } }
             }
 
-            const { bytes, overLimit } = await response.read(maxBytes, false)
+            const head =
+                contentEncoding === undefined
+                    ? { bytes: SIGNATURE_BYTES, accept: (first: Buffer) => rules.canStartWith(first, contentType) }
+                    : undefined
+            const { bytes, overLimit, refused } = await response.read(maxBytes, false, head)
             if (overLimit) {
                 return { kind: 'done', result: { outcome: 'too_large', status, cache } }
+            }
+            if (refused) {
+                // The store counts a result without bytes as an invalid file, as it does a body that fails `prepare`.
+                return { kind: 'done', result: { outcome: 'ok', status, contentType, contentEncoding, cache } }
             }
             return { kind: 'done', result: { outcome: 'ok', status, bytes, contentType, contentEncoding, cache } }
         } finally {
@@ -404,12 +411,12 @@ function resolveRedirect(from: string, location: string, policy: RedirectPolicy)
     return new URL(canonical.fetch)
 }
 
-function normalizeContentType(header: string | undefined): ImageContentType | undefined {
+function normalizeContentType(header: string | undefined, allowed: readonly string[]): string | undefined {
     if (!header) {
         return undefined
     }
     const type = header.split(';')[0].trim().toLowerCase()
-    return ALLOWED_CONTENT_TYPES.find((allowed) => allowed === type)
+    return allowed.find((candidate) => candidate === type)
 }
 
 const ALLOWED_CONTENT_ENCODINGS = new Set(['gzip', 'deflate', 'br', 'zstd'])

@@ -220,11 +220,13 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         assert body["data"]["logs_url"] == aware["data"]["logs_url"]
 
     @parameterized.expand([("legacy_webhook_body",), ("message_link",)])
-    def test_a_logs_link_opens_the_window_the_check_queried(self, link: str) -> None:
+    def test_a_logs_link_opens_the_window_and_filters_the_check_queried(self, link: str) -> None:
         # The ingestion checkpoint clamped this check's window end to well before it was recorded.
         window_end = OCCURRED - timedelta(minutes=7)
+        status_regex = {"key": "http.status_code", "type": "log_attribute", "operator": "regex", "value": r"^4\d{2}$"}
+        filter_group = {"type": "AND", "values": [{"type": "AND", "values": [status_regex]}]}
         transition = replace(
-            _transition(filters={"serviceNames": ["api"]}),
+            _transition(filters={"serviceNames": ["api"], "filterGroup": filter_group}),
             evaluation_key=f"slot:{OCCURRED.isoformat()}|window:{window_end.isoformat()}",
         )
 
@@ -240,6 +242,7 @@ class TestLogsPlatformAlertWording(SimpleTestCase):
         query = parse_qs(urlsplit(url).query)
         date_range = json.loads(query["dateRange"][0])
         assert date_range["date_to"] == window_end.isoformat()
+        assert json.loads(query["filterGroup"][0]) == filter_group
 
 
 def _render(node: Any, globals_: dict[str, Any]) -> Any:

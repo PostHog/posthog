@@ -9,8 +9,10 @@ import type { MockResolverInfo } from '~/mocks/utils'
 import type { DataModelingJobApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import type { ModelStatusModelApi, ModelUsageApi, ModelUsageRowApi, ModelUsageTotalsApi } from './generated/api.schemas'
+import { ModelsUsageDateFilter } from './ModelsUsageDateFilter'
 import { modelsUsageLogic } from './modelsUsageLogic'
 import { ModelsUsageTab } from './ModelsUsageTab'
+import { QuillModelsUsageDateFilter } from './QuillModelsUsageDateFilter'
 
 const totals: ModelUsageTotalsApi = {
     runs: 320,
@@ -113,7 +115,7 @@ const populated: ModelUsageApi = {
     }),
 }
 
-const getUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
+const getUnsortedUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
     const savedQueryIds = new Set(
         (new URL(request.url).searchParams.get('saved_query_ids') ?? '').split(',').filter(Boolean)
     )
@@ -143,6 +145,46 @@ const getUsage = ({ request }: MockResolverInfo): [number, ModelUsageApi] => {
         },
     ]
 }
+const getUsage = (info: MockResolverInfo): [number, ModelUsageApi] => {
+    const [status, usage] = getUnsortedUsage(info)
+    const params = new URL(info.request.url).searchParams
+    const sortBy = params.get('sort_by') ?? 'read_bytes'
+    const direction = params.get('sort_direction') === 'asc' ? 1 : -1
+    const value = (row: ModelUsageRowApi): number | string | null => {
+        switch (sortBy) {
+            case 'name':
+                return row.name.toLowerCase()
+            case 'clickhouse_read_bytes':
+                return row.engines.find((engine) => engine.engine === 'clickhouse')?.read_bytes ?? null
+            case 'managed_warehouse_read_bytes':
+                return row.engines.find((engine) => engine.engine === 'managed_warehouse')?.read_bytes ?? null
+            case 'cpu_microseconds':
+                return row.cpu_microseconds
+            case 'runs':
+                return row.runs
+            default:
+                return row.read_bytes
+        }
+    }
+    return [
+        status,
+        {
+            ...usage,
+            models: [...usage.models].sort((a, b) => {
+                const left = value(a)
+                const right = value(b)
+                if (left === null) {
+                    return right === null ? 0 : 1
+                }
+                if (right === null) {
+                    return -1
+                }
+                return (left < right ? -1 : left > right ? 1 : 0) * direction
+            }),
+        },
+    ]
+}
+
 const unknown: ModelUsageTotalsApi = {
     runs: 8,
     measured_runs: 0,
@@ -253,7 +295,7 @@ const inMainContent =
 const meta: Meta<typeof ModelsUsageTab> = {
     title: 'Products/Data modeling/Models usage',
     component: ModelsUsageTab,
-    args: { savedQueryIdToNodeId },
+    args: { savedQueryIdToNodeId, dateFilter: <ModelsUsageDateFilter /> },
     decorators: [mswDecorator({})],
     parameters: {
         featureFlags: [FEATURE_FLAGS.DATA_MODELING_USAGE, FEATURE_FLAGS.MANAGED_TRINO_QUERY],
@@ -309,8 +351,42 @@ export default meta
 type Story = StoryObj<typeof ModelsUsageTab>
 
 export const Populated: Story = { decorators: [inMainContent('w-256')] }
+export const Loading: Story = {
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: false,
+            waitForSelector: '[aria-label="Loading model usage"]',
+        },
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/data_modeling_usage/': (): Promise<never> => new Promise(() => {}),
+                    '/api/projects/:team_id/data_modeling_jobs/': (): Promise<never> => new Promise(() => {}),
+                },
+            },
+        },
+    },
+}
+export const LoadingNarrow: Story = {
+    ...Loading,
+    decorators: [inMainContent('w-128')],
+}
 export const Narrow: Story = {
     decorators: [inMainContent('w-128')],
+}
+export const CatalogDateFilter: Story = {
+    args: { dateFilter: <QuillModelsUsageDateFilter /> },
+    decorators: [inMainContent('w-256')],
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.DATA_MODELING_USAGE,
+            FEATURE_FLAGS.MANAGED_TRINO_QUERY,
+            FEATURE_FLAGS.TODAY_RAIL_NAV,
+            FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE,
+        ],
+        testOptions: { snapshotBrowsers: [] },
+    },
 }
 export const Unmeasured: Story = {
     decorators: [inMainContent('w-256')],

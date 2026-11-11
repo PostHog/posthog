@@ -6,6 +6,7 @@ import { Counter } from 'prom-client'
 import { TRANSPORT_MAX_BACKOFF_MS, TRANSPORT_MAX_RETRIES } from '~/common/personhog/grpc-retry'
 import {
     DistinctIdKey,
+    NOT_APPLIED_METADATA_KEY,
     SEMANTIC_REFUSAL_METADATA_KEY,
     SEMANTIC_REFUSAL_OP_ID_REUSED,
 } from '~/common/personhog/identity'
@@ -23,7 +24,7 @@ import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-wri
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt } from '~/types'
 
-import { MergeMode, PersonMergeCallFailedError } from './person-merge-types'
+import { MergeMode, PersonMergeCallFailedError, PersonMergeNotAppliedError } from './person-merge-types'
 import { EventOps, applyEventPropertyUpdates, computeOpsScalarUpdates, foldOps, refineEventOps } from './person-update'
 import { mergeOpIdFromRequest } from './person-uuid'
 import { FlushResult, MergePersonsRequest, MergePersonsResult, PersonsStore, isFoldRequest } from './persons-store'
@@ -101,6 +102,7 @@ export interface PersonhogPersonsStoreOptions {
     syncMergeMoveLimit: number
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
+    mergeTimeoutMs: number
 }
 
 const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
@@ -108,6 +110,7 @@ const DEFAULT_OPTIONS: PersonhogPersonsStoreOptions = {
     updateAllProperties: false,
     syncMergeMoveLimit: 10_000,
     requestTimeoutMs: 3_000,
+    mergeTimeoutMs: 35_000,
 }
 
 const CALLER_TAG = 'ingestion/personhog-store'
@@ -264,6 +267,7 @@ export class PersonhogPersonsStore implements PersonsStore {
     private flushChain: Promise<void> = Promise.resolve()
     /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
     private flushWaitBudgetMs: number
+    private fenceWaitBudgetMs: number
 
     constructor(
         private repository: PersonHogPersonWriteRepository,
@@ -285,6 +289,9 @@ export class PersonhogPersonsStore implements PersonsStore {
         if (!Number.isInteger(this.options.requestTimeoutMs) || this.options.requestTimeoutMs < 1) {
             throw new Error(`PERSONHOG_TIMEOUT_MS must be an integer >= 1, got ${this.options.requestTimeoutMs}`)
         }
+        if (!Number.isInteger(this.options.mergeTimeoutMs) || this.options.mergeTimeoutMs < 1) {
+            throw new Error(`PERSONHOG_MERGE_TIMEOUT_MS must be an integer >= 1, got ${this.options.mergeTimeoutMs}`)
+        }
         // A flush waits out a claimed lane rather than failing past it. The
         // wait outlasts one write's full transport retry budget, derived
         // rather than chosen so the two cannot drift apart; a holder writing
@@ -292,6 +299,10 @@ export class PersonhogPersonsStore implements PersonsStore {
         // redelivery instead of acking over unwritten ops.
         this.flushWaitBudgetMs =
             (TRANSPORT_MAX_RETRIES + 1) * this.options.requestTimeoutMs + TRANSPORT_MAX_BACKOFF_MS + FLUSH_WAIT_ROUND_MS
+        // A merge saga holds its source's fence until it completes, and the
+        // merge call's timeout already outlasts one saga drive, so a fenced
+        // lane waits as long as a merge caller does.
+        this.fenceWaitBudgetMs = Math.max(this.flushWaitBudgetMs, this.options.mergeTimeoutMs)
     }
 
     forBatch(batchId: number): PersonsStoreForBatch {
@@ -887,6 +898,17 @@ export class PersonhogPersonsStore implements PersonsStore {
                 personhogStoreMergeCallFailedCounter.inc({ error: 'OpIdReusedSettled' })
                 throw error
             }
+            // Keyed on the header: a hop in between may remap the status code.
+            const notApplied = error instanceof ConnectError ? error.metadata.get(NOT_APPLIED_METADATA_KEY) : null
+            if (notApplied !== null) {
+                const reason = /^[a-z0-9_-]{1,64}$/i.test(notApplied) ? notApplied : 'unknown'
+                personhogStoreMergeCallFailedCounter.inc({ error: `not_applied_${reason}` })
+                throw new PersonMergeNotAppliedError(
+                    `personhog merge refused before it ran (${reason}): ${error.message}`,
+                    reason,
+                    error
+                )
+            }
             // No verdict, so an ack could lose the merge. Only the call is
             // wrapped, so a post-verdict bug surfaces as itself.
             personhogStoreMergeCallFailedCounter.inc({
@@ -1222,9 +1244,10 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Writes the batch's folded lanes to the leader, one call per segment;
      * nothing publishes, because the leader's changelog is the person feed.
      * A missing person redirects to whatever its distinct id resolves to
-     * now; a person genuinely gone and a size rejection are counted and
-     * dropped since neither can succeed on retry; anything else fails the
-     * flush. Passes serialize.
+     * now, and a person with no owner fails the flush so its redelivered
+     * events re-resolve. A size rejection is counted and dropped because it
+     * cannot succeed on retry. A lane fenced by a lifecycle op waits for the
+     * fence to clear. Anything else fails the flush. Passes serialize.
      */
     async flush(): Promise<FlushResult[]> {
         const run = this.flushChain.then(() => this.flushPass())
@@ -1239,15 +1262,24 @@ export class PersonhogPersonsStore implements PersonsStore {
         // Success lets the batch ack, so the pass must not return while any
         // lane holds unwritten segments: claimed lanes are waited out and
         // rewritten, or the pass fails and the batch redelivers.
+        let fenceSeen = false
         for (let round = 0; ; round++) {
-            const pass = { deferrals: 0 }
+            const pass = { deferrals: 0, fenced: 0 }
             await this.writeEligibleLanes(pass)
             if (pass.deferrals === 0) {
                 // No FlushResults: the leader's changelog is the person
                 // feed, so a flush publishes nothing.
                 return []
             }
-            if (round * FLUSH_WAIT_ROUND_MS >= this.flushWaitBudgetMs) {
+            fenceSeen ||= pass.fenced > 0
+            const budgetMs = fenceSeen ? this.fenceWaitBudgetMs : this.flushWaitBudgetMs
+            if (round * FLUSH_WAIT_ROUND_MS >= budgetMs) {
+                if (pass.fenced > 0) {
+                    personhogStoreFlushCounter.inc({ outcome: 'fence_exhausted' })
+                    throw new Error(
+                        `flush cannot complete: ${pass.fenced} lanes still fenced by a lifecycle op after ${budgetMs}ms`
+                    )
+                }
                 personhogStoreFlushCounter.inc({ outcome: 'parked_exhausted' })
                 throw new Error(
                     `flush cannot complete: ${pass.deferrals} lanes deferred behind writes that did not settle`
@@ -1273,7 +1305,7 @@ export class PersonhogPersonsStore implements PersonsStore {
         }
     }
 
-    private async writeEligibleLanes(pass: { deferrals: number }): Promise<void> {
+    private async writeEligibleLanes(pass: { deferrals: number; fenced: number }): Promise<void> {
         // Before the claim, so a held lane that resolves writes in this pass.
         await this.resolveHeldLanes()
         // No await in this block, so the claim snapshot is atomic.
@@ -1299,7 +1331,18 @@ export class PersonhogPersonsStore implements PersonsStore {
         const outcomes = await Promise.allSettled(
             captured.map(({ personKey, entry, segments }) => limit(() => this.writeEntry(personKey, entry, segments)))
         )
-        const failed = outcomes.find((outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected')
+        let failed: PromiseRejectedResult | undefined
+        for (const outcome of outcomes) {
+            if (outcome.status !== 'rejected') {
+                continue
+            }
+            if (outcome.reason instanceof PersonhogFencedError) {
+                pass.deferrals += 1
+                pass.fenced += 1
+                continue
+            }
+            failed ??= outcome
+        }
         if (failed) {
             throw failed.reason
         }
@@ -1347,8 +1390,9 @@ export class PersonhogPersonsStore implements PersonsStore {
             while (progress.remaining > 0) {
                 try {
                     if (viaRedirect) {
-                        await this.redirectToSurvivor(entry, progress)
-                        personhogStoreFlushCounter.inc({ outcome: 'redirected' })
+                        if (await this.redirectToSurvivor(entry, progress)) {
+                            personhogStoreFlushCounter.inc({ outcome: 'redirected' })
+                        }
                         break
                     }
                     if (entry.heldSince !== undefined) {
@@ -1386,9 +1430,9 @@ export class PersonhogPersonsStore implements PersonsStore {
                     if (error instanceof PersonhogFencedError) {
                         // Expected coordination, so it stays off the error
                         // series an alert would page on: the holder settles
-                        // and redelivery flows.
+                        // and a later round writes the lane.
                         personhogStoreFlushCounter.inc({ outcome: 'fenced' })
-                        logger.warn('flush bounced on a lifecycle fence; the batch redelivers', {
+                        logger.warn('flush bounced on a lifecycle fence; the lane retries', {
                             teamId: entry.teamId,
                             personId: entry.personId,
                             fencingOpId: error.fencingOpId,
@@ -1463,23 +1507,41 @@ export class PersonhogPersonsStore implements PersonsStore {
      * Re-resolves a vanished person's distinct id and writes to whoever
      * owns it now, matching the Postgres merged-away recovery. One resolve
      * is enough: the saga repoints mappings before the leader answers a
-     * tombstone, and no owner means a genuine delete.
+     * tombstone, and no owner means a genuine delete. Returns whether the
+     * ops were written; a delete drops them.
      */
-    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<void> {
+    private async redirectToSurvivor(entry: OpsLaneEntry, progress: { remaining: number }): Promise<boolean> {
         const generation = this.generationOf(entry.teamId)
         const [resolved] = await this.resolveDistinctIds('redirect_survivor', [
             { teamId: entry.teamId, distinctId: entry.distinctId },
         ])
         const survivorId = resolved?.person?.id
         if (survivorId === undefined || survivorId === entry.personId) {
-            // Released, so the redelivered events re-resolve rather than
-            // folding onto the corpse again.
+            // Released, so later events re-resolve rather than folding onto
+            // the corpse again.
             this.removeDistinctIdFromCache(entry.teamId, entry.distinctId, 'redirect_gone')
             this.clearPersonCacheForPersonId(`${entry.teamId}:${entry.personId}`, 'redirect_gone')
+        }
+        if (survivorId === undefined) {
+            // The person was deleted after these ops folded. Postgres drops
+            // them too; failing the flush would restart the processor and
+            // replay every in-flight batch for ops no owner can take.
+            personhogStoreFlushCounter.inc({ outcome: 'redirect_deleted' })
+            logger.warn('🤔', 'ops dropped: the person was deleted and its distinct id resolves to nobody', {
+                team_id: entry.teamId,
+                person_id: entry.personId,
+                distinct_id: entry.distinctId,
+            })
+            // Folds that arrived during the redirect stay for a later pass.
+            entry.segments.splice(0, progress.remaining)
+            progress.remaining = 0
+            return false
+        }
+        if (survivorId === entry.personId) {
             personhogStoreFlushCounter.inc({ outcome: 'redirect_gone' })
             throw new CountedRedirectError(
                 `person ${entry.personId} in team ${entry.teamId} vanished and ${entry.distinctId} resolves to ` +
-                    `${survivorId === undefined ? 'nobody' : 'the same person'}; failing the flush to redeliver`
+                    `the same person; failing the flush to redeliver`
             )
         }
         // The resolve proved where the id belongs, so heal the edge, the
@@ -1501,6 +1563,7 @@ export class PersonhogPersonsStore implements PersonsStore {
             // the partial set a failed write may have landed.
             this.clearPersonCacheForPersonId(`${entry.teamId}:${survivorId}`, 'redirect_survivor')
         }
+        return true
     }
 
     /**

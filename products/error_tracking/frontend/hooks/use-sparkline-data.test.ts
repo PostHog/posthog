@@ -32,4 +32,15 @@ describe('applyVolumeSpikeHighlights', () => {
         expect(before.isSpike).toBeUndefined()
         expect(after.isSpike).toBeUndefined()
     })
+
+    it('flags every bucket that has a spike when spikes arrive out of time order', () => {
+        const [first, second, third] = applyVolumeSpikeHighlights(data, [
+            spikeAt(2 * HOUR_MS, 20, 10),
+            spikeAt(0, 30, 10),
+        ])
+
+        expect(first).toMatchObject({ isSpike: true, spikeMultiplier: 3 })
+        expect(second.isSpike).toBeUndefined()
+        expect(third).toMatchObject({ isSpike: true, spikeMultiplier: 2 })
+    })
 })

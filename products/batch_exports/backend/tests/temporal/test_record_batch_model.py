@@ -15,7 +15,7 @@ from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.constants import AvailableFeature
 from posthog.credentials import AWSKeyPair
-from posthog.models import OrganizationMembership, PropertyDefinition, User
+from posthog.models import OrganizationMembership, User
 from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_TYPE, PERSON_PROPERTIES_JSON_TYPE
 from posthog.models.utils import uuid7
 from posthog.sync import database_sync_to_async
@@ -45,6 +45,7 @@ from products.batch_exports.backend.temporal.record_batch_model import (
 from products.batch_exports.backend.temporal.sql.sessions import SESSIONS_LOOKBACK_DAYS
 from products.batch_exports.backend.tests.temporal.utils.clickhouse import truncate_events, truncate_sessions
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 
 if TYPE_CHECKING:
     from posthog.models import Organization, Team
@@ -426,10 +427,19 @@ class TestSessionsRecordBatchModelSelection:
 
 @pytest.mark.django_db
 class TestHogQLQueryRecordBatchModel:
-    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end):
+    @pytest.mark.parametrize(
+        "hogql_query",
+        [
+            "SELECT event AS event, distinct_id AS distinct_id FROM events",
+            "WITH exported_events AS (SELECT event, distinct_id FROM events) "
+            "SELECT event AS event, distinct_id AS distinct_id FROM exported_events",
+        ],
+        ids=["table", "cte"],
+    )
+    async def test_as_query_with_parameters(self, ateam, auser, data_interval_start, data_interval_end, hogql_query):
         model = HogQLQueryRecordBatchModel(
             team_id=ateam.id,
-            hogql_query="SELECT event AS event, distinct_id AS distinct_id FROM events",
+            hogql_query=hogql_query,
             user_id=auser.pk,
         )
         printed_query, query_parameters = await model.as_query_with_parameters(data_interval_start, data_interval_end)
@@ -441,6 +451,7 @@ class TestHogQLQueryRecordBatchModel:
         # without interval placeholders the query runs as-is, as of now
         assert f"toDateTime64('{data_interval_end:%Y-%m-%d %H:%M:%S.%f}', 6, 'UTC')" not in printed_query
         assert model.wait_for_data_interval_end is False
+        assert model.hogql_table_names == ("events",)
 
     async def test_as_query_with_parameters_applies_data_interval(
         self, ateam, auser, data_interval_start, data_interval_end
@@ -803,8 +814,11 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                 f"CREATE TABLE events_json (uuid UUID, person_id UUID, team_id Int64, event String, distinct_id String, "
                 f"timestamp DateTime64(6), inserted_at DateTime64(6), created_at DateTime64(6), elements_chain String, "
                 f"properties {EVENTS_PROPERTIES_JSON_TYPE()}, person_properties {PERSON_PROPERTIES_JSON_TYPE()}, "
-                "temporary_properties JSON) ENGINE = Memory"
+                "temporary_properties JSON, properties_null_keys Array(String), "
+                "temporary_properties_null_keys Array(String), person_properties_null_keys Array(String)) ENGINE = Memory"
             )
+            # The null-key columns hold what the cleaner records for fields the SDK sent as null. The export leaves
+            # those fields out of every document it rebuilds.
             row = {
                 "uuid": str(uuid7()),
                 "person_id": str(uuid7()),
@@ -819,10 +833,14 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                     "$browser": "Firefox",
                     "amount": 2.5,
                     "person": {"properties": "event value"},
+                    "cart": {"items": 2},
                     "$feature_flags": {"named-false": "$false", "named-true": "$true", "some-feature": "true"},
                 },
                 "person_properties": {"email": "buyer@example.com"},
-                "temporary_properties": {"$set": {"email": "buyer@example.com"}},
+                "temporary_properties": {"$set": {"email": "buyer@example.com"}, "$unset": ["old_property"]},
+                "properties_null_keys": ["coupon", "cart.note", "$feature_flags.retired-flag"],
+                "temporary_properties_null_keys": ["$set.phone", "$set_once.referrer", "$group_set.owner"],
+                "person_properties_null_keys": ["nickname"],
             }
             await client.execute_query(
                 "INSERT INTO events_json FORMAT JSONEachRow\n"
@@ -856,7 +874,10 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
                         interval_end="2024-01-02 00:00:00",
                         include_events=["purchase"],
                         fields=fields
-                        + [{"expression": key, "alias": key} for key in ("properties", "person_properties", "set")],
+                        + [
+                            {"expression": key, "alias": key}
+                            for key in ("properties", "person_properties", "set", "set_once", "unset", "group_set")
+                        ],
                         filters_str=predicate,
                         extra_query_parameters=values,
                         is_backfill=True,
@@ -880,8 +901,14 @@ async def test_custom_export_backfill_runs_without_legacy_events_tables(
             assert exported_properties["$feature/named-false"] == "false"
             assert exported_properties["$feature/named-true"] == "true"
             assert exported_properties["$active_feature_flags"] == ["named-false", "named-true", "some-feature"]
-            assert json.loads(rows[0]["person_properties"])["email"] == "buyer@example.com"
+            assert exported_properties["cart"] == {"items": 2}
+            assert "coupon" not in exported_properties
+            assert "$feature/retired-flag" not in exported_properties
+            assert json.loads(rows[0]["person_properties"]) == {"email": "buyer@example.com"}
             assert json.loads(rows[0]["set"]) == {"email": "buyer@example.com"}
+            assert rows[0]["set_once"] is None
+            assert json.loads(rows[0]["unset"]) == ["old_property"]
+            assert rows[0]["group_set"] is None
             assert rows[0]["_inserted_at"] == dt.datetime(2024, 1, 1, 12, tzinfo=dt.UTC)
     finally:
         await clickhouse_client.execute_query(f"DROP DATABASE {database}")

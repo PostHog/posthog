@@ -21,6 +21,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 import { urlToResource } from 'scenes/urls'
 
+import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
 import {
     ArtifactContentType,
@@ -28,7 +29,6 @@ import {
     VisualizationArtifactContent,
 } from '~/queries/schema/schema-assistant-messages'
 import { DataVisualizationNode, InsightVizNode, NodeKind, QuerySchemaRoot } from '~/queries/schema/schema-general'
-import { isDataVisualizationNode, isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeType } from '../types'

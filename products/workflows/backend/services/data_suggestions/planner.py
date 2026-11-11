@@ -123,6 +123,8 @@ class IdeaContext:
     stages: dict[str, LifecycleStage]
     channels: frozenset[Channel]
     has_slack: bool
+    # The team picked these events itself, so each one gets an email workflow instead of the best few.
+    picked_events: bool = False
     mobile_first: bool = False
 
 
@@ -134,6 +136,7 @@ class StepsContext:
     events: tuple[str, ...]
     channels: frozenset[Channel]
     has_slack: bool
+    picked_events: bool = False
     # The trigger event's own properties, like a product name or an amount, that an email can show.
     event_properties: tuple[str, ...] = ()
     # Person properties with few values, like a plan or a status, that a branch can split on.
@@ -161,13 +164,26 @@ _REVENUE_RULE = (
 
 _COPY_RULES = "Write plain, friendly copy in sentence case. No emojis, no em dashes, no placeholders like [Name], no template tags."
 
+_SUGGEST_TASK = (
+    "Suggest up to 6 workflows the project does not have yet. Each one starts when one of the project's events happens."
+)
+
+_PICKED_EVENTS_TASK = (
+    "The team was about to send these events to an email tool. Suggest one email workflow for each event, "
+    "so the team can send those emails from PostHog instead."
+)
+
+_SUGGEST_FOCUS = f"- {_ONBOARDING_RULE}\n- {_REVENUE_RULE}"
+
+# The team already picked the events, so there is nothing left to rank.
+_PICKED_EVENTS_FOCUS = "- Each workflow sends at least one email."
+
 _IDEAS_PROMPT = f"""You suggest marketing and automation workflows for a product team using PostHog Workflows.
-Suggest up to 6 workflows the project does not have yet. Each one starts when one of the project's events happens.
+{{task}}
 
 Rules:
 - trigger_event must be copied exactly from the event list.
-- {_ONBOARDING_RULE}
-- {_REVENUE_RULE}
+{{focus_rules}}
 - Each idea must use a different trigger_event.
 - List the ideas best first. Within one lifecycle stage only the first idea is shown.
 - {{channel_rule}} {{slack_rule}}
@@ -227,10 +243,14 @@ def suggest_ideas(*, team: Team, user: User, context: IdeaContext, analytics_cli
         user=user,
         model=IDEAS_MODEL,
         effort="low",
-        feature="data_suggestion_ideas",
+        # A separate feature name keeps the destination build's model spend apart from the cards' in LLM analytics.
+        feature="destination_workflow_ideas" if context.picked_events else "data_suggestion_ideas",
         schema=WorkflowIdeas,
         system=_IDEAS_PROMPT.format(
-            channel_rule=_channel_rule(context.channels, context.mobile_first), slack_rule=slack_rule
+            task=_PICKED_EVENTS_TASK if context.picked_events else _SUGGEST_TASK,
+            focus_rules=_PICKED_EVENTS_FOCUS if context.picked_events else _SUGGEST_FOCUS,
+            channel_rule=_channel_rule(context.channels, context.mobile_first),
+            slack_rule=slack_rule,
         ),
         excluded_values=_missing_channels(context.channels),
         # The prompt escapes `<` and `>` in event names, so the schema carries the exact names the model must return.
@@ -337,7 +357,7 @@ def plan_steps(
         user=user,
         model=PLANNER_MODEL,
         effort="medium",
-        feature="data_suggestion_steps",
+        feature="destination_workflow_steps" if context.picked_events else "data_suggestion_steps",
         schema=PlannedWorkflow,
         system=_STEPS_PROMPT.format(
             email_rule=email_rule,

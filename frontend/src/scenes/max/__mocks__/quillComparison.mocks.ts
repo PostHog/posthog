@@ -550,7 +550,7 @@ function dayLabel(day: string): string {
 
 function trendSeries(label: string, data: number[], breakdownValue?: string): Record<string, unknown> {
     return {
-        action: { id: 'account created', type: 'events', order: 0, name: 'account created', properties: {} },
+        order: 0,
         label,
         count: data.reduce((sum, value) => sum + value, 0),
         data,

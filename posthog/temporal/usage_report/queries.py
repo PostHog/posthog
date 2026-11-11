@@ -41,12 +41,13 @@ canonical reference.
 import dataclasses
 from collections.abc import Callable
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from django.db.models import Count
 
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
+    TeamUsageRows,
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
@@ -59,6 +60,8 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
+    get_teams_with_business_knowledge_usage_in_period,
+    get_teams_with_dashboard_count,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
@@ -73,6 +76,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
+    get_teams_with_mcp_event_count_in_period,
     get_teams_with_metrics_usage_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
@@ -81,17 +85,20 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_replay_vision_observation_count_in_period,
+    get_teams_with_replay_vision_spend_projection,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
     get_teams_with_signals_credits_used_in_period,
+    get_teams_with_signals_spend_credits_used_in_period,
     get_teams_with_survey_responses_count_in_period,
     get_teams_with_task_sandbox_usage_in_period,
+    get_teams_with_workflow_transactional_emails_sent_in_period,
     get_teams_with_zero_duration_recording_count_in_period,
 )
 from posthog.usage_counters import UsageCounter, UsageCounterService
 
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.enums import DashboardUsageCount
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -107,38 +114,26 @@ def _group_types_total() -> list[dict[str, int]]:
 
 
 def _dashboard_count() -> list[dict[str, int]]:
-    return list(Dashboard.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return get_teams_with_dashboard_count(DashboardUsageCount.ALL)
 
 
 def _dashboard_template_count() -> list[dict[str, int]]:
-    return list(
-        Dashboard.objects.filter(creation_mode="template")
-        .values("team_id")
-        .annotate(total=Count("id"))
-        .order_by("team_id")
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.FROM_TEMPLATE)
 
 
 def _dashboard_shared_count() -> list[dict[str, int]]:
-    return list(
-        Dashboard.objects.filter(sharingconfiguration__enabled=True)
-        .values("team_id")
-        .annotate(total=Count("id"))
-        .order_by("team_id")
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.SHARED)
 
 
 def _dashboard_tagged_count() -> list[dict[str, int]]:
-    return list(
-        Dashboard.objects.filter(tagged_items__isnull=False)
-        .values("team_id")
-        .annotate(total=Count("id"))
-        .order_by("team_id")
-    )
+    return get_teams_with_dashboard_count(DashboardUsageCount.TAGGED)
 
 
 def _ff_count() -> list[dict[str, int]]:
-    return list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(FeatureFlag.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _ff_active_count() -> list[dict[str, int]]:
@@ -148,16 +143,24 @@ def _ff_active_count() -> list[dict[str, int]]:
 
 
 def _survey_count() -> list[dict[str, int]]:
-    return list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]], list(Survey.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    )
 
 
 def _replay_vision_scanner_count() -> list[dict[str, int]]:
-    return list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id"))
+    return cast(
+        list[dict[str, int]],
+        list(ReplayScanner.objects.values("team_id").annotate(total=Count("id")).order_by("team_id")),
+    )
 
 
 def _replay_vision_scanner_active_count() -> list[dict[str, int]]:
-    return list(
-        ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+    return cast(
+        list[dict[str, int]],
+        list(
+            ReplayScanner.objects.filter(enabled=True).values("team_id").annotate(total=Count("id")).order_by("team_id")
+        ),
     )
 
 
@@ -214,6 +217,22 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
     }
 
 
+def _replay_vision_spend_projection(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    projection = get_teams_with_replay_vision_spend_projection(begin, end)
+    return {
+        "scanner_credits": projection.scanner_credits,
+        "backfill_credits": projection.backfill_credits,
+    }
+
+
+def _business_knowledge_usage(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    usage = get_teams_with_business_knowledge_usage_in_period(begin, end)
+    return {
+        "chunks": usage.chunks,
+        "queries": usage.queries,
+    }
+
+
 def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
     return {
@@ -263,6 +282,11 @@ QUERIES: list[QuerySpec] = [
         timeout_minutes=30,
     ),
     QuerySpec(
+        name="teams_with_mcp_event_count_in_period",
+        fn=get_teams_with_mcp_event_count_in_period,
+        timeout_minutes=30,
+    ),
+    QuerySpec(
         name="all_event_metrics",
         fn=get_all_event_metrics_in_period,
         output="multi",
@@ -307,6 +331,7 @@ QUERIES: list[QuerySpec] = [
             "ruby_events": "teams_with_ruby_events_count_in_period",
             "python_events": "teams_with_python_events_count_in_period",
             "php_events": "teams_with_php_events_count_in_period",
+            "laravel_events": "teams_with_laravel_events_count_in_period",
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
@@ -363,6 +388,12 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_local_evaluation_requests_count_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_REQUESTS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_local_evaluation_not_modified_requests_count_in_period",
+        fn=lambda b, e: UsageCounterService().get_legacy(
+            UsageCounter.FEATURE_FLAG_LOCAL_EVALUATION_NOT_MODIFIED_REQUESTS, b, e
+        ),
     ),
     # ---- ClickHouse: query metrics -------------------------------------------
     QuerySpec(
@@ -501,6 +532,10 @@ QUERIES: list[QuerySpec] = [
         fn=get_teams_with_signals_credits_used_in_period,
     ),
     QuerySpec(
+        name="teams_with_signals_spend_credits_used_in_period",
+        fn=get_teams_with_signals_spend_credits_used_in_period,
+    ),
+    QuerySpec(
         name="teams_with_posthog_code_credits_used_in_period",
         fn=get_teams_with_posthog_code_credits_used_in_period,
     ),
@@ -525,10 +560,24 @@ QUERIES: list[QuerySpec] = [
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
         },
     ),
+    # ---- Postgres: business knowledge usage ledger --------------------------
+    QuerySpec(
+        name="business_knowledge_usage",
+        fn=_business_knowledge_usage,
+        output="multi",
+        multi_keys_mapping={
+            "chunks": "teams_with_business_knowledge_chunks_in_period",
+            "queries": "teams_with_business_knowledge_queries_in_period",
+        },
+    ),
     # ---- ClickHouse: workflows / messaging ----------------------------------
     QuerySpec(
         name="teams_with_workflow_emails_sent_in_period",
         fn=lambda b, e: UsageCounterService().get_legacy(UsageCounter.WORKFLOW_EMAILS, b, e),
+    ),
+    QuerySpec(
+        name="teams_with_workflow_transactional_emails_sent_in_period",
+        fn=get_teams_with_workflow_transactional_emails_sent_in_period,
     ),
     QuerySpec(
         name="teams_with_workflow_push_sent_in_period",
@@ -707,6 +756,16 @@ QUERIES: list[QuerySpec] = [
         fn=_replay_vision_scanner_active_count,
         timeout_minutes=5,
         kind="snapshot",
+    ),
+    QuerySpec(
+        name="replay_vision_spend_projection",
+        fn=_replay_vision_spend_projection,
+        timeout_minutes=5,
+        output="multi",
+        multi_keys_mapping={
+            "scanner_credits": "teams_with_replay_vision_scanner_projected_credits",
+            "backfill_credits": "teams_with_replay_vision_backfill_committed_credits",
+        },
     ),
     QuerySpec(
         name="teams_with_issues_created_total",

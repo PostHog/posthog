@@ -3,6 +3,8 @@ import { MakeLogicType, actions, connect, kea, key, listeners, path, props, redu
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
+import { formatEventName } from 'lib/insights/entityFilterNames'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { average, percentage, sum } from 'lib/utils/numbers'
@@ -21,9 +23,7 @@ import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import type { QuerySourceUpdate } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
-    formatEventName,
     getFunnelDatasetKey,
     getFunnelDatasetPosition,
     getFunnelResultCustomization,
@@ -31,6 +31,8 @@ import {
 } from 'scenes/insights/utils'
 
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } from '~/queries/nodes/InsightViz/queryUtils'
+import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/schema/node-guards'
 import { FunnelExclusion, FunnelExclusionEventsNode, FunnelExclusionSteps } from '~/queries/schema/schema-general'
 import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import type {
@@ -52,10 +54,8 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
-    EntityType,
     FunnelConversionWindow,
     FunnelConversionWindowTimeUnit,
     FunnelResultType,
@@ -91,8 +91,6 @@ import {
     isBreakdownFunnelResults,
     isFunnelStepsBreakdownCompareResult,
     isFunnelStepsCompareResult,
-    isFunnelWithEnoughSteps,
-    isFunnelWithIncompleteDataWarehouseStep,
     stepsWithConversionMetrics,
 } from './funnelUtils'
 
@@ -213,7 +211,7 @@ function resolveSeriesCustomName(node: FunnelsQuerySeriesNodeUnion, rawLabel: st
  */
 function describesStep(node: FunnelsQuerySeriesNodeUnion, step: FunnelStepWithNestedBreakdown): boolean {
     if (node.kind === NodeKind.EventsNode) {
-        return step.action_id === (node.event ?? null)
+        return step.name === (node.event ?? null)
     }
     if (node.kind === NodeKind.FunnelsDataWarehouseNode) {
         return step.name === node.table_name
@@ -223,10 +221,10 @@ function describesStep(node: FunnelsQuerySeriesNodeUnion, step: FunnelStepWithNe
 
 /**
  * Cached results carry the step names from the run that produced them, so a step renamed since then
- * renders under its old label. Mirrors `_apply_funnels_custom_names` in `query_runner.py`, which the
+ * renders under its old label. Mirrors `_apply_custom_names_by_order` in `query_runner.py`, which the
  * stored-result path bypasses: the query wins in both directions. A cleared `custom_name` falls back
  * to a `name` override, and blanks the label only when `name` matches the raw key. The `name` half is
- * a widening `_apply_funnels_custom_names` does not yet share, so backend-rendered surfaces — CSV
+ * a widening `_apply_custom_names_by_order` does not yet share, so backend-rendered surfaces — CSV
  * exports and API consumers reading `results[].custom_name` — keep the raw label until it does.
  * Unordered funnels are exempt because they label steps by position, not by series.
  */
@@ -316,7 +314,6 @@ export interface funnelDataLogicValues {
     histogramGraphDataPrevious: HistogramGraphDatum[] | null
     incompletenessOffsetFromEnd: number
     indexedSteps: {
-        action_id: string
         average_conversion_time: number | null
         breakdown?: BreakdownKeyType | undefined
         breakdown_value?: BreakdownKeyType | undefined
@@ -338,7 +335,6 @@ export interface funnelDataLogicValues {
         order: number
         people?: string[] | undefined
         seriesIndex: number
-        type: EntityType
     }[]
     isBreakdownCompareFunnel: boolean
     isComparedFunnel: boolean
@@ -550,7 +546,6 @@ export interface funnelDataLogicMeta {
         advancedOptionsUsedCount: (funnelsFilter: FunnelsFilter | null | undefined) => number
         isSkewed: (conversionMetrics: FunnelTimeConversionMetrics, skewWarningHidden: boolean) => boolean
         indexedSteps: (steps: FunnelStepWithNestedBreakdown[]) => {
-            action_id: string
             average_conversion_time: number | null
             breakdown?: BreakdownKeyType | undefined
             breakdown_value?: BreakdownKeyType | undefined
@@ -572,7 +567,6 @@ export interface funnelDataLogicMeta {
             order: number
             people?: string[] | undefined
             seriesIndex: number
-            type: EntityType
         }[]
         getFunnelsColorToken: (
             resultCustomizations: Record<string, ResultCustomizationByValue> | undefined,
@@ -911,17 +905,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                     // Same override rule the loaded steps use, so the label does not change on load.
                     const customName = resolveSeriesCustomName(node, rawLabel)
                     return {
-                        action_id:
-                            node.kind === NodeKind.ActionsNode
-                                ? String(node.id)
-                                : node.kind === NodeKind.EventsNode
-                                  ? (node.event ?? '')
-                                  : '',
                         name: customName || rawLabel || '',
                         custom_name: customName,
                         order: index,
                         count: 0,
-                        type: (node.kind === NodeKind.ActionsNode ? 'actions' : 'events') as EntityType,
                         average_conversion_time: null,
                         median_conversion_time: null,
                         converted_people_url: '',

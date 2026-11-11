@@ -15,6 +15,7 @@ from products.workflows.backend.presentation.views.workflow_data_suggestions imp
     DataSuggestionsStatus as DataSuggestionsStatusChoices,
     DataSuggestionStage,
     DataSuggestionStepKind,
+    EventWorkflowsBuildRequestSerializer,
 )
 from products.workflows.backend.services.data_suggestions.builder import (
     PUSH_SETUP_NOTE,
@@ -105,6 +106,12 @@ def edges(built: Any) -> list[tuple]:
 
 
 class TestDataSuggestions(SimpleTestCase):
+    def test_picked_event_names_keep_their_whitespace(self) -> None:
+        payload = EventWorkflowsBuildRequestSerializer(data={"events": [" signed up "]})
+
+        assert payload.is_valid(), payload.errors
+        assert payload.validated_data["events"] == [" signed up "]
+
     def test_email_escapes_copy_and_carries_an_editor_design(self) -> None:
         email = render_email(EmailCopy(subject="Hi", heading="<script>x</script>", paragraphs=("a & b",)))
         assert "<script>" not in email.html

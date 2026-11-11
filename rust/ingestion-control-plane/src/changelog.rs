@@ -5,16 +5,18 @@ use assignment_coordination::store::{EtcdStore, StoreConfig};
 use etcd_client::Client;
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::types::{
-    ChangelogConfig, ChangelogTarget, MigrationPhase, MigrationRequest, MigrationState,
+    ChangelogConfig, ChangelogTarget, ClusterEndpoint, MigrationPhase, MigrationRequest,
+    MigrationState,
 };
 use rdkafka::consumer::Consumer;
 use serde::Serialize;
 
+use crate::backup::{self, BackupStore, BackupVersion};
 use crate::config::Config;
 use crate::kafka::client::{base_client_config, metadata_consumer};
 use crate::kafka::lag::{scan_group_lag, ConsumerTarget};
 
-fn store(client: &Client, prefix: &str) -> PersonhogStore {
+pub(crate) fn store(client: &Client, prefix: &str) -> PersonhogStore {
     PersonhogStore::new(EtcdStore::from_client(
         client.clone(),
         StoreConfig {
@@ -57,19 +59,125 @@ pub async fn seed(
     prefix: &str,
     topic: &str,
     writer_group: &str,
+    cluster: Option<&str>,
 ) -> anyhow::Result<ChangelogConfig> {
-    let config = &config.personhog_kafka();
-    let partitions = topic_partition_count(config, topic).await?;
+    let cluster = seed_cluster(config, cluster)?;
+    let partitions =
+        topic_partition_count(&config.changelog_kafka(cluster.as_ref()), topic).await?;
     let created = store(client, prefix)
-        .seed_changelog_config(topic, partitions, writer_group)
+        .seed_changelog_config_on(topic, partitions, writer_group, cluster.clone())
         .await?;
     if !created {
         bail!("config/changelog is already seeded; only a migration may move it");
     }
     Ok(ChangelogConfig {
         writer_group: writer_group.to_string(),
+        cluster,
         ..ChangelogConfig::new(topic, partitions)
     })
+}
+
+/// The cluster a seed records. With `CHANGELOG_KAFKA_CLUSTERS` set, a seed must name one,
+/// because a config without a cluster sends every service to its own `KAFKA_HOSTS`.
+fn seed_cluster(
+    config: &Config,
+    requested: Option<&str>,
+) -> anyhow::Result<Option<ClusterEndpoint>> {
+    if let Some(name) = requested {
+        return Ok(Some(config.changelog_cluster(name)?));
+    }
+    let names = config.changelog_cluster_names()?;
+    if !names.is_empty() {
+        bail!(
+            "name the cluster to seed on; CHANGELOG_KAFKA_CLUSTERS lists {}",
+            names.join(", ")
+        );
+    }
+    Ok(None)
+}
+
+pub async fn record_cluster(
+    client: &Client,
+    prefix: &str,
+    cluster: &ClusterEndpoint,
+) -> anyhow::Result<bool> {
+    let store = store(client, prefix);
+    let Some((live, mod_revision)) = store.get_changelog_config_with_mod_revision().await? else {
+        return Ok(false);
+    };
+    Ok(store
+        .set_changelog_cluster(&live, mod_revision, cluster)
+        .await?)
+}
+
+pub async fn backups(
+    backups: &dyn BackupStore,
+    prefix: &str,
+) -> anyhow::Result<Vec<BackupVersion>> {
+    backups.versions(&backup::object_key(prefix)).await
+}
+
+#[derive(Debug)]
+pub enum RestoreError {
+    NotFound(String),
+    Refused(String),
+    Upstream(anyhow::Error),
+}
+
+impl From<anyhow::Error> for RestoreError {
+    fn from(error: anyhow::Error) -> Self {
+        Self::Upstream(error)
+    }
+}
+
+pub async fn restore(
+    config: &Config,
+    client: &Client,
+    prefix: &str,
+    backups: &dyn BackupStore,
+    version_id: Option<&str>,
+) -> Result<ChangelogConfig, RestoreError> {
+    let key = backup::object_key(prefix);
+    let object = backups.get(&key, version_id).await?.ok_or_else(|| {
+        RestoreError::NotFound(match version_id {
+            Some(version) => format!("no backup version {version} of {key}"),
+            None => format!("no backup at {key}"),
+        })
+    })?;
+    let value =
+        backup::unwrap_config(&object.body).map_err(|e| RestoreError::Refused(format!("{e:#}")))?;
+    let restored: ChangelogConfig = serde_json::from_slice(&value)
+        .map_err(|e| RestoreError::Refused(format!("the backup is not a changelog config: {e}")))?;
+    let live_partitions = topic_partition_count(
+        &config.changelog_kafka(restored.cluster.as_ref()),
+        &restored.topic,
+    )
+    .await?;
+    apply_restore(&store(client, prefix), &value, restored, live_partitions).await
+}
+
+async fn apply_restore(
+    store: &PersonhogStore,
+    value: &[u8],
+    restored: ChangelogConfig,
+    live_partitions: u32,
+) -> Result<ChangelogConfig, RestoreError> {
+    if live_partitions != restored.partitions {
+        return Err(RestoreError::Refused(format!(
+            "topic {} has {live_partitions} partitions but the backup records {}; the backup may be from another environment",
+            restored.topic, restored.partitions
+        )));
+    }
+    let created = store
+        .restore_changelog_config_raw(value)
+        .await
+        .map_err(|e| RestoreError::Upstream(e.into()))?;
+    if !created {
+        return Err(RestoreError::Refused(
+            "config/changelog already exists; restore only rebuilds an empty etcd".to_string(),
+        ));
+    }
+    Ok(restored)
 }
 
 #[derive(Serialize)]
@@ -92,6 +200,8 @@ pub struct ChangelogView {
     pub request: Option<MigrationRequest>,
     pub history: Vec<MigrationState>,
     pub draining: Vec<DrainingView>,
+    pub clusters: Vec<String>,
+    pub cross_cluster_migrations: bool,
 }
 
 #[derive(Serialize)]
@@ -110,6 +220,7 @@ pub struct DrainingView {
     pub topic: String,
     pub partitions: u32,
     pub epoch: u64,
+    pub cluster: Option<String>,
     pub writer: GroupDrain,
     pub retire_groups: Vec<GroupDrain>,
 }
@@ -182,9 +293,10 @@ pub async fn retire(
         .get_changelog_config_with_mod_revision()
         .await?
         .context("config/changelog is not seeded")?;
-    if !live.draining.iter().any(|g| g.topic == topic) {
+    let Some(generation) = live.draining.iter().find(|g| g.topic == topic) else {
         bail!("{topic} is not a draining generation");
-    }
+    };
+    let config = &config.changelog_kafka(generation.cluster.as_ref());
     if let Some(migration) = store.get_migration().await? {
         bail!(
             "migration {} is {:?}; retire once it completes",
@@ -226,8 +338,8 @@ pub async fn start_migration(
     client: &Client,
     prefix: &str,
     topic: &str,
+    cluster: Option<&str>,
 ) -> anyhow::Result<MigrationRequest> {
-    let config = &config.personhog_kafka();
     let store = store(client, prefix);
     let live = store
         .get_changelog_config()
@@ -236,12 +348,22 @@ pub async fn start_migration(
     if live.topic == topic {
         bail!("{topic} is already the live changelog");
     }
-    let partitions = topic_partition_count(config, topic).await?;
+    let requested = cluster
+        .map(|name| config.changelog_cluster(name))
+        .transpose()?;
+    let cluster = target_cluster(
+        live.cluster.as_ref(),
+        requested,
+        config.personhog_cross_cluster_migrations,
+    )?;
+    let partitions =
+        topic_partition_count(&config.changelog_kafka(cluster.as_ref()), topic).await?;
     let now_ms = assignment_coordination::util::now_millis();
     let request = MigrationRequest {
         id: format!("m-{now_ms}"),
         from: live.target(),
         to: ChangelogTarget {
+            cluster,
             topic: topic.to_string(),
             partitions,
         },
@@ -253,6 +375,27 @@ pub async fn start_migration(
         bail!("a migration is already requested or in flight");
     }
     Ok(request)
+}
+
+/// Another cluster needs the switch, because an older router drops the cluster at the flip
+/// and an older leader, writer or relay ignores it.
+fn target_cluster(
+    live: Option<&ClusterEndpoint>,
+    requested: Option<ClusterEndpoint>,
+    cross_cluster_allowed: bool,
+) -> anyhow::Result<Option<ClusterEndpoint>> {
+    let Some(requested) = requested else {
+        return Ok(live.cloned());
+    };
+    let Some(live) = live else {
+        bail!("the live changelog records no cluster; list the cluster PERSONHOG_KAFKA_HOSTS names in CHANGELOG_KAFKA_CLUSTERS and restart the control plane");
+    };
+    if requested != *live && !cross_cluster_allowed {
+        bail!(
+            "moving the changelog to another cluster is off; enable PERSONHOG_CROSS_CLUSTER_MIGRATIONS once every personhog leader, writer, relay and router reads the cluster"
+        );
+    }
+    Ok(Some(requested))
 }
 
 const WITHDRAW_ATTEMPTS: usize = 5;
@@ -321,7 +464,6 @@ pub async fn cancel_migration(
 }
 
 pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Result<ChangelogView> {
-    let config = &config.personhog_kafka();
     let store = store(client, prefix);
     let changelog = store.get_changelog_config().await?;
     let migration = store.get_migration().await?;
@@ -334,40 +476,41 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
     let mut draining = Vec::new();
     if let Some(changelog) = &changelog {
         let reports = store.list_drain_reports().await?;
-        let drain = |group: &str, topic: &str| {
+        let drain = |kafka: &Config, group: &str, topic: &str| {
             let reported = reports.iter().any(|r| r.group == group && r.topic == topic);
-            let (group, topic) = (group.to_string(), topic.to_string());
+            let (kafka, group, topic) = (kafka.clone(), group.to_string(), topic.to_string());
             async move {
                 GroupDrain {
                     reported,
-                    ..group_drain(config, &group, &topic).await
+                    ..group_drain(&kafka, &group, &topic).await
                 }
             }
         };
         for generation in &changelog.draining {
+            let kafka = config.changelog_kafka(generation.cluster.as_ref());
             draining.push(DrainingView {
                 topic: generation.topic.clone(),
                 partitions: generation.partitions,
                 epoch: generation.epoch,
-                writer: drain(&changelog.writer_group, &generation.topic).await,
+                cluster: generation.cluster.as_ref().map(|c| c.name.clone()),
+                writer: drain(&kafka, &changelog.writer_group, &generation.topic).await,
                 retire_groups: {
                     let mut drains = Vec::new();
                     for group in &changelog.retire_groups {
-                        drains.push(drain(group, &generation.topic).await);
+                        drains.push(drain(&kafka, group, &generation.topic).await);
                     }
                     drains
                 },
             });
         }
     }
-    let writer = match &changelog {
-        Some(changelog) => Some(group_lag(config, &changelog.writer_group, &changelog.topic).await),
-        None => None,
-    };
+    let mut writer = None;
     let mut retire_groups = Vec::new();
     if let Some(changelog) = &changelog {
+        let kafka = config.changelog_kafka(changelog.cluster.as_ref());
+        writer = Some(group_lag(&kafka, &changelog.writer_group, &changelog.topic).await);
         for group in &changelog.retire_groups {
-            retire_groups.push(group_lag(config, group, &changelog.topic).await);
+            retire_groups.push(group_lag(&kafka, group, &changelog.topic).await);
         }
     }
     Ok(ChangelogView {
@@ -378,6 +521,8 @@ pub async fn view(config: &Config, client: &Client, prefix: &str) -> anyhow::Res
         request,
         history,
         draining,
+        clusters: config.changelog_cluster_names()?,
+        cross_cluster_migrations: config.personhog_cross_cluster_migrations,
     })
 }
 
@@ -403,5 +548,114 @@ async fn group_lag(config: &Config, group: &str, topic: &str) -> GroupLag {
             max_partition_lag: 0,
             error: Some(format!("{e:#}")),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backup::tests::test_etcd;
+
+    #[test]
+    fn a_migration_keeps_the_live_cluster_unless_another_is_allowed() {
+        let endpoint = |name: &str| ClusterEndpoint {
+            name: name.to_string(),
+            hosts: format!("{name}:9092"),
+            tls: false,
+        };
+        let live = endpoint("ingestion");
+        assert_eq!(
+            target_cluster(Some(&live), None, false).unwrap(),
+            Some(live.clone())
+        );
+        assert_eq!(target_cluster(None, None, false).unwrap(), None);
+        assert!(target_cluster(Some(&live), Some(endpoint("dedicated")), false).is_err());
+        assert_eq!(
+            target_cluster(Some(&live), Some(endpoint("dedicated")), true).unwrap(),
+            Some(endpoint("dedicated"))
+        );
+        assert!(target_cluster(None, Some(endpoint("dedicated")), true).is_err());
+    }
+
+    #[test]
+    fn a_seed_names_its_cluster_once_clusters_are_listed() {
+        let mut config = Config::init_with_defaults().expect("config defaults are valid");
+        assert_eq!(seed_cluster(&config, None).unwrap(), None);
+
+        config.changelog_kafka_clusters =
+            r#"{"dedicated": {"hosts": "d:9092", "tls": true}}"#.to_string();
+        assert!(seed_cluster(&config, None).is_err());
+        assert_eq!(
+            seed_cluster(&config, Some("dedicated")).unwrap(),
+            Some(config.changelog_cluster("dedicated").unwrap())
+        );
+        assert!(seed_cluster(&config, Some("unknown")).is_err());
+    }
+
+    async fn empty_store(name: &str) -> PersonhogStore {
+        let (etcd, prefix) = test_etcd(name).await;
+        store(&etcd.client().await.unwrap(), &prefix)
+    }
+
+    fn backed_up(partitions: u32) -> (Vec<u8>, ChangelogConfig) {
+        // A field this build does not know must survive the round trip.
+        let value = format!(
+            r#"{{"topic":"personhog_updates_64","partitions":{partitions},"epoch":4,"writer_group":"personhog-writer","draining":[],"future_field":"kept"}}"#
+        )
+        .into_bytes();
+        let parsed = serde_json::from_slice(&value).unwrap();
+        (value, parsed)
+    }
+
+    #[tokio::test]
+    async fn restore_writes_the_backed_up_bytes_into_an_empty_etcd() {
+        let store = empty_store("restore-empty").await;
+        let (value, parsed) = backed_up(64);
+
+        let restored = apply_restore(&store, &value, parsed, 64).await.unwrap();
+
+        assert_eq!(restored.epoch, 4);
+        let (stored, _) = store
+            .get_changelog_config_raw_with_revision()
+            .await
+            .unwrap();
+        assert_eq!(stored.unwrap(), value);
+    }
+
+    #[tokio::test]
+    async fn restore_refuses_a_seeded_etcd() {
+        let store = empty_store("restore-seeded").await;
+        assert!(store
+            .seed_changelog_config("personhog_updates_64", 64, "personhog-writer")
+            .await
+            .unwrap());
+        let (value, parsed) = backed_up(64);
+
+        let refused = apply_restore(&store, &value, parsed, 64).await;
+
+        assert!(
+            matches!(refused, Err(RestoreError::Refused(ref m)) if m.contains("already exists")),
+            "{refused:?}"
+        );
+        let current = store.get_changelog_config().await.unwrap().unwrap();
+        assert_eq!(current.epoch, 1, "the seeded config is untouched");
+    }
+
+    #[tokio::test]
+    async fn restore_refuses_a_backup_whose_partitions_do_not_match_the_topic() {
+        let store = empty_store("restore-mismatch").await;
+        let (value, parsed) = backed_up(128);
+
+        let refused = apply_restore(&store, &value, parsed, 64).await;
+
+        assert!(
+            matches!(refused, Err(RestoreError::Refused(ref m)) if m.contains("another environment")),
+            "{refused:?}"
+        );
+        let (stored, _) = store
+            .get_changelog_config_raw_with_revision()
+            .await
+            .unwrap();
+        assert!(stored.is_none(), "nothing is written");
     }
 }

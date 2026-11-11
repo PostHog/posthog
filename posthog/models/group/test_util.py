@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.constants import GroupTypeIndex
 from posthog.models.group.util import (
     create_group,
     get_group_by_key,

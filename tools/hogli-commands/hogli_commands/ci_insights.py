@@ -246,6 +246,38 @@ class _RunFailureLogs(TypedDict):
     truncated: bool
 
 
+class _PRLLMSpend(TypedDict):
+    cost_usd: float
+    input_tokens: int
+    output_tokens: int
+    generations: int
+    cache_read_input_tokens: int
+    cache_creation_input_tokens: int
+    peak_context_tokens: int
+
+
+class _AuthorPRLLMSpend(TypedDict):
+    number: int
+    title: str
+    state: str
+    head_branch: str
+    created_at: str
+    llm_spend: _PRLLMSpend | None
+
+
+class _AuthorLLMSpendList(TypedDict):
+    items: list[_AuthorPRLLMSpend]
+    truncated: bool
+    limit: int
+
+
+class _LLMSpendCoverage(TypedDict):
+    cost_usd: float
+    attributed_cost_usd: float
+    generations: int
+    attributed_generations: int
+
+
 def _invalid_payload(action: str, path: str, expected: str) -> NoReturn:
     raise _ApiError(f"{action} returned an invalid payload: {path} must be {expected}.")
 
@@ -292,6 +324,10 @@ def _validate_payload(value: object, expected: object, action: str, path: str = 
         if type(value) is not bool:
             _invalid_payload(action, path, "a boolean")
         return
+    if expected is float:
+        if type(value) not in {int, float}:
+            _invalid_payload(action, path, "a number")
+        return
     if expected is str:
         if not isinstance(value, str):
             _invalid_payload(action, path, "a string")
@@ -335,6 +371,16 @@ def _parse_branch_matches(value: object, action: str) -> list[_BranchPRMatch]:
 def _parse_run_failure_logs(value: object, action: str) -> _RunFailureLogs:
     _validate_payload(value, _RunFailureLogs, action)
     return cast(_RunFailureLogs, value)
+
+
+def _parse_author_llm_spend(value: object, action: str) -> _AuthorLLMSpendList:
+    _validate_payload(value, _AuthorLLMSpendList, action)
+    return cast(_AuthorLLMSpendList, value)
+
+
+def _parse_llm_spend_coverage(value: object, action: str) -> _LLMSpendCoverage:
+    _validate_payload(value, _LLMSpendCoverage, action)
+    return cast(_LLMSpendCoverage, value)
 
 
 def _terminal_text(value: object) -> str:
@@ -490,6 +536,14 @@ class _Api:
     def run_failure_logs(self, *, run_id: int) -> _RunFailureLogs:
         action = "run_failure_logs"
         return _parse_run_failure_logs(self._get(action, run_id=run_id), action)
+
+    def author_llm_spend(self, *, author: str, days: int, limit: int) -> _AuthorLLMSpendList:
+        action = "author_llm_spend"
+        return _parse_author_llm_spend(self._get(action, author=author, date_from=f"-{days}d", limit=limit), action)
+
+    def llm_spend_coverage(self, *, days: int) -> _LLMSpendCoverage:
+        action = "llm_spend_coverage"
+        return _parse_llm_spend_coverage(self._get(action, date_from=f"-{days}d"), action)
 
 
 def _git(*args: str) -> str | None:

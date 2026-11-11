@@ -10,10 +10,25 @@ import { SeriesActionFilter } from 'scenes/insights/filters/ActionFilter/ActionF
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/types'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayCategory, type Experiment } from '~/types'
+import {
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { ChartDisplayCategory, type Experiment, type FeatureFlagBasicType } from '~/types'
 
+import { DefaultExposureEventNote } from 'products/experiments/frontend/components/DefaultExposureEventNote'
+import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
+import { WarehouseNativeExposureFields } from 'products/experiments/frontend/warehouseNative/WarehouseNativeExposureFields'
+import {
+    EMPTY_WAREHOUSE_NATIVE_BINDING,
+    type MetricDataSources,
+    getExposureSourceBlockedReasons,
+    getWarehouseNativeExposure,
+} from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import {
     EXPERIMENT_EXPOSURE_EVENT,
@@ -38,84 +53,122 @@ const DEFAULT_ACTIVATION_CONFIG: ExperimentEventExposureConfig = {
     properties: [],
 }
 
+const DEFAULT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG: ExperimentWarehouseNativeExposureConfig = {
+    kind: NodeKind.ExperimentWarehouseNativeExposureConfig,
+    ...EMPTY_WAREHOUSE_NATIVE_BINDING,
+    query: '',
+}
+
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
+    /** The flag the experiment runs on. A wizard draft keeps a linked flag outside `experiment`. */
+    featureFlag: Pick<FeatureFlagBasicType, 'filters'> | null
     onChange: (exposureCriteria: ExperimentExposureCriteria) => void
+    /** Which data sources the experiment's metrics read. The compact panel blocks an exposure of the other one. */
+    metricDataSources?: MetricDataSources
     compact?: boolean
 }
 
 function InclusionActionFilter({
     experiment,
+    groupTypeIndex,
+    defaultExposureEvent,
     onChange,
 }: {
     experiment: Experiment
+    groupTypeIndex: number | null | undefined
+    defaultExposureEvent: string
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <SeriesActionFilter
-            bordered
-            series={exposureConfigToSeries(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
-            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-            onChange={(series) => {
-                const exposureConfig = seriesToExposureConfig(series)
-                if (exposureConfig) {
-                    onChange({ exposure_config: exposureConfig })
-                }
-            }}
-            typeKey="experiment-exposure-config"
-            buttonCopy="Add exposure event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            {...commonActionFilterProps}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-        />
+        <div>
+            <SeriesActionFilter
+                bordered
+                series={exposureConfigToSeries(
+                    experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG
+                )}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                onChange={(series) => {
+                    const exposureConfig = seriesToExposureConfig(series)
+                    if (exposureConfig) {
+                        onChange({ exposure_config: exposureConfig })
+                    }
+                }}
+                typeKey="experiment-exposure-config"
+                buttonCopy="Add exposure event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                {...commonActionFilterProps}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <DefaultExposureEventNote
+                config={experiment.exposure_criteria?.exposure_config}
+                defaultExposureEvent={defaultExposureEvent}
+            />
+            <NegatedEventFilterNote
+                config={experiment.exposure_criteria?.exposure_config}
+                launched={isLaunched(experiment)}
+                groupTypeIndex={groupTypeIndex}
+            />
+        </div>
     )
 }
 
 function ActivationActionFilter({
     experiment,
+    groupTypeIndex,
     onChange,
 }: {
     experiment: Experiment
+    groupTypeIndex: number | null | undefined
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <SeriesActionFilter
-            bordered
-            series={exposureConfigToSeries(
-                experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
-            )}
-            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-            onChange={(series) => {
-                const activationConfig = seriesToExposureConfig(series)
-                if (activationConfig) {
-                    onChange({ activation_config: activationConfig })
-                }
-            }}
-            typeKey="experiment-activation-config"
-            buttonCopy="Add activation event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            {...commonActionFilterProps}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-        />
+        <div>
+            <SeriesActionFilter
+                bordered
+                series={exposureConfigToSeries(
+                    experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
+                )}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                onChange={(series) => {
+                    const activationConfig = seriesToExposureConfig(series)
+                    if (activationConfig) {
+                        onChange({ activation_config: activationConfig })
+                    }
+                }}
+                typeKey="experiment-activation-config"
+                buttonCopy="Add activation event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                {...commonActionFilterProps}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <NegatedEventFilterNote
+                config={experiment.exposure_criteria?.activation_config}
+                launched={isLaunched(experiment)}
+                groupTypeIndex={groupTypeIndex}
+            />
+        </div>
     )
 }
 
 function ExposureCriteriaFields({
     experiment,
+    groupTypeIndex,
     onChange,
     hasFilters,
     defaultExposureEvent,
     showActivationOption,
 }: {
     experiment: Experiment
+    groupTypeIndex: number | null | undefined
     onChange: ExposureCriteriaPanelProps['onChange']
     hasFilters: boolean
     defaultExposureEvent: string
@@ -169,7 +222,7 @@ function ExposureCriteriaFields({
                     description={
                         <>
                             Select a custom event to signal that users reached the part of your app where the experiment
-                            runs. You can also filter out users you would like to exclude.
+                            runs. You can also filter which events count as exposure.
                         </>
                     }
                     selected={isCustom}
@@ -188,12 +241,21 @@ function ExposureCriteriaFields({
 
             {isCustom && (
                 <div className="mb-4">
-                    <InclusionActionFilter experiment={experiment} onChange={onChange} />
+                    <InclusionActionFilter
+                        experiment={experiment}
+                        groupTypeIndex={groupTypeIndex}
+                        defaultExposureEvent={defaultExposureEvent}
+                        onChange={onChange}
+                    />
                 </div>
             )}
             {isActivation && (
                 <div className="mb-4">
-                    <ActivationActionFilter experiment={experiment} onChange={onChange} />
+                    <ActivationActionFilter
+                        experiment={experiment}
+                        groupTypeIndex={groupTypeIndex}
+                        onChange={onChange}
+                    />
                 </div>
             )}
 
@@ -244,14 +306,30 @@ function ExposureCriteriaFields({
     )
 }
 
-export function ExposureCriteriaPanel({ experiment, onChange, compact }: ExposureCriteriaPanelProps): JSX.Element {
+export function ExposureCriteriaPanel({
+    experiment,
+    featureFlag,
+    onChange,
+    metricDataSources,
+    compact,
+}: ExposureCriteriaPanelProps): JSX.Element {
+    const groupTypeIndex = featureFlag?.filters?.aggregation_group_type_index
     // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
     // still composes with activation, and the editor must classify it the way the backend does
     const isActivation = !!getActivationConfig(experiment.exposure_criteria)
-    const isCustom = !isActivation && !!experiment.exposure_criteria?.exposure_config
+    const warehouseExposure = getWarehouseNativeExposure(experiment.exposure_criteria)
+    const isCustom = !isActivation && !warehouseExposure && !!experiment.exposure_criteria?.exposure_config
     const activationEventEnabled = useFeatureFlag('EXPERIMENT_ACTIVATION_EVENT')
     // Keep an existing activation config editable even if the team is no longer flagged in
     const showActivationOption = activationEventEnabled || isActivation
+    const warehouseNativeEnabled = useFeatureFlag('BIGQUERY_DIRECT_QUERY')
+    // Keep an existing warehouse-native exposure editable even if the team is no longer flagged in
+    const showWarehouseNativeOption = warehouseNativeEnabled || !!warehouseExposure
+    const { warehouseNative: warehouseNativeBlockedReason, posthog: posthogBlockedReason } =
+        getExposureSourceBlockedReasons(
+            !!warehouseExposure,
+            metricDataSources ?? { warehouseNative: false, posthog: false }
+        )
     const experimentExposureEventEnabled = useFeatureFlag('EXPERIMENT_EXPOSURE_EVENT')
     const defaultExposureEvent = resolvedExposureEvent(
         experiment,
@@ -284,13 +362,30 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             size="small"
                             dropdownMatchSelectWidth={false}
                             dropdownPlacement="bottom-end"
-                            value={isCustom ? 'custom' : isActivation ? 'activation' : 'default'}
+                            value={
+                                warehouseExposure
+                                    ? 'warehouse_native'
+                                    : isCustom
+                                      ? 'custom'
+                                      : isActivation
+                                        ? 'activation'
+                                        : 'default'
+                            }
                             onChange={(value) => {
-                                // Re-selecting the current mode must not reset a configured event
-                                if ((value === 'custom' && isCustom) || (value === 'activation' && isActivation)) {
+                                // Re-selecting the current mode must not reset a configured event or query
+                                if (
+                                    (value === 'custom' && isCustom) ||
+                                    (value === 'activation' && isActivation) ||
+                                    (value === 'warehouse_native' && warehouseExposure)
+                                ) {
                                     return
                                 }
-                                if (value === 'custom') {
+                                if (value === 'warehouse_native') {
+                                    onChange({
+                                        exposure_config: DEFAULT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG,
+                                        activation_config: undefined,
+                                    })
+                                } else if (value === 'custom') {
                                     onChange({
                                         exposure_config: DEFAULT_EXPOSURE_CONFIG,
                                         activation_config: undefined,
@@ -308,6 +403,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                 {
                                     value: 'default' as const,
                                     label: defaultExposureLabel,
+                                    disabledReason: posthogBlockedReason,
                                     labelInMenu: (
                                         <div>
                                             <div>{defaultExposureLabel}</div>
@@ -322,6 +418,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                           {
                                               value: 'activation' as const,
                                               label: 'Activation event',
+                                              disabledReason: posthogBlockedReason,
                                               labelInMenu: (
                                                   <div>
                                                       <div>Activation event</div>
@@ -336,6 +433,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                 {
                                     value: 'custom' as const,
                                     label: 'Custom event',
+                                    disabledReason: posthogBlockedReason,
                                     labelInMenu: (
                                         <div>
                                             <div>Custom event</div>
@@ -345,11 +443,49 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                                         </div>
                                     ),
                                 },
+                                ...(showWarehouseNativeOption
+                                    ? [
+                                          {
+                                              value: 'warehouse_native' as const,
+                                              label: 'Warehouse-native query',
+                                              disabledReason: warehouseNativeBlockedReason,
+                                              labelInMenu: (
+                                                  <div>
+                                                      <div>Warehouse-native query</div>
+                                                      <div className="text-xs text-muted font-normal">
+                                                          Read exposures with a SQL query that runs in your own
+                                                          warehouse
+                                                      </div>
+                                                  </div>
+                                              ),
+                                              'data-attr': 'experiment-wizard-exposure-warehouse-native',
+                                          },
+                                      ]
+                                    : []),
                             ]}
                         />
                     </div>
-                    {isCustom && <InclusionActionFilter experiment={experiment} onChange={onChange} />}
-                    {isActivation && <ActivationActionFilter experiment={experiment} onChange={onChange} />}
+                    {warehouseExposure && (
+                        <WarehouseNativeExposureFields
+                            exposure={warehouseExposure}
+                            onChange={(exposure) => onChange({ exposure_config: exposure })}
+                        />
+                    )}
+                    {isCustom && (
+                        <InclusionActionFilter
+                            experiment={experiment}
+                            groupTypeIndex={groupTypeIndex}
+                            defaultExposureEvent={defaultExposureEvent}
+                            onChange={onChange}
+                        />
+                    )}
+                    {isActivation && (
+                        <ActivationActionFilter
+                            experiment={experiment}
+                            groupTypeIndex={groupTypeIndex}
+                            onChange={onChange}
+                        />
+                    )}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -405,21 +541,24 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                     />
                 </div>
 
-                {/* As tall as the small selects above, so the three labels are evenly spaced */}
-                <div className="flex min-h-[2.0625rem] items-center">
-                    <TestAccountFilterSwitch
-                        checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
-                        onChange={(checked: boolean) => {
-                            onChange({ filterTestAccounts: checked })
-                        }}
-                        bordered={false}
-                        fullWidth
-                        settingsLinkIcon="new-tab"
-                        // Keep the label to its text, or the whole row becomes a click target for the switch
-                        labelClassName="text-secondary font-normal !flex-none"
-                        className="p-0 justify-between"
-                    />
-                </div>
+                {/* Test account filters read PostHog person and event properties, which warehouse rows do not have */}
+                {!warehouseExposure && (
+                    // As tall as the small selects above, so the three labels are evenly spaced
+                    <div className="flex min-h-[2.0625rem] items-center">
+                        <TestAccountFilterSwitch
+                            checked={hasFilters && resolveFilterTestAccounts(experiment.exposure_criteria)}
+                            onChange={(checked: boolean) => {
+                                onChange({ filterTestAccounts: checked })
+                            }}
+                            bordered={false}
+                            fullWidth
+                            settingsLinkIcon="new-tab"
+                            // Keep the label to its text, or the whole row becomes a click target for the switch
+                            labelClassName="text-secondary font-normal !flex-none"
+                            className="p-0 justify-between"
+                        />
+                    </div>
+                )}
             </div>
         )
     }
@@ -446,6 +585,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             <div className="p-3">
                                 <ExposureCriteriaFields
                                     experiment={experiment}
+                                    groupTypeIndex={groupTypeIndex}
                                     onChange={onChange}
                                     hasFilters={hasFilters}
                                     defaultExposureEvent={defaultExposureEvent}

@@ -5,8 +5,8 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
-import { Resizer } from 'lib/components/Resizer/Resizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
 import { CodeEditor, CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { cn } from 'lib/utils/css-classes'
 
@@ -47,6 +47,7 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
             },
             quickSuggestionsDelay: 300,
             readOnly: queryLoading,
+            placeholder: 'Write a SQL query.',
         }),
         [props.originalValue, queryLoading]
     )
@@ -68,7 +69,9 @@ export function QueryPane(props: QueryPaneProps): JSX.Element {
                 }}
                 ref={queryPaneResizerProps.containerRef}
             >
-                <div className="relative flex flex-col w-full min-h-0">
+                {/* AutoSizer hands the editor a px width, and a flex item cannot shrink below its content
+                    without min-w-0, so the pane would keep the widest width it was ever given. */}
+                <div className="relative flex flex-col w-full min-h-0 min-w-0">
                     {/*
                      * A notebook cell puts this pane in a container that the browser sizes from
                      * its content. The pane is a flex item there, so the editor inside it sets

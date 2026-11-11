@@ -265,6 +265,20 @@ class TestHogFlowTemplateAPI(APIBaseTest):
                 201,
             ),
             (
+                "support_reply",
+                {
+                    "type": "internal-event",
+                    "filters": {
+                        "source": "internal-events",
+                        "events": [{"id": "$conversation_message_sent", "type": "events"}],
+                        "properties": [
+                            {"key": "customer_email_verified", "value": ["true"], "operator": "exact", "type": "event"}
+                        ],
+                    },
+                },
+                201,
+            ),
+            (
                 "disallowed_internal_event",
                 {
                     "type": "internal-event",
@@ -299,6 +313,7 @@ class TestHogFlowTemplateAPI(APIBaseTest):
             ("missing_template", "function", "missing", "actions__1__template_id", "Template not found"),
             # A trigger kind sent as a step type skipped both the template check and secret stripping.
             ("trigger_kind_as_step_type", "webhook", "template-test-defaults", "actions__1__type", "Unsupported"),
+            ("sandbox_email_step", "email_sandbox", "template-test-defaults", "actions__1__type", "sandbox sender"),
         ]
     )
     def test_template_action_validation(

@@ -20,9 +20,9 @@ import {
     chainConsistencyProperties,
     matchEventToElementUsingIndex,
     matchIsChainConsistent,
-} from '~/toolbar/elements/domElementIndex'
-import type { ElementMatchOptions } from '~/toolbar/elements/domElementIndex'
-import { ElementsEventType } from '~/toolbar/types'
+} from '~/toolbar/shared/elements/domElementIndex'
+import type { ElementMatchOptions } from '~/toolbar/shared/elements/domElementIndex'
+import { ElementsEventType } from '~/toolbar/shared/types'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 import type { TeamPublicType, TeamType } from '~/types'
 

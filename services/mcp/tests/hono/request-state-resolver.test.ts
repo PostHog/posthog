@@ -23,6 +23,7 @@ const {
         is_impersonated: undefined as boolean | undefined,
         suppress_analytics: undefined as boolean | undefined,
         mcp_allowed_tools: undefined as string[] | undefined,
+        supports_step_up: undefined as boolean | undefined,
     },
     mockSessionScopedStores: new Map<string, Map<string, unknown>>(),
     // Records the keys passed to every session-scoped refreshTtl call (only the
@@ -46,7 +47,14 @@ vi.mock('@/lib/posthog/flags', () => ({
 vi.mock('@/hono/cache/McpSessionRedisStore', () => ({
     McpSessionRedisStore: class {
         async resolve(requestContext: Record<string, unknown>): Promise<Record<string, unknown>> {
-            const keys = ['mcpClientName', 'mcpClientVersion', 'mcpProtocolVersion', 'mcpConsumer', 'mcpVendorClient']
+            const keys = [
+                'mcpClientName',
+                'mcpClientVersion',
+                'mcpProtocolVersion',
+                'mcpConsumer',
+                'mcpVendorClient',
+                'mcpUiSupported',
+            ]
             const resolved = Object.fromEntries(
                 keys.map((key) => [key, mockSessionStore.get(key) ?? requestContext[key]])
             )
@@ -155,7 +163,6 @@ import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
@@ -214,6 +221,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         mockApiKey.is_impersonated = undefined
         mockApiKey.suppress_analytics = undefined
         mockApiKey.mcp_allowed_tools = undefined
+        mockApiKey.supports_step_up = undefined
     })
 
     it.each([
@@ -465,6 +473,7 @@ describe('RequestStateResolver MCP client contexts', () => {
         const result = await makeResolver().resolve(props)
 
         expect(result.useSingleExec).toBe(true)
+        expect(result.renderUiEnabled).toBe(false)
         expect(props.mode).toBe('cli')
     })
 
@@ -546,8 +555,14 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(mockSessionStore.get('mcpVendorClient')).toBe('ClaudeCode')
     })
 
-    it('puts Claude web/desktop in single-exec and enables render-ui', async () => {
-        const props = makeProps({ mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' })
+    it.each([
+        { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
+        { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'Cowork' },
+        { mcpClientName: 'example-client', mcpUiSupported: true },
+        { mcpClientName: 'openai-mcp' },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0' },
+    ])('puts UI host %j in single-exec and enables render-ui', async (clientProps) => {
+        const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(true)
@@ -570,15 +585,32 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it('does not enable render-ui for Claude Code', async () => {
-        // Claude Code is a single-exec CLI client but not an MCP Apps host — it can't
-        // mount the iframe. It must stay in single-exec while `renderUiEnabled` resolves
-        // to false, so the tool-executor never advertises or accepts `render-ui` for it.
-        const props = makeProps({ mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' })
+    it.each([
+        { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' },
+        { mcpClientName: 'example-client' },
+        { mcpClientName: 'codex-mcp-client', clientUserAgent: 'codex-mcp-client/0.165.0' },
+        { mcpClientName: 'ChatGPT' },
+        { mcpClientName: 'codex', mcpUiSupported: false },
+        { mcpClientName: undefined, clientUserAgent: 'openai-mcp/1.0.0', mcpUiSupported: false },
+        { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI', mcpUiSupported: false },
+    ])('does not enable render-ui without UI support for %j', async (clientProps) => {
+        const props = makeProps(clientProps)
         const result = await makeResolver().resolve(props)
 
         expect(result.renderUiEnabled).toBe(false)
         expect(result.useSingleExec).toBe(true)
+    })
+
+    it.each([
+        { cached: true, live: undefined, expected: true },
+        { cached: true, live: false, expected: false },
+        { cached: false, live: true, expected: true },
+    ])('resolves UI support from the live declaration before the legacy session: %j', async (testCase) => {
+        await makeResolver().resolve(makeProps({ mcpClientName: 'example-client', mcpUiSupported: testCase.cached }))
+
+        const result = await makeResolver().resolve(makeProps({ mcpUiSupported: testCase.live }))
+
+        expect(result.renderUiEnabled).toBe(testCase.expected)
     })
 
     it('detects Claude web/desktop via the Claude-User user agent and enables render-ui', async () => {
@@ -590,31 +622,23 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
-    it.each([
-        MCP_EXEC_SKILLS_FEATURE_FLAG,
-        MCP_INTERVIEW_RECRUITMENT_FLAG,
-        MCP_INTENT_PROMPT_FLAG,
-        MCP_NO_DATA_INSTALL_NOTICE_FLAG,
-    ])('evaluates %s even though no generated tool declares it', async (flag) => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
+    it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
+        'evaluates %s even though no generated tool declares it',
+        async (flag) => {
+            vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ flags: { [flag]: true }, payloads: {} })
 
-        const result = await makeResolver().resolve(makeProps())
+            const result = await makeResolver().resolve(makeProps())
 
-        expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
-        expect(result.toolFeatureFlags?.[flag]).toBe(true)
-    })
+            expect(evaluateFeatureFlags).toHaveBeenCalledWith(expect.arrayContaining([flag]), 'distinct-id', undefined)
+            expect(result.toolFeatureFlags?.[flag]).toBe(true)
+        }
+    )
 
-    // Unknown must stay unknown: the no-data notice only fires on an explicit false.
-    it.each([
-        [{ projectHasData: false }, false],
-        [{ projectHasData: true }, true],
-        [undefined, undefined],
-    ])('carries the analytics context and its ingestion state %j', async (analyticsContext, expectedHasData) => {
+    it.each([[{ projectId: '1' }], [undefined]])('carries the analytics context %j', async (analyticsContext) => {
         mockAnalyticsContext.current = analyticsContext
 
         const result = await makeResolver().resolve(makeProps())
 
-        expect(result.projectHasData).toBe(expectedHasData)
         expect(result.analyticsContext).toBe(mockAnalyticsContext.current)
     })
 

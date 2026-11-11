@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconCheck, IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
@@ -9,18 +8,19 @@ import { SettingsBar, SettingsMenu } from 'lib/components/PanelSettings/PanelSet
 import { dayjs } from 'lib/dayjs'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LemonMenu, LemonMenuItem, LemonMenuItems } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { matchesConfirmationText } from 'lib/utils/confirmationText'
 import { sessionRecordingCollectionsLogic } from 'scenes/session-recordings/collections/sessionRecordingCollectionsLogic'
-import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
 
-import { bulkScanLogic } from 'products/replay_vision/frontend/logics/bulkScanLogic'
-import { visionQuotaLogic } from 'products/replay_vision/frontend/logics/visionQuotaLogic'
-import { quotaUx } from 'products/replay_vision/frontend/utils/quotaProjection'
-
-import { useAutoplayMenuItems, useHideRecordingsMenuItems, useTimestampFormatMenuItems } from './listViewMenuItems'
+import {
+    useAutoplayMenuItems,
+    useHideRecordingsMenuItems,
+    useLayoutMenuItems,
+    useTimestampFormatMenuItems,
+} from './listViewMenuItems'
 import {
     DELETE_CONFIRMATION_TEXT,
     MAX_SELECTED_RECORDINGS,
@@ -28,6 +28,7 @@ import {
     preferredRecordingsSortStorage,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
+import { useBulkScanMenuItems } from './useBulkScanMenuItems'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -220,11 +221,13 @@ function ListViewMenu({
     const recommendedItem = useRecommendedOnlyMenuItem(filters, setFilters)
     const hideItems = useHideRecordingsMenuItems()
     const timestampItems = useTimestampFormatMenuItems()
+    const layoutItems = useLayoutMenuItems()
 
     const items: LemonMenuItems = [
         { title: 'Sort by', items: sortItems },
         { title: 'Show', items: [recommendedItem, ...hideItems] },
         { title: 'Timestamps', items: timestampItems },
+        ...(layoutItems.length ? [{ title: 'Layout', items: layoutItems }] : []),
     ]
 
     return (
@@ -241,7 +244,7 @@ function ListViewMenu({
     )
 }
 
-function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
+export function ConfirmDeleteRecordings({ shortId }: { shortId?: string }): JSX.Element {
     const {
         selectedRecordingsIds,
         isDeleteSelectedRecordingsDialogOpen,
@@ -472,32 +475,12 @@ export function AddToCollectionModal({ shortId }: { shortId?: string }): JSX.Ele
 }
 
 /** Bulk "Scan these recordings" row whose scanner list opens on hover (a nested `items` menu is click-only). */
-function BulkScanMenuItem(): JSX.Element {
-    const { selectedRecordingsIds } = useValues(sessionRecordingsPlaylistLogic)
-    const { scanners, scannersLoading, scanning } = useValues(bulkScanLogic)
-    const { scanRecordings } = useActions(bulkScanLogic)
-    const { quota } = useValues(visionQuotaLogic)
-    const { disabledReason: quotaDisabledReason, tooltip: quotaTooltip } = quotaUx(quota)
-
-    const submenuItems: LemonMenuItem[] = scannersLoading
-        ? [{ label: 'Loading scanners…', disabledReason: 'Loading' }]
-        : scanners.length === 0
-          ? [
-                {
-                    label: 'No scanners yet — create one',
-                    onClick: () => router.actions.push(urls.replayVision()),
-                    'data-attr': 'vision-bulk-scan-create-scanner',
-                },
-            ]
-          : scanners.map((scanner) => ({
-                label: scanner.name,
-                onClick: () => scanRecordings(scanner.id, selectedRecordingsIds),
-                'data-attr': 'vision-bulk-scan-scanner-item',
-            }))
+export function BulkScanMenuItem(): JSX.Element {
+    const { items, disabledReason, tooltip } = useBulkScanMenuItems()
 
     return (
         <LemonMenu
-            items={submenuItems}
+            items={items}
             placement="right-start"
             trigger="hover"
             buttonSize="xsmall"
@@ -510,14 +493,8 @@ function BulkScanMenuItem(): JSX.Element {
                 size="xsmall"
                 icon={<IconEye />}
                 sideIcon={<IconChevronRight />}
-                disabledReason={
-                    scanning
-                        ? 'Starting scans…'
-                        : selectedRecordingsIds.length === 0
-                          ? 'Select recordings to scan'
-                          : quotaDisabledReason
-                }
-                tooltip={quotaTooltip}
+                disabledReason={disabledReason}
+                tooltip={tooltip}
                 data-attr="vision-bulk-scan-recordings"
             >
                 Scan these recordings
@@ -551,9 +528,10 @@ export function SessionRecordingsPlaylistTopSettings({
         handleBulkMarkAsViewed,
         handleBulkMarkAsNotViewed,
     } = useActions(sessionRecordingsPlaylistLogic)
+    const { isHobby } = useValues(preflightLogic)
 
     const recordings = type === 'filters' ? otherRecordings : pinnedRecordings
-    const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
+    const checked = recordings.length > 0 && recordings.every((r) => selectedRecordingsIds.includes(r.id))
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
@@ -592,11 +570,13 @@ export function SessionRecordingsPlaylistTopSettings({
         })
 
         // Custom item so the scanner list opens on hover (the nested `items` API is click-only).
-        menuItems.push({
-            key: 'bulk-scan-recordings',
-            label: () => <BulkScanMenuItem />,
-            custom: true,
-        })
+        if (!isHobby) {
+            menuItems.push({
+                key: 'bulk-scan-recordings',
+                label: () => <BulkScanMenuItem />,
+                custom: true,
+            })
+        }
 
         menuItems.push({
             label: 'Delete',

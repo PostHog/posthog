@@ -176,6 +176,8 @@ This runs:
 1. `build:schema-json` – TS → JSON Schema
 2. `build:schema-python` – JSON Schema → Pydantic
 
+Python CI regenerates the Pydantic models on pull requests that change the JSON schema, generator scripts, generated outputs, or tool configuration and dependencies. Unrelated pull requests skip this generation check. Hourly and merge-queue runs always regenerate the models, as do runs with unavailable filter outputs.
+
 ### When to add types here
 
 Add to `schema.ts` when you need a type that:

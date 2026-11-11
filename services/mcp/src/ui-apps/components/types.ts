@@ -41,6 +41,7 @@ export interface TrendsFilter {
 
 export interface TrendsQuery {
     kind: 'TrendsQuery'
+    interval?: string
     trendsFilter?: TrendsFilter
     series?: Array<{
         event?: string
@@ -107,9 +108,6 @@ export interface TrendsResultItem {
     /** Slope graph only: the last bucket is the current, still-accumulating period (set by the
      * backend SlopeGraphTrendsQueryRunner) so the slope dashes the provisional end like the insight. */
     incomplete_end?: boolean
-    action?: {
-        name?: string
-    }
 }
 
 export type TrendsResult = TrendsResultItem[]
@@ -137,10 +135,8 @@ export type StickinessResult = StickinessResultItem[]
 export interface FunnelStep {
     name?: string
     custom_name?: string
-    action_id?: string
     count?: number
     order?: number
-    type?: string
     breakdown_value?: string | number
     converted_people_url?: string
     dropped_people_url?: string
@@ -237,6 +233,10 @@ export interface TrendsVisualizerProps {
 export interface FunnelVisualizerProps {
     query: FunnelsQuery
     results: FunnelResult
+    /** Drawn as a child of the steps chart, so it can read the chart's scales. */
+    overlay?: ReactNode
+    chartClassName?: string
+    showTitle?: boolean
 }
 
 export interface LifecycleVisualizerProps {

@@ -88,11 +88,28 @@ DUCKGRES_PG_PORT: int = get_from_env("DUCKGRES_PG_PORT", 5432, type_cast=int)
 # HOGTOWER_API_URL is set, control-plane calls go to hogtower's /api/v2 instead of duckgres.
 HOGTOWER_API_URL: str | None = get_from_env("HOGTOWER_API_URL", optional=True)
 HOGTOWER_INTERNAL_SECRET: str | None = get_from_env("HOGTOWER_INTERNAL_SECRET", optional=True)
+# Hoglake's public endpoints, shown to warehouse owners next to their hoglake credentials:
+# the REST catalog URL and hogtower's public OAuth token endpoint the credentials are
+# exchanged at. HOGLAKE_OAUTH_TOKEN_URL unset turns hoglake credentials off (501).
+HOGLAKE_PUBLIC_URL: str | None = get_from_env("HOGLAKE_PUBLIC_URL", optional=True)
+HOGLAKE_OAUTH_TOKEN_URL: str | None = get_from_env("HOGLAKE_OAUTH_TOKEN_URL", optional=True)
+# Push each member's visible projects, with their warehouse access level, to hogtower, which
+# mints team-scoped hoglake tokens from its copy. Needs HOGTOWER_API_URL.
+HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED: bool = get_from_env(
+    "HOGTOWER_MEMBER_TEAMS_PUSH_ENABLED", False, type_cast=str_to_bool
+)
+# Members' personal, project-scoped hoglake credentials. Off until hogtower vends S3 access
+# for them: without it their tokens reach their projects' catalog metadata but no data files.
+HOGLAKE_TEAM_CREDENTIALS_ENABLED: bool = get_from_env("HOGLAKE_TEAM_CREDENTIALS_ENABLED", False, type_cast=str_to_bool)
 # MANAGED_WAREHOUSE_INGRESS_IPS is the comma-separated address set the shared managed-warehouse
 # `dw` load balancer answers on. The warehouse-source host guard exempts a managed warehouse host
 # from the private-address check only when every resolved address is in this set, so an empty value
 # refuses every managed warehouse host. posthog-cloud-infra owns the values.
 MANAGED_WAREHOUSE_INGRESS_IPS: str = get_from_env("MANAGED_WAREHOUSE_INGRESS_IPS", "", type_cast=str)
+# MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN is the domain whose hosts reach the canary Trino lane, for example
+# `canary.dw.us.postwh.com`. A canary connection replaces the host of a minted credential with
+# `<database label>.<this domain>`. An empty value turns the canary route off.
+MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN: str = get_from_env("MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN", "", type_cast=str)
 MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS: float = get_from_env(
     "MANAGED_WAREHOUSE_CREDENTIAL_CACHE_REDIS_CONNECT_TIMEOUT_SECONDS", 0.5, type_cast=float
 )

@@ -1,7 +1,8 @@
-"""Pick the watched insights that the next anomaly scoring tick scores.
+"""Pick the active insights that the next anomaly scoring tick scores.
 
 One query per team reads the newest scored bucket of each series back from the `$anomaly_score`
-events. `selection.pick_order` then orders the due insights, and the tick picks from that order the
+events. With `due_list` on, the plan reads the stored due list of `due_list.py` instead, and sends no
+ClickHouse query. `selection.pick_order` then orders the due insights, and the tick picks from that order the
 insights whose queries fit the hourly budgets. With the train and score split on, `state.plan_run`
 makes each pick a train step or a score step, and each kind has its own budgets.
 
@@ -10,21 +11,30 @@ first: it takes the trained insights from their stored state, longest overdue fi
 keep them current. The train pass then takes the other due insights in the `pick_order` order. An insight
 whose model is due for a soft retrain goes to the train pass first. When the train pass does not pick it,
 the score pass scores it with the old model, so the train budget does not decide the score coverage.
+The first score walk leaves a share of the score cap for these stale models, so ready picks cannot take every slot.
+
+The CPU limits of `spend.py` apply before the query budgets: a walk leaves out the insights of a team over its
+daily CPU limit, and every insight of a pass that the fleet limit stops.
 """
 
+import time
 import datetime
 import itertools
 import dataclasses
-from collections.abc import Callable, Collection
+from collections import Counter
+from collections.abc import Callable, Collection, Mapping
+from enum import StrEnum
 from typing import Any, cast
 
 from django.core.cache import cache
+from django.db.models import Count, Min
 
 import structlog
 
 from posthog.schema import ChartDisplayType, IntervalType
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -32,6 +42,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.exceptions import (
+    ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseQueryTimeOut,
@@ -40,23 +51,32 @@ from posthog.interval_specs import interval_spec
 from posthog.models import Team
 from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES
 
+from products.alerts.backend.facade.api import enabled_alert_insight_ids
 from products.alerts_platform.backend.facade.scheduling import CalendarInterval, alert_check_offset
+from products.dashboards.backend.facade.api import insight_ids_on_dashboards_accessed_since
 from products.product_analytics.backend.facade.api import (
+    insight_ids_modified_since,
+    insight_ids_viewed_since,
     insights_including_soft_deleted_for_team,
-    watched_trends_insights,
+    saved_trends_insights,
 )
-from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun
+from products.signals.backend.anomaly_scores.config import AnomalyScoringConfig, ScoringRun, in_rollout
 from products.signals.backend.anomaly_scores.scoring import bucket_end
 from products.signals.backend.anomaly_scores.selection import (
     Candidate,
     InsightUsage,
     ScoreCandidate,
     SelectionConfig,
+    _unit_interval,
     insight_usage,
     pick_order,
     score_order,
 )
+from products.signals.backend.anomaly_scores.spend import CpuSpendReport, cpu_gate
 from products.signals.backend.anomaly_scores.state import RunPlan, load_states, plan_run, score_ready_by_insight
+from products.signals.backend.contracts import ALERT_SCOPE_SOURCE
+from products.signals.backend.models import AnomalyScoringDueInsight, SignalSourceConfig, SignalTeamConfig
+from products.subscriptions.backend.facade.api import insight_ids_with_active_subscriptions
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, list_limited_team_attributes
 
@@ -64,15 +84,31 @@ logger = structlog.get_logger(__name__)
 
 SCORE_EVENT = "$anomaly_score"
 SOURCE_INSIGHT = "insight"
-# An insight counts as watched when it is on a dashboard or someone viewed it in this window.
-VIEW_WINDOW = datetime.timedelta(days=30)
-# One row is one series. Far more than the series of every watched insight of one team.
+# One row is one series. Far more than the series of every active insight of one team.
 _MAX_SCORED_SERIES = 50_000
 # An insight is not picked again in this time after an attempt. Events take a moment to reach
 # ClickHouse, and an insight that writes nothing would otherwise stay at the head of the queue.
 ATTEMPT_COOLDOWN = datetime.timedelta(hours=1)
-# For a failure that the next hour does not fix: an unsupported shape, a query that is too expensive, or no access.
+# For a failure that the next hour does not fix: an unsupported shape, a broken query, or no access. It is also the
+# first step of the too-expensive cooldowns.
 SKIP_COOLDOWN = datetime.timedelta(days=1)
+# Each consecutive too-expensive visit of an insight takes the next step. The last step repeats.
+TOO_EXPENSIVE_COOLDOWNS = (
+    SKIP_COOLDOWN,
+    datetime.timedelta(days=3),
+    datetime.timedelta(days=7),
+    datetime.timedelta(days=30),
+)
+# The count outlives the longest step, so the visit after it still knows the count.
+_TOO_EXPENSIVE_COUNT_TTL = TOO_EXPENSIVE_COOLDOWNS[-1] + datetime.timedelta(days=7)
+# An empty insight saves no model and stays due for a train step, so only this cooldown limits its retries.
+EMPTY_TRAIN_COOLDOWNS = (
+    SKIP_COOLDOWN,
+    datetime.timedelta(days=3),
+    datetime.timedelta(days=7),
+)
+# The count outlives the longest cooldown, which is the bucket of the longest interval.
+_EMPTY_TRAIN_COUNT_TTL = datetime.timedelta(days=45)
 # A query counter lives a little longer than its clock hour, so a tick at the end of the hour still reads it.
 # A lost counter lets the scorer spend at most one more hour of budget.
 _BUDGET_TTL = datetime.timedelta(minutes=70)
@@ -86,10 +122,24 @@ _CALENDAR_INTERVALS = {
 # A scored-buckets query that hits a ClickHouse limit skips its team for the tick, so the other teams still get picks.
 # The cluster memory limit is a subclass of the query memory limit.
 _SCORED_BUCKETS_LIMIT_ERRORS = (
+    ClickHouseAtCapacity,
     ClickHouseQueryTimeOut,
     ClickHouseQueryMemoryLimitExceeded,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
 )
+# After this many teams get a full cluster in one plan, no more teams load. The plan uses the teams it has.
+_MAX_AT_CAPACITY_TEAMS = 2
+# The last scored state load of a team. The team that waited longest loads first, so a plan that stops early
+# does not drop the same teams on every tick.
+_TEAM_LOADED_TTL = datetime.timedelta(days=1)
+# The most due rows that one plan reads. Far more than the picks of one tick.
+_MAX_DUE_ROWS = 5000
+# The refresh keeps the due time that a never-scored row got when it joined the list, so never-scored rows are
+# mostly the oldest due rows. They get at most this many of the rows that one plan reads. Without this limit, a train
+# backlog larger than the read fills every plan, and no scored row reaches the score pass.
+_MAX_NEVER_SCORED_DUE_ROWS = _MAX_DUE_ROWS // 2
+# The score pass keeps one in this many of its slots for stale models, so ready picks cannot take every slot.
+_STALE_SCORE_SHARE = 4
 # The scorer rejects these, so selection leaves them out instead of picking them on every tick.
 _UNSCORED_DISPLAYS = sorted(
     display.value for display in {*NON_TIME_SERIES_DISPLAY_TYPES, ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE}
@@ -105,17 +155,28 @@ WHERE event = {event}
     AND timestamp >= {since}
     AND timestamp <= {now}
     AND properties.$anomaly_source = {source}
-    AND toInt(properties.$anomaly_insight_id) IN {insight_ids}
+    AND {windows}
 GROUP BY insight_id, series_key
 LIMIT {limit}
 """
 
 
+class ActivityReason(StrEnum):
+    """Why an insight is active. An insight with no reason in the window is not scored."""
+
+    VIEWED = "viewed"
+    DASHBOARD_ACCESSED = "dashboard_accessed"
+    ENABLED_ALERT = "enabled_alert"
+    ACTIVE_SUBSCRIPTION = "active_subscription"
+    EDITED = "edited"
+
+
 @frozen
-class WatchedInsight:
+class ActiveInsight:
     team_id: int
     insight_id: int
     interval: IntervalType
+    reasons: frozenset[ActivityReason] = frozenset()
 
 
 @frozen
@@ -130,6 +191,20 @@ class InsightPick:
     query_cost: int = 1
     # None when the train and score split is off.
     run: ScoringRun | None = None
+    # Consecutive too-expensive visits before this pick.
+    too_expensive: int = 0
+    # Consecutive train picks with no series before this pick.
+    empty_train: int = 0
+
+
+@frozen
+class TeamCensus:
+    """The active insights of one eligible team, for the daily per-team census event."""
+
+    team_id: int
+    active: int
+    active_reasons: dict[str, int]
+    active_intervals: dict[str, int]
 
 
 @frozen
@@ -144,9 +219,46 @@ class Selection:
     picked_train: int = 0
     # Score pass picks that score with a model due for a soft retrain.
     scored_stale_model: int = 0
+    # Due insights with a stale model that the train pass did not pick. More than `scored_stale_model` means
+    # the score pass had no slot or budget for them.
+    stale_candidates: int = 0
     # Due train candidates that the train pass did not pick: soft ones still score with a stale model, hard ones do not.
     train_backlog_soft: int = 0
     train_backlog_hard: int = 0
+    # Active insights of the eligible teams, and how many of them have each reason. One insight can have several.
+    active: int = 0
+    active_reasons: dict[str, int] = dataclasses.field(default_factory=dict)
+    # One entry for each eligible team, also a team with no active insight.
+    census: list[TeamCensus] = dataclasses.field(default_factory=list)
+    # Teams with active insights whose scored state loaded, and the teams that wait for a later tick.
+    teams_planned: int = 0
+    teams_skipped: int = 0
+    # Eligible teams, and their organizations.
+    enrolled_teams: int = 0
+    enrolled_organizations: int = 0
+    # Insights in a cooldown after two or more consecutive too-expensive visits.
+    long_cooldown: int = 0
+    # Insights in a cooldown after a train pick with no series.
+    empty_backoff: int = 0
+    # Due rows of the stored due list, the time since the oldest of them became due, and the time since the
+    # oldest refresh of a row. None when the tick does not plan from the due list.
+    due_insights: int | None = None
+    oldest_due_seconds: int | None = None
+    oldest_refresh_seconds: int | None = None
+    cpu: CpuSpendReport | None = None
+
+
+@frozen
+class DueList:
+    """The due rows of the stored due list, for the eligible teams."""
+
+    insights: list[ActiveInsight]
+    scored_through: dict[int, dict[str, datetime.datetime]]
+    usage: dict[int, InsightUsage]
+    # Rows of the eligible teams, due or not.
+    rows: int
+    oldest_due_seconds: int | None
+    oldest_refresh_seconds: int | None
 
 
 @frozen
@@ -155,7 +267,7 @@ class ScorePassOrder:
     order: list[int]
     # Due insights with a model past a soft retrain trigger, longest overdue first.
     stale_order: list[int]
-    # Every watched insight with a current model, due or not.
+    # Every active insight with a current model, due or not.
     ready: set[int]
 
 
@@ -168,28 +280,98 @@ class QueryBudget:
 
 
 def eligible_teams(config: AnomalyScoringConfig) -> list[Team]:
-    if not config.enabled or not config.organization_ids:
+    """The teams that `config.covers_team` enrolls, in a fixed number of queries, less the teams over their event quota."""
+    if not config.enabled:
         return []
-    teams = Team.objects.filter(organization_id__in=config.organization_ids).exclude(id__in=config.skip_team_ids)
-    if config.allow_team_ids:
-        teams = teams.filter(id__in=config.allow_team_ids)
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    with_source = SignalSourceConfig.objects.filter(
+        source_product=source_product, source_type=source_type, enabled=True
+    ).values("team_id")
+    teams = (
+        Team.objects.filter(id__in=with_source)
+        .exclude(id__in=config.skip_team_ids)
+        .exclude(organization_id__in=config.deny_organization_ids)
+        .exclude(id__in=SignalTeamConfig.objects.filter(anomaly_scoring_enabled=False).values("team_id"))
+    )
+    enrolled: set[int] = set()
+    if config.organization_ids:
+        listed = teams.filter(organization_id__in=config.organization_ids)
+        if config.allow_team_ids:
+            listed = listed.filter(id__in=config.allow_team_ids)
+        enrolled.update(listed.values_list("id", flat=True))
+    if config.self_driving_organization_percentage > 0:
+        enrolled.update(
+            team_id
+            for team_id, organization_id in teams.values_list("id", "organization_id")
+            if in_rollout(config, organization_id)
+        )
+    if not enrolled:
+        return []
     # Capture drops every event of a project over its event quota, so scoring it wastes the query.
     limited = set(list_limited_team_attributes(QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY))
-    return [team for team in teams if team.api_token not in limited]
+    return [team for team in Team.objects.filter(id__in=enrolled) if team.api_token not in limited]
 
 
-def watched_insights(
-    team_ids: list[int], intervals: tuple[IntervalType, ...], now: datetime.datetime
-) -> list[WatchedInsight]:
-    """Saved trends insights with a scored interval that are on a dashboard or were viewed lately."""
+def turned_off_in_settings(team: Team) -> bool:
+    """Whether the project turned anomaly scoring off in its Product analytics source. A team without a config row is on."""
+    return SignalTeamConfig.objects.filter(team_id=team.id, anomaly_scoring_enabled=False).exists()
+
+
+def active_insights(
+    team_ids: list[int], intervals: tuple[IntervalType, ...], now: datetime.datetime, window_days: int
+) -> list[ActiveInsight]:
+    """Saved trends insights with a scored interval and at least one activity reason in the last ``window_days``.
+
+    Computed fresh on each call, so an insight drops out once its last reason ages out, and comes back with a new one.
+    Its stored state stays, so a later train step picks up where the model left off.
+    """
+    if not team_ids:
+        return []
+    since = now - datetime.timedelta(days=window_days)
+    reasons_by_id: dict[int, set[ActivityReason]] = {}
+    for reason, insight_ids in (
+        (ActivityReason.VIEWED, insight_ids_viewed_since(team_ids=team_ids, since=since)),
+        (ActivityReason.DASHBOARD_ACCESSED, insight_ids_on_dashboards_accessed_since(team_ids=team_ids, since=since)),
+        (ActivityReason.ENABLED_ALERT, enabled_alert_insight_ids(team_ids=team_ids)),
+        (ActivityReason.ACTIVE_SUBSCRIPTION, insight_ids_with_active_subscriptions(team_ids=team_ids)),
+        (ActivityReason.EDITED, insight_ids_modified_since(team_ids=team_ids, since=since)),
+    ):
+        for insight_id in insight_ids:
+            reasons_by_id.setdefault(insight_id, set()).add(reason)
     return [
-        WatchedInsight(team_id=watched.team_id, insight_id=watched.insight_id, interval=IntervalType(watched.interval))
-        for watched in watched_trends_insights(
+        ActiveInsight(
+            team_id=insight.team_id,
+            insight_id=insight.insight_id,
+            interval=IntervalType(insight.interval),
+            reasons=frozenset(reasons_by_id[insight.insight_id]),
+        )
+        for insight in saved_trends_insights(
             team_ids=team_ids,
+            insight_ids=list(reasons_by_id),
             intervals=[interval.value for interval in intervals],
             excluded_displays=_UNSCORED_DISPLAYS,
-            viewed_since=now - VIEW_WINDOW,
         )
+    ]
+
+
+def reason_counts(insights: Collection[ActiveInsight]) -> dict[str, int]:
+    """How many of the insights have each reason, with a zero for a reason none of them has."""
+    counts = Counter(reason for insight in insights for reason in insight.reasons)
+    return {reason.value: counts[reason] for reason in ActivityReason}
+
+
+def team_census(team_ids: Collection[int], insights: Collection[ActiveInsight]) -> list[TeamCensus]:
+    by_team: dict[int, list[ActiveInsight]] = {team_id: [] for team_id in team_ids}
+    for insight in insights:
+        by_team.setdefault(insight.team_id, []).append(insight)
+    return [
+        TeamCensus(
+            team_id=team_id,
+            active=len(team_insights),
+            active_reasons=reason_counts(team_insights),
+            active_intervals=dict(Counter(insight.interval.value for insight in team_insights)),
+        )
+        for team_id, team_insights in sorted(by_team.items())
     ]
 
 
@@ -204,16 +386,31 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
     return value.replace(tzinfo=datetime.UTC) if value.tzinfo is None else value.astimezone(datetime.UTC)
 
 
+def _scored_window(insight_ids: Collection[int], since: datetime.datetime) -> ast.Expr:
+    return parse_expr(
+        "toInt(properties.$anomaly_insight_id) IN {insight_ids} AND timestamp >= {since}",
+        placeholders={
+            "insight_ids": ast.Tuple(exprs=[ast.Constant(value=insight_id) for insight_id in sorted(insight_ids)]),
+            "since": ast.Constant(value=since),
+        },
+    )
+
+
 def scored_buckets(
-    team: Team, insight_ids: Collection[int], since: datetime.datetime, now: datetime.datetime
+    team: Team, insight_ids_by_since: Mapping[datetime.datetime, Collection[int]], now: datetime.datetime
 ) -> dict[int, dict[str, datetime.datetime]]:
     """Insight id to the newest scored bucket start of each of its series, for this team's own insights.
+
+    One query reads every window. Each insight reads back only to the ``since`` of its group, so a day or
+    week insight does not read the months a month insight needs.
 
     Any member can capture an event with any properties into the project. Rows for another team's
     insight, or with a future bucket, are ignored, so they cannot stop the scoring of an insight.
     """
-    if not insight_ids:
+    groups = {since: ids for since, ids in sorted(insight_ids_by_since.items()) if ids}
+    if not groups:
         return {}
+    windows = [_scored_window(ids, since) for since, ids in groups.items()]
     tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
     response = execute_hogql_query(
         _SCORED_BUCKETS_QUERY,
@@ -222,9 +419,9 @@ def scored_buckets(
         placeholders={
             "event": ast.Constant(value=SCORE_EVENT),
             "source": ast.Constant(value=SOURCE_INSIGHT),
-            "since": ast.Constant(value=since),
+            "since": ast.Constant(value=min(groups)),
             "now": ast.Constant(value=now),
-            "insight_ids": ast.Tuple(exprs=[ast.Constant(value=insight_id) for insight_id in sorted(insight_ids)]),
+            "windows": windows[0] if len(windows) == 1 else ast.Or(exprs=windows),
             "limit": ast.Constant(value=_MAX_SCORED_SERIES),
         },
         workload=Workload.OFFLINE,
@@ -238,17 +435,68 @@ def scored_buckets(
     return state
 
 
-def is_due(
-    insight: WatchedInsight, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo, now: datetime.datetime
-) -> bool:
-    """The bucket after the newest scored one is complete, and this insight's slot after its end has passed."""
+def due_at(
+    insight_id: int, interval: IntervalType, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo
+) -> datetime.datetime | None:
+    """When the bucket after the newest scored one is complete and this insight's slot after its end starts.
+
+    None when the insight was never scored, because it is due at once.
+    """
     if newest_bucket is None:
-        return True
-    next_start = bucket_end(newest_bucket.astimezone(timezone), insight.interval)
-    next_end = bucket_end(next_start, insight.interval)
+        return None
+    next_start = bucket_end(newest_bucket.astimezone(timezone), interval)
+    next_end = bucket_end(next_start, interval)
     # The same offset as alert checks, so insights spread over the window after each boundary.
-    offset = alert_check_offset(_CALENDAR_INTERVALS[insight.interval], f"anomaly:{insight.insight_id}")
-    return now >= next_end + offset
+    return next_end + alert_check_offset(_CALENDAR_INTERVALS[interval], f"anomaly:{insight_id}")
+
+
+def is_due(
+    insight: ActiveInsight, newest_bucket: datetime.datetime | None, timezone: datetime.tzinfo, now: datetime.datetime
+) -> bool:
+    due = due_at(insight.insight_id, insight.interval, newest_bucket, timezone)
+    return due is None or now >= due
+
+
+def parse_watermarks(value: Any) -> dict[str, datetime.datetime]:
+    """The stored map of series key to newest scored bucket. An entry that does not parse is left out."""
+    if not isinstance(value, dict):
+        return {}
+    watermarks: dict[str, datetime.datetime] = {}
+    for series_key, stamp in value.items():
+        try:
+            watermarks[str(series_key)] = _utc(datetime.datetime.fromisoformat(stamp))
+        except (TypeError, ValueError):
+            continue
+    return watermarks
+
+
+def load_due_list(team_ids: Collection[int], intervals: tuple[IntervalType, ...], now: datetime.datetime) -> DueList:
+    """The due rows of the teams, longest overdue first, in a fixed number of queries.
+
+    Never-scored rows and scored rows are read apart, so that the train backlog cannot crowd out the score pass.
+    """
+    scope = AnomalyScoringDueInsight.all_teams.filter(team_id__in=list(team_ids))
+    summary = scope.aggregate(rows=Count("id"), oldest_refresh=Min("refreshed_at"))
+    due = scope.filter(next_due_at__lte=now, interval__in=[interval.value for interval in intervals]).order_by(
+        "next_due_at", "insight_id"
+    )
+    never_scored = list(due.filter(series_scored_through={})[:_MAX_NEVER_SCORED_DUE_ROWS])
+    scored = list(due.exclude(series_scored_through={})[: _MAX_DUE_ROWS - len(never_scored)])
+    rows = sorted([*never_scored, *scored], key=lambda row: (row.next_due_at, row.insight_id))
+    oldest_refresh = summary["oldest_refresh"]
+    return DueList(
+        insights=[
+            ActiveInsight(team_id=row.team_id, insight_id=row.insight_id, interval=IntervalType(row.interval))
+            for row in rows
+        ],
+        scored_through={row.insight_id: parse_watermarks(row.series_scored_through) for row in rows},
+        usage={
+            row.insight_id: InsightUsage(viewers=row.viewers, has_enabled_alert=row.has_enabled_alert) for row in rows
+        },
+        rows=summary["rows"],
+        oldest_due_seconds=round((now - rows[0].next_due_at).total_seconds()) if rows else None,
+        oldest_refresh_seconds=None if oldest_refresh is None else round((now - oldest_refresh).total_seconds()),
+    )
 
 
 def _cooldown_key(insight_id: int) -> str:
@@ -264,6 +512,98 @@ def _cooling_down(insight_ids: list[int]) -> set[int]:
         return set()
     found = cache.get_many([_cooldown_key(insight_id) for insight_id in insight_ids])
     return {insight_id for insight_id in insight_ids if _cooldown_key(insight_id) in found}
+
+
+def _too_expensive_key(insight_id: int) -> str:
+    return f"signals:anomaly_scores:too_expensive:{insight_id}"
+
+
+def too_expensive_counts(insight_ids: list[int]) -> dict[int, int]:
+    """Consecutive too-expensive visits of each insight. An insight with no such visit is not in the result."""
+    if not insight_ids:
+        return {}
+    found = cache.get_many([_too_expensive_key(insight_id) for insight_id in insight_ids])
+    return {
+        insight_id: int(found[_too_expensive_key(insight_id)])
+        for insight_id in insight_ids
+        if _too_expensive_key(insight_id) in found
+    }
+
+
+def too_expensive_cooldown(count: int) -> datetime.timedelta:
+    return TOO_EXPENSIVE_COOLDOWNS[min(count, len(TOO_EXPENSIVE_COOLDOWNS)) - 1]
+
+
+def mark_too_expensive(insight_id: int, previous: int) -> int:
+    """Count one more too-expensive visit, and start the cooldown of the new count. Returns the new count.
+
+    ``previous`` comes from the plan. The cooldown lets one visit of an insight run at a time, so no other visit
+    changes the count in between.
+    """
+    count = previous + 1
+    cache.set(_too_expensive_key(insight_id), count, timeout=int(_TOO_EXPENSIVE_COUNT_TTL.total_seconds()))
+    mark_attempted(insight_id, too_expensive_cooldown(count))
+    return count
+
+
+def reset_too_expensive(insight_id: int) -> None:
+    cache.delete(_too_expensive_key(insight_id))
+
+
+def _empty_train_key(insight_id: int) -> str:
+    return f"signals:anomaly_scores:empty_train:{insight_id}"
+
+
+def empty_train_counts(insight_ids: list[int]) -> dict[int, int]:
+    """Consecutive train picks with no series, per insight. An insight with no such pick is not in the result."""
+    if not insight_ids:
+        return {}
+    found = cache.get_many([_empty_train_key(insight_id) for insight_id in insight_ids])
+    return {
+        insight_id: int(found[_empty_train_key(insight_id)])
+        for insight_id in insight_ids
+        if _empty_train_key(insight_id) in found
+    }
+
+
+def empty_train_cooldown(count: int, interval: IntervalType | None, now: datetime.datetime) -> datetime.timedelta:
+    step = EMPTY_TRAIN_COOLDOWNS[min(count, len(EMPTY_TRAIN_COOLDOWNS)) - 1]
+    if interval is None:
+        return step
+    # A month is a relativedelta, so add it to a date to get its length. No new bucket can complete sooner.
+    return max(step, now + interval_spec(interval).period - now)
+
+
+def mark_empty_train(
+    insight_id: int, previous: int, interval: IntervalType | None, now: datetime.datetime
+) -> tuple[int, datetime.timedelta]:
+    """Count one more train pick with no series, and start its cooldown. Returns the new count and the cooldown."""
+    count = previous + 1
+    cooldown = empty_train_cooldown(count, interval, now)
+    cache.set(_empty_train_key(insight_id), count, timeout=int(_EMPTY_TRAIN_COUNT_TTL.total_seconds()))
+    mark_attempted(insight_id, cooldown)
+    return count, cooldown
+
+
+def reset_empty_train(insight_id: int) -> None:
+    cache.delete(_empty_train_key(insight_id))
+
+
+def _team_loaded_key(team_id: int) -> str:
+    return f"signals:anomaly_scores:team_loaded:{team_id}"
+
+
+def _team_load_order(team_ids: Collection[int]) -> list[int]:
+    """The teams that waited longest since their last scored state load first. A team never loaded goes first."""
+    loaded = cache.get_many([_team_loaded_key(team_id) for team_id in team_ids])
+    return sorted(team_ids, key=lambda team_id: (loaded.get(_team_loaded_key(team_id), 0.0), team_id))
+
+
+def _mark_teams_loaded(team_ids: Collection[int], now: datetime.datetime) -> None:
+    stamp = _utc(now).timestamp()
+    cache.set_many(
+        {_team_loaded_key(team_id): stamp for team_id in team_ids}, timeout=int(_TEAM_LOADED_TTL.total_seconds())
+    )
 
 
 def _hour(now: datetime.datetime) -> str:
@@ -403,46 +743,105 @@ def _run_plans(
     return {insight_id: plans.get(insight_id, missing) for insight_id in insight_ids}
 
 
-def _take_turns(team_orders: list[list[int]]) -> list[int]:
-    # Projects take turns, so one large project cannot take every slot of the tick budget.
-    return [insight_id for turn in itertools.zip_longest(*team_orders) for insight_id in turn if insight_id is not None]
+def _take_turns(team_orders: Mapping[int, list[int]], tick_start: datetime.datetime) -> list[int]:
+    # Projects take turns, so one large project cannot take every slot of the tick budget. A hashed team
+    # order for each tick, so the pick cap does not always cut off the same projects.
+    team_ids = sorted(team_orders, key=lambda team_id: _unit_interval("team", team_id, tick_start.isoformat()))
+    turns = itertools.zip_longest(*(team_orders[team_id] for team_id in team_ids))
+    return [insight_id for turn in turns for insight_id in turn if insight_id is not None]
+
+
+def load_scored_state(
+    config: AnomalyScoringConfig,
+    teams: dict[int, Team],
+    insights: Collection[ActiveInsight],
+    now: datetime.datetime,
+    deadline: float | None,
+) -> tuple[dict[int, dict[str, datetime.datetime]], set[int]]:
+    """The scored state of the insights, and the teams whose state loaded.
+
+    One query per team. The teams that waited longest load first. Loading stops at ``deadline``, a
+    ``time.monotonic`` value, after at least one team, or when ClickHouse is full for several teams.
+    A team whose query fails waits for a later tick.
+    """
+    windows: dict[int, dict[datetime.datetime, set[int]]] = {}
+    for insight in insights:
+        since = scored_state_since(config, insight.interval, now)
+        windows.setdefault(insight.team_id, {}).setdefault(since, set()).add(insight.insight_id)
+    state: dict[int, dict[str, datetime.datetime]] = {}
+    loaded: set[int] = set()
+    attempted: list[int] = []
+    at_capacity = 0
+    for team_id in _team_load_order(windows):
+        if at_capacity >= _MAX_AT_CAPACITY_TEAMS or (
+            attempted and deadline is not None and time.monotonic() >= deadline
+        ):
+            break
+        attempted.append(team_id)
+        try:
+            state.update(scored_buckets(teams[team_id], windows[team_id], now))
+        except _SCORED_BUCKETS_LIMIT_ERRORS as error:
+            logger.warning("anomaly_scoring_scored_buckets_failed", team_id=team_id, error_class=type(error).__name__)
+            if isinstance(error, ClickHouseAtCapacity):
+                at_capacity += 1
+            continue
+        loaded.add(team_id)
+    # A failed team also goes to the back, so a team whose query always fails does not take time from every plan.
+    _mark_teams_loaded(attempted, now)
+    if len(attempted) < len(windows):
+        logger.info(
+            "anomaly_scoring_plan_stopped_loading",
+            teams_loaded=len(loaded),
+            teams_skipped=len(windows) - len(loaded),
+            at_capacity=at_capacity,
+        )
+    return state, loaded
 
 
 def select_insights(
-    config: AnomalyScoringConfig, selection_config: SelectionConfig, now: datetime.datetime, limit: int | None = None
+    config: AnomalyScoringConfig,
+    selection_config: SelectionConfig,
+    now: datetime.datetime,
+    limit: int | None = None,
+    deadline: float | None = None,
 ) -> Selection:
-    """The picks of the tick. ``limit`` replaces the pick cap of each pass, for a manual run."""
-    teams = {team.id: team for team in eligible_teams(config)}
-    insights = watched_insights(list(teams), config.intervals, now)
-    state: dict[int, dict[str, datetime.datetime]] = {}
-    failed_teams: set[int] = set()
-    # One query per team and interval, so a day or week insight does not read the months a month insight needs.
-    for team_id, interval in sorted({(insight.team_id, insight.interval) for insight in insights}):
-        if team_id in failed_teams:
-            continue
-        insight_ids = {
-            insight.insight_id for insight in insights if insight.team_id == team_id and insight.interval == interval
-        }
-        try:
-            state.update(scored_buckets(teams[team_id], insight_ids, scored_state_since(config, interval, now), now))
-        except _SCORED_BUCKETS_LIMIT_ERRORS as error:
-            logger.warning(
-                "anomaly_scoring_scored_buckets_failed",
-                team_id=team_id,
-                interval=interval.value,
-                error_class=type(error).__name__,
-            )
-            failed_teams.add(team_id)
-    # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
-    insights = [insight for insight in insights if insight.team_id not in failed_teams]
+    """The picks of the tick. ``limit`` replaces the pick cap of each pass, for a manual run.
 
+    Each pick cap of the config is per shard, so the tick picks up to the cap once for each shard.
+
+    ``deadline`` is a ``time.monotonic`` value. After it, no more teams load, and the plan uses the teams it has.
+    With the due list on, the plan reads the stored due list instead, and ``deadline`` has no effect.
+    """
+    teams = {team.id: team for team in eligible_teams(config)}
+    gate = cpu_gate(config, now)
+    cpu_skipped: Counter[ScoringRun] = Counter()
+    due_list: DueList | None = None
+    if config.due_list:
+        due_list = load_due_list(teams, config.intervals, now)
+        insights = due_list.insights
+        state = due_list.scored_through
+        # The refresh job sends the activity reasons and the census.
+        active, active_reasons, census = due_list.rows, {}, []
+        loaded_teams = teams_with_insights = {insight.team_id for insight in insights}
+    else:
+        insights = active_insights(list(teams), config.intervals, now, config.active_window_days)
+        active = len(insights)
+        active_reasons = reason_counts(insights)
+        census = team_census(teams, insights)
+        teams_with_insights = {insight.team_id for insight in insights}
+        state, loaded_teams = load_scored_state(config, teams, insights, now, deadline)
+        # Without its scored state, every insight of the team looks never scored, so the team waits for a later tick.
+        insights = [insight for insight in insights if insight.team_id in loaded_teams]
+
+    # A due row of a never scored insight has no watermarks, so its newest bucket is None.
     newest_buckets = {
-        insight.insight_id: max(state[insight.insight_id].values()) if insight.insight_id in state else None
-        for insight in insights
+        insight.insight_id: max(state.get(insight.insight_id, {}).values(), default=None) for insight in insights
     }
     cooling = _cooling_down([insight.insight_id for insight in insights])
-    watched_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
-    team_ids = {insight_id: insight.team_id for insight_id, insight in watched_by_id.items()}
+    too_expensive = too_expensive_counts([insight.insight_id for insight in insights])
+    empty_train = empty_train_counts([insight.insight_id for insight in insights])
+    active_by_id = {insight.insight_id: insight for insight in insights if insight.insight_id not in cooling}
+    team_ids = {insight_id: insight.team_id for insight_id, insight in active_by_id.items()}
 
     # Both passes share the plans, so an insight that the score pass planned is not planned again.
     planned: dict[int, RunPlan] = {}
@@ -460,6 +859,9 @@ def select_insights(
         cap: int,
         plans: Callable[[list[int]], dict[int, RunPlan]] = plans_for,
     ) -> tuple[dict[int, RunPlan], int]:
+        allowed = [insight_id for insight_id in order if not gate.blocks(team_ids[insight_id], kind)]
+        cpu_skipped[kind] += len(order) - len(allowed)
+        order = allowed
         # Read the budget before any cost, so a spent hour loads no insight.
         return within_budget(
             order,
@@ -475,11 +877,13 @@ def select_insights(
     score_ready: set[int] = set()
     score_picked: dict[int, RunPlan] = {}
     score_skipped = 0
-    score_cap = config.max_score_insights_per_tick if limit is None else limit
+    shards = config.fan_out().shards
+    score_cap = config.max_score_insights_per_tick * shards if limit is None else limit
     if config.train_score_split:
-        score_pass = _score_order(watched_by_id, teams, config, now)
+        score_pass = _score_order(active_by_id, teams, config, now)
         score_order_ids, stale_order_ids, score_ready = score_pass.order, score_pass.stale_order, score_pass.ready
-        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap)
+        stale_reserve = min(len(stale_order_ids), _stale_reserve(score_cap))
+        score_picked, score_skipped = walk(score_order_ids, ScoringRun.SCORE, score_cap - stale_reserve)
         # A spent score budget makes the walk load no plan. Plan the head of the order anyway, so that an
         # edited insight there still reaches the train pass while the train budget has room.
         plans_for(score_order_ids[:score_cap])
@@ -495,15 +899,18 @@ def select_insights(
 
     due_by_id = {
         insight_id: insight
-        for insight_id, insight in watched_by_id.items()
+        for insight_id, insight in active_by_id.items()
         if insight_id not in score_picked
         and insight_id not in score_only
         and is_due(insight, newest_buckets[insight_id], teams[insight.team_id].timezone_info, now)
     }
     usage: dict[int, InsightUsage] = {}
-    for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
-        due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
-        usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
+    if due_list is not None:
+        usage = due_list.usage
+    else:
+        for team_id in sorted({insight.team_id for insight in due_by_id.values()}):
+            due_ids = [insight.insight_id for insight in due_by_id.values() if insight.team_id == team_id]
+            usage.update(insight_usage(team_id=team_id, insight_ids=due_ids, now=now))
     candidates_by_team: dict[int, list[Candidate]] = {}
     for insight in due_by_id.values():
         newest = newest_buckets[insight.insight_id]
@@ -519,29 +926,31 @@ def select_insights(
             )
         )
     train_order = _take_turns(
-        [
-            pick_order(
-                candidates_by_team[team_id],
+        {
+            team_id: pick_order(
+                candidates,
                 config=selection_config,
                 tick_start=now,
                 max_staleness=config.limits.max_backfill_buckets,
             )
-            for team_id in sorted(candidates_by_team)
-        ]
+            for team_id, candidates in candidates_by_team.items()
+        },
+        now,
     )
     if config.train_score_split:
-        train_cap = config.max_train_insights_per_tick
+        train_cap = config.max_train_insights_per_tick * shards
     else:
-        train_cap = config.max_insights_per_tick
+        train_cap = config.max_insights_per_tick * shards
     # A stale model plans as a train step here. With the split off, every pick charges the train budgets.
     train_picked, train_skipped = walk(train_order, ScoringRun.TRAIN, train_cap if limit is None else limit)
 
     stale_picked: dict[int, RunPlan] = {}
     stale_skipped = 0
     stale_cap = score_cap - len(score_picked)
+    stale_candidates = [insight_id for insight_id in stale_order_ids if insight_id not in train_picked]
     if config.train_score_split and stale_cap > 0:
         stale_picked, stale_skipped = walk(
-            [insight_id for insight_id in stale_order_ids if insight_id not in train_picked],
+            stale_candidates,
             ScoringRun.SCORE,
             stale_cap,
             lambda insight_ids: {
@@ -557,9 +966,11 @@ def select_insights(
             team_id=team_ids[insight_id],
             insight_id=insight_id,
             scored_through=state.get(insight_id, {}),
-            interval=watched_by_id[insight_id].interval,
+            interval=active_by_id[insight_id].interval,
             query_cost=plan.queries,
             run=plan.run,
+            too_expensive=too_expensive.get(insight_id, 0),
+            empty_train=empty_train.get(insight_id, 0),
         )
         for insight_id, plan in [*score_picked.items(), *train_picked.items()]
     ]
@@ -570,9 +981,35 @@ def select_insights(
         picked_score=len(score_picked),
         picked_train=len(train_picked),
         scored_stale_model=len(stale_picked),
+        stale_candidates=len(stale_candidates),
         train_backlog_soft=sum(insight_id in stale_ready for insight_id in backlog),
         train_backlog_hard=sum(insight_id not in stale_ready for insight_id in backlog),
+        active=active,
+        active_reasons=active_reasons,
+        census=census,
+        teams_planned=len(loaded_teams),
+        teams_skipped=len(teams_with_insights) - len(loaded_teams),
+        enrolled_teams=len(teams),
+        enrolled_organizations=len({team.organization_id for team in teams.values()}),
+        long_cooldown=sum(too_expensive.get(insight_id, 0) > 1 for insight_id in cooling),
+        empty_backoff=sum(insight_id in empty_train for insight_id in cooling),
+        due_insights=None if due_list is None else len(due_list.insights),
+        oldest_due_seconds=None if due_list is None else due_list.oldest_due_seconds,
+        oldest_refresh_seconds=None if due_list is None else due_list.oldest_refresh_seconds,
+        cpu=CpuSpendReport(
+            status=gate.status,
+            fleet_cpu_seconds=gate.fleet_cpu_seconds,
+            fleet_read_bytes=gate.fleet_read_bytes,
+            teams_over_limit=len(gate.blocked_teams & teams.keys()),
+            train_skipped=cpu_skipped[ScoringRun.TRAIN],
+            score_skipped=cpu_skipped[ScoringRun.SCORE],
+        ),
     )
+
+
+def _stale_reserve(score_cap: int) -> int:
+    """The score pass slots that ready picks leave for stale models. A cap of one slot keeps it for ready picks."""
+    return max(1, score_cap // _STALE_SCORE_SHARE) if score_cap > 1 else 0
 
 
 def _as_score_step(plan: RunPlan) -> RunPlan:
@@ -581,7 +1018,7 @@ def _as_score_step(plan: RunPlan) -> RunPlan:
 
 
 def _score_order(
-    watched_by_id: dict[int, WatchedInsight],
+    active_by_id: dict[int, ActiveInsight],
     teams: dict[int, Team],
     config: AnomalyScoringConfig,
     now: datetime.datetime,
@@ -591,12 +1028,12 @@ def _score_order(
     A stale model is in `stale_order` only, because the train pass gets it first. `ready` leaves out the
     stale models, so they reach the train pass.
     """
-    team_orders: list[list[int]] = []
-    stale_orders: list[list[int]] = []
+    team_orders: dict[int, list[int]] = {}
+    stale_orders: dict[int, list[int]] = {}
     ready: set[int] = set()
-    for team_id in sorted({insight.team_id for insight in watched_by_id.values()}):
+    for team_id in sorted({insight.team_id for insight in active_by_id.values()}):
         team = teams[team_id]
-        team_insights = [insight for insight in watched_by_id.values() if insight.team_id == team_id]
+        team_insights = [insight for insight in active_by_id.values() if insight.team_id == team_id]
         scored = score_ready_by_insight(team, [insight.insight_id for insight in team_insights], config, now)
         ready.update(insight_id for insight_id, state in scored.items() if not state.stale_model)
         candidates = [
@@ -613,11 +1050,9 @@ def _score_order(
             and is_due(insight, scored[insight.insight_id].scored_through, team.timezone_info, now)
         ]
         for stale, orders in ((False, team_orders), (True, stale_orders)):
-            orders.append(
-                score_order(
-                    [candidate for is_stale, candidate in candidates if is_stale == stale],
-                    now=now,
-                    max_staleness=config.limits.max_backfill_buckets,
-                )
+            orders[team_id] = score_order(
+                [candidate for is_stale, candidate in candidates if is_stale == stale],
+                now=now,
+                max_staleness=config.limits.max_backfill_buckets,
             )
-    return ScorePassOrder(order=_take_turns(team_orders), stale_order=_take_turns(stale_orders), ready=ready)
+    return ScorePassOrder(order=_take_turns(team_orders, now), stale_order=_take_turns(stale_orders, now), ready=ready)

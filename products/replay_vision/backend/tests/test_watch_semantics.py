@@ -1,3 +1,4 @@
+import uuid
 from datetime import timedelta
 from typing import Any
 
@@ -8,31 +9,42 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 import numpy as np
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 
+from products.replay_vision.backend.highlight_feed_groups import feed_group_cache
 from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_observation_anchor_similarity import ReplayObservationAnchorSimilarity
-from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerModel, ScannerType
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
+from products.replay_vision.backend.models.replay_scanner import (
+    PromptValence,
+    ReplayScanner,
+    ScannerModel,
+    ScannerOrigin,
+    ScannerType,
+)
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     ReplayScannerFeedGroup,
     ReplayScannerSearchTheme,
     ReplayScannerSemanticCenter,
 )
-from products.replay_vision.backend.semantic_space import SEMANTIC_DIMENSIONS, pack, semantic_vector
-from products.replay_vision.backend.tests.helpers import axis_anchors, snapshot_for
-from products.replay_vision.backend.watch_feed_groups import feed_group_cache
+from products.replay_vision.backend.semantic_space import (
+    SEMANTIC_DIMENSIONS,
+    SemanticSpace,
+    nearest_cluster,
+    pack,
+    scanner_space,
+    semantic_vector,
+    unit,
+)
+from products.replay_vision.backend.tests.helpers import axis_anchors, set_rank, snapshot_for
 from products.replay_vision.backend.watch_rank import ANCHOR_VERSION
-from products.replay_vision.backend.watch_semantics import assign_semantics
+from products.replay_vision.backend.watch_semantics import SemanticItem, assign_semantics, assign_semantics_batch
 from products.replay_vision.backend.watch_semantics_backfill import backfill_team_semantics
-from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme
+from products.replay_vision.backend.watch_themes import belongs_in_theme, finalize_label, name_theme, naming_candidates
 
 _THEMES = "products.replay_vision.backend.watch_themes"
 _BACKFILL = "products.replay_vision.backend.watch_semantics_backfill"
-
-
-def _rank(category: str = "failure") -> dict[str, Any]:
-    return {"category": category, "contrast": 0.2, "anchor_version": ANCHOR_VERSION, "duplicate_of": "retired"}
 
 
 def _vector(*head: float) -> list[float]:
@@ -70,6 +82,29 @@ class TestThemeRules(SimpleTestCase):
     def test_label_shape(self, _name: str, raw: str, expected: str) -> None:
         assert finalize_label(raw) == expected
 
+    @parameterized.expand([("raw", False), ("centred", True)])
+    def test_nearest_cluster_matches_comparing_every_centred_mean(self, _name: str, centring: bool) -> None:
+        rng = np.random.default_rng(7)
+        sums = rng.normal(size=(200, SEMANTIC_DIMENSIONS)).astype(np.float32)
+        counts = rng.integers(1, 40, size=200).astype(np.float32)
+        vector = unit(rng.normal(size=SEMANTIC_DIMENSIONS).astype(np.float32))
+        mean = (
+            unit(rng.normal(size=SEMANTIC_DIMENSIONS).astype(np.float32)) * 0.3 if centring else np.zeros_like(vector)
+        )
+        space = SemanticSpace(vector=vector, mean=mean, centring=centring)
+
+        expected = int(np.argmax(unit(sums / counts[:, None] - mean) @ unit(vector - mean)))
+
+        assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, -1.0, -1.0) == expected
+
+    def test_a_cluster_whose_mean_matches_the_scanner_mean_still_takes_its_own_vector(self) -> None:
+        common, rare = np.eye(SEMANTIC_DIMENSIONS, dtype=np.float32)[:2]
+        sums = np.stack([common * 10_000, rare])
+        counts = np.array([10_000, 1], dtype=np.float32)
+        space = scanner_space(common * 10_000 + rare, 10_001, common)
+
+        assert nearest_cluster(sums, counts, np.einsum("ij,ij->i", sums, sums), space, 0.65, 0.90) == 0
+
 
 class TestAssignSemantics(BaseTest):
     def setUp(self) -> None:
@@ -77,10 +112,15 @@ class TestAssignSemantics(BaseTest):
         feed_group_cache.clear()
         self.scanner = self._scanner(ScannerType.SUMMARIZER)
 
-    def _scanner(self, scanner_type: str, valence: str = "", name: str = "checkout") -> ReplayScanner:
-        return ReplayScanner.objects.create(
+    def _scanner(
+        self, scanner_type: str, valence: str = "", name: str = "checkout", origin: str = ScannerOrigin.CONFIGURED
+    ) -> ReplayScanner:
+        inline = origin == ScannerOrigin.INLINE
+        return ReplayScanner.all_origins.create(
             team=self.team,
-            name=name,
+            name="" if inline else name,
+            origin=origin,
+            inline_key=name if inline else "",
             scanner_type=scanner_type,
             prompt_valence=valence,
             scanner_config={"prompt": "What happened at checkout?"},
@@ -91,15 +131,20 @@ class TestAssignSemantics(BaseTest):
         self, category: str = "failure", output: dict[str, Any] | None = None, scanner: ReplayScanner | None = None
     ) -> ReplayObservation:
         scanner = scanner or self.scanner
-        return ReplayObservation.objects.create(
+        observation = ReplayObservation.objects.create(
             scanner=scanner,
             team=self.team,
             session_id=f"sess-{ReplayObservation.objects.count()}",
             triggered_by=ObservationTrigger.ON_DEMAND,
             scanner_snapshot=snapshot_for(scanner),
-            watch_rank=_rank(category),
             scanner_result={"model_output": output or {"scanner_type": "summarizer", "summary": ""}},
         )
+        set_rank(observation, category=category, contrast=0.2)
+        return observation
+
+    def _clusters(self, observation: ReplayObservation) -> tuple[Any, Any]:
+        rank = ReplayObservationRank.objects.for_team(self.team.id).get(observation_id=observation.id)
+        return rank.feed_group_id, rank.search_theme_id
 
     def _assign(self, observation: ReplayObservation, vector: list[float]) -> Any:
         return assign_semantics(
@@ -113,27 +158,53 @@ class TestAssignSemantics(BaseTest):
     def _counts(self, model: type[ReplayScannerFeedGroup] | type[ReplayScannerSearchTheme]) -> list[int]:
         return sorted(model.objects.for_team(self.team.id).values_list("member_count", flat=True))
 
-    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(self) -> None:
+    @parameterized.expand(
+        [
+            ("configured", ScannerOrigin.CONFIGURED, False),
+            ("inline", ScannerOrigin.INLINE, False),
+            # One chunk holds a group created earlier in the same chunk, so the result matches one call per row.
+            ("one_batch", ScannerOrigin.CONFIGURED, True),
+        ]
+    )
+    def test_close_observations_share_a_group_and_a_theme_and_a_redelivery_counts_once(
+        self, _name: str, origin: str, batch: bool
+    ) -> None:
+        self.scanner = self._scanner(ScannerType.SUMMARIZER, name="refunds", origin=origin)
         first, close, far = self._observation(), self._observation(), self._observation()
         routine = self._observation(category="routine")
+        vectors = [(first, _vector(1.0)), (close, _vector(1.0, 0.1)), (far, _vector(0.0, 1.0)), (routine, _vector(1.0))]
 
-        joined = [self._assign(first, _vector(1.0)), self._assign(close, _vector(1.0, 0.1))]
+        if batch:
+            assigned = assign_semantics_batch(
+                team_id=self.team.id,
+                scanner_id=str(self.scanner.id),
+                items=[SemanticItem(observation_id=str(o.id), vector=v, now=timezone.now()) for o, v in vectors],
+            )
+            joined: list[Any] = [assigned[str(first.id)], assigned[str(close.id)]]
+            far_assignment: Any = assigned[str(far.id)]
+            routine_assignment: Any = assigned[str(routine.id)]
+        else:
+            joined = [self._assign(first, _vector(1.0)), self._assign(close, _vector(1.0, 0.1))]
+            far_assignment = self._assign(far, _vector(0.0, 1.0))
+            # A message may spell the id in another case, and the row must still be found.
+            routine_assignment = assign_semantics(
+                team_id=self.team.id,
+                scanner_id=str(self.scanner.id),
+                observation_id=str(routine.id).upper(),
+                vector=_vector(1.0),
+                now=timezone.now(),
+            )
         assert joined[0].group_id == joined[1].group_id
         assert joined[0].theme.theme_id == joined[1].theme.theme_id
         assert self._assign(first, _vector(1.0)) is None
-        assert self._assign(far, _vector(0.0, 1.0)).group_id != joined[0].group_id
+        assert far_assignment.group_id != joined[0].group_id
         # A routine row joins a feed group, so a viewer who counts it as an issue finds it grouped, but never a theme.
-        routine_assignment = self._assign(routine, _vector(1.0))
         assert routine_assignment.group_id == joined[0].group_id
         assert routine_assignment.theme is None
 
         assert self._counts(ReplayScannerFeedGroup) == [1, 3]
         assert self._counts(ReplayScannerSearchTheme) == [1, 2]
-        first.refresh_from_db()
-        assert first.watch_rank is not None
-        assert first.watch_rank["group"] == str(joined[0].group_id)
-        assert first.watch_rank["theme"] == str(joined[0].theme.theme_id)
-        assert "duplicate_of" not in first.watch_rank
+        assert self._clusters(first) == (joined[0].group_id, joined[0].theme.theme_id)
 
     @parameterized.expand(
         [
@@ -160,10 +231,7 @@ class TestAssignSemantics(BaseTest):
         assignment = self._assign(observation, _vector(1.0))
 
         assert assignment.theme is None
-        observation.refresh_from_db()
-        assert observation.watch_rank is not None
-        assert observation.watch_rank["group"] == str(assignment.group_id)
-        assert "theme" not in observation.watch_rank
+        assert self._clusters(observation) == (assignment.group_id, None)
 
     @parameterized.expand(
         [
@@ -201,22 +269,24 @@ class TestAssignSemantics(BaseTest):
 
         assert self._counts(ReplayScannerFeedGroup) == [1, 2]
 
-    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self) -> None:
+    # An embedding stored long after its observation was created falls outside the slice's bounded read.
+    @parameterized.expand([("embedded_on_time", False), ("embedded_late", True)])
+    def test_the_backfill_fills_only_what_a_ranked_row_is_missing(self, _name: str, late: bool) -> None:
         grouped = self._observation()
-        ReplayObservation.objects.filter(id=grouped.id).update(
-            watch_rank={**_rank(), "group": "kept"}, status="succeeded", completed_at=timezone.now()
-        )
+        kept = uuid.uuid4()
+        set_rank(grouped, group=kept)
         vector = np.array([1.0, 0.0, 0.0], dtype=np.float32)
+
+        def stored(_team_id: int, ids: list[str], _since: Any, until: Any) -> dict[str, np.ndarray]:
+            return {} if late and until is not None else dict.fromkeys(ids, vector)
+
         with (
-            patch(f"{_BACKFILL}._stored_vectors", return_value={str(grouped.id): vector}),
+            patch(f"{_BACKFILL}.stored_vectors_between", side_effect=stored),
             patch(f"{_BACKFILL}.anchor_vectors", AsyncMock(return_value=axis_anchors())),
         ):
             backfill_team_semantics(self.team.id, timezone.now() - timedelta(days=1))
 
-        grouped.refresh_from_db()
-        assert grouped.watch_rank is not None
-        assert grouped.watch_rank["group"] == "kept"
-        assert set(grouped.watch_rank["scores"]) == {"failure", "struggle", "revenue", "routine"}
+        assert self._clusters(grouped)[0] == kept
         assert (
             ReplayObservationAnchorSimilarity.objects.for_team(self.team.id)
             .filter(observation_id=grouped.id, anchor_version=ANCHOR_VERSION)
@@ -244,7 +314,27 @@ class TestAssignSemantics(BaseTest):
         due = [self._assign(self._observation(), _vector(1.0)).theme.name_due for _ in range(5)]
         assert due == [False, False, False, False, True]
 
-    def test_naming_writes_the_label_once_per_doubling(self) -> None:
+    def test_only_themes_a_suggestion_can_show_are_due_a_name(self) -> None:
+        def theme(member_count: int, rename_at: int) -> ReplayScannerSearchTheme:
+            return ReplayScannerSearchTheme.objects.for_team(self.team.id).create(
+                team=self.team,
+                scanner=self.scanner,
+                vector_sum=pack(semantic_vector(_vector(1.0))),
+                member_count=member_count,
+                rename_at_member_count=rename_at,
+                last_member_at=timezone.now(),
+            )
+
+        # The eight largest fill every suggestion slot and are named already, so the due ninth never shows.
+        for size in range(20, 28):
+            theme(size, rename_at=size * 2)
+        theme(10, rename_at=5)
+        assert list(naming_candidates(self.team.id, timezone.now())) == []
+
+        shown = theme(30, rename_at=5)
+        assert list(naming_candidates(self.team.id, timezone.now())) == [shown]
+
+    def test_naming_writes_the_label_once_per_doubling_and_retries_a_failed_call(self) -> None:
         for _ in range(5):
             assignment = self._assign(
                 self._observation(output={"scanner_type": "summarizer", "summary": "The card form rejected a card."}),
@@ -253,15 +343,40 @@ class TestAssignSemantics(BaseTest):
         theme_id = assignment.theme.theme_id
         response = MagicMock(text='{"query": "Valid Card Rejected At Checkout."}')
         client = MagicMock(aclose=AsyncMock())
-        client.models.generate_content = AsyncMock(return_value=response)
+        client.models.generate_content = AsyncMock(side_effect=[RuntimeError("model unavailable"), response])
         with (
-            patch(f"{_THEMES}.replay_gemini_client", AsyncMock(return_value=client)),
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
             patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
         ):
+            with self.assertRaises(RuntimeError):
+                async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
             first = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
             again = async_to_sync(name_theme)(self.team.id, theme_id, timezone.now())
 
         assert (first, again) == ("valid card rejected at checkout", None)
-        assert client.models.generate_content.await_count == 1
+        assert client.models.generate_content.await_count == 2
         theme = ReplayScannerSearchTheme.objects.for_team(self.team.id).get(id=theme_id)
         assert (theme.name, theme.rename_at_member_count) == ("valid card rejected at checkout", 10)
+
+    def test_a_failed_naming_leaves_a_newer_claim_in_place(self) -> None:
+        for _ in range(5):
+            assignment = self._assign(
+                self._observation(output={"scanner_type": "summarizer", "summary": "The card form rejected a card."}),
+                _vector(1.0),
+            )
+        themes = ReplayScannerSearchTheme.objects.for_team(self.team.id).filter(id=assignment.theme.theme_id)
+
+        async def doubled_then_failed(*_args: Any, **_kwargs: Any) -> None:
+            await sync_to_async(themes.update)(member_count=10, rename_at_member_count=20)
+            raise RuntimeError("model unavailable")
+
+        client = MagicMock(aclose=AsyncMock())
+        client.models.generate_content = AsyncMock(side_effect=doubled_then_failed)
+        with (
+            patch(f"{_THEMES}.replay_gemini_client", MagicMock(return_value=client)),
+            patch(f"{_THEMES}.is_ai_data_processing_approved", return_value=True),
+            self.assertRaises(RuntimeError),
+        ):
+            async_to_sync(name_theme)(self.team.id, assignment.theme.theme_id, timezone.now())
+
+        assert themes.get().rename_at_member_count == 20

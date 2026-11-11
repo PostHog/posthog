@@ -111,11 +111,12 @@ export const slackConnectLogic: LogicWrapper<slackConnectLogicType> = kea<slackC
                 { pauseOnPageHidden: false }
             )
         },
-        loadIntegrationsSuccess: ({ integrations }) => {
+        loadIntegrationsSuccess: () => {
             if (!values.waitingForSlack) {
                 return
             }
-            const slackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
+            // The reducer of integrationsLogic holds the loaded list by now.
+            const slackIntegrations = values.slackIntegrations ?? []
             const known: Set<number> | null = cache.knownSlackIntegrationIds
             if (!known) {
                 cache.knownSlackIntegrationIds = new Set(slackIntegrations.map((integration) => integration.id))

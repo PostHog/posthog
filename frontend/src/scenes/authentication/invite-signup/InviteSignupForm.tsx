@@ -19,6 +19,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { loginLogic } from 'scenes/authentication/auth/loginLogic'
 import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
@@ -26,7 +27,6 @@ import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { OrgTile } from 'scenes/authentication/shared/authScene/OrgTile'
 import { TurnstileChallenge } from 'scenes/authentication/shared/TurnstileChallenge'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -35,6 +35,8 @@ import { PrevalidatedInvite, SSOProvider } from '~/types'
 import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 
 const HedgehogJudge = pngHoggie(judgePng)
+
+const PASSWORD_RULES = 'At least 8 characters. Avoid common words and patterns.'
 
 /**
  * Invite-signup alternatives row: social/SSO icons plus an optional passkey signup icon.
@@ -196,6 +198,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
                                             <PasswordStrength validatedPassword={validatedPassword} />
                                         </div>
                                     }
+                                    help={validatedPassword.feedback || PASSWORD_RULES}
                                 >
                                     {({ value, onChange, error, id }) => (
                                         <LemonInput

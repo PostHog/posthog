@@ -1,20 +1,20 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Skeleton } from '@posthog/quill'
 
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { materializationJobsLogic } from 'scenes/data-warehouse/saved_queries/materializationJobsLogic'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { NODE_TYPE_TAG_SETTINGS } from '../lineage/nodeStyles'
+import { canEditNodeDescription } from './nodeDescriptionState'
 import { NodeDetailActions } from './NodeDetailActions'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { NodeDetailTitleTags } from './NodeDetailTitleTags'
+import { nodeTypeForDisplay } from './nodeTypeForDisplay'
 
 export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
     const {
@@ -33,28 +33,14 @@ export function NodeDetailHeader({ id }: { id: string }): JSX.Element {
         })
     )
     const savedQuery = currentSavedQuery ?? initialSavedQuery
-    const nodeType =
-        node?.type === 'view' || node?.type === 'matview'
-            ? savedQuery
-                ? savedQuery.is_materialized
-                    ? 'matview'
-                    : 'view'
-                : node.type
-            : node?.type
-    const typeTag = nodeType ? NODE_TYPE_TAG_SETTINGS[nodeType] : null
-    const canEdit =
-        node?.type !== 'metric' &&
-        userHasAccess(
-            AccessControlResourceType.WarehouseObjects,
-            AccessControlLevel.Editor,
-            savedQuery?.user_access_level
-        )
+    const nodeType = nodeTypeForDisplay(node, savedQuery)
+    const canEdit = canEditNodeDescription(node, savedQuery)
 
     return (
         <>
             <SceneTitleSection
                 name={node?.name}
-                nameSuffix={typeTag && <LemonTag type={typeTag.type}>{typeTag.label}</LemonTag>}
+                nameSuffix={<NodeDetailTitleTags nodeType={nodeType} node={node} />}
                 actions={
                     // A failed saved query never resolves on its own, so the placeholder must not
                     // outlive it. The Materialization and Query tabs carry the retry.

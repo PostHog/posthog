@@ -17,6 +17,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.instance_setting import set_instance_setting
@@ -224,6 +225,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                 "is_expired": False,
                 "level": 1,
                 "emailing_attempt_made": True,
+                "email_suppressed": False,
                 "message": None,
                 "private_project_access": [],
             },
@@ -263,6 +265,38 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.assertEqual(len(mail.outbox), 1)
         self.assertListEqual(mail.outbox[0].to, [email])
         self.assertEqual(mail.outbox[0].reply_to, [self.user.email])  # Reply-To is set to the inviting user
+
+    @parameterized.expand(
+        [
+            ("suppressed", ESPSuppressionReason.SUPPRESSED, True),
+            ("not_suppressed", None, False),
+            ("api_failure", ESPSuppressionReason.API_FAILURE_FALLBACK, False),
+        ]
+    )
+    @patch("posthog.tasks.email.EmailMessage")
+    @patch("posthog.tasks.email.check_esp_suppression")
+    @patch("posthog.tasks.email.ph_scoped_capture")
+    def test_add_organization_invite_flags_esp_suppressed_email(
+        self, _name, reason, expected_suppressed, mock_scoped_capture, mock_check, _mock_email_message
+    ):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        mock_check.return_value = ESPSuppressionResult(
+            is_suppressed=reason is not None, from_cache=False, reason=reason
+        )
+        capture = mock_scoped_capture.return_value.__enter__.return_value
+
+        with self.settings(EMAIL_ENABLED=True, SITE_URL="http://test.posthog.com", CUSTOMER_IO_API_KEY="test-key"):
+            response = self.client.post("/api/organizations/@current/invites/", {"target_email": "x@x.com"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        mock_check.assert_called_once_with("x@x.com")
+        list_response = self.client.get("/api/organizations/@current/invites/")
+        self.assertEqual(list_response.json()["results"][0]["email_suppressed"], expected_suppressed)
+        events = [c.kwargs["event"] for c in capture.call_args_list]
+        self.assertEqual(events, ["invite email suppressed"] if expected_suppressed else [])
+        if expected_suppressed:
+            assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+            assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_with_email_on_instance_but_send_email_prop_false(self, mock_capture):
@@ -590,13 +624,28 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
-    def test_invite_creation_disallowed_with_plus_addressed_email(self):
+    def test_invite_creation_rejects_message_over_length_limit(self):
         count = OrganizationInvite.objects.count()
         response = self.client.post(
-            "/api/organizations/@current/invites/", {"target_email": "newperson+alias@posthog.com"}
+            f"/api/organizations/{self.organization.id}/invites/",
+            {"target_email": "x@posthog.com", "message": "a" * 1001},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["code"], "plus_addressing_not_allowed")
+        self.assertEqual(response.json()["attr"], "message")
+        self.assertEqual(response.json()["code"], "max_length")
+        self.assertEqual(OrganizationInvite.objects.count(), count)
+
+    @parameterized.expand(
+        [
+            ("plus_addressed", "newperson+alias@posthog.com", "plus_addressing_not_allowed"),
+            ("zero_width_space", "newperson@posthog\u200b.com", "lookalike_characters_not_allowed"),
+        ]
+    )
+    def test_invite_creation_disallowed_with_unsupported_email(self, _name, target_email, code):
+        count = OrganizationInvite.objects.count()
+        response = self.client.post("/api/organizations/@current/invites/", {"target_email": target_email})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], code)
         self.assertEqual(OrganizationInvite.objects.count(), count)
 
     @parameterized.expand(
@@ -951,6 +1000,50 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that new invite uses its own level
         self.assertEqual(new_invite["level"], OrganizationMembership.Level.MEMBER)
+
+    @parameterized.expand(
+        [
+            ("combine_above_level", True, OrganizationMembership.Level.ADMIN, False),
+            ("combine_above_project_access", True, OrganizationMembership.Level.MEMBER, True),
+            ("replace_above_level", False, OrganizationMembership.Level.ADMIN, False),
+            ("replace_above_project_access", False, OrganizationMembership.Level.MEMBER, True),
+        ]
+    )
+    def test_member_reinvite_keeps_pending_invite_above_their_grant(
+        self, _name: str, combine: bool, existing_level: OrganizationMembership.Level, with_private_access: bool
+    ) -> None:
+        owner = self._create_user("owner@posthog.com", level=OrganizationMembership.Level.OWNER)
+        member = self._create_user("member@posthog.com")
+        email = "x@posthog.com"
+        private_access: list[dict[str, int | str]] = []
+        if with_private_access:
+            private_team = Team.objects.create(organization=self.organization, name="Private Team")
+            AccessControl.objects.create(
+                team=private_team, access_level="none", resource="project", resource_id=str(private_team.id)
+            )
+            private_access = [{"id": private_team.id, "level": "admin"}]
+        existing_invite = OrganizationInvite.objects.create(
+            organization=self.organization,
+            target_email=email,
+            level=existing_level,
+            private_project_access=private_access,
+            created_by=owner,
+        )
+        self.client.force_login(member)
+
+        response = self.client.post(
+            "/api/organizations/@current/invites/",
+            {"target_email": email, "level": OrganizationMembership.Level.MEMBER, "combine_pending_invites": combine},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(response.json()["private_project_access"], [])
+        self.assertTrue(
+            OrganizationInvite.objects.filter(
+                id=existing_invite.id, level=existing_level, private_project_access=private_access, created_by=owner
+            ).exists()
+        )
 
     def test_member_cannot_invite_admin(self):
         # Create a member user
@@ -1790,18 +1883,16 @@ class TestOnboardingSkipAPI(APIBaseTest):
         self.assertEqual(self.user.onboarding_skipped_at, first_ts)
 
     @patch("posthog.api.user.posthoganalytics.capture")
-    def test_skip_captures_one_event_with_flow_variant(self, mock_capture):
+    def test_skip_captures_one_event(self, mock_capture):
         for _ in range(2):
             with self.captureOnCommitCallbacks(execute=True):
-                response = self.client.post(
-                    self._skip_url(), {"reason": "later", "step_at_skip": "mcp", "flow_variant": "simple"}
-                )
+                response = self.client.post(self._skip_url(), {"reason": "later", "step_at_skip": "install"})
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
         skip_calls = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "onboarding skipped"]
         self.assertEqual(
             [c.kwargs["properties"] for c in skip_calls],
-            [{"step_at_skip": "mcp", "reason": "later", "flow_variant": "simple"}],
+            [{"step_at_skip": "install", "reason": "later"}],
         )
         self.assertEqual(skip_calls[0].kwargs["groups"]["project"], str(self.team.uuid))
         self.assertEqual(skip_calls[0].kwargs["groups"]["organization"], str(self.organization.id))

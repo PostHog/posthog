@@ -7,6 +7,7 @@ from temporalio import activity
 from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.exceptions import SandboxNotFoundError
+from products.tasks.backend.logic.services.compute_settlement import settle_task_run_compute
 from products.tasks.backend.logic.services.gateway_usage import refresh_task_run_cost
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class_for_sandbox_id
 from products.tasks.backend.logic.services.sandbox_usage import (
@@ -136,6 +137,14 @@ def cleanup_sandbox_now(input: CleanupSandboxInput) -> None:
             )
 
     if accounting_run is not None:
+        try:
+            settle_task_run_compute(accounting_run.id, accounting_run.team_id)
+        except Exception:
+            logger.warning(
+                "cleanup_sandbox_compute_settlement_failed",
+                extra={"run_id": str(accounting_run.id)},
+                exc_info=True,
+            )
         try:
             refresh_task_run_cost(run_id=accounting_run.id, team_id=accounting_run.team_id)
         except Exception:

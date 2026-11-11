@@ -4,7 +4,7 @@ Use this reference when reusing the common ordered alias helper or the shared-im
 
 ## Current capability
 
-The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, `publish`, source publication bindings, the interval adapter and fingerprint APIs. It imports the loader and vendored matcher from paths-filter. The new action has no Depot mirror. Channels stay empty until separately reviewed activation; manifest entries name provisioned origin repositories.
+The common alias uses `.github/scripts/ordered-image-release.sh`. `.github/actions/paths-filter` owns canonical manifest schema loading in `src/shared-image-policy.ts` and legacy projection. `.github/actions/shared-image-releases` owns `inspect`, `publish`, source publication bindings, the interval adapter and fingerprint APIs. It imports the loader and vendored matcher from paths-filter. The new action has no Depot mirror. Channels are added only through separately reviewed activation; manifest entries name provisioned origin repositories.
 
 ## Common ordered alias
 
@@ -33,7 +33,7 @@ Image annotations and consumer `source.repo` keep canonical `PostHog/posthog` id
 
 Move each reused filter into `.github/shared-image-releases.yaml` once. The legacy action's `shared-image-policy` input calls `loadPolicy(text)` and `projectLegacyFilters(policy, inlineYaml)`. Preserve legacy endpoint comparisons, output names, ordering and compound dispatch conditions, including Python dependency analysis and coverage-added checks.
 
-Keep a `dataWarehouse: null` reference at that rule's original inline position. The projection fills it from the manifest while preserving every non-null inline rule. Unresolved references fail; nonempty duplicate definitions are rejected. Metadata's ten-pattern historical fixture remains distinct from the broader active `dataWarehouse` rule and is not an active channel.
+Keep a `dataWarehouse: null` reference at that rule's original inline position. The projection fills it from the manifest while preserving every non-null inline rule. Unresolved references fail; nonempty duplicate definitions are rejected. `dataWarehouseMetadata` is an active channel filter, distinct from the broader `dataWarehouse` rule that still gates two legacy workers, with its `bootstrapPolicyDigest` pinned at adoption.
 
 Version 1 has `version`, `filters` and `images`; images contain `channels`. Each channel has `repository`, `filter` and optional `bootstrapPolicyDigest`. `loadPolicy` validates the closed shape, references, positive patterns and nonempty channel status qualifiers limited to `added`, `modified` and `deleted`. The vendored matcher owns extglob/negation semantics; legacy-only veto and status rules retain prior behavior. Structural validation does not authorize publication.
 
@@ -71,11 +71,11 @@ Ordinary publication refuses an empty ordered frontier. Review one seed revision
 
 Retry the same seed after newer aliases arrive. The seed must still exist at its expected digest; a missing seed in a repository with an ordered release or a conflicting digest fails. Untagged manifests and non-ordered tags alone do not block a verified seed copy. When the seed predates the channel policy, carry `bootstrapPolicyDigest` in the channel and verify it equals the reviewed current fingerprint before seeding. Preserve that adoption fingerprint across later policy changes.
 
-Before adding the first channel, review the selective role, source reads, origin writes and listing, immutable tags, ECR replication, retention and bootstrap evidence. Onboarding another worker needs its infrastructure entry and policy entry, with no workflow edit. Obtain the Charts consumer-binding check and verify consumer pulls and release selection separately. Adding a repository can cause a rollout even at the same digest. This publisher makes no consumer or Charts changes.
+Before adding the first channel, review the selective role, source reads, origin writes and listing, immutable tags, ECR replication, retention and bootstrap evidence. Onboarding another worker needs its infrastructure entry and policy entry, with no workflow edit while the channel count stays within the workflow's [channel budget](#bound-work-before-activation). Obtain the Charts consumer-binding check and verify consumer pulls and release selection separately. Adding a repository can cause a rollout even at the same digest. This publisher makes no consumer or Charts changes.
 
 ## Bound work before activation
 
-The workflow allows four channels and two concurrent registry workers. A local representative run covers 48 first-parent commits and the full four-channel fan-out; it measures fixture work, not production upload throughput. Recheck these bounds before increasing fan-out or enabling an origin with slower copy or readback behavior.
+The workflow allows twenty channels and four concurrent registry workers. The time bound covers only eight channels that all publish in one build at the full channel registry work bound, in two waves of four. With more channels publishing that slowly, the action total ends the run and blocks every remaining channel: a channel not yet started makes no copy, a channel cut short may already have written its tag, and the next build re-evaluates each from the frontier it finds. A local representative run gives each of twenty channels an interval of at least 48 first-parent commits, publishes all of them with at most four in progress and refuses a twenty-one-channel policy before any registry command; it measures fixture work, not production upload throughput. Recheck these bounds before raising the channel budget or concurrency, or enabling an origin with slower copy or readback behavior.
 
 | Work                           | Bound              |
 | ------------------------------ | ------------------ |

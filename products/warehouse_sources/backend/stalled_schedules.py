@@ -187,7 +187,7 @@ def find_stalled_schemas(
     if source_type is not None:
         queryset = queryset.filter(source__source_type__iexact=source_type)
 
-    queryset = queryset.select_related("source").order_by("latest_run_at")
+    queryset = queryset.select_related("source").order_by(F("latest_run_at"))
     if limit is not None:
         queryset = queryset[:limit]
 

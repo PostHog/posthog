@@ -2,9 +2,10 @@ import Fuse from 'fuse.js'
 import { LogicWrapper } from 'kea'
 import { ReactNode } from 'react'
 
+import type { LegacyDisplayEntity } from 'lib/insights/entityFilterNames'
 import type { SeriesNode } from 'scenes/insights/filters/ActionFilter/seriesNode'
 // eslint-disable-next-line import/no-cycle
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 
 import { AnyDataNode, DatabaseSchemaField, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 import {
@@ -12,7 +13,6 @@ import {
     ActionType,
     AnyPropertyFilter,
     CohortType,
-    EntityFilter,
     EventDefinition,
     EventPropertyFilter,
     PersonProperty,
@@ -43,13 +43,28 @@ export interface QuickFilterItem {
     eventName?: string
     extraProperties?: (EventPropertyFilter | PersonPropertyFilter)[]
     /** Set on the collapsed `URL contains "<query>"` row so commit telemetry can
-     *  measure contains-shortcut adoption, matching the rebuild menu's
-     *  `wasUrlContainsShortcut`. */
+     *  measure contains-shortcut adoption (`wasUrlContainsShortcut`). */
     isContainsShortcut?: boolean
 }
 
+export interface HiddenEventStandIn {
+    _type: 'hidden_event_stand_in'
+    name: string
+    value: string
+}
+
+export type LeadingSearchItem = HiddenEventStandIn | QuickFilterItem
+
+function hasItemType(item: unknown, type: string): boolean {
+    return item != null && typeof item === 'object' && '_type' in item && item._type === type
+}
+
 export function isQuickFilterItem(item: unknown): item is QuickFilterItem {
-    return item != null && typeof item === 'object' && '_type' in item && item._type === 'quick_filter'
+    return hasItemType(item, 'quick_filter')
+}
+
+export function isHiddenEventStandIn(item: unknown): item is HiddenEventStandIn {
+    return hasItemType(item, 'hidden_event_stand_in')
 }
 
 export function quickFilterToPropertyFilter(item: QuickFilterItem): EventPropertyFilter | PersonPropertyFilter {
@@ -129,7 +144,7 @@ export interface TaxonomicFilterProps {
     onClose?: () => void
     /** The series/entity filter the picker is editing — lets the list surface
      *  the committed selection with its rename (`custom_name`) applied. */
-    filter?: EntityFilter | ActionFilter | SeriesNode
+    filter?: LegacyDisplayEntity | ActionFilter | SeriesNode
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
     taxonomicFilterLogicKey?: string
     optionsFromProp?: Partial<Record<TaxonomicFilterGroupType, SimpleOption[]>>
@@ -148,10 +163,21 @@ export interface TaxonomicFilterProps {
     /**
      * Keep offering events whose data is moving out of the `events` table. Set it where the surface
      * still needs such an event: it reads live capture, it matches events as they arrive (destinations
-     * and workflows), or it measures experiment exposure. Leave it unset everywhere else, so a picker
-     * stops saving queries that return nothing once the data moves.
+     * and workflows), it measures experiment exposure, or it is a cohort criterion type that the cohorts
+     * API accepts on the event. Leave it unset everywhere else, so a picker stops saving queries that
+     * return nothing once the data moves.
      */
     includeHiddenEvents?: boolean
+    /**
+     * A search that reaches the second word of a hidden event's name or label offers a stand-in row for it.
+     * The event's own row stays out of the search results, whatever `includeHiddenEvents` says.
+     * Recent and pinned rows still follow `includeHiddenEvents`.
+     * Picking the stand-in commits the event's name.
+     * Set it only where the host turns that pick into a query on the table that now holds the event, and only for a
+     * team whose `events` table no longer receives the event. Such a team may have no definition to list, or one that
+     * drops out of searches once it is 30 days stale.
+     */
+    offerHiddenEventStandIns?: boolean
     /** use to indicate if a result in a group is selected */
     selectedProperties?: SelectedProperties
     propertyAllowList?: AllowedProperties // only return properties in this list, currently only working for EventProperties and PersonProperties
@@ -203,7 +229,7 @@ export interface TaxonomicFilterProps {
      *  See `SelectingKeyOnly` for the boolean-or-per-group-dict shape. */
     selectingKeyOnly?: SelectingKeyOnly
     /** Collapse URL-shaped groups (Pageview URLs) to a single `URL contains "<query>"`
-     *  shortcut row instead of listing every matching URL — mirrors the rebuild menu.
+     *  shortcut row instead of listing every matching URL.
      *  Selecting the row commits `$current_url IContains <query>` via a `QuickFilterItem`,
      *  so a host must handle `isQuickFilterItem(item)` in onChange to honor the contains
      *  operator. Only `TaxonomicPropertyFilter` (and the property/universal-filter hosts
@@ -298,6 +324,7 @@ export interface TaxonomicFilterGroup {
      *  Returned items are QuickFilterItems and flow through existing isQuickFilterItem
      *  handling in consumer onChange handlers. */
     keywordShortcuts?: (searchQuery: string) => QuickFilterItem[]
+    hiddenEventStandIns?: (searchQuery: string) => HiddenEventStandIn[]
     /**
      * Pre-fetch the first page (empty-query) once, cache it, and filter
      * subsequent typed queries client-side via Fuse rather than firing a
@@ -417,8 +444,8 @@ export const META_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 
 /** Selection types that reopen on their own tab/panel rather than the default "All" surface,
  *  because they're config/edit flows (an expression editor, a data-warehouse table/column
- *  picker) with no simple category value to verify at a glance. Honored by the legacy
- *  `activeTab` selector and the rebuild menu's `activeChip` initializer alike. */
+ *  picker) with no simple category value to verify at a glance. Honored by the
+ *  `activeTab` selector. */
 export const OPEN_AS_SELF_ON_REOPEN = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.DataWarehouse,
@@ -474,3 +501,4 @@ export type TaxonomicDefinitionTypes =
     | DataWarehouseTableForInsight
     | MaxContextTaxonomicFilterOption
     | QuickFilterItem
+    | HiddenEventStandIn

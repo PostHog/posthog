@@ -17,8 +17,8 @@
 //! expected behavior legitimately differs across stack versions as
 //! admission hardening lands.
 //!
-//! Direct database access is seeding and verification only — confined to
-//! the configured target table (the writer's validation table), never
+//! Direct database access is seeding, verification, and finding parked
+//! deletes — confined to the configured target table set, never
 //! posthog_person, and never a DELETE: every row removal goes through the
 //! lifecycle delete saga, so leftovers from crashed runs and the saga's
 //! tombstones are external cleanup's business. A startup sentinel
@@ -164,6 +164,9 @@ pub async fn run(args: TrafficArgs) -> Result<()> {
         team_ids[0],
     )
     .await?;
+
+    let owned_teams: Vec<i64> = team_ids.iter().copied().chain([hostile_team_id]).collect();
+    resume_parked_deletes(&lifecycle, &pool, &args.pg_target_table, &owned_teams).await?;
 
     // Hostile targets live for the process lifetime: their documents stay
     // small (fixed keys, no journal growth) and their outcomes are only
@@ -607,11 +610,13 @@ async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i6
 
     // The lifecycle service caps batches at 250 person ids.
     for chunk in person_ids.chunks(200) {
-        let op_id = uuid::Uuid::new_v4();
         let started = std::time::Instant::now();
-        let outcomes = lifecycle
-            .delete_persons(team_id, chunk.to_vec(), &op_id)
-            .await?;
+        let outcomes = with_op_retry(DELETE_ATTEMPTS, DELETE_BACKOFF, |op_id| async move {
+            lifecycle
+                .delete_persons(team_id, chunk.to_vec(), &op_id)
+                .await
+        })
+        .await?;
         histogram!("personhog_traffic_pool_delete_duration_ms")
             .record(started.elapsed().as_secs_f64() * 1000.0);
         for (person_id, outcome) in outcomes {
@@ -633,6 +638,70 @@ async fn delete_pool(lifecycle: &LifecycleClient, team_id: i64, person_ids: &[i6
         }
     }
     Ok(())
+}
+
+/// The sweeper never resumes a parked op, so the bed re-sends its own.
+async fn resume_parked_deletes(
+    lifecycle: &LifecycleClient,
+    pool: &PgPool,
+    person_table: &str,
+    team_ids: &[i64],
+) -> Result<()> {
+    let (op_table, _) = seed::lifecycle_tables_for(person_table);
+    let teams: Vec<i32> = team_ids.iter().map(|&team| team as i32).collect();
+    let parked: Vec<(Uuid, i32, Vec<i64>)> = sqlx::query_as(&format!(
+        "SELECT op_id, team_id, \
+                ARRAY(SELECT jsonb_array_elements_text(request->'person_ids')::bigint) \
+         FROM {op_table} \
+         WHERE op_type = 'delete' AND completed_at IS NULL AND parked_at IS NOT NULL \
+           AND team_id = ANY($1)"
+    ))
+    .bind(&teams)
+    .fetch_all(pool)
+    .await
+    .context("listing parked deletes")?;
+
+    for (op_id, team_id, person_ids) in parked {
+        let result = match lifecycle
+            .delete_persons(team_id as i64, person_ids, &op_id)
+            .await
+        {
+            Ok(_) => "completed",
+            Err(error) => {
+                tracing::warn!(%op_id, team_id, error = format!("{error:#}"), "parked delete resume failed");
+                "failed"
+            }
+        };
+        counter!("personhog_traffic_parked_delete_resumes_total", "result" => result).increment(1);
+    }
+    Ok(())
+}
+
+const DELETE_ATTEMPTS: u32 = 5;
+const DELETE_BACKOFF: Duration = Duration::from_secs(1);
+
+/// Retry under one op id: a parked op resumes only on a retry with its own id.
+async fn with_op_retry<T, F, Fut>(attempts: u32, backoff: Duration, mut call: F) -> Result<T>
+where
+    F: FnMut(Uuid) -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let op_id = Uuid::new_v4();
+    let mut delay = backoff;
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        match call(op_id).await {
+            Ok(value) => return Ok(value),
+            Err(error) if attempt < attempts => {
+                counter!("personhog_traffic_lifecycle_retries_total").increment(1);
+                tracing::warn!(%op_id, attempt, error = format!("{error:#}"), "lifecycle call failed; retrying");
+                tokio::time::sleep(delay).await;
+                delay *= 2;
+            }
+            Err(error) => return Err(error.context(format!("op {op_id} failed {attempts} times"))),
+        }
+    }
 }
 
 fn chaos_config(args: &TrafficArgs) -> ChaosConfig {
@@ -914,6 +983,35 @@ mod tests {
             ]
         );
         assert_eq!(cfg.etcd_target.map(|t| t.kind), Some(TargetKind::Etcd));
+    }
+
+    #[tokio::test]
+    async fn lifecycle_retries_reuse_one_op_id_and_give_up_after_the_last_attempt() {
+        let seen = std::sync::Mutex::new(Vec::new());
+        let result = with_op_retry(3, Duration::ZERO, |op_id| {
+            let mut seen = seen.lock().unwrap();
+            seen.push(op_id);
+            let attempt = seen.len();
+            async move {
+                if attempt < 3 {
+                    bail!("refused")
+                }
+                Ok(attempt)
+            }
+        })
+        .await;
+        assert_eq!(result.unwrap(), 3);
+        let ids = seen.lock().unwrap().clone();
+        assert!(ids.iter().all(|id| *id == ids[0]));
+
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        let result: Result<()> = with_op_retry(3, Duration::ZERO, |_| {
+            calls.fetch_add(1, Ordering::SeqCst);
+            async { bail!("refused") }
+        })
+        .await;
+        assert!(result.is_err());
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 
     #[test]

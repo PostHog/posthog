@@ -6,7 +6,7 @@ import { getToolInputProperties, type ShouldRecordInputKeyFn } from '@posthog/mc
 import { classifyAuthMethod } from '@/lib/auth-method'
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
-import { isEmptyToolResult } from '@/lib/discovery-hints'
+import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import {
     ExecCommandError,
     type ExecCommandErrorReason,
@@ -21,6 +21,7 @@ import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
+import { LearnLookupError } from '@/skills/skill-catalog'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 import { readParamAliases } from './cast-helpers'
@@ -99,19 +100,41 @@ export function markNoncanonicalMetricRun(toolName: string, result: unknown): un
             ...envelope,
         }
     }
+    if (isDrifted && (status === APPROVED_METRIC_STATUS || status === PROPOSED_METRIC_STATUS)) {
+        const approval = status === APPROVED_METRIC_STATUS ? 'approved' : 'not yet approved'
+        return {
+            NONCANONICAL: `status=${status} is_drifted=true. Its source insight changed after this definition was saved, and this run used the saved definition. Use it only if that definition measures what the user asked. If you use it, open the answer with '⚠️ **Drifted definition in your data catalog**: [<display_name>](<url>), ${approval}, and its source insight changed after it was saved. Review it before you rely on this number.', with the url from generate-app-url for '/data-catalog/metrics/{name}', and say in one sentence why you used it.`,
+            ...envelope,
+        }
+    }
     return {
         NONCANONICAL: `status=${String(status)} is_drifted=${String(isDrifted)}. Do not present this as the answer; derive from an approved metric, label the result noncanonical in \`context\`, and tell the reader plainly that the number is a one-off calculation rather than a saved definition.`,
         ...envelope,
     }
 }
 
-function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], matches: string[]): string | undefined {
+// A tool whose description happens to mention the search term says nothing about what the
+// search was for: `search persons-` reaches query-logs that way. Only a name match counts.
+function namesMatchingSearch(names: string[], term: string): string[] {
+    if (isRegexPattern(term)) {
+        try {
+            const regex = new RegExp(term, 'i')
+            return names.filter((name) => regex.test(name))
+        } catch {
+            return []
+        }
+    }
+    const tokens = term.toLowerCase().split(/\s+/).filter(Boolean)
+    return names.filter((name) => tokens.some((token) => name.toLowerCase().includes(token)))
+}
+
+function catalogDiscoveryHint(allTools: Tool<ZodObjectAny>[], nameMatches: string[]): string | undefined {
     const availableToolNames = new Set(allTools.map((tool) => tool.name))
     const hasMetricCatalog =
         availableToolNames.has('metric-list') &&
         availableToolNames.has('metric-describe') &&
         availableToolNames.has('data-catalog-metric-run')
-    const hasDataDomainMatch = matches.some((name) =>
+    const hasDataDomainMatch = nameMatches.some((name) =>
         DATA_DOMAIN_TOOL_PREFIXES.some((prefix) => name.startsWith(prefix))
     )
     if (!hasMetricCatalog || !hasDataDomainMatch) {
@@ -150,6 +173,11 @@ export interface ExecInnerCallProperties {
     output_tokens?: number
     input?: Record<string, unknown>
     /**
+     * The handler's result before formatting. Analytics redacts it by key, which the
+     * formatted text below would hide credential fields from.
+     */
+    result?: unknown
+    /**
      * The payload returned to the client, exactly as serialized. Consumed by the
      * `$ai_span` capture for data-catalog-relevant calls, which needs the tool's
      * result (e.g. which metrics a catalog lookup returned), not just its size.
@@ -177,6 +205,8 @@ export interface ExecCommandMeta {
     exec_search_query?: string
     /** How many tools matched, before the response is truncated — 0 is the interesting case. */
     exec_search_match_count?: number
+    /** When a regex matched nothing, how many tools the word-ranked fallback returned instead. */
+    exec_search_fallback_match_count?: number
     /** How many of those matches came from a connected third-party server. */
     exec_search_gateway_match_count?: number
     exec_learn_kind?: ExecLearnKind
@@ -263,18 +293,21 @@ export interface ExecToolOptions {
      * set is refused as `tool_not_granted`, so the agent does not search for another way to reach it.
      */
     heldTools?: ReadonlySet<string>
-    beforeValidatedCall?: (toolName: string, input: Record<string, unknown>) => Promise<void>
 }
 
 const CALL_USAGE = 'Usage: call [--json] [--confirm] <tool_name> [json_input]'
 
 /**
- * Plain errors out of the learn catalog are agent mistakes — unknown names, bad
- * line ranges, empty queries — so type them to keep them out of the `internal`
+ * Lookup misses and plain errors out of the learn catalog are agent mistakes, such as unknown
+ * names, bad line ranges and empty queries. Typing them keeps them out of the `internal`
  * bucket ops alerts on. Anything that already carries its own class (an API
  * failure, a source outage, an exec error) propagates untouched.
  */
 function classifyLearnError(error: unknown): unknown {
+    if (error instanceof LearnLookupError) {
+        return new ExecCommandError(error.message, 'unknown_learn_topic')
+    }
+
     if (!(error instanceof Error) || error.constructor !== Error) {
         return error
     }
@@ -319,8 +352,10 @@ function execHelp(command: string, learnEnabled: boolean): string {
     }
     const help = commands[command]
     if (typeof help !== 'string') {
+        // `help <prefix>` is a natural way to ask "what can I do with workflows", so the
+        // refusal names the command that answers it rather than only listing the verbs.
         throw new ExecCommandError(
-            `Unknown command: "${command}". Run "help" to list available commands.`,
+            `Unknown command: "${command}". Run "help" to list available commands, or "search ${command}" to find tools for it.`,
             'unknown_command'
         )
     }
@@ -663,6 +698,9 @@ const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[])
     ),
     'loops-run-create': () =>
         'Tool "loops-run-create" was removed. Loops run on workflows. "workflows-test-run" tests the graph one node at a time and mocks outbound calls by default; it does not start a real task run. To fire a loop for real, use Run now on an enabled schedule loop in PostHog Desktop, or wait for its trigger.',
+    // Self-managed tables (reading a bucket in place) can no longer be created.
+    'warehouse-tables-create': () =>
+        'Tool "warehouse-tables-create" was removed. PostHog no longer links tables that read your bucket directly. To import bucket files, add an Amazon S3, Google Cloud Storage, Azure Blob, or Cloudflare R2 source with "data-warehouse-source-setup". Run "external-data-sources-wizard" for the required fields. To import a local file, upload it in the PostHog app at /data-warehouse/new-source?kind=FileUpload. The upload creates a FileUpload source.',
     'loops-runs-retrieve': () =>
         'Tool "loops-runs-retrieve" was removed. Loops run on workflows. For run history, call "tasks-list" with the hog_flow_id of the loop and archived set to all, then "tasks-runs-retrieve" on a run for its branch and output.',
 }
@@ -1099,13 +1137,13 @@ function namedKeys(keys: readonly string[]): string {
         .join(', ')
 }
 
-/** Bound on the parameter description echoed back with a missing or wrong-type
- *  parameter rejection, so a tool with a long field description cannot inflate
+/** Bound on the parameter description echoed back with a missing, wrong-type or
+ *  too-long parameter rejection, so a tool with a long field description cannot inflate
  *  the analytics error message. */
 const MAX_PARAM_HINT = 200
 
 /**
- * The parameter's own description, appended to a missing or wrong-type rejection.
+ * The parameter's own description, appended to a missing, wrong-type or too-long rejection.
  *
  * A bare `missing required parameter: short_id` names the field to fill but not
  * what to fill it with, so a caller that never held the identifier retries the
@@ -1241,13 +1279,28 @@ function bestUnionBranch(branches: readonly (readonly z.core.$ZodIssue[])[]): re
         selector === undefined
             ? populated.filter((branch) => pinnedValues(branch).size === 0)
             : populated.filter((branch) => !rejectedValueKeys(branch).has(selector))
+    const candidates = named.length > 0 ? named : populated
+    // A nullable field — `union([array(metric), null])` on the experiment metrics
+    // — rejects a malformed array with the null branch's single complaint,
+    // "expected null, received array", as the shortest list, burying the real
+    // error inside the array branch. A branch with an issue below the root
+    // engaged with the value's contents, so when one exists, a branch that only
+    // rejects the whole value's type restates what the caller already knows.
+    const engaged = candidates.filter((branch) => !rejectsWholeValueType(branch))
     let best: readonly z.core.$ZodIssue[] | undefined
-    for (const branch of named.length > 0 ? named : populated) {
+    for (const branch of engaged.length > 0 ? engaged : candidates) {
         if (best === undefined || branch.length < best.length) {
             best = branch
         }
     }
     return best
+}
+
+/** True when the branch's every issue says the whole value is the wrong type,
+ *  with nothing about its contents — the shape of a `null` branch rejecting an
+ *  array, or a scalar branch rejecting an object. */
+function rejectsWholeValueType(branch: readonly z.core.$ZodIssue[]): boolean {
+    return branch.every((issue) => issue.code === 'invalid_type' && issue.path.length === 0)
 }
 
 /** The accepted values, when every branch of a union rejects the same enum
@@ -1389,7 +1442,7 @@ export function formatInputValidationError(
         // is only present under `reportInput: true`; without it, or for
         // non-string origins, fall through to zod's limit-naming default.
         if (issue.code === 'too_big' && issue.origin === 'string' && typeof issue.input === 'string') {
-            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})`
+            return `parameter "${path}" is too long: ${issue.input.length} characters (max ${issue.maximum})${parameterHint(issue.path, schema)}`
         }
         return path ? `parameter "${path}": ${issue.message}` : issue.message
     })
@@ -1693,6 +1746,17 @@ function missingScopeRecovery(context: Context | undefined, oauthClientId: strin
     }
 }
 
+export function missingToolScopeError(
+    tool: ScopeGatedTool,
+    context: Context | undefined,
+    oauthClientId: string | undefined
+): ExecCommandError {
+    return new ExecCommandError(
+        `Tool "${tool.name}" exists, but this MCP connection is missing the required scope(s): ${tool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
+        'missing_scope'
+    )
+}
+
 function findTool(
     tools: Tool<ZodObjectAny>[],
     scopeGatedTools: ScopeGatedTool[],
@@ -1714,10 +1778,7 @@ function findTool(
         }
         const scopeGatedTool = scopeGatedTools.find((candidate) => candidate.name === name)
         if (scopeGatedTool) {
-            throw new ExecCommandError(
-                `Tool "${name}" exists, but this MCP connection is missing the required scope(s): ${scopeGatedTool.missingScopes.join(', ')}. ${missingScopeRecovery(context, oauthClientId)} Logging in to PostHog in a browser does not update MCP permissions.`,
-                'missing_scope'
-            )
+            throw missingToolScopeError(scopeGatedTool, context, oauthClientId)
         }
         if (isNotGranted(name)) {
             throw new ExecCommandError(
@@ -1851,6 +1912,12 @@ export function createExecTool(
                         )
                     }
 
+                    // Agents quote single words (`search "project"`), and a literal quote
+                    // matches no tool.
+                    const query = rest.replace(/["'`]/g, '').trim()
+                    if (!query) {
+                        throw new ExecCommandError('Usage: search <words or regex_pattern>', 'usage')
+                    }
                     // Route by pattern shape: a pattern with regex metacharacters
                     // (e.g. `query-`, `feature-flag`) keeps the original regex
                     // predicate; plain words — including multi-word, natural-
@@ -1859,35 +1926,55 @@ export function createExecTool(
                     // `matches` is the page the agent sees; `matchedNames` is every match,
                     // which is what the counts report — a truncated page would make a broad
                     // query look as narrow as a precise one.
-                    let matchedNames: string[]
-                    let matches: string[]
-                    let gatedMatches: ScopeGatedTool[]
+                    let matchedNames: string[] = []
+                    let matches: string[] = []
+                    let gatedMatches: ScopeGatedTool[] = []
                     let truncatedFrom = 0
-                    if (isRegexPattern(rest)) {
-                        try {
-                            matchedNames = searchToolsRegex(searchableTools, rest).map((t) => t.name)
-                            matches = matchedNames
-                            gatedMatches = searchToolsRegex(scopeGatedTools, rest)
-                        } catch {
-                            throw new ExecCommandError(`Invalid regex pattern: "${rest}"`, 'invalid_regex')
-                        }
-                    } else {
-                        const ranked = searchToolsRanked(searchableTools, rest)
+                    let fallbackFrom: string | undefined
+                    // The word fallback searches something other than what the agent typed, so
+                    // the catalog hint has to read the matches against the term that found them.
+                    let searchTerm = query
+                    const rankByWords = (words: string): void => {
+                        searchTerm = words
+                        const ranked = searchToolsRanked(searchableTools, words)
                         truncatedFrom = ranked.length > MAX_RANKED_SEARCH_RESULTS ? ranked.length : 0
                         matchedNames = ranked.map((r) => r.name)
                         matches = matchedNames.slice(0, MAX_RANKED_SEARCH_RESULTS)
                         // Preserve ranked order for gated matches too, then map
                         // each name back to its ScopeGatedTool (for missingScopes).
                         const gatedByName = new Map(scopeGatedTools.map((t) => [t.name, t]))
-                        gatedMatches = searchToolsRanked(scopeGatedTools, rest)
+                        gatedMatches = searchToolsRanked(scopeGatedTools, words)
                             .map((r) => gatedByName.get(r.name))
                             .filter((t): t is ScopeGatedTool => t !== undefined)
+                    }
+                    if (isRegexPattern(query)) {
+                        try {
+                            matchedNames = searchToolsRegex(searchableTools, query).map((t) => t.name)
+                            matches = matchedNames
+                            gatedMatches = searchToolsRegex(scopeGatedTools, query)
+                        } catch {
+                            throw new ExecCommandError(`Invalid regex pattern: "${query}"`, 'invalid_regex')
+                        }
+                        // A guessed name such as `project-update` matches nothing as a regex,
+                        // but its words usually name the tool the agent wants.
+                        const words = query.replace(/[^a-z0-9]+/gi, ' ').trim()
+                        if (matchedNames.length === 0 && gatedMatches.length === 0 && words) {
+                            rankByWords(words)
+                            if (matchedNames.length > 0 || gatedMatches.length > 0) {
+                                fallbackFrom = query
+                            }
+                        }
+                    } else {
+                        rankByWords(query)
                     }
 
                     options.trackCommand?.({
                         exec_verb: verb,
                         exec_search_query: rest,
-                        exec_search_match_count: matchedNames.length,
+                        exec_search_match_count: fallbackFrom === undefined ? matchedNames.length : 0,
+                        ...(fallbackFrom === undefined
+                            ? {}
+                            : { exec_search_fallback_match_count: matchedNames.length }),
                         exec_search_gateway_match_count: matchedNames.filter(isGatewayToolName).length,
                     })
 
@@ -1907,15 +1994,23 @@ export function createExecTool(
                     if (matches.length === 0) {
                         return JSON.stringify({
                             matches: [],
-                            hint: `No tools matched "${rest}". Run "tools" to see all available tool names.`,
+                            hint: `No tools matched "${query}". Search again with plain words that describe the task, for example "create dashboard". Run "tools" only if that also finds nothing.`,
                         })
                     }
+                    const fallbackHint =
+                        fallbackFrom === undefined
+                            ? undefined
+                            : `No tool is named "${fallbackFrom}". These are the closest matches by its words.`
                     if (truncatedFrom > 0) {
-                        const catalogHint = catalogDiscoveryHint(allTools, matches)
+                        const catalogHint = catalogDiscoveryHint(
+                            allTools,
+                            namesMatchingSearch(matchedNames, searchTerm)
+                        )
                         return JSON.stringify({
                             matches,
                             truncated: true,
                             hint: [
+                                fallbackHint,
                                 catalogHint,
                                 `Showing the top ${MAX_RANKED_SEARCH_RESULTS} of ${truncatedFrom} matches, ranked by relevance. Use a more specific query to narrow the results.`,
                             ]
@@ -1923,9 +2018,10 @@ export function createExecTool(
                                 .join(' '),
                         })
                     }
-                    const catalogHint = catalogDiscoveryHint(allTools, matches)
-                    if (catalogHint) {
-                        return JSON.stringify({ matches, hint: catalogHint })
+                    const catalogHint = catalogDiscoveryHint(allTools, namesMatchingSearch(matchedNames, searchTerm))
+                    const hint = [fallbackHint, catalogHint].filter(Boolean).join(' ')
+                    if (hint) {
+                        return JSON.stringify({ matches, hint })
                     }
                     return JSON.stringify(matches)
                 }
@@ -2141,7 +2237,6 @@ export function createExecTool(
                     }
                     const ignoredKeys = findIgnoredInputKeys(input, validation.data, toolSchema)
                     input = validation.data as Record<string, unknown>
-                    await options.beforeValidatedCall?.(tool.name, input)
 
                     const startedAt = Date.now()
                     let result: unknown
@@ -2203,6 +2298,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateTokens(outputText),
                             input,
+                            result,
                             output: outputText,
                             ...resultShape,
                         })
@@ -2254,6 +2350,7 @@ export function createExecTool(
                             input_tokens: estimateTokens(input),
                             output_tokens: estimateResponseTokens(payload),
                             input,
+                            result,
                             output: payload,
                             ...resultShape,
                         })
@@ -2280,6 +2377,7 @@ export function createExecTool(
                         input_tokens: estimateTokens(input),
                         output_tokens: estimateTokens(outputText),
                         input,
+                        result,
                         output: outputText,
                         ...resultShape,
                     })

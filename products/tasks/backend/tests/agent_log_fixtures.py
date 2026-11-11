@@ -79,6 +79,28 @@ def _end_turn_line() -> str:
     return json.dumps({"notification": {"result": {"stopReason": "end_turn"}}})
 
 
+def _pi_event_line(event: dict) -> str:
+    return json.dumps({"type": "pi_event", "event": event})
+
+
+def _pi_text_line(text: str, timestamp: int = 1) -> str:
+    return _pi_event_line(
+        {"type": "assistant_message_chunk", "timestamp": timestamp, "content": {"type": "text", "text": text}}
+    )
+
+
+def _pi_compaction_lines(summary: str | None, timestamp: int = 5) -> list[str]:
+    lines = [
+        _pi_event_line({"type": "runtime_status", "timestamp": timestamp - 1, "status": "compacting"}),
+        _pi_event_line({"type": "runtime_status", "timestamp": timestamp, "status": "compacting", "isComplete": True}),
+    ]
+    return [*lines, _pi_text_line(summary, timestamp=timestamp)] if summary else lines
+
+
+def _pi_turn_completed_line(stop_reason: str = "stop") -> str:
+    return _pi_event_line({"type": "turn_completed", "stopReason": stop_reason})
+
+
 def _refusal_line() -> str:
     return json.dumps({"notification": {"result": {"stopReason": "refusal"}}})
 
@@ -161,10 +183,12 @@ def _cost_less_usage_update_line(used: int = 1000) -> str:
     )
 
 
-@dataclass
+@dataclass(frozen=False)
 class FakeTaskRun:
     id: str = "run-1"
+    task_id: str = "task-1"
     log_url: str = "s3://fake/log"
     status: str = "running"
     error_message: str | None = None
     state: dict[str, object] | None = None
+    finish_report: str | None = None

@@ -20,17 +20,20 @@ import type {
     GitHubPrepareCallbackRequestApi,
     GitHubReposRefreshResponseApi,
     GitHubReposResponseApi,
+    GitHubRepositoryAccessResponseApi,
     GitHubTeamsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
+    IntegrationConfigCreateApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsDomainConnectCheckRetrieveParams,
     IntegrationsEmailStatusRetrieveParams,
     IntegrationsGithubAssigneesRetrieveParams,
     IntegrationsGithubBranchesRetrieveParams,
     IntegrationsGithubReposRetrieveParams,
+    IntegrationsGithubRepositoryAccessRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsGitlabMembersRetrieveParams,
     IntegrationsJiraAssignableUsersRetrieveParams,
@@ -227,14 +230,14 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
 
 export const integrationsCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    integrationConfigCreateApi: NonReadonly<IntegrationConfigCreateApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(integrationConfigCreateApi),
     })
 }
 
@@ -573,6 +576,41 @@ export const integrationsGithubReposRefreshCreate = async (
     })
 }
 
+export const getIntegrationsGithubRepositoryAccessRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubRepositoryAccessRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_repository_access/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_repository_access/`
+}
+
+export const integrationsGithubRepositoryAccessRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGithubRepositoryAccessRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubRepositoryAccessResponseApi> => {
+    return apiMutator<GitHubRepositoryAccessResponseApi>(
+        getIntegrationsGithubRepositoryAccessRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getIntegrationsGithubTeamsRetrieveUrl = (
     projectId: string,
     id: number,
@@ -802,7 +840,7 @@ export const getIntegrationsPushTokensCreateUrl = (projectId: string, id: number
 }
 
 /**
- * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
  * @summary Import push device tokens
  */
 export const integrationsPushTokensCreate = async (

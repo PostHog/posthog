@@ -8,6 +8,8 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX
+
 from products.ai_observability.backend.models.offline_evaluations import OfflineEvaluationResult, OfflineExperiment
 from products.ai_observability.backend.offline_evaluation_types import (
     ExperimentSubmission,
@@ -218,14 +220,14 @@ class ExperimentSubmissionSerializer(_StrictDataclassSerializer[ExperimentSubmis
         required=False,
         allow_null=True,
         min_value=0,
-        max_value=2**63 - 1,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text="Expected number of distinct items. Completion must match this count when supplied.",
     )
     expected_result_count = _CountField(
         required=False,
         allow_null=True,
         min_value=0,
-        max_value=2**63 - 1,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text="Expected number of distinct item/scorer-version results, including non-success statuses.",
     )
     suite_key = _identifier_field("Stable identifier for comparing executions of the same evaluation suite.")

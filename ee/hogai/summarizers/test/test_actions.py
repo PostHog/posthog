@@ -3,7 +3,7 @@ from textwrap import dedent
 
 from posthog.test.base import BaseTest
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 
 from ee.hogai.summarizers.actions import ActionSummarizer
 
@@ -13,7 +13,7 @@ class TestActionSummarizer(BaseTest):
         json_steps = """
         [{"event":"$pageview","properties":[{"key":"$browser","type":"event","value":["Chrome"],"operator":"exact"},{"key":"$geoip_country_name","type":"person","value":["United States"],"operator":"exact"}],"selector":null,"tag_name":null,"text":null,"text_matching":null,"href":null,"href_matching":"contains","url":"/max","url_matching":"contains"},{"event":"$autocapture","properties":[{"key":"tag_name","type":"element","value":["button"],"operator":"exact"}],"selector":"button","tag_name":null,"text":"Send","text_matching":"contains","href":"/max","href_matching":"exact","url":"\\/max","url_matching":"regex"},{"event":"chat with ai","properties":null,"selector":null,"tag_name":null,"text":null,"text_matching":null,"href":null,"href_matching":"contains","url":null,"url_matching":null}]
         """
-        action = Action.objects.create(
+        action = create_action(
             name="Test Action", description="Test Description", steps_json=json.loads(json_steps), team=self.team
         )
         summarizer = ActionSummarizer(action)
@@ -38,9 +38,7 @@ class TestActionSummarizer(BaseTest):
             {"event": "$pageview", "url": "/max"},
             {"event": "$autocapture", "selector": "button", "text": "Send", "href": "/max", "url": "\\/max"},
         ]
-        action = Action.objects.create(
-            name="Test Action", description="Test Description", steps_json=steps, team=self.team
-        )
+        action = create_action(name="Test Action", description="Test Description", steps_json=steps, team=self.team)
         summarizer = ActionSummarizer(action)
         expected_summary = r"""
             Name: Test Action

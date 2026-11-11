@@ -353,6 +353,11 @@ const workspaceStubRouter = router({
     .mutation(({ input }) => {
       webTaskMetadataStore.markViewed(input.taskId);
     }),
+  markUnread: publicProcedure
+    .input(z.object({ taskId: z.string(), activityAt: z.number() }))
+    .mutation(({ input }) => {
+      webTaskMetadataStore.markUnread(input.taskId, input.activityAt);
+    }),
   markActivity: publicProcedure
     .input(z.object({ taskId: z.string() }))
     .mutation(({ input }) => {

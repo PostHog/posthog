@@ -234,35 +234,6 @@ def select_events_query_template(
     return SELECT_FROM_EVENTS_VIEW
 
 
-def reads_native_events_source(
-    *,
-    use_new_events_schema: bool,
-    team_id: int,
-    interval_start: str | None,
-    interval_end: str,
-    is_backfill: bool = False,
-    backfill_details: BackfillDetails | None = None,
-) -> bool:
-    """Whether a run reads the native events source instead of a legacy events table.
-
-    Only the native source projects the `$unset` and `$group_set` columns, so a caller that asks for
-    them on a run routed to a legacy table builds a query ClickHouse cannot resolve. The routing is
-    wider than `is_backfill`: a backfill over recent data still reads `distributed_events_recent`.
-    """
-    if not use_new_events_schema:
-        return False
-    return (
-        select_events_query_template(
-            team_id=team_id,
-            interval_start=interval_start,
-            interval_end=interval_end,
-            is_backfill=is_backfill,
-            backfill_details=backfill_details,
-        )
-        is SELECT_FROM_EVENTS_VIEW_BACKFILL
-    )
-
-
 def iter_records(
     client: ClickHouseClient,
     team_id: int,

@@ -110,6 +110,7 @@ pub struct State {
     /// as `overflow_limiter` above.
     pub replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     pub capture_v1_scatter_gather_min_batch: usize,
+    pub capture_v1_legacy_property_splice: bool,
     pub ai_gateway_signing_secret: Option<String>,
     /// Best-effort v2 ingestion warnings emitter (fire-and-forget Kafka
     /// producer behind a per-(token, type) throttle). `None` when disabled —
@@ -189,6 +190,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     ai_byte_rate_limiter: Option<Arc<GlobalRateLimiter>>,
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     capture_v1_scatter_gather_min_batch: usize,
+    capture_v1_legacy_property_splice: bool,
     ai_gateway_signing_secret: Option<String>,
     ingestion_warning_emitter: Option<Arc<dyn WarningEmitter>>,
 ) -> Router {
@@ -218,6 +220,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         ai_byte_rate_limiter,
         replay_overflow_limiter,
         capture_v1_scatter_gather_min_batch,
+        capture_v1_legacy_property_splice,
         ai_gateway_signing_secret,
         ingestion_warning_emitter,
         capture_mode,

@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonTag, LemonTagType, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
@@ -17,8 +17,12 @@ import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/User
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonField } from 'lib/lemon-ui/LemonField'
+import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import {
@@ -34,6 +38,7 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import type { EnterprisePropertyDefinitionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -50,6 +55,11 @@ import {
 } from '~/types'
 
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+import { DefinitionUsageSection } from './usage/DefinitionUsageSection'
+import { PropertyDefinitionUsage } from './usage/PropertyDefinitionUsage'
+import { propertyUsageEntry } from './usage/propertyUsageEntry'
+
+const DEFINITIONS_DOCS_URL = 'https://posthog.com/docs/data/events#managing-event-definitions'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -132,10 +142,20 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     // The app renders scene components with raw route params, so decode the id like paramsToProps does
     const props = { ...rawProps, id: decodeDefinitionId(rawProps.id) }
     const logic = definitionLogic(props)
-    const { definition, definitionLoading, definitionMissing, singular, isEvent, isProperty, metrics, metricsLoading } =
-        useValues(logic)
-    const { deleteDefinition } = useActions(logic)
+    const {
+        definition,
+        definitionLoading,
+        definitionMissing,
+        singular,
+        isEvent,
+        isProperty,
+        metrics,
+        metricsLoading,
+        metricsFailed,
+    } = useValues(logic)
+    const { deleteDefinition, stopIngestingEvent } = useActions(logic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const showUsageSection = useFeatureFlag('DEFINITION_USAGE_SECTION')
 
     const memoizedQuery = useMemo(() => {
         const columnsToUse =
@@ -174,6 +194,12 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
     const statusProps = getStatusProps(isProperty)
 
     const isVirtual = 'virtual' in definition && !!definition.virtual
+    const usageEntry =
+        showUsageSection && isProperty
+            ? propertyUsageEntry(
+                  definition as PropertyDefinition & Pick<EnterprisePropertyDefinitionApi, 'group_type_index'>
+              )
+            : null
     // Resolve label and description from the same taxonomy group the definition came from, so they can't disagree
     const virtualProperty = isVirtual ? getVirtualPropertyDefinition(definition.id) : null
     const propertyLabelGroup = virtualProperty?.group ?? TaxonomicFilterGroupType.EventProperties
@@ -194,31 +220,54 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
         }
     }
 
+    // `hidden` is only on the enterprise definition, which the drop also needs. Dropping a PostHog
+    // event such as $pageview breaks other products, so the API refuses those too.
+    const canStopIngesting = isEvent && 'hidden' in definition && !definition.name.startsWith('$')
+
+    const recreatedNote = `The definition will be re-created if the ${singular} is seen again.`
+
     const openDeleteDialog = (): void =>
-        LemonDialog.open({
-            title: `Delete this ${singular} definition?`,
+        LemonDialog.openForm({
+            title: `Delete ${singular} definition ${formattedName}?`,
             description: (
                 <>
                     <p>
-                        <strong>
-                            {getFilterLabel(
-                                definition.name,
-                                isEvent ? TaxonomicFilterGroupType.Events : TaxonomicFilterGroupType.EventProperties
-                            )}
-                        </strong>{' '}
-                        will no longer appear in selectors. Associated data will remain in the database.
+                        The {singular} definition will disappear from selectors. Existing event data will not be
+                        deleted, see <Link to={DEFINITIONS_DOCS_URL}>docs</Link>.
                     </p>
-                    <p>This definition will be recreated if the {singular} is ever seen again in the event stream.</p>
+                    {!canStopIngesting && <p>{recreatedNote}</p>}
                 </>
             ),
-            primaryButton: {
+            initialValues: { deleteMode: 'definition_only' },
+            content: canStopIngesting ? (
+                <LemonField name="deleteMode">
+                    {({ value, onChange }) => (
+                        <LemonRadio
+                            value={value}
+                            onChange={onChange}
+                            options={[
+                                {
+                                    value: 'definition_only',
+                                    label: 'Delete definition only',
+                                    description: recreatedNote,
+                                },
+                                {
+                                    value: 'stop_ingesting',
+                                    label: 'Delete and stop ingesting',
+                                    description:
+                                        "New events are dropped before they enter the database and can't be recovered.",
+                                    'data-attr': 'event-definition-delete-stop-ingesting',
+                                },
+                            ]}
+                        />
+                    )}
+                </LemonField>
+            ) : undefined,
+            getPrimaryButtonProps: ({ deleteMode }) => ({
                 status: 'danger',
-                children: 'Delete definition',
-                onClick: () => deleteDefinition(),
-            },
-            secondaryButton: {
-                children: 'Cancel',
-            },
+                children: deleteMode === 'stop_ingesting' ? 'Delete and drop events' : 'Delete definition',
+            }),
+            onSubmit: ({ deleteMode }) => (deleteMode === 'stop_ingesting' ? stopIngestingEvent() : deleteDefinition()),
             width: 448,
         })
 
@@ -318,6 +367,15 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                 }
             />
 
+            {'scheduled_deletion_at' in definition && definition.scheduled_deletion_at && (
+                <LemonBanner type="warning">
+                    Ingestion of this event was stopped, so its definition will be deleted after{' '}
+                    <TZLabel time={definition.scheduled_deletion_at} timestampStyle="absolute" formatTime="h:mm A" />.
+                    To cancel the delete, edit the event and set its status to Visible or Verified. To ingest the event
+                    again, remove its condition from the <Link to={urls.eventFiltering()}>event ingestion filter</Link>.
+                </LemonBanner>
+            )}
+
             <div className="deprecated-space-y-2">
                 {formattedName !== definition.name && (
                     <div className="flex flex-wrap items-center gap-2 text-secondary">
@@ -382,7 +440,7 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                         <b>{definition.last_seen_at ? <TZLabel time={definition.last_seen_at} /> : '-'}</b>
                     </div>
                 )}
-                {isEvent && (
+                {isEvent && !showUsageSection && (
                     <div className="flex flex-col flex-1 basis-48 min-w-48">
                         <h5>
                             30 day queries{' '}
@@ -395,6 +453,18 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                                 <Spinner textColored />
                             ) : (
                                 <>{metrics?.query_usage_30_day ? metrics.query_usage_30_day.toLocaleString() : '-'}</>
+                            )}
+                        </b>
+                    </div>
+                )}
+                {'owner' in definition && (
+                    <div className="flex flex-col flex-1 basis-48 min-w-48" data-attr="definition-owner-view">
+                        <h5>Owner</h5>
+                        <b>
+                            {definition.owner ? (
+                                <ProfilePicture user={definition.owner} size="md" showName />
+                            ) : (
+                                <span className="text-secondary italic">No owner</span>
                             )}
                         </b>
                     </div>
@@ -440,6 +510,8 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
 
             <SceneDivider />
 
+            {usageEntry && <PropertyDefinitionUsage entry={usageEntry} />}
+
             {isEvent && definition.id !== 'new' && (
                 <>
                     <FlaggedFeature flag={FEATURE_FLAGS.SCHEMA_MANAGEMENT}>
@@ -448,7 +520,16 @@ export function DefinitionView(rawProps: DefinitionLogicProps): JSX.Element {
                     </FlaggedFeature>
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
-                    <EventDefinitionInsights definition={definition} />
+                    {showUsageSection ? (
+                        <DefinitionUsageSection
+                            queryCount={metrics?.query_usage_30_day ?? null}
+                            queryCountLoading={metricsLoading}
+                            queryCountFailed={metricsFailed}
+                            insightsLogicProps={{ definitionType: 'event', name: definition.name }}
+                        />
+                    ) : (
+                        <EventDefinitionInsights definition={definition} />
+                    )}
                     <SceneDivider />
                     <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />

@@ -1,11 +1,14 @@
 """Meta Graph API integrations (Meta Ads, Instagram) and their shared token refresh."""
 
 import time
+from dataclasses import replace
 
 import requests
 import structlog
 
-from . import common, model, oauth, refresh_tracking
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
+
+from . import common, oauth, refresh_tracking, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -18,11 +21,11 @@ class MetaGraphIntegration:
     `OauthIntegration` refresh sweep and refresh on use instead.
     """
 
-    integration: model.Integration
+    integration: IntegrationRecord
     kind: str = ""
     api_version: str = common.META_GRAPH_API_VERSION
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.kind:
             raise Exception(f"{type(self).__name__} init called with Integration with wrong 'kind'")
         self.integration = integration
@@ -31,11 +34,10 @@ class MetaGraphIntegration:
         oauth_config = oauth.OauthIntegration.oauth_config_for_kind(self.integration.kind)
 
         # skip refresh if more than 7 days until expiry
-        if self.integration.config.get("expires_in") and self.integration.config.get("refreshed_at"):
-            if (
-                time.time()
-                < self.integration.config.get("refreshed_at") + self.integration.config.get("expires_in") - 604800
-            ):
+        expires_in = self.integration.config.get("expires_in")
+        refreshed_at = self.integration.config.get("refreshed_at")
+        if expires_in and refreshed_at:
+            if time.time() < refreshed_at + expires_in - 604800:
                 return
 
         client = oauth.OauthIntegration.client_credentials_for_kind(self.integration.kind)
@@ -64,25 +66,28 @@ class MetaGraphIntegration:
             # token in hand still works when Meta is merely unavailable or throttling us. Flagging
             # the connection over that stops every sync on it and asks for a re-authorization that
             # fixes nothing, so record the failure and leave the connection usable.
+            patch, attempt = refresh_tracking.refresh_failure_patch(self.integration, reason=reason)
             if reason not in refresh_tracking.TRANSIENT_REFRESH_FAILURE_REASONS:
-                self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            attempt = refresh_tracking.record_refresh_failure(self.integration, reason=reason)
+                patch = replace(patch, errors=common.ERROR_TOKEN_REFRESH_FAILED)
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
             ).inc()
         else:
             logger.info(f"Refreshed access token for {self}")
-            refresh_tracking.record_refresh_success(self.integration)
-            self.integration.sensitive_config["access_token"] = config["access_token"]
-            self.integration.errors = ""
-            self.integration.config["expires_in"] = config.get("expires_in")
-            self.integration.config["refreshed_at"] = int(time.time())
+            patch = row_writes.merged_patch(
+                refresh_tracking.REFRESH_SUCCESS_PATCH,
+                IntegrationPatch(
+                    config_patch={"expires_in": config.get("expires_in"), "refreshed_at": int(time.time())},
+                    sensitive_config_patch={"access_token": config["access_token"]},
+                    errors="",
+                ),
+            )
             # not used in CDP yet
             # reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="success", reason="", attempt=""
             ).inc()
-        self.integration.save()
+        self.integration = row_writes.update_row(self.integration, patch)
 
 
 class MetaAdsIntegration(MetaGraphIntegration):

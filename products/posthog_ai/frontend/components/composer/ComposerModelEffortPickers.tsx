@@ -1,6 +1,6 @@
 import { useMemo, useRef, useState } from 'react'
 
-import { IconBrain, IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
+import { IconChevronDown, IconChevronLeft, IconGear, IconRevert } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -43,6 +43,7 @@ import { ModelCostFooter } from '../ModelCostFooter'
 import { COMPOSER_MENU_CLASS } from '../quill/composerMenuClass'
 import type { ThreadSkin } from '../quill/quillThreadContext'
 import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
+import { ComposerModelIcon } from './ComposerModelIcon'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -292,14 +293,19 @@ export function ComposerModelEffortPickers({
             <DropdownMenuTrigger
                 render={
                     <Button variant={chrome.triggerVariant} size="sm" aria-label="Model and reasoning">
-                        {chrome.modelIcon && <IconBrain className="shrink-0 text-muted-foreground" />}
+                        {chrome.modelIcon && (
+                            <ComposerModelIcon
+                                model={selectedModel}
+                                ownPlan={billing?.value === ModelAccessEnumApi.OwnSubscription}
+                            />
+                        )}
                         {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted @max-[400px]/composer:hidden">
                                 {getEffortLabel(selectedEffort)}
                             </span>
                         )}
-                        {billing?.value === ModelAccessEnumApi.OwnSubscription && (
+                        {!chrome.modelIcon && billing?.value === ModelAccessEnumApi.OwnSubscription && (
                             <span className="text-muted">ChatGPT plan</span>
                         )}
                         {chrome.icons && <IconChevronDown />}

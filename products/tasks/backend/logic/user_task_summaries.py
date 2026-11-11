@@ -6,7 +6,8 @@ state, so the query pulls those keys out in Postgres instead of loading whole st
 """
 
 import datetime
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
+from typing import Any
 
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 
@@ -93,7 +94,7 @@ def list_user_task_summaries(
     }
     summaries: list[UserTaskSummary] = []
     for task in tasks:
-        run = latest_runs.get(task["id"], {})
+        run: Mapping[str, Any] = latest_runs.get(task["id"], {})
         summary = (run.get("summary") or run.get("prior_summary") or "").strip() or None
         # An explicit tag list on the run wins, even an empty one, as in `task_tags_from_state`.
         tags = run.get("run_tags") if isinstance(run.get("run_tags"), list) else run.get("prior_tags")

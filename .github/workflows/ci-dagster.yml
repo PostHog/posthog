@@ -66,7 +66,7 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
@@ -83,6 +83,15 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  sparse-checkout: |
+                      .github/actions/setup-uv
+                      .github/scripts/check-dagster-paths.py
+                      .github/workflows/ci-dagster.yml
+                      posthog/**/*.py
+                      ee/**/*.py
+                      products/**/*.py
+                      common/**/*.py
+                  sparse-checkout-cone-mode: false
             - uses: ./.github/actions/setup-uv
               with:
                   enable-cache: false
@@ -158,6 +167,7 @@ jobs:
                         # --- DAG code itself ---
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         # --- posthog submodules that DAGs actually import ---
                         # (verified by tracing imports of all 148 dagster Python files)
                         - 'posthog/clickhouse/**'
@@ -195,6 +205,7 @@ jobs:
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
                         - 'posthog/cloud_utils.py'
+                        - 'posthog/run_mode.py'
                         - 'posthog/ph_client.py'
                         - 'products/managed_warehouse/backend/**'
                         # Backward compatibility for unrebased PRs; remove after August 14, 2026.
@@ -281,6 +292,7 @@ jobs:
                       dagster_direct:
                         - 'posthog/dags/**'
                         - 'products/*/dags/**'
+                        - 'posthog/temporal/health_checks/rollups/**' # daily rollup fills run in Dagster
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
                         - tools/dagster_test_selection.py
@@ -332,14 +344,19 @@ jobs:
               # to remote.origin.fetch and pull every branch.
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache key
               id: schema-key
-              if: github.event_name == 'pull_request'
+              if: github.event_name == 'pull_request' || github.event_name == 'schedule'
               env:
+                  EVENT_NAME: ${{ github.event_name }}
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
-                  # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  if [ "$EVENT_NAME" = schedule ]; then
+                      MERGE_BASE=$(git rev-parse HEAD)
+                  else
+                      # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
+                      MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
+                  fi
                   if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
                       echo "migrations_key=" >> $GITHUB_OUTPUT
@@ -366,7 +383,8 @@ jobs:
                   # and the migrate top-ups only apply forward, so they cannot repair a
                   # dump that is newer than the code.
                   HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
-                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                  # Scheduled reruns require matching inputs even when the checkout is recent.
+                  if [ "$EVENT_NAME" = pull_request ] && [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
                       echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
                   fi
                   # Match the inputs and hashing in .depot/workflows/ci-backend.yml to find its schema dump.
@@ -405,10 +423,22 @@ jobs:
             test_paths: ${{ steps.classify.outputs.test_paths }}
             matrix_include: ${{ steps.classify.outputs.matrix_include }}
         steps:
+            # Fetch the working tree at depth 1 to avoid a second request for all its blobs.
+            # The selector adds blobless history after checkout, as backend discovery does.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
+
+            - name: Fetch history without file contents
+              shell: bash
+              run: |
+                  for attempt in 1 2 3; do
+                      if git fetch --no-tags --filter=blob:none --depth=1000 origin "$GITHUB_SHA"; then
+                          exit 0
+                      fi
+                      if [ "$attempt" -lt 3 ]; then
+                          sleep 10
+                      fi
+                  done
+                  exit 1
 
             - name: Install uv
               uses: ./.github/actions/setup-uv
@@ -605,7 +635,9 @@ jobs:
                       psql -U posthog -c "CREATE DATABASE test_dagster;"
 
             - name: Restore schema cache from master
-              if: ${{ github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != '' }}
+              if: ${{ (github.event_name == 'pull_request' || github.event_name == 'schedule') && needs.changes.outputs.schema_cache_key != '' }}
+              timeout-minutes: 4
+              continue-on-error: true
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
@@ -625,7 +657,7 @@ jobs:
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
               id: prime-schema
-              if: ${{ github.event_name == 'pull_request' }}
+              if: ${{ github.event_name == 'pull_request' || github.event_name == 'schedule' }}
               run: |
                   echo "restored=false" >> "$GITHUB_OUTPUT"
                   if [ ! -f schema.sql.gz ]; then
@@ -647,7 +679,7 @@ jobs:
               # process runs it, and pytest must not carry it through the test phase.
               # pytest --reuse-db adopts the DB like the PR prime above; any failure
               # falls back to the in-pytest migrate.
-              if: ${{ github.event_name != 'pull_request' || steps.prime-schema.outputs.restored != 'true' }}
+              if: ${{ steps.prime-schema.outputs.restored != 'true' }}
               env:
                   DATABASE_URL: postgres://posthog:posthog@localhost:5432/test_posthog
               run: |
@@ -718,7 +750,7 @@ jobs:
                   # file granularity only when the installed pytest-split offers them, else
                   # duration_based_chunks / item. A workflow edit runs merged with master, so
                   # an unrebased PR on older pytest-split must not hit an unknown
-                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  # --splitting-algorithm / --split-granularity. See .agents/ci.md.
                   SPLITTING_ALGORITHM=duration_based_chunks
                   SPLIT_GRANULARITY=()
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then

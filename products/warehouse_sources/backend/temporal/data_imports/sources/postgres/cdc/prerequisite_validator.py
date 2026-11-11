@@ -265,7 +265,19 @@ def _check_replication_role(conn: psycopg.Connection) -> list[str]:
 def _check_replication_slot_capacity(conn: psycopg.Connection) -> list[str]:
     """Check if there's capacity for a new replication slot."""
     with conn.cursor() as cur:
-        cur.execute("SHOW max_replication_slots")
+        try:
+            cur.execute("SHOW max_replication_slots")
+        except psycopg.errors.UndefinedObject:
+            # Twin of the `_check_wal_level` guard above: a pooler or wire-compatible database
+            # that doesn't expose this parameter can't support logical replication CDC either.
+            conn.rollback()
+            return [
+                "This database doesn't expose the max_replication_slots setting, so it can't "
+                "support logical replication CDC. This usually means the connection goes through "
+                "a pooler (such as PgBouncer in transaction mode) or to a database that isn't a "
+                "logical-replication-capable PostgreSQL. Connect directly to the primary "
+                "PostgreSQL server, or switch these tables to Incremental sync."
+            ]
         max_row = cur.fetchone()
         if max_row is None:
             return ["Could not determine max_replication_slots."]

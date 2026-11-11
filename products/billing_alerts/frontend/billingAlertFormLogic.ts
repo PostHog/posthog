@@ -5,7 +5,7 @@ import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 
 import type { OrganizationType } from '~/types'
 

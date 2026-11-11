@@ -1,11 +1,10 @@
-import { pluralize } from 'lib/utils/strings'
-
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type { ExperimentExposureHealthCheck, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 
-export type HealthPanelCheck = ExperimentHealthCheckResultApi
+/** An exposure check from an answer cached before the server added a field has no description, values or rule. */
+export type HealthPanelCheck = ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck
 
 /** A check in the list of checks. A check that reported a finding shows as that finding instead. */
 export type ListedHealthCheck = HealthPanelCheck & { status: Exclude<HealthPanelCheck['status'], 'finding'> }
@@ -14,9 +13,15 @@ export type ExposureChecksState = 'not_launched' | 'pending' | 'missing' | 'read
 
 export type HealthChipState =
     | { kind: 'hidden' }
-    | { kind: 'issues'; count: number; hasCritical: boolean }
-    | { kind: 'pending' }
-    | { kind: 'checks'; label: string; checks: HealthPanelCheck[]; notes: HealthPanelFinding[] }
+    | {
+          kind: 'issues'
+          count: number
+          hasCritical: boolean
+      }
+
+// The flag history check only lets the checks of changes since launch look. When it can't read the history, they say
+// they couldn't check and its note says why, so its own row would tell the reader nothing.
+const UNLISTED_CHECKS: ReadonlySet<HealthPanelCheck['key']> = new Set(['flag_history'])
 
 const CHECK_STATUS_ORDER: Record<HealthPanelCheck['status'], number> = {
     finding: 0,
@@ -36,9 +41,9 @@ export function healthPanelChecks(
     // A reset to draft keeps the previous exposure answer in the page, as for the findings.
     const exposureChecks = isExperimentDraft ? [] : (exposures?.health_checks ?? [])
     // A server from before the checks were reported sends none, for example while a deploy rolls out.
-    return [...(health.checks ?? []), ...exposureChecks].sort(
-        (a, b) => CHECK_STATUS_ORDER[a.status] - CHECK_STATUS_ORDER[b.status]
-    )
+    return [...(health.checks ?? []), ...exposureChecks]
+        .filter((check) => !UNLISTED_CHECKS.has(check.key))
+        .sort((a, b) => CHECK_STATUS_ORDER[a.status] - CHECK_STATUS_ORDER[b.status])
 }
 
 export function exposureChecksState(
@@ -64,33 +69,14 @@ export function countHealthChecks(checks: HealthPanelCheck[], status: HealthPane
     return checks.filter((check) => check.status === status).length
 }
 
-export function healthChipState(
-    findings: HealthPanelFinding[] | null,
-    checks: HealthPanelCheck[] | null,
-    exposureChecks: ExposureChecksState
-): HealthChipState {
-    if (findings === null || checks === null) {
-        return { kind: 'hidden' }
-    }
+export function healthChipState(findings: HealthPanelFinding[] | null): HealthChipState {
     const issues = healthIssues(findings)
-    if (issues.length > 0) {
-        return {
-            kind: 'issues',
-            count: issues.length,
-            hasCritical: issues.some((finding) => finding.severity === 'critical'),
-        }
-    }
-    // A verdict before the exposure checks answer could turn into an issue a moment later.
-    if (exposureChecks === 'pending') {
-        return { kind: 'pending' }
-    }
-    // Without an issue, every finding is an info finding.
-    const passedCount = countHealthChecks(checks, 'passed')
-    const label = [
-        passedCount > 0 ? `${pluralize(passedCount, 'check')} passed` : null,
-        findings.length > 0 ? pluralize(findings.length, 'note') : null,
-    ]
-        .filter(Boolean)
-        .join(' · ')
-    return { kind: 'checks', label: label || 'No checks apply yet', checks, notes: findings }
+    // A note needs no action, so the header marks only an experiment with an issue to fix.
+    return issues.length > 0
+        ? {
+              kind: 'issues',
+              count: issues.length,
+              hasCritical: issues.some((finding) => finding.severity === 'critical'),
+          }
+        : { kind: 'hidden' }
 }

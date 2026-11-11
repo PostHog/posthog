@@ -1,10 +1,20 @@
-import type { TraceEvaluationResultOutcomeEnumApi, TraceNodeApi, TraceNodeDetailApi } from '../../generated/api.schemas'
+import type {
+    TraceAttachmentPartApi,
+    TraceEvaluationResultOutcomeEnumApi,
+    TraceMessageApi,
+    TraceNodeApi,
+    TraceNodeContentApi,
+    TraceNodeDetailApi,
+    TraceNodeRawApi,
+    TraceNodeEvaluationRollupOutcomeEnumApi,
+    TraceSummaryContentApi,
+    TraceSurveyResponseApi,
+} from '../../generated/api.schemas'
 
 export type TraceNodeKind = TraceNodeApi['kind']
 
-export type TraceMode = 'spans' | 'thread' | 'timeline'
-
-export type TraceViewChoice = 'new' | 'legacy'
+export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
+export type TraceOpeningMode = 'summary' | null
 
 export type NodeDetailTab = 'messages' | 'details' | 'evals' | 'raw'
 
@@ -21,34 +31,27 @@ export type NodeLoad =
     | { status: 'ready'; node: TraceNodeDetailApi }
     | { status: 'error'; failure: LoadFailure }
 
-export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
+export type RawLoad =
+    | { status: 'loading' }
+    | { status: 'ready'; raw: TraceNodeRawApi }
+    | { status: 'error'; failure: LoadFailure }
 
-export type AttachmentMediaType = 'image' | 'audio' | 'video' | 'file'
+export type MessageRole = TraceMessageApi['role']
 
-export type MessagePart =
-    | { kind: 'text'; text: string }
-    | { kind: 'thinking'; text: string }
-    | { kind: 'toolCall'; name: string; args: unknown; result?: unknown; isError?: boolean }
-    | {
-          kind: 'attachment'
-          mediaType: AttachmentMediaType
-          name: string | null
-          mimeType: string | null
-          url: string | null
-      }
+/** Which messages of a step open first: from the last user message on, or all of them. */
+export type MessagesOpening = 'lastTurn' | 'everything'
 
-export interface ThreadMessage {
-    id: string
-    role: MessageRole
-    parts: MessagePart[]
-    isInternal: boolean
-    sourceNodeId: string | null
-}
+export type AttachmentMediaType = TraceAttachmentPartApi['mediaType']
+
+export type MessagePart = TraceMessageApi['parts'][number]
+
+export type ThreadMessage = TraceMessageApi
 
 export interface ConversationTurn {
     id: string
     timestamp: string
-    messages: ThreadMessage[]
+    input: NodeSideContent
+    output: NodeSideContent
     error: string | null
 }
 
@@ -57,21 +60,7 @@ export type ConversationState =
     | { status: 'error'; message: string }
     | { status: 'ready'; turns: ConversationTurn[]; activeTurnId: string | null }
 
-export type NodeContent =
-    | { kind: 'messages'; input: ThreadMessage[]; output: ThreadMessage[] }
-    | { kind: 'io'; input: unknown; output: unknown }
-    | { kind: 'loading' }
-    | { kind: 'error'; message: string }
-
-export interface NodeProperties {
-    timestamp: string | null
-    provider: string | null
-    temperature: number | null
-    sessionId: string | null
-    promptName: string | null
-    promptVersion: number | null
-    person: string | null
-}
+export type NodeSideContent = TraceNodeContentApi['input']
 
 /**
  * `unrated` is a result with a value but no verdict, such as a numeric score without a passing rule.
@@ -79,31 +68,50 @@ export interface NodeProperties {
  */
 export type EvalOutcome = TraceEvaluationResultOutcomeEnumApi
 
-export interface EvalTarget {
-    label: string
-    nodeId: string
-}
-
-export interface EvalResult {
-    id: string
-    name: string
-    href: string | null
-    outcome: EvalOutcome
-    /** What the result says, such as "True", "0.82", "Positive" or "Skipped". */
-    label: string
-    reasoning: string | null
-    timestamp: string
-    isBackfill: boolean
-    /** Null when the result targets the node being viewed. */
-    target: EvalTarget | null
-}
-
-export type EvalsState =
-    | { status: 'loading' }
-    | { status: 'ready'; results: EvalResult[] }
-    | { status: 'error'; errorMessage: string }
+/** A step's evaluations rolled up: `fail` if any fails, else `pass` if any passes, else `unrated`. */
+export type EvalRollupOutcome = TraceNodeEvaluationRollupOutcomeEnumApi
 
 export interface LabeledLink {
     label: string
     href: string
+}
+
+export type TraceSearchStatus = 'idle' | 'loading' | 'ready' | 'error'
+
+export type TraceSearchFailure = 'too_slow' | 'failed'
+
+export type MatchDirection = 'next' | 'previous'
+
+export type SummaryItemKind = 'bullet' | 'note'
+
+/** Why a summary request failed. `throttled` means the user reached their summary limit. */
+export type SummaryRequestError = 'throttled' | 'failed'
+
+/** `none` means no summary this user may see exists yet, and `error` that reading it failed. A `failed` summary that
+ * is not `retryable` fails the same way on every new request. */
+export type SummaryModeState =
+    | { status: 'loading' }
+    | { status: 'none' }
+    | { status: 'pending' }
+    | { status: 'ready'; summary: TraceSummaryContentApi }
+    | { status: 'failed'; message: string; retryable: boolean }
+    | { status: 'error' }
+
+/** Where a person opened the Feedback mode from, other than its tab. */
+export type FeedbackEntry = 'chip' | 'step'
+
+export type SurveyAnswer = TraceSurveyResponseApi['answers'][number]
+
+/** What the Feedback mode needs to place an entry: on a step of the tree, or on the whole trace, and which step it was
+ * opened from. */
+export interface FeedbackStepContext {
+    traceId: string
+    stepLabels: ReadonlyMap<string, string>
+    focusNodeId: string | null
+}
+
+export interface TraceViewKey {
+    hostId: string
+    traceId: string
+    timestampHint: string | null
 }

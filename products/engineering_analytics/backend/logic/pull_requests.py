@@ -1,15 +1,17 @@
-"""PR-scoped orchestration: lifecycle, runs, logs, cost, backlog cards, and lists."""
-
 from dataclasses import replace
 from datetime import datetime
+
+from django.utils import timezone
 
 import structlog
 
 from products.engineering_analytics.backend.facade.contracts import (
     AttentionPullRequestList,
+    AuthorLLMSpendList,
     BranchPRMatch,
     CICardSummary,
     CIFailureLogs,
+    LLMSpendCoverage,
     MergedPullRequest,
     PRCostSummary,
     PRLifecycle,
@@ -28,7 +30,11 @@ from products.engineering_analytics.backend.logic._shared import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
-from products.engineering_analytics.backend.logic.queries.llm_spend import query_pr_llm_spend
+from products.engineering_analytics.backend.logic.queries.llm_spend import (
+    query_author_llm_spend,
+    query_llm_spend_coverage,
+    query_pr_llm_spend,
+)
 from products.engineering_analytics.backend.logic.queries.merged_pull_requests import query_merged_pull_requests
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_author_workflow_costs, query_pr_cost
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
@@ -58,9 +64,8 @@ def build_resolve_branch(
     resolved_branch = (branch or "").strip()
     if not resolved_branch:
         raise ValueError("provide a branch to resolve")
-    # repo is an optional narrowing filter: absent -> (None, None); malformed (bare org) -> raises.
     owner, name = _split_repo(repo)
-    # timestamp (the trace's capture time) only reorders results toward the PR active then; never filters.
+    # The timestamp only orders the results toward the PR that was active then. It filters nothing.
     return query_resolve_branch(
         curated=curated, branch=resolved_branch, repo_owner=owner, repo_name=name, timestamp=timestamp
     )
@@ -73,13 +78,9 @@ def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo:
 
 def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRCostSummary:
     owner, name = _require_repo(repo)
-    # LLM token spend is an additive component joined by branch from the events table, merged onto the
-    # CI cost summary. Kept sequential: HogQL table resolution reads warehouse metadata through the
-    # request's DB connection, which worker threads don't share.
     summary = query_pr_cost(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
-    # The spend join scans the events table across the PR's whole lifetime, so a long-lived PR on an
-    # AI-heavy team can time out; the enrichment is optional, so it degrades to null instead of
-    # taking the whole cost summary down with it.
+    # The spend join scans the events table across the PR's whole lifetime, so it can time out.
+    # The spend is optional, so a failure leaves it null and keeps the cost summary.
     try:
         llm_spend = query_pr_llm_spend(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
     except Exception:
@@ -99,6 +100,52 @@ def build_author_workflow_costs(
         raise ValueError("author is required")
     parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_author_workflow_costs(curated=curated, author=author.strip(), date_from=parsed_from, date_to=parsed_to)
+
+
+_AUTHOR_LLM_SPEND_DEFAULT_LIMIT = 100
+_AUTHOR_LLM_SPEND_MAX_LIMIT = 200
+
+
+def build_author_llm_spend(
+    *,
+    curated: CuratedGitHubSource,
+    author: str,
+    repo: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int | None = None,
+) -> AuthorLLMSpendList:
+    if not author.strip():
+        raise ValueError("author is required")
+    owner, name = _require_repo(repo or curated.repository)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_author_llm_spend(
+        curated=curated,
+        author=author.strip(),
+        repo_owner=owner,
+        repo_name=name,
+        date_from=parsed_from,
+        date_to=parsed_to or timezone.now(),
+        limit=min(limit or _AUTHOR_LLM_SPEND_DEFAULT_LIMIT, _AUTHOR_LLM_SPEND_MAX_LIMIT),
+    )
+
+
+def build_llm_spend_coverage(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> LLMSpendCoverage:
+    owner, name = _require_repo(repo or curated.repository)
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_llm_spend_coverage(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        date_from=parsed_from,
+        date_to=parsed_to or timezone.now(),
+    )
 
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:

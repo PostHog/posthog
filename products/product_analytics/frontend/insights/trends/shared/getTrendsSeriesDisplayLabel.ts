@@ -1,6 +1,6 @@
 import { alphabet } from 'lib/utils/strings'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
-import { getResultSeries } from 'scenes/insights/utils/resultSeries'
+import { ActionNames, getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import type { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import type { BreakdownFilter, InsightQueryNode } from '~/queries/schema/schema-general'
@@ -14,6 +14,7 @@ import { humanizeSeriesLabel } from './humanizeSeriesLabel'
 
 export interface TrendsSeriesLabelDeps {
     querySource: InsightQueryNode | null | undefined
+    actionNames?: ActionNames
     breakdownFilter: BreakdownFilter | null | undefined
     cohorts: CohortType[] | undefined
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction | undefined
@@ -22,7 +23,7 @@ export interface TrendsSeriesLabelDeps {
 }
 
 export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsSeriesLabelDeps): string {
-    const series = getResultSeries(deps.querySource, r)
+    const series = getResultSeries(deps.querySource, r, deps.actionNames)
     const seriesName = getResultSeriesName(series) ?? humanizeSeriesLabel(r.label)
     if (r.breakdown_value != null) {
         const breakdownLabel = formatBreakdownLabel(

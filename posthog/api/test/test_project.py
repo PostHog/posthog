@@ -20,6 +20,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project import Project
@@ -32,7 +33,8 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person, delete_person
 
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
+from products.experiments.backend.facade.api import get_team_experiments_settings
+from products.experiments.backend.facade.testing import set_team_experiments_config
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
@@ -82,6 +84,93 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             {team_in_other_org.project.id},
             "Only the project belonging to the scoped organization should be listed, the other one should be excluded",
         )
+
+    @parameterized.expand(
+        [
+            (credential, selected_restricted, ip, blocked)
+            for credential in ("session", "personal_api_key")
+            for selected_restricted in (False, True)
+            for ip, blocked in (("198.51.100.7", True), ("203.0.113.7", False))
+        ]
+    )
+    def test_project_list_filters_each_organizations_ip_policy(
+        self, credential: str, selected_restricted: bool, ip: str, blocked: bool
+    ) -> None:
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = self.organization if selected_restricted else other_org
+        self.user.current_team = self.team if selected_restricted else other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            )
+        if credential == "personal_api_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user,
+                label="Project list example",
+                secure_value=hash_key_value(token),
+                scopes=["project:read"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        response = self.client.get("/api/projects/", REMOTE_ADDR=ip)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        expected = {other_team.project_id} if blocked else {self.project.id, other_team.project_id}
+        self.assertEqual({project["id"] for project in response.json()["results"]}, expected)
+
+    @parameterized.expand(
+        [
+            ("list", True, status.HTTP_403_FORBIDDEN),
+            ("list", False, status.HTTP_200_OK),
+            ("create", True, status.HTTP_403_FORBIDDEN),
+            ("create", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_organization_projects_route_checks_the_url_organizations_ip_policy(
+        self, method: str, url_org_restricted: bool, expected_status: int
+    ) -> None:
+        self._set_unlimited_projects()
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        with self.captureOnCommitCallbacks(execute=True):
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization if url_org_restricted else other_org,
+                ip_restrictions=["203.0.113.0/24"],
+            )
+        url = f"/api/organizations/{self.organization.id}/projects/"
+        if method == "create":
+            response = self.client.post(url, {"name": "Example project"}, REMOTE_ADDR="198.51.100.7")
+        else:
+            response = self.client.get(url, REMOTE_ADDR="198.51.100.7")
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if method == "create":
+            self.assertEqual(
+                Project.objects.filter(organization=self.organization, name="Example project").exists(),
+                not url_org_restricted,
+            )
+
+    @parameterized.expand([(True,), (False,)])
+    def test_project_scoped_key_reads_organization_ai_consent(self, approved: bool) -> None:
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scoped_teams=[self.team.id],
+            scopes=["project:read"],
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.project.id}/", headers={"authorization": f"Bearer {personal_api_key}"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIs(response.json()["is_ai_data_processing_approved"], approved)
 
     @parameterized.expand(
         [
@@ -205,7 +294,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             self.assertEqual(response.json()["attr"], "logo_media_id")
             self.assertIsNone(self.project.logo_media_id)
 
-    def test_cannot_create_second_demo_project(self):
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_cannot_create_second_demo_project(self, _mock_create_demo_data: MagicMock):
         # Create first demo project
         Project.objects.create_with_team(
             organization=self.organization, name="First Demo", initiating_user=self.user, team_fields={"is_demo": True}
@@ -279,6 +369,22 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         for i in range(5):
             response = self.client.post("/api/projects/", {"name": f"Project {i}"})
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_creating_project_in_another_organization_switches_both_selections(self) -> None:
+        self._set_unlimited_projects()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        other_org, _, other_team = Organization.objects.bootstrap(self.user)
+        self.user.current_organization = other_org
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+
+        response = self.client.post(f"/api/organizations/{self.organization.id}/projects/", {"name": "Example project"})
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.current_team_id, response.json()["id"])
+        self.assertEqual(self.user.current_organization_id, self.organization.id)
 
     def _set_unlimited_projects(self, with_member_create_entitlement: bool = True) -> None:
         features: list[dict] = [{"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": "Projects", "limit": None}]
@@ -550,7 +656,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             "You have reached the maximum limit of 2000 projects per organization. Contact support if you'd like access to more projects.",
         )
 
-    def test_demo_projects_not_counted_toward_limit(self):
+    @patch("posthog.tasks.demo_create_data.create_data_for_demo_team.delay")
+    def test_demo_projects_not_counted_toward_limit(self, _mock_create_demo_data: MagicMock):
         # Set project limit to 2
         self.organization.available_product_features = [
             {
@@ -1497,10 +1604,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertFalse(response.json()["experiment_precomputation_enabled"])
-        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
-        self.assertFalse(config.experiment_precomputation_enabled)
-        self.assertIsNone(config.precomputation_enabled_set_by)
-        self.assertTrue(config.default_cuped_enabled)
+        experiments_settings = get_team_experiments_settings(self.project.id)
+        self.assertFalse(experiments_settings.experiment_precomputation_enabled)
+        self.assertTrue(experiments_settings.default_cuped_enabled)
 
     def test_experiments_config_changes_are_logged_as_team_activity(self):
         # The first read creates the config row with defaults, which is not a change anyone made.
@@ -1527,7 +1633,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
 
     def test_experiments_config_created_with_non_default_values_is_logged(self):
         # The Django admin creates the row and sets values in one save, so there is no update to diff.
-        TeamExperimentsConfig.objects.create(team=self.team, default_cuped_enabled=True)
+        set_team_experiments_config(team_id=self.team.id, default_cuped_enabled=True)
 
         log = ActivityLog.objects.get(team_id=self.team.id, scope="Team", item_id=str(self.team.id))
         assert log.detail is not None
@@ -1543,8 +1649,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config = TeamExperimentsConfig.objects.get(team_id=self.project.id)
-        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(
+            get_team_experiments_settings(self.project.id).experiment_recalculation_times, ("14:00:00", "02:00:00")
+        )
 
         # Old clients still PATCH the retired experiment_recalculation_time field;
         # it must be ignored, not rejected.
@@ -1554,8 +1661,9 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertEqual(config.experiment_recalculation_times, ["14:00:00", "02:00:00"])
+        self.assertEqual(
+            get_team_experiments_settings(self.project.id).experiment_recalculation_times, ("14:00:00", "02:00:00")
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.project.id}/experiments_config/",
@@ -1563,8 +1671,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        config.refresh_from_db()
-        self.assertIsNone(config.experiment_recalculation_times)
+        self.assertIsNone(get_team_experiments_settings(self.project.id).experiment_recalculation_times)
 
     @parameterized.expand(
         [

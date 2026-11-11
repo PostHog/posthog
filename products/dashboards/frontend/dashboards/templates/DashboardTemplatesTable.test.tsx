@@ -46,7 +46,7 @@ jest.mock('lib/lemon-ui/LemonButton/More', () => ({
 // The table calls `dashboardTemplatesLogic({...})` at module load; return a stable sentinel so that import works.
 // `useValues` keys only on `userLogic` below; every other logic falls through to the table values.
 // Which templates a viewer can manage is decided by the logic's selectors and tested in dashboardTemplatesLogic.test.ts.
-jest.mock('scenes/dashboard/dashboards/templates/dashboardTemplatesLogic', () => ({
+jest.mock('./dashboardTemplatesLogic', () => ({
     dashboardTemplatesLogic: jest.fn(() => ({ __mock: 'templatesTableLogic' })),
 }))
 

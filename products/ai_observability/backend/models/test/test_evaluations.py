@@ -6,6 +6,8 @@ from rest_framework.exceptions import ValidationError
 
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus, EvaluationStatusReason
 
+REJECTED_HOG_SOURCE = "let output := output\nreturn true"
+
 
 class TestEvaluationModel(BaseTest):
     def test_compiles_bytecode_for_conditions_with_properties(self):
@@ -41,18 +43,31 @@ class TestEvaluationModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("set_status", None, "status", EvaluationStatus.ERROR),
-            ("pause", {"enabled": False}, "enabled", False),
-            ("delete", {"deleted": True}, "deleted", True),
+            (f"{broken}_{action}", broken, updates, field, expected)
+            for broken in ("condition", "hog_source")
+            for action, updates, field, expected in [
+                ("set_status", None, "status", EvaluationStatus.ERROR),
+                ("pause", {"enabled": False}, "enabled", False),
+                ("delete", {"deleted": True}, "deleted", True),
+            ]
         ]
     )
-    def test_save_without_filter_change_succeeds_when_condition_no_longer_compiles(
-        self, _name, updates, field, expected
+    def test_save_without_code_change_succeeds_when_stored_code_no_longer_compiles(
+        self, _name, broken, updates, field, expected
     ):
         evaluation = self._create_hog_evaluation()
+        stored_bytecode = evaluation.evaluation_config["bytecode"]
+        if broken == "hog_source":
+            self._store_rejected_hog_source(evaluation)
 
-        with patch("products.cdp.backend.filters.compile_filters_bytecode") as mock_compile:
-            mock_compile.return_value = {"bytecode": None, "bytecode_error": "Invalid property filter"}
+        condition_result = (
+            {"bytecode": None, "bytecode_error": "Invalid property filter"}
+            if broken == "condition"
+            else {"bytecode": ["_H", 1], "bytecode_error": None}
+        )
+        with patch(
+            "products.cdp.backend.filters.compile_filters_bytecode", return_value=condition_result
+        ) as mock_compile:
             if updates is None:
                 evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
             else:
@@ -63,6 +78,7 @@ class TestEvaluationModel(BaseTest):
 
         evaluation.refresh_from_db()
         self.assertEqual(getattr(evaluation, field), expected)
+        self.assertEqual(evaluation.evaluation_config["bytecode"], stored_bytecode)
 
     def test_full_save_rejects_filter_edited_in_place_after_status_only_save(self):
         evaluation = self._create_hog_evaluation()
@@ -75,6 +91,36 @@ class TestEvaluationModel(BaseTest):
         evaluation.refresh_from_db()
         self.assertEqual(evaluation.conditions[0]["properties"], [])
 
+    def test_full_save_keeps_stored_bytecode_when_resubmitted_hog_source_no_longer_compiles(self):
+        evaluation = self._create_hog_evaluation()
+        stored_bytecode = evaluation.evaluation_config["bytecode"]
+        self._store_rejected_hog_source(evaluation)
+
+        evaluation.evaluation_config = {"source": REJECTED_HOG_SOURCE}
+        evaluation.save()
+
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.evaluation_config["bytecode"], stored_bytecode)
+
+    @parameterized.expand(
+        [
+            ("edit_source_in_place", lambda e: e.evaluation_config.update(source="let x := x\nreturn false")),
+            ("reenable", lambda e: setattr(e, "enabled", True)),
+        ]
+    )
+    def test_full_save_rejects_stored_hog_source_that_no_longer_compiles(self, _name, change):
+        evaluation = self._create_hog_evaluation()
+        self._store_rejected_hog_source(evaluation)
+        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.HOG_ERROR)
+
+        change(evaluation)
+        with self.assertRaises(ValidationError):
+            evaluation.save()
+
+        evaluation.refresh_from_db()
+        self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
+        self.assertEqual(evaluation.evaluation_config["source"], REJECTED_HOG_SOURCE)
+
     def _create_hog_evaluation(self) -> Evaluation:
         return Evaluation.objects.create(
             team=self.team,
@@ -85,6 +131,12 @@ class TestEvaluationModel(BaseTest):
             enabled=True,
             conditions=[{"id": "cond-1", "rollout_percentage": 100, "properties": []}],
         )
+
+    def _store_rejected_hog_source(self, evaluation: Evaluation) -> None:
+        Evaluation.objects.filter(id=evaluation.id).update(
+            evaluation_config={**evaluation.evaluation_config, "source": REJECTED_HOG_SOURCE}
+        )
+        evaluation.refresh_from_db()
 
     def test_handles_empty_properties_list(self):
         """
@@ -244,13 +296,19 @@ class TestEvaluationModel(BaseTest):
         self.assertFalse(result["verdict"])
         self.assertIsNone(result["error"])
 
-    def test_hog_evaluation_invalid_source_raises_validation_error(self):
+    @parameterized.expand(
+        [
+            ("syntax_error", "this is not valid hog {{{{"),
+            ("local_read_in_own_declaration", REJECTED_HOG_SOURCE),
+        ]
+    )
+    def test_hog_evaluation_invalid_source_raises_validation_error(self, _name, source):
         with self.assertRaises(ValidationError):
             Evaluation.objects.create(
                 team=self.team,
                 name="Bad Hog Eval",
                 evaluation_type="hog",
-                evaluation_config={"source": "this is not valid hog {{{{"},
+                evaluation_config={"source": source},
                 output_type="boolean",
                 output_config={},
                 enabled=True,

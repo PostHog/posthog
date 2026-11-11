@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
-import { useState } from 'react'
+import { FormEvent, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
 import * as imTheDriverPng from '@posthog/brand/hoggies/png/im-the-driver'
@@ -24,22 +24,23 @@ import {
 import { pngHoggie } from 'lib/brand/hoggies'
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { useTagSourceExcluding } from 'lib/components/useTagPages'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { urls } from 'scenes/urls'
 
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { tagsModel } from '~/models/tagsModel'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { CreditPriceNote } from '../components/PricingLink'
+import { RecordingsBlockBanner } from '../components/RecordingsBlockBanner'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
 import { ExampleObservations } from './components/ExampleObservations'
@@ -51,16 +52,15 @@ import { ScannerTriggers } from './components/ScannerTriggers'
 import { ScannerTypeConfigEditor } from './components/ScannerTypeConfigEditor'
 import { leaveScannerEditor, replayScannerLogic } from './replayScannerLogic'
 import {
-    SCANNER_EDITOR_STEPS,
-    SCANNER_EDITOR_STEP_ORDER,
-    SCANNER_STEPPER_STEPS,
-    STEP_LABELS,
     ScannerEditorStep,
-    UNVALIDATED_SCANNER_STEPS,
+    advancesWithoutSubmit,
+    nextScannerEditorStep,
     scannerEditorSceneLogic,
+    scannerEditorStepOrder,
     scannerStepUrlWithParams,
 } from './scannerEditorSceneLogic'
 import { scannerSelfDrivingStatsLogic } from './scannerSelfDrivingStatsLogic'
+import { isUnusableScannerTag } from './scannerTags'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS, scannerTypeOptions } from './types'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -102,9 +102,14 @@ const STEP_HEADERS: Record<
         subtitle: 'How much of the matching traffic to scan, and what to spend on it.',
     },
 }
+const RECORDINGS_FIRST_STEP_TITLES: Partial<Record<keyof typeof STEP_HEADERS, string>> = {
+    configure: 'Tell it what to look for',
+    budget: 'Set sampling and limits',
+}
 
 export function ScannerEditorSceneComponent(): JSX.Element {
-    const { scannerId, step, isNew } = useValues(scannerEditorSceneLogic)
+    // Read before the loading return, so every entry into a new scanner reports the experiment exposure.
+    const { scannerId, step, isNew, recordingsFirst, steps, stepperSteps } = useValues(scannerEditorSceneLogic)
     const { searchParams } = useValues(router)
     // Reached a form step by clicking Edit on the goal overview: the overview is home, not a wizard
     // stop, so the linear stepper is hidden and the footer returns there instead of marching on.
@@ -113,8 +118,15 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, scannerEditorSceneLogic)
 
-    const { scanner, scannerLoading, isScannerSubmitting, stepErrors, lockedToExperimentScanner } =
-        useValues(scannerLogic)
+    const {
+        scanner,
+        scannerLoading,
+        isScannerSubmitting,
+        stepErrors,
+        lockedToExperimentScanner,
+        scannerValidationErrors,
+        durationValidationError,
+    } = useValues(scannerLogic)
     const { submitScanner } = useActions(scannerLogic)
 
     if (step !== 'goal' && (scannerLoading || !scanner)) {
@@ -130,12 +142,16 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     // Validate the current step and move on: submit routes to the next step on success. A step with
     // nothing to validate navigates straight on, so it can't fail on fields the user hasn't reached.
     const advance = (): void => {
-        if (UNVALIDATED_SCANNER_STEPS.includes(step)) {
-            const next = SCANNER_EDITOR_STEPS[SCANNER_EDITOR_STEPS.indexOf(step) + 1]
-            if (next) {
-                router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
-                return
-            }
+        const next = nextScannerEditorStep(step, steps)
+        if (
+            next &&
+            advancesWithoutSubmit(step, recordingsFirst, {
+                ...scannerValidationErrors,
+                duration: durationValidationError,
+            })
+        ) {
+            router.actions.push(scannerStepUrlWithParams(next, scannerId, searchParams))
+            return
         }
         submitScanner()
     }
@@ -144,7 +160,8 @@ export function ScannerEditorSceneComponent(): JSX.Element {
         if (isScannerSubmitting) {
             return
         }
-        if (SCANNER_EDITOR_STEP_ORDER[next] > SCANNER_EDITOR_STEP_ORDER[step]) {
+        const stepOrder = scannerEditorStepOrder(recordingsFirst)
+        if (stepOrder[next] > stepOrder[step]) {
             if (step === 'goal') {
                 router.actions.push(urls.replayVisionScannerDetails(scannerId))
                 return
@@ -164,9 +181,10 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                         resourceType={{ type: 'replay_vision' }}
                         actions={<ReplayVisionFeedbackButton />}
                     />
+                    <RecordingsBlockBanner />
                     {step === 'goal' || step === 'overview' || fromOverview ? null : (
                         <GuidedWizardStepper
-                            steps={SCANNER_STEPPER_STEPS}
+                            steps={stepperSteps}
                             currentStep={step}
                             onStepClick={goToStep}
                             stepErrors={stepErrors}
@@ -206,7 +224,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         For each recording it watches, the scanner writes an observation like these and
                                         cites the moment it found.
                                     </p>
-                                    <ExampleObservations compact />
+                                    <ExampleObservations />
                                 </aside>
                             </div>
                         </div>
@@ -217,12 +235,24 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                             formKey="scanner"
                             enableFormOnSubmit
                             className="max-w-4xl w-full mx-auto"
+                            // Enter must act like Next, or the recordings step would flag the prompt it comes before.
+                            {...(recordingsFirst
+                                ? {
+                                      onSubmit: (event: FormEvent<HTMLFormElement>) => {
+                                          event.preventDefault()
+                                          advance()
+                                      },
+                                  }
+                                : {})}
                         >
                             <div className="bg-bg-light border rounded-lg shadow-sm p-4 sm:p-6 flex flex-col gap-6 [&_.Field--error_.input-like]:!border-danger">
                                 <div className="flex items-center gap-3">
                                     {STEP_HEADERS[step].hedgehog}
                                     <div>
-                                        <div className="text-base font-semibold">{STEP_HEADERS[step].title}</div>
+                                        <div className="text-base font-semibold">
+                                            {(recordingsFirst && RECORDINGS_FIRST_STEP_TITLES[step]) ||
+                                                STEP_HEADERS[step].title}
+                                        </div>
                                         <div className="text-sm text-muted">{STEP_HEADERS[step].subtitle}</div>
                                     </div>
                                 </div>
@@ -253,7 +283,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
 }
 
 function DetailsStep(): JSX.Element {
-    const { tags: allTags } = useValues(tagsModel)
+    const scannerTagSource = useTagSourceExcluding(isUnusableScannerTag)
 
     return (
         <div className="flex flex-col gap-4">
@@ -278,9 +308,8 @@ function DetailsStep(): JSX.Element {
                     <ObjectTags
                         tags={value ?? []}
                         onChange={onChange}
+                        loadTags={scannerTagSource}
                         saving={false}
-                        // Tags from other products can contain commas; the scanner API rejects those.
-                        tagsAvailable={allTags.filter((tag) => !tag.includes(',') && !value?.includes(tag))}
                         data-attr="vision-editor-tags"
                     />
                 )}
@@ -449,6 +478,7 @@ function EditorFooter({
         replayScannerLogic({ id: scannerId })
     )
     const { searchParams } = useValues(router)
+    const { steps, stepLabels } = useValues(scannerEditorSceneLogic)
     const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
@@ -456,14 +486,14 @@ function EditorFooter({
     // Save instead of letting the request 400.
     const needsConsent = isNew && !dataProcessingAccepted
     const canApproveConsent = !dataProcessingApprovalDisabledReason
-    const stepIndex = SCANNER_EDITOR_STEPS.indexOf(step)
-    const previous = stepIndex > 0 ? SCANNER_EDITOR_STEPS[stepIndex - 1] : null
+    const stepIndex = steps.indexOf(step)
+    const previous = stepIndex > 0 ? steps[stepIndex - 1] : null
     const prevStep = previous === 'goal' && (!isNew || lockedToExperimentScanner) ? null : previous
-    const nextStep = stepIndex < SCANNER_EDITOR_STEPS.length - 1 ? SCANNER_EDITOR_STEPS[stepIndex + 1] : null
+    const nextStep = nextScannerEditorStep(step, steps)
     // A broken duration filter blocks the save, but only from the triggers step onward: gating an
     // earlier step's button on it blocks the wizard with a reason nothing on screen explains. RBAC
     // takes priority and must match the backend's create/update requirement exactly.
-    const ownsDurationFilter = step === 'triggers' || step === 'budget'
+    const ownsDurationFilter = stepIndex !== -1 && stepIndex >= steps.indexOf('triggers')
     const durationError = ownsDurationFilter ? durationValidationError : null
     const saveDisabledReason = getReplayVisionEditDisabledReason(scanner?.user_access_level) ?? durationError
     // Editing one section from the goal overview: the edit is already in the form state, so the only
@@ -493,8 +523,8 @@ function EditorFooter({
 
     return (
         <div className="flex flex-col gap-2">
-            {/* The duration field lives on the recordings step, so budget needs the error spelled out. */}
-            {step === 'budget' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
+            {/* The duration field lives on the recordings step, so later steps need the error spelled out. */}
+            {step !== 'triggers' && durationError ? <div className="text-danger text-sm">{durationError}</div> : null}
             {fromOverview ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
                     <ScannerDraftStatus scannerId={scannerId} fromOverview />
@@ -544,7 +574,7 @@ function EditorFooter({
                                 onClick={onAdvance}
                                 data-attr="vision-editor-next"
                             >
-                                Next: {STEP_LABELS[nextStep]}
+                                Next: {stepLabels[nextStep]}
                             </LemonButton>
                         ) : (
                             <AIConsentPopoverWrapper

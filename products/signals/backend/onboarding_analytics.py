@@ -6,6 +6,8 @@ import posthoganalytics
 
 from posthog.event_usage import groups
 
+from products.signals.backend.onboarding_state import setup_mode
+
 if TYPE_CHECKING:
     from posthog.models.user import User
 
@@ -29,20 +31,13 @@ class InboxOnboardingAnalytics:
 
     @classmethod
     def properties(cls, config: SignalTeamConfig, user: User | None = None) -> dict[str, object]:
-        state = config.onboarding or {}
-        draft = state.get("draft") or {}
-        variant = state.get("variant")
+        draft = (config.onboarding or {}).get("draft") or {}
         return {
+            **({"activation_mode": draft["activation_mode"]} if draft.get("activation_mode") else {}),
             "project_id": config.team_id,
-            "variant": variant,
-            "$feature/inbox-ui-onboarding": variant,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
-            "setup_mode": "quick"
-            if variant == "test-github"
-            else "guided"
-            if draft or variant == "test-ui"
-            else "legacy",
+            "setup_mode": setup_mode(config.onboarding or {}),
             "self_driving_ubp": cls.pricing_flag(config, user),
         }
 

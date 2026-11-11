@@ -1,14 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconChevronRight, IconPencil, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { ScoutNoteApi } from 'products/signals/frontend/generated/api.schemas'
 
@@ -17,38 +14,13 @@ import {
     isDirectScoutNote,
     NOTES_FETCH_LIMIT,
     scoutNoteOriginLabel,
+    scoutNoteWriteDisabledReason,
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
 import { linkReportIdsInNote } from '../../../utils/scoutMemoryPresentation'
+import { OpenScratchpadButton } from './OpenScratchpadButton'
+import { ScoutNoteComposer } from './ScoutNoteComposer'
 import { ScoutNoteContent } from './ScoutNoteContent'
-
-/** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
-const NOTE_MAX_CHARS = 10000
-
-/**
- * Controlled so LemonTextArea's counter has a value to count; an uncontrolled textarea reports
- * 0 / max no matter what is typed.
- */
-function NoteComposer({ onChange }: { onChange: (content: string) => void }): JSX.Element {
-    const [content, setContent] = useState('')
-    return (
-        <LemonTextArea
-            autoFocus
-            value={content}
-            maxLength={NOTE_MAX_CHARS}
-            placeholder="e.g. we shipped a new checkout on Tuesday, watch conversion closely"
-            onChange={(value) => {
-                setContent(value)
-                onChange(value)
-            }}
-        />
-    )
-}
-
-/** Notes are written and retired through the skill, so the same editor access gates both. */
-function noteWriteDisabledReason(): string | undefined {
-    return getAccessControlDisabledReason(AccessControlResourceType.LlmSkill, AccessControlLevel.Editor) ?? undefined
-}
 
 /**
  * The dialog closes itself only once the note saved. A failed request leaves it open with the text
@@ -71,7 +43,7 @@ function LeaveNoteDialog({
         content: (close) => {
             closeDialog = close
             return (
-                <NoteComposer
+                <ScoutNoteComposer
                     onChange={(value) => {
                         content = value
                     }}
@@ -108,7 +80,7 @@ export function LeaveScoutNoteButton({
 }): JSX.Element {
     const logic = scoutNotesLogic({ skillName })
     const { savingNote } = useValues(logic)
-    const disabledReason = noteWriteDisabledReason()
+    const disabledReason = scoutNoteWriteDisabledReason()
 
     return (
         <LemonButton
@@ -142,33 +114,35 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
     const { scoutNotes, fleetWideNotes, toldCount, notesLoading, notesLoadFailed, notesCapped } = useValues(logic)
     const { deleteNote, loadNotes } = useActions(logic)
     const { reportRows } = useValues(scoutDetailLogic({ skillName }))
+    const [showFleetNotes, setShowFleetNotes] = useState(false)
 
     // On the fleet view every note is already in `scoutNotes`.
     const otherFleetNotes = skillName ? fleetWideNotes : []
+    const nothingLoaded = toldCount === 0 && otherFleetNotes.length === 0
     // Reports this scout touched in the window, so a note naming one by id can name it by title.
     const reportsById = new Map(reportRows.map(({ report }) => [report.id.toLowerCase(), report]))
 
     return (
         <div className="flex flex-col gap-2">
-            {notesLoading && toldCount === 0 ? (
+            {notesLoading && nothingLoaded ? (
                 <div className="rounded border border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Loading notes…
                 </div>
-            ) : notesLoadFailed && toldCount === 0 ? (
+            ) : notesLoadFailed && nothingLoaded ? (
                 <div className="flex flex-col items-center gap-2 rounded border border-danger bg-danger-highlight px-4 py-6 text-center text-sm text-danger">
                     <span>Couldn't load the notes.</span>
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadNotes()}>
                         Try again
                     </LemonButton>
                 </div>
-            ) : toldCount === 0 ? (
-                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                    Nothing yet. Leave a note to steer what this scout looks at, or dismiss one of its reports with a
-                    reason, and that reaches it too.
-                </div>
             ) : (
                 <>
-                    {scoutNotes.length > 0 && (
+                    {toldCount === 0 ? (
+                        <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                            Nothing has been told to this scout yet. Leave a note to steer what it looks at, or dismiss
+                            one of its reports with a reason, and that reaches it too.
+                        </div>
+                    ) : (
                         <ScoutNoteList
                             notes={scoutNotes}
                             reportsById={reportsById}
@@ -177,16 +151,28 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
                         />
                     )}
                     {/* A note addressed to every scout reaches this one too, but it is not about this
-                        scout, so it sits under its own label rather than in the list above. */}
+                        scout. Most come from inbox activity on reports no scout wrote, so they stay
+                        folded away rather than burying the notes above. */}
                     {otherFleetNotes.length > 0 && (
                         <div className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-secondary">For every scout</span>
-                            <ScoutNoteList
-                                notes={otherFleetNotes}
-                                reportsById={reportsById}
-                                capped={notesCapped}
-                                onDelete={deleteNote}
-                            />
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                className="self-start"
+                                icon={showFleetNotes ? <IconChevronDown /> : <IconChevronRight />}
+                                onClick={() => setShowFleetNotes(!showFleetNotes)}
+                                data-attr="inbox-scout-toggle-fleet-notes"
+                            >
+                                It also reads {pluralize(otherFleetNotes.length, 'note')} left for every scout
+                            </LemonButton>
+                            {showFleetNotes && (
+                                <ScoutNoteList
+                                    notes={otherFleetNotes}
+                                    reportsById={reportsById}
+                                    capped={notesCapped}
+                                    onDelete={deleteNote}
+                                />
+                            )}
                         </div>
                     )}
                 </>
@@ -196,6 +182,7 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
                 New notes are picked up on the next run and folded into what it has learned. Delete a note once it has
                 done its job.
             </span>
+            <OpenScratchpadButton skillName={skillName} entryPoint="told_tab" />
         </div>
     )
 }
@@ -252,7 +239,7 @@ function ScoutNoteRow({
     onDelete: () => void
 }): JSX.Element {
     const direct = isDirectScoutNote(note)
-    const disabledReason = noteWriteDisabledReason()
+    const disabledReason = scoutNoteWriteDisabledReason()
 
     return (
         <div className="flex gap-3 border-b border-primary px-3 py-2.5 last:border-b-0">

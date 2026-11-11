@@ -28,7 +28,7 @@ from django.db.models.functions import Concat, Lower
 from django.utils import timezone
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
-from rest_framework import filters, pagination, serializers, status, viewsets
+from rest_framework import filters, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -50,6 +50,7 @@ from posthog.api.file_system.file_system_logging import log_api_file_system_view
 from posthog.api.file_system.ranked_search import FileRef, FileSystemRankedSearch, search_session
 from posthog.api.file_system.visibility import apply_file_system_visibility_filters
 from posthog.api.mixins import validated_request
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
@@ -78,6 +79,7 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.paging import Page, PageRequest
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -112,6 +114,11 @@ RECENTS_SEARCH_SCAN_LIMIT = 200
 def get_file_system_insight_type(query_kind: str | None, legacy_type: str | None) -> str:
     insight_type = str(query_kind).removesuffix("Query").lower() if query_kind else str(legacy_type or "TRENDS").lower()
     return {"hogql": "hog", "pathsv2": "paths", "journeys": "paths"}.get(insight_type, insight_type)
+
+
+def is_path_under(path: str, ancestor: str) -> bool:
+    ancestor_segments = split_path(ancestor)
+    return split_path(path)[: len(ancestor_segments)] == ancestor_segments
 
 
 def validate_file_system_path(path: Any) -> str:
@@ -236,7 +243,7 @@ class FileSystemSerializer(FileSystemAccessLevelSerializerMixin, serializers.Mod
         return file_system
 
 
-class FileSystemsLimitOffsetPagination(pagination.LimitOffsetPagination):
+class FileSystemsLimitOffsetPagination(FacadeLimitOffsetPagination):
     default_limit = 100
 
 
@@ -816,21 +823,29 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _list_typed_by_views(self, request: Request, *, descending: bool) -> Response:
         queryset = self.filter_queryset(self.get_queryset()).order_by()
-        paginator = cast(FileSystemsLimitOffsetPagination, self.paginator)
-        paginator.request = request
-        paginator.limit = paginator.get_limit(request)
-        paginator.offset = paginator.get_offset(request)
-        paginator.count = queryset.count()
-        if paginator.offset >= paginator.count:
-            response = paginator.get_paginated_response([])
-            response.data["users"] = []
-            return response
-        limit = paginator.limit or paginator.default_limit
-
         views = FileSystemViewLog.objects.filter(
             team_id__in=Team.objects.filter(project_id=self.team.project_id).values("id"),
             user_id=cast(User, request.user).id,
         )
+
+        def fetch(page: PageRequest) -> Page[FileSystem]:
+            count = queryset.count()
+            if page.offset >= count:
+                return Page(results=[], count=count)
+            return Page(results=self._typed_page_by_views(queryset, views, page, descending=descending), count=count)
+
+        response = facade_page_response(self, fetch)
+        response.data["users"] = self._created_by_users(response.data["results"])
+        return response
+
+    def _typed_page_by_views(
+        self,
+        queryset: QuerySet[FileSystem],
+        views: QuerySet[FileSystemViewLog],
+        page: PageRequest,
+        *,
+        descending: bool,
+    ) -> builtins.list[FileSystem]:
         files_sql, files_params = queryset.values("id", "team_id", "type", "ref", "created_at").query.sql_with_params()
         views_sql, views_params = views.order_by().values("team_id", "type", "ref", "viewed_at").query.sql_with_params()
         direction = "DESC" if descending else "ASC"
@@ -849,24 +864,21 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             LIMIT %s OFFSET %s
         """
         with connection.cursor() as cursor:
-            cursor.execute(page_sql, [*views_params, *files_params, limit, paginator.offset])
+            cursor.execute(page_sql, [*views_params, *files_params, page.limit, page.offset])
             page_ids = [row[0] for row in cursor.fetchall()]
-        if len(page_ids) < limit:
+        if len(page_ids) < page.limit:
             own_view = views.filter(team_id=OuterRef("team_id"), type=OuterRef("type"), ref=OuterRef("ref"))
             unseen_offset = 0
-            if not page_ids and paginator.offset:
+            if not page_ids and page.offset:
                 viewed_count = queryset.filter(Exists(own_view)).count()
-                unseen_offset = max(0, paginator.offset - viewed_count)
+                unseen_offset = max(0, page.offset - viewed_count)
             page_ids.extend(
                 queryset.filter(~Exists(own_view))
                 .order_by("-created_at", "id")
-                .values_list("id", flat=True)[unseen_offset : unseen_offset + limit - len(page_ids)]
+                .values_list("id", flat=True)[unseen_offset : unseen_offset + page.limit - len(page_ids)]
             )
         rows = {row.id: row for row in queryset.filter(id__in=page_ids)}
-        results = self.get_serializer([rows[row_id] for row_id in page_ids if row_id in rows], many=True).data
-        response = paginator.get_paginated_response(results)
-        response.data["users"] = self._created_by_users(results)
-        return response
+        return [rows[row_id] for row_id in page_ids if row_id in rows]
 
     @extend_schema(parameters=[FileSystemListQuerySerializer])
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
@@ -1281,12 +1293,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"detail": "new_path is required"}, status=status.HTTP_400_BAD_REQUEST)
         new_path = validate_file_system_path(new_path)
 
+        if instance.type == "folder" and is_path_under(new_path, instance.path):
+            return Response({"detail": "Cannot move a folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
+
         self._assure_parent_folders(new_path, cast(User, request.user))
 
         if instance.type == "folder":
-            if new_path == instance.path:
-                return Response({"detail": "Cannot move folder into itself"}, status=status.HTTP_400_BAD_REQUEST)
-
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 qs = self._scope_by_project_and_environment(qs)
@@ -1451,22 +1463,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.type != "folder":
             return Response({"detail": "Count can only be called on folders"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/").order_by("depth", "path")
-        qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
-        qs = self._filter_by_access_control(qs)
-
-        total_count = qs.count()
-        preview_entries = list(qs[:DELETE_PREVIEW_ENTRY_LIMIT])
-        serializer = self.get_serializer(preview_entries, many=True)
-
-        return Response(
-            {
-                "count": total_count,
-                "entries": serializer.data,
-                "has_more": total_count > len(preview_entries),
-            },
-            status=status.HTTP_200_OK,
-        )
+        return self._folder_count_response(instance.path)
 
     @action(methods=["GET", "POST"], detail=False, url_path="log_view")
     @disallow_if_impersonated(message="Impersonated sessions cannot log file system views.", allowed_methods=["GET"])
@@ -1524,7 +1521,14 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not path_param:
             return Response({"detail": "path parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = FileSystem.objects.filter(path__startswith=f"{path_param}/").order_by("depth", "path")
+        return self._folder_count_response(path_param)
+
+    def _folder_count_response(self, folder_path: str) -> Response:
+        qs = (
+            FileSystem.objects.filter(path__startswith=f"{folder_path}/")
+            .select_related("created_by")
+            .order_by("depth", "path")
+        )
         qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
         qs = self._filter_by_access_control(qs)
 

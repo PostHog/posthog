@@ -2,11 +2,12 @@
 
 import copy
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_actions
 
 
 def _get_source_name(source: object) -> str:
@@ -20,6 +21,8 @@ def _get_source_name(source: object) -> str:
         return source.get("table_name") or "Table"
     if kind == "ExperimentExposureNode":
         return "Exposure"
+    if kind == "ExperimentWarehouseNativeNode":
+        return source.get("custom_name") or "Warehouse-native query"
     # EventsNode or ActionsNode
     return source.get("name") or source.get("event") or "Event"
 
@@ -46,7 +49,22 @@ def get_default_metric_title(metric_dict: dict) -> str:
         start = metric_dict.get("start_event", {})
         completion = metric_dict.get("completion_event", {})
         return f"{_get_source_name(start)} / {_get_source_name(completion)}"
+    elif metric_type == "quantile":
+        return get_default_quantile_metric_title(metric_dict)
     return "Metric"
+
+
+def format_quantile_level(quantile: float) -> str:
+    return f"p{round(quantile * 100, 2):g}"
+
+
+def get_default_quantile_metric_title(metric_dict: dict) -> str:
+    source = metric_dict.get("source") or {}
+    measured = source.get("math_property") or _get_source_name(source)
+    quantile = metric_dict.get("quantile")
+    if not isinstance(quantile, int | float):
+        return f"Percentile of {measured}"
+    return f"{format_quantile_level(quantile)} of {measured}"
 
 
 logger = logging.getLogger(__name__)
@@ -92,16 +110,20 @@ def refresh_action_names_in_metric(
         if not action_ids:
             return query
 
+        names: Mapping[int, str | None]
         if actions_by_id is None:
             # Fetch all actions in a single query
             # Only include actions that still exist (not deleted)
-            actions_by_id = {
-                action.id: action.name for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+            names = {
+                action.id: action.name
+                for action in get_actions(action_ids=action_ids, team_id=team.pk, include_deleted=False)
             }
+        else:
+            names = actions_by_id
 
         # Update action names throughout the query
-        # If an action was deleted, its ID won't be in actions_by_id and the old name will be preserved
-        _update_action_names(query, actions_by_id)
+        # If an action was deleted, its ID won't be in names and the old name will be preserved
+        _update_action_names(query, names)
 
         return query
     except Exception as e:
@@ -147,7 +169,7 @@ def _collect_action_ids(obj: Any, action_ids: set[int]) -> None:
             _collect_action_ids(item, action_ids)
 
 
-def _update_action_names(obj: Any, actions_by_id: dict[int, str]) -> None:
+def _update_action_names(obj: Any, actions_by_id: Mapping[int, str | None]) -> None:
     """Recursively update all ActionsNode name fields with current action names."""
     if isinstance(obj, dict):
         if obj.get("kind") == "ActionsNode" and "id" in obj:
@@ -222,7 +244,7 @@ def resolve_action_events(action_ids: set[int], team: Team) -> dict[int, set[str
         return {}
     return {
         action.id: {event for event in action.get_step_events() if event}
-        for action in Action.objects.filter(id__in=action_ids, team=team, deleted=False)
+        for action in get_actions(action_ids=action_ids, team_id=team.pk, include_deleted=False)
     }
 
 

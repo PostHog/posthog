@@ -19,10 +19,19 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import SUBSCRIPTION_AI_PROMPT_FEATURE_FLAG_KEY
 from posthog.event_usage import AnalyticsProps, groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.model_activity import get_was_impersonated
+from posthog.models.integration import SlackIntegration
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.query_creator_access import (
+    CreatorLeftOrganizationError,
+    assert_creator_can_run,
+    describe_owner_unavailable,
+    owner_unavailable_code,
+)
 from posthog.resource_limits import LimitKey, check_count_limit
 from posthog.security.url_validation import is_microsoft_teams_webhook_url
 from posthog.slo.context import SloSpec, slo_operation
@@ -30,8 +39,9 @@ from posthog.slo.types import SloArea, SloOperation
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import human_list
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.dashboards.backend.facade import api as dashboards_api
+from products.dashboards.backend.facade.contracts import DashboardSummary
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import (
@@ -78,7 +88,6 @@ AI_DELIVERY_DISPLAY_FIELDS = frozenset(
 
 # The write fields whose model attribute has a different name. Every other field keeps its name.
 _MODEL_ATTRIBUTE_NAMES: dict[str, str] = {
-    "dashboard_id": "dashboard",
     "insight_id": "insight",
     "dashboard_export_insight_ids": "dashboard_export_insights",
 }
@@ -117,8 +126,8 @@ def _ai_create_gate_reason(organization: Organization, distinct_id: str) -> Opti
 def _write_attrs(write: SubscriptionWrite) -> dict:
     """The write's fields that are set, keyed the way the model names them.
 
-    The request field checked that a named dashboard or insight exists. Each one resolves to its row
-    where validate() checks its team.
+    The request field checked that a named dashboard or insight exists. validate() checks the
+    dashboard's team and keeps its id, and it resolves the insight to its row.
     """
     attrs: dict = {}
     for field in dataclasses.fields(write):
@@ -127,6 +136,11 @@ def _write_attrs(write: SubscriptionWrite) -> dict:
             continue
         attrs[_MODEL_ATTRIBUTE_NAMES.get(field.name, field.name)] = value
     return attrs
+
+
+def owner_unavailable_message(owner: User | None, error: Exception) -> str:
+    """The refusal for a re-enable the owner cannot run, naming the owner and the cause."""
+    return f"Can't re-enable this subscription. {describe_owner_unavailable(owner, error)}"
 
 
 class _SubscriptionWrite:
@@ -169,16 +183,28 @@ class _SubscriptionWrite:
             return str(self.user.distinct_id)
         return f"team_{self.team_id}"
 
+    def _dashboard(self, dashboard_id: int | None) -> DashboardSummary | None:
+        """The dashboard a subscription of this team targets, also when it is soft-deleted.
+
+        A dashboard this team cannot reach is refused rather than skipped, so its access check fails closed.
+        """
+        if dashboard_id is None:
+            return None
+        dashboard = dashboards_api.get_dashboard(team_id=self.team_id, dashboard_id=dashboard_id, include_deleted=True)
+        if dashboard is None:
+            raise SubscriptionRequestInvalidError({"dashboard": ["This dashboard does not belong to your team."]})
+        return dashboard
+
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):
             raise SubscriptionRequestInvalidError({"insight": ["Insight is required for insight subscriptions."]})
-        if attrs.get("dashboard") or attrs.get("prompt"):
+        if attrs.get("dashboard_id") or attrs.get("prompt"):
             raise SubscriptionRequestInvalidError(
                 {"insight": ["Insight subscriptions cannot also set dashboard or prompt."]}
             )
 
     def _validate_dashboard_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
-        if not (attrs.get("dashboard") or (existing and existing.dashboard_id)):
+        if not (attrs.get("dashboard_id") or (existing and existing.dashboard_id)):
             raise SubscriptionRequestInvalidError({"dashboard": ["Dashboard is required for dashboard subscriptions."]})
         if attrs.get("insight") or attrs.get("prompt"):
             raise SubscriptionRequestInvalidError(
@@ -186,7 +212,7 @@ class _SubscriptionWrite:
             )
 
     def _validate_ai_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
-        if attrs.get("insight") or attrs.get("dashboard"):
+        if attrs.get("insight") or attrs.get("dashboard_id"):
             raise SubscriptionRequestInvalidError(
                 {"prompt": ["AI subscriptions cannot also set insight or dashboard."]}
             )
@@ -216,9 +242,7 @@ class _SubscriptionWrite:
             if gate_reason is not None:
                 raise SubscriptionRequestInvalidError(gate_reason)
 
-    def _validate_contexts(
-        self, contexts: tuple[SubscriptionContextTarget, ...]
-    ) -> list[dict[str, Insight | Dashboard]]:
+    def _validate_contexts(self, contexts: tuple[SubscriptionContextTarget, ...]) -> list[SubscriptionContextTarget]:
         if len(contexts) > MAX_AI_SUBSCRIPTION_CONTEXTS:
             raise SubscriptionRequestInvalidError(
                 {"contexts": [f"Select no more than {MAX_AI_SUBSCRIPTION_CONTEXTS} dashboards and insights."]}
@@ -231,33 +255,33 @@ class _SubscriptionWrite:
         dashboard_ids = {identifier for kind, identifier in identifiers if kind == "dashboard"}
         insight_ids = {identifier for kind, identifier in identifiers if kind == "insight"}
         team_id = self.team.id
-        dashboards = {
-            dashboard.id: dashboard
-            for dashboard in Dashboard.objects_including_soft_deleted.filter(team_id=team_id, id__in=dashboard_ids)
-        }
+        dashboards = dashboards_api.get_dashboards(team_id=team_id, dashboard_ids=dashboard_ids, include_deleted=True)
         insights = {
             insight.id: insight
             for insight in insights_including_soft_deleted_for_team(team_id=team_id, insight_ids=insight_ids)
         }
-        validated_contexts: list[dict[str, Insight | Dashboard]] = []
 
-        for kind, identifier in identifiers:
-            target = dashboards.get(identifier) if kind == "dashboard" else insights.get(identifier)
+        for context in contexts:
+            kind = context.kind
+            target = dashboards.get(context.id) if kind == "dashboard" else insights.get(context.id)
             if target is None:
                 raise SubscriptionRequestInvalidError(
                     {"contexts": [f"This {kind} is not in your team, or no longer exists."]}
                 )
             if target.deleted:
                 raise SubscriptionRequestInvalidError({"contexts": [f"This {kind} has been deleted."]})
-            if not self.viewer.check_access_level_for_object(target, "viewer"):
+            if isinstance(target, DashboardSummary):
+                viewable = dashboards_api.can_access_dashboard(target, user_access_control=self.viewer)
+            else:
+                viewable = self.viewer.check_access_level_for_object(target, "viewer")
+            if not viewable:
                 raise SubscriptionRequestInvalidError(
                     {"contexts": [f"Viewer access to this {kind} is required. Ask an admin to grant you access."]}
                 )
-            if isinstance(target, Dashboard):
-                self._require_viewer_access_to_every_live_tile(target, error_field="contexts")
-            validated_contexts.append({kind: target})
+            if isinstance(target, DashboardSummary):
+                self._require_viewer_access_to_every_live_tile(target.id, error_field="contexts")
 
-        return validated_contexts
+        return list(contexts)
 
     def validate(self, attrs: dict) -> dict:
         # Re-run the free-tier cap on create AND on restore (deleted: true → false) —
@@ -273,12 +297,11 @@ class _SubscriptionWrite:
 
         existing = self.instance
 
-        if attrs.get("dashboard"):
-            # Looked up in any team, so a dashboard of another team gets this error rather than a missing-row error.
-            # nosemgrep: idor-lookup-without-team
-            attrs["dashboard"] = Dashboard.objects.get(pk=attrs["dashboard"])
-            if attrs["dashboard"].team.id != self.team_id:
-                raise SubscriptionRequestInvalidError({"dashboard": ["This dashboard does not belong to your team."]})
+        # Looked up in any team, so a dashboard of another team gets this error rather than a missing-row error.
+        if attrs.get("dashboard_id") and (
+            dashboards_api.find_dashboard_team_id(dashboard_id=attrs["dashboard_id"]) != self.team_id
+        ):
+            raise SubscriptionRequestInvalidError({"dashboard": ["This dashboard does not belong to your team."]})
 
         if attrs.get("insight"):
             # An insight of another project is not returned, and one of a sibling environment fails the team check.
@@ -290,14 +313,15 @@ class _SubscriptionWrite:
             attrs["insight"] = team_insights[0]
 
         turning_off = attrs.get("deleted") is True or attrs.get("enabled") is False
-        for field in ("dashboard", "insight"):
-            target = attrs.get(field) or getattr(existing, field, None)
+        target_dashboard = self._dashboard(attrs.get("dashboard_id") or getattr(existing, "dashboard_id", None))
+        target_insight: Insight | None = attrs.get("insight") or getattr(existing, "insight", None)
+        for field, target in (("dashboard", target_dashboard), ("insight", target_insight)):
             if target is not None and not (target.deleted and turning_off):
                 require_viewer_access(self.viewer, target, field)
 
         if existing is None:
             # Create: a subscription must export an insight, a dashboard, or an AI prompt.
-            if not attrs.get("dashboard") and not attrs.get("insight") and not attrs.get("prompt"):
+            if not attrs.get("dashboard_id") and not attrs.get("insight") and not attrs.get("prompt"):
                 raise SubscriptionRequestInvalidError("A subscription must have an insight, a dashboard, or a prompt.")
 
         try:
@@ -306,9 +330,9 @@ class _SubscriptionWrite:
                 # nulled directly in the DB) leaves nothing to derive from and raises.
                 resource_type = existing.resource_type
             else:
-                insight, dashboard = attrs.get("insight"), attrs.get("dashboard")
+                insight = attrs.get("insight")
                 resource_type = Subscription.derive_resource_type(
-                    insight.id if insight else None, dashboard.id if dashboard else None, attrs.get("prompt")
+                    insight.id if insight else None, attrs.get("dashboard_id"), attrs.get("prompt")
                 )
         except ValueError as exc:
             raise SubscriptionRequestInvalidError(str(exc))
@@ -378,9 +402,8 @@ class _SubscriptionWrite:
             if "delivery_config" in attrs
             else (self.instance.delivery_config if self.instance else None)
         ) or {}
-        # A prompt report never reads the gallery option, so only the value a request sends can be
-        # wrong. An insight or dashboard report does read it, so the stored value still decides: a
-        # target or permission change would break the next delivery.
+        # A prompt report on a target that ignores the option still delivers, so only a value the request
+        # sends is checked. Older prompt rows can store it on an email target and must stay editable.
         gallery_enabled = (
             submitted_delivery_config
             if resource_type == Subscription.ResourceType.AI_PROMPT
@@ -399,18 +422,6 @@ class _SubscriptionWrite:
                         ]
                     }
                 )
-        elif gallery_enabled:
-            # The prompt Slack renderer already posts every chart in the main message and never reads this option.
-            raise SubscriptionRequestInvalidError(
-                {
-                    "delivery_config": [
-                        "post_all_insights_in_main_message only applies to insight and dashboard "
-                        f"subscriptions. This subscription has resource_type '{resource_type}', so "
-                        "remove it from delivery_config. A prompt report already posts all its chart "
-                        "images in the main message."
-                    ]
-                }
-            )
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -420,6 +431,21 @@ class _SubscriptionWrite:
             error_message = validate_re_enable(target_type, integration_id)
             if error_message:
                 raise SubscriptionRequestInvalidError({"enabled": [error_message]})
+            # Deliveries run as the owner, so an owner who cannot run them would only get it disabled again.
+            assert existing is not None
+            # The owner must be able to run the target this write leaves, not the one it replaces.
+            try:
+                assert_creator_can_run(
+                    existing.created_by,
+                    self.team,
+                    target_dashboard.access_ref if target_dashboard is not None else None,
+                    target_insight,
+                )
+            except (CreatorLeftOrganizationError, UserAccessControlError) as error:
+                raise SubscriptionRequestInvalidError(
+                    {"enabled": [owner_unavailable_message(existing.created_by, error)]},
+                    code=owner_unavailable_code(error),
+                ) from None
             # AI subs auto-disable on PromptRejectedError (deleted creator, prompt now
             # fails sanitization). The delivery path will just re-disable on the next
             # tick unless the underlying cause is fixed by this PATCH.
@@ -455,7 +481,9 @@ class _SubscriptionWrite:
                 raise SubscriptionRequestInvalidError({"start_date": [f"{base}."]})
             raise SubscriptionRequestInvalidError(f"{base}.")
 
-        if target_type == Subscription.SubscriptionTarget.TEAMS:
+        destination_changed = bool({"target_type", "target_value", "integration_id", "delivery_config"} & attrs.keys())
+        validate_destination = existing is None or not turning_off or destination_changed
+        if target_type == Subscription.SubscriptionTarget.TEAMS and validate_destination:
             submitted = (attrs.get("target_value") or "").strip()
             if self.instance and submitted and submitted == self.instance.recipient_label:
                 raise SubscriptionRequestInvalidError({"target_value": [TEAMS_WEBHOOK_URL_MASKED_ERROR]})
@@ -463,22 +491,23 @@ class _SubscriptionWrite:
             if not is_microsoft_teams_webhook_url(target_value):
                 raise SubscriptionRequestInvalidError({"target_value": [TEAMS_WEBHOOK_URL_ERROR]})
 
-        if target_type == Subscription.SubscriptionTarget.SLACK:
+        if target_type == Subscription.SubscriptionTarget.SLACK and validate_destination:
             if not integration_id:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["A Slack integration is required for Slack subscriptions."]}
                 )
             try:
-                integration = Integration.objects.get(id=integration_id, team_id=self.team_id)
-            except Integration.DoesNotExist:
+                integration = IntegrationManager.slack.oauth.get(self.team_id, integration_id)
+            except IntegrationNotFound:
                 raise SubscriptionRequestInvalidError(
                     {"integration_id": ["This integration does not exist or does not belong to your team."]}
                 )
-            if integration.kind != "slack":
-                raise SubscriptionRequestInvalidError(
-                    {"integration_id": ["Slack subscriptions require a Slack integration."]}
-                )
-            if gallery_enabled and SlackIntegration(integration).missing_scopes({"files:write"}):
+            # A prompt report links its chart images instead of uploading them, so it needs no file upload permission.
+            if (
+                gallery_enabled
+                and resource_type != Subscription.ResourceType.AI_PROMPT
+                and SlackIntegration(integration).missing_scopes({"files:write"})
+            ):
                 raise SubscriptionRequestInvalidError(
                     {
                         "delivery_config": [
@@ -575,8 +604,8 @@ class _SubscriptionWrite:
             )
 
     def _validate_dashboard_export_subscription(self, attrs: dict) -> None:
-        dashboard = attrs.get("dashboard") or (self.instance.dashboard if self.instance else None)
-        if dashboard is None:
+        dashboard_id = attrs.get("dashboard_id") or (self.instance.dashboard_id if self.instance else None)
+        if dashboard_id is None:
             # Reject dashboard_export_insights on non dashboard subscriptions
             if attrs.get("dashboard_export_insights"):
                 raise SubscriptionRequestInvalidError(
@@ -626,11 +655,7 @@ class _SubscriptionWrite:
                 )
 
             # Ensure all selected insights belong to the dashboard (and are not deleted)
-            dashboard_insight_ids = set(
-                dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values_list(
-                    "insight_id", flat=True
-                )
-            )
+            dashboard_insight_ids = set(dashboards_api.live_tile_insight_ids(dashboard_id))
             invalid_ids = selected_ids - dashboard_insight_ids
 
             if invalid_ids:
@@ -642,17 +667,14 @@ class _SubscriptionWrite:
         if self._keeps_its_own_selection():
             return
 
-        self._require_viewer_access_to_every_live_tile(dashboard)
+        self._require_viewer_access_to_every_live_tile(dashboard_id)
 
     def _keeps_its_own_selection(self) -> bool:
         return self.instance is not None and self.instance.dashboard_export_insights.exists()
 
-    def _require_viewer_access_to_every_live_tile(
-        self, dashboard: Dashboard, *, error_field: str = "dashboard"
-    ) -> None:
+    def _require_viewer_access_to_every_live_tile(self, dashboard_id: int, *, error_field: str = "dashboard") -> None:
         live_tile_insights = Insight.objects.filter(
-            team_id=self.team_id,
-            id__in=dashboard.tiles.filter(insight__isnull=False, insight__deleted=False).values("insight_id"),
+            team_id=self.team_id, id__in=dashboards_api.live_tile_insight_ids(dashboard_id)
         )
         if blocked_target_ids(self.viewer, live_tile_insights, "insight").exists():
             raise SubscriptionRequestInvalidError(
@@ -665,8 +687,8 @@ class _SubscriptionWrite:
             )
 
     @staticmethod
-    def _context_identifiers(contexts: list[dict[str, Insight | Dashboard]]) -> set[tuple[str, int]]:
-        return {(kind, target.id) for context in contexts for kind, target in context.items()}
+    def _context_identifiers(contexts: list[SubscriptionContextTarget]) -> set[tuple[str, int]]:
+        return {(context.kind, context.id) for context in contexts}
 
     @staticmethod
     def _stored_context_identifiers(instance: Subscription) -> set[tuple[str, int]]:
@@ -696,14 +718,14 @@ class _SubscriptionWrite:
         return sorted(context_ref(kind, identifier) for kind, identifier in identifiers)
 
     @staticmethod
-    def _replace_contexts(instance: Subscription, contexts: list[dict[str, Insight | Dashboard]]) -> None:
+    def _replace_contexts(instance: Subscription, contexts: list[SubscriptionContextTarget]) -> None:
         context_team_id = instance.team.parent_team_id or instance.team_id
         scoped_contexts = SubscriptionContext.objects.for_team(context_team_id, canonical=True)
         scoped_contexts.filter(subscription=instance).filter(
             Q(dashboard__team_id=context_team_id) | Q(insight__team_id=context_team_id)
         ).delete()
         for context in contexts:
-            scoped_contexts.create(team_id=context_team_id, subscription=instance, **context)
+            scoped_contexts.create(team_id=context_team_id, subscription=instance, **{f"{context.kind}_id": context.id})
         getattr(instance, "_prefetched_objects_cache", {}).pop("contexts", None)
 
     @staticmethod
@@ -717,7 +739,7 @@ class _SubscriptionWrite:
         self,
         instance: Subscription,
         validated_data: dict,
-        contexts: list[dict[str, Insight | Dashboard]],
+        contexts: list[SubscriptionContextTarget],
         contexts_in_payload: bool,
         analytics_props: AnalyticsProps,
     ) -> tuple[Subscription, bool]:
@@ -1020,6 +1042,76 @@ def update_subscription(
     )
     validated_data = subscription_write.validate(_write_attrs(write))
     return subscription_record(subscription_write.update(instance, validated_data))
+
+
+def take_subscription_ownership(
+    *,
+    team: Team,
+    organization: Organization,
+    user: User,
+    viewer: UserAccessControl,
+    subscription_id: int,
+    analytics_props: AnalyticsProps,
+) -> SubscriptionRecord:
+    """Make `user` the owner and enable the subscription, so deliveries run with their access.
+
+    Every refusal comes before the owner changes, so a refused takeover leaves the subscription as
+    it was: the new owner must be able to view the dashboard or insight and read every table the
+    subscription delivers, and the enable must pass its usual checks as the new owner.
+    """
+    instance = Subscription.objects.get(pk=subscription_id, team_id=team.id)
+    try:
+        assert_creator_can_run(user, team, instance.dashboard, instance.insight)
+    except (CreatorLeftOrganizationError, UserAccessControlError):
+        raise SubscriptionRequestInvalidError("Can't take ownership: you don't have access to this content.") from None
+    # The enable below only compiles the queries when it enables a disabled row, so an enabled one is
+    # checked here, as the new owner.
+    if instance.enabled:
+        denied_resources = denied_resources_in_subscription(
+            user=user, team=team, user_access_control=viewer, subscription_id=subscription_id, attrs={}
+        )
+        if denied_resources:
+            denied_names = ", ".join(f"`{name}`" for name in denied_resources)
+            raise SubscriptionRequestInvalidError(f"Can't take ownership: you don't have access to {denied_names}.")
+    # The new owner is set in memory only: the re-enable check reads it off the instance, and the
+    # enable's save persists it with `enabled`.
+    previous_owner = instance.created_by
+    instance.created_by = user
+    subscription_write = _SubscriptionWrite(
+        team=team,
+        organization=organization,
+        user=user,
+        viewer=viewer,
+        instance=instance,
+        partial=True,
+        is_create_request=False,
+        analytics_props=analytics_props,
+    )
+    validated_data = subscription_write.validate(_write_attrs(SubscriptionWrite(enabled=True)))
+    updated = subscription_write.update(instance, validated_data)
+    # `created_by` is excluded from the save diff, so the takeover gets its own activity.
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team.id,
+        user=user,
+        was_impersonated=get_was_impersonated(),
+        item_id=updated.id,
+        scope="Subscription",
+        activity="took_ownership",
+        detail=Detail(
+            name=updated.display_name,
+            changes=[
+                Change(
+                    type="Subscription",
+                    action="changed",
+                    field="created_by",
+                    before={"id": previous_owner.id, "email": previous_owner.email} if previous_owner else None,
+                    after={"id": user.id, "email": user.email},
+                )
+            ],
+        ),
+    )
+    return subscription_record(updated)
 
 
 def start_test_delivery(*, team_id: int, subscription_id: int) -> ManualDeliveryResult:

@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mongodb import (
     MongoDBSourceConfig,
@@ -266,6 +269,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
 
+    @property
+    def credential_kind(self) -> str | None:
+        return "mongodb"
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         auth_failed_msg = _MONGO_AUTHENTICATION_FAILED_MESSAGE
         return {
@@ -389,6 +396,12 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         # cursor is reading from gets an RST mid-sync (a load balancer or the server ending an idle
         # connection) rather than timing out. Same recovery path as the timeout case above.
         #
+        # pymongo also wraps a clean EOF the same way: network_layer.py raises OSError("connection
+        # closed") when a read gets zero bytes instead of a reset, which _raise_connection_failure
+        # turns into AutoReconnect("<host>: connection closed (configured timeouts: ...)"). This is
+        # the graceful-close counterpart of the RST case above (an idle-connection reaper, a load
+        # balancer, or Atlas maintenance ending the socket) and recovers the same way on retry.
+        #
         # OperationFailure code 50 (MaxTimeMSExpired / pymongo's ExecutionTimeout) fires when a
         # getMore is killed by a cluster-enforced execution-time cap we never configure ourselves
         # (mongo.py's _EXECUTION_TIMEOUT_ERROR_CODE) — notably Atlas free/shared/flex tiers. mongo.py
@@ -404,6 +417,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             "Topology Description:",
             "timed out (configured timeouts:",
             "Connection reset by peer",
+            "connection closed (configured timeouts:",
             "operation exceeded time limit",
         }
 
@@ -449,18 +463,20 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
                     name=collection_name,
                     supports_incremental=len(incremental_fields) > 0,
                     supports_append=len(incremental_fields) > 0,
-                    incremental_fields=[
-                        {
-                            "label": field_name,
-                            "type": field_type,
-                            "field": field_name,
-                            "field_type": field_type,
-                            # Index discovery failed, so we can't tell an unindexed field from an
-                            # indexed one. Don't warn on a guess.
-                            "is_indexed": True if index_keys is None else field_name in index_keys.leading,
-                        }
-                        for field_name, field_type in incremental_fields
-                    ],
+                    incremental_fields=rank_incremental_fields(
+                        [
+                            {
+                                "label": field_name,
+                                "type": field_type,
+                                "field": field_name,
+                                "field_type": field_type,
+                                # Index discovery failed, so we can't tell an unindexed field from an
+                                # indexed one. Don't warn on a guess.
+                                "is_indexed": True if index_keys is None else field_name in index_keys.leading,
+                            }
+                            for field_name, field_type in incremental_fields
+                        ]
+                    ),
                 )
             )
 

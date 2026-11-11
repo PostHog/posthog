@@ -87,6 +87,7 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 encryptedFields: infra.encryptedFields,
                 integrationManager: infra.integrationManager,
                 monitoringOutputs: createTestMonitoringOutputs(kafkaProducer),
+                teamManager: infra.teamManager,
             }),
             outputs,
             clickhouseGroupRepository: new ClickhouseGroupRepository(outputs),

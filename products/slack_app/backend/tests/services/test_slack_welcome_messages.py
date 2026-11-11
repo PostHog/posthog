@@ -142,7 +142,7 @@ class TestOnboardingDm:
     @patch("posthog.models.integration.slack.WebClient")
     def test_dm_join_button_when_channel_exists_with_scope(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
 
         _, blocks = build_onboarding_dm(self.integration, SlackIntegration(self.integration))
@@ -154,7 +154,7 @@ class TestOnboardingDm:
         client = self._client(mock_webclient_class)
         self.integration.config = {"scope": "chat:write"}
         self.integration.save()
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
 
         _, blocks = build_onboarding_dm(self.integration, SlackIntegration(self.integration))
@@ -196,7 +196,7 @@ class TestOnboardingDm:
     @patch("posthog.models.integration.slack.WebClient")
     def test_build_dm_omits_join_when_already_member(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
 
         _, blocks = build_onboarding_dm(
@@ -209,7 +209,7 @@ class TestOnboardingDm:
     @patch("posthog.models.integration.slack.WebClient")
     def test_build_dm_already_member_shows_only_github(self, mock_webclient_class):
         client = self._client(mock_webclient_class)
-        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox")
+        set_default_slack_notification_channel(self.team.id, "C1|#posthog-inbox", integration_id=self.integration.id)
         client.conversations_info.return_value = {"channel": {"id": "C1"}}
 
         _, blocks = build_onboarding_dm(

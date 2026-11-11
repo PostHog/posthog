@@ -1,4 +1,4 @@
-import { act } from '@testing-library/react'
+import { act, fireEvent } from '@testing-library/react'
 
 import { mockRect, renderChart } from '../../testing'
 import { Chart } from '../Chart'
@@ -89,7 +89,7 @@ describe('useChartCanvas', () => {
         const canvas = renderCanvas(drawStatic)
         drawStatic.mockClear()
 
-        jest.mocked(Element.prototype.getBoundingClientRect).mockReturnValueOnce({ ...mockRect, width: 0, height: 0 })
+        jest.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValueOnce({ ...mockRect, width: 0, height: 0 })
         act(() => {
             canvas.dispatchEvent(new Event('contextrestored'))
         })
@@ -97,6 +97,29 @@ describe('useChartCanvas', () => {
 
         reportWrapperSize(mockRect.width, mockRect.height)
         expect(drawStatic).toHaveBeenCalled()
+    })
+
+    it('holds a hover overlay bitmap only while the chart is hovered', () => {
+        const { chart } = renderChart(
+            <Chart
+                series={SERIES}
+                labels={LABELS}
+                theme={THEME}
+                createScales={createScales}
+                drawStatic={() => {}}
+                drawHover={() => true}
+            />
+        )
+        const overlay = chart.element.querySelector<HTMLCanvasElement>('canvas[aria-hidden="true"]')!
+        expect([overlay.width, overlay.height]).toEqual([0, 0])
+
+        chart.hoverAtIndex(1)
+        expect([overlay.width, overlay.height]).toEqual([mockRect.width, mockRect.height])
+
+        act(() => {
+            fireEvent.mouseLeave(chart.element)
+        })
+        expect([overlay.width, overlay.height]).toEqual([0, 0])
     })
 
     it('repaints against a restored backing store after the 2D context is lost', () => {

@@ -73,6 +73,12 @@ class SavedInsightDefinition:
     query: dict[str, Any]
 
 
+class InsightSeriesNotReady(Exception):
+    def __init__(self, query_id: str | None = None) -> None:
+        super().__init__(query_id)
+        self.query_id = query_id
+
+
 @dataclass(frozen=True)
 class InsightDataCheckFilter:
     """A rule in the shape the project's internal and test users filter stores it."""
@@ -139,11 +145,17 @@ class InsightDataChecks:
 
 
 @dataclass(frozen=True)
-class WatchedTrendsInsight:
+class SavedTrendsInsight:
     team_id: int
     insight_id: int
     # The trends interval, "day" when the query sets none.
     interval: str
+
+
+@dataclass(frozen=True)
+class AgentInsightRead:
+    short_id: str
+    read_days: tuple[date, ...]
 
 
 @dataclass(frozen=True)
@@ -152,6 +164,18 @@ class ViewableInsight:
     short_id: str
     # The saved name, else the generated one. None when the insight has neither.
     name: str | None
+
+
+@dataclass(frozen=True)
+class InsightActionReference:
+    """A live saved insight whose query or filters reference an action."""
+
+    id: int
+    short_id: str
+    name: str | None
+    derived_name: str | None
+    created_at: datetime | None
+    created_by_id: int | None
 
 
 @dataclass(frozen=True)
@@ -182,3 +206,57 @@ class InsightDashboardContext:
     filters: dict[str, Any]
     tile_filters: dict[str, Any] | None = None
     variables: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class OrganizationEventsRetention:
+    """The period an organization set for its projects, its default, and the periods its admins can set, in months."""
+
+    organization_months: int | None
+    default_months: int
+    default_is_grandfathered: bool
+    plan_months: int
+    min_months: int
+    max_months: int
+    months_choices: list[int]
+    next_cleanup_on: date
+
+
+@dataclass(frozen=True)
+class ScheduledEventsDeletion:
+    deletes_on: date
+    deletes_before: date
+
+
+@dataclass(frozen=True)
+class ProjectEventsRetention:
+    project_months: int | None
+    next_deletion: ScheduledEventsDeletion | None
+    scheduled_pass_on: date | None
+    first_pass_on: date
+    default_period_deletes: bool
+
+
+@dataclass(frozen=True)
+class ChartExplanationAuthor:
+    """The person who saved a chart explanation, directly or through an agent."""
+
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+
+
+@dataclass(frozen=True)
+class ChartExplanation:
+    """A saved walkthrough of one saved trends insight, which a link opens beside the chart.
+
+    ``data`` is the explanation document the insight page draws. The API validates its shape on
+    the way in, and the backend stores it without reading it.
+    """
+
+    id: UUID
+    insight_id: int
+    data: dict[str, Any]
+    created_by: ChartExplanationAuthor | None
+    created_at: datetime

@@ -1,20 +1,32 @@
+import socket
 import threading
+from collections.abc import Iterator
+from contextlib import contextmanager, nullcontext
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
+import pyarrow as pa
 import pymssql
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
 )
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    HostNotAllowedError,
+    TemporaryHostResolutionError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.tests.resolver import addrinfo
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
@@ -33,8 +45,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     retry_on_transient_connection_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
+    _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
-    _GENERIC_CONNECTION_ERROR,
+    _LOCK_TIMEOUT_VALIDATION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -103,6 +116,20 @@ class TestMSSQLColumnToArrowField:
         col = MSSQLColumn(name="x", data_type="decimal", nullable=True)
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
+
+    @parameterized.expand(
+        [
+            ("tinyint", pa.uint8()),
+            ("smallint", pa.int16()),
+            ("int", pa.int32()),
+            ("bigint", pa.int64()),
+        ]
+    )
+    def test_integer_types_match_mssql_value_range(self, data_type, expected_arrow_type):
+        # tinyint is 0-255 in MSSQL, unlike every signed integer type here; a signed arrow
+        # type raises ArrowInvalid as soon as a row carries a value above 127.
+        col = MSSQLColumn(name="x", data_type=data_type, nullable=True)
+        assert col.to_arrow_field().type == expected_arrow_type
 
 
 class TestBuildQuery:
@@ -304,6 +331,21 @@ class TestFetchTableStats:
         )
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         assert cursor.execute.call_count == 1
+        capture.assert_not_called()
+
+    def test_tempdb_log_full_skips_capture(self, impl, cursor, logger, mocker):
+        # SQL Server 9002: another session's active transaction filled tempdb's log. This clears
+        # once that transaction ends, so it's as self-recovering as the connection-death case above
+        # and must not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = pymssql.OperationalError(
+            9002,
+            b"The transaction log for database 'tempdb' is full due to 'ACTIVE_TRANSACTION' and the holdup lsn "
+            b"is (1:2:3).DB-Lib error message 20018, severity 17:\nGeneral SQL Server error\n",
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         capture.assert_not_called()
 
 
@@ -543,6 +585,121 @@ class TestConnectTimeouts:
         assert mock_connect.call_args.kwargs["encryption"] == expected
 
 
+_MIXINS_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
+
+
+@contextmanager
+def _direct_connect_on_cloud(*answers, tunnel_endpoint: tuple[str, int] | None = None) -> Iterator[MagicMock]:
+    lookups = iter(answers)
+
+    def getaddrinfo(*_args, **_kwargs):
+        answer = next(lookups, answers[-1])
+        if isinstance(answer, BaseException):
+            raise answer
+        return addrinfo(1433, *answer)
+
+    with (
+        override_settings(CLOUD_DEPLOYMENT="US"),
+        patch(f"{_MIXINS_MODULE}.settings") as mock_settings,
+        patch(f"{_MIXINS_MODULE}.socket.getaddrinfo", side_effect=getaddrinfo),
+        patch("posthog.psycopg_helpers.has_ipv6_route", return_value=True),
+        patch(f"{_MSSQL_MODULE}.pymssql.connect") as mock_connect,
+    ):
+        mock_settings.TEST = False
+        mock_settings.DEBUG = False
+        mock_settings.E2E_TESTING = False
+        if tunnel_endpoint is None:
+            yield mock_connect
+        else:
+            with patch(f"{_MSSQL_MODULE}.open_ssh_tunnel") as tunnel:
+                tunnel.return_value.__enter__.return_value = tunnel_endpoint
+                yield mock_connect
+
+
+class TestConnectDialsTheValidatedAddress:
+    @parameterized.expand(
+        [
+            ("ipv4", "db.example.com", ["52.1.2.3"], "52.1.2.3"),
+            ("ipv6_carries_its_port", "db.example.com", ["2600:1f18::1"], "[2600:1f18::1]:1433"),
+            ("azure_sql", "myserver.database.windows.net", ["52.1.2.3"], "myserver.database.windows.net"),
+            (
+                "azure_synapse_gov",
+                "ws.sql.azuresynapse.usgovcloudapi.net",
+                ["52.1.2.3"],
+                "ws.sql.azuresynapse.usgovcloudapi.net",
+            ),
+            ("azure_synapse_china", "ws.sql.azuresynapse.azure.cn", ["52.1.2.3"], "ws.sql.azuresynapse.azure.cn"),
+            ("azure_zone_mid_name", "myserver.database.windows.net.example.com", ["52.1.2.3"], "52.1.2.3"),
+            ("azure_zone_without_dot", "evildatabase.windows.net", ["52.1.2.3"], "52.1.2.3"),
+        ]
+    )
+    def test_server_passed_to_the_driver(self, _name, host, answer, expected_server):
+        with _direct_connect_on_cloud(answer) as mock_connect:
+            with MSSQLImplementation().connect(_make_config(host=host), team_id=999):
+                pass
+
+        assert mock_connect.call_args.kwargs["server"] == expected_server
+
+    @parameterized.expand(
+        [
+            ("rebinds_after_the_first_lookup", "db.example.com", [["52.1.2.3"], ["10.0.0.5"]], HostNotAllowedError),
+            ("azure_host_is_still_checked", "myserver.database.windows.net", [["10.0.0.5"]], HostNotAllowedError),
+            (
+                "resolver_blip_on_the_pin_stays_retryable",
+                "db.example.com",
+                [["52.1.2.3"], socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")],
+                TemporaryHostResolutionError,
+            ),
+        ]
+    )
+    def test_never_dials_an_unapproved_address(self, _name, host, answers, expected_error):
+        with _direct_connect_on_cloud(*answers) as mock_connect:
+            with pytest.raises(expected_error):
+                with MSSQLImplementation().connect(_make_config(host=host), team_id=999):
+                    pass
+
+        mock_connect.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "unreachable_address_falls_over",
+                pymssql.OperationalError(
+                    20009, b"Unable to connect: Adaptive Server is unavailable or does not exist (52.1.2.3)"
+                ),
+                ["52.1.2.3", "52.1.2.4"],
+                None,
+            ),
+            (
+                "login_failure_stops",
+                pymssql.OperationalError(18456, b"Login failed for user 'u'."),
+                ["52.1.2.3"],
+                pymssql.OperationalError,
+            ),
+        ]
+    )
+    def test_tries_the_next_validated_address_only_when_one_is_unreachable(
+        self, _name, first_error, expected_servers, expected_error
+    ):
+        with _direct_connect_on_cloud(["52.1.2.3", "52.1.2.4"]) as mock_connect:
+            mock_connect.side_effect = [first_error, MagicMock()]
+            with pytest.raises(expected_error) if expected_error else nullcontext():
+                with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                    pass
+
+        assert [call.kwargs["server"] for call in mock_connect.call_args_list] == expected_servers
+
+    def test_a_tunnel_loopback_is_dialled_without_a_lookup(self):
+        with _direct_connect_on_cloud(
+            socket.gaierror(socket.EAI_NONAME, "unused"), tunnel_endpoint=("127.0.0.1", 40000)
+        ) as mock_connect:
+            with MSSQLImplementation().connect(_make_config(host="db.example.com"), team_id=999):
+                pass
+
+        assert mock_connect.call_args.kwargs["server"] == "127.0.0.1"
+        assert mock_connect.call_args.kwargs["port"] == "40000"
+
+
 class _RaisingTunnel:
     """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
 
@@ -655,11 +812,58 @@ class TestMSSQLSourceRetryableErrors:
             # pymssql's own InterfaceError, raised when a query runs on a connection that died
             # between opening and use (see `MSSQLSource.get_retryable_errors`).
             pymssql.InterfaceError("Not connected to any MS SQL server"),
+            # DB-Lib error 20047 raised directly from `cursor.fetchmany` during the row read
+            # (see `MSSQLSource.get_retryable_errors`) — the same DBPROCESS-death class as the
+            # 20017 case above, past the point `retry_on_transient_connection_error` covers.
+            pymssql.OperationalError(
+                20047, b"DB-Lib error message 20047, severity 9:\nDBPROCESS is dead or not enabled\n"
+            ),
+            # SQL Server error 1205 raised mid-stream from `cursor.fetchmany`, past the point
+            # `retry_on_deadlock` can safely rerun the query (see `MSSQLSource.get_retryable_errors`).
+            pymssql.OperationalError(
+                1205,
+                b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
+                b"chosen as the deadlock victim. Rerun the transaction.",
+            ),
         ],
     )
     def test_transient_connection_errors_are_retryable(self, error):
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql shape for SQL Server error 1105 during an ORDER BY sort spill into tempdb.
+            "(1105, b\"Could not allocate space for object 'dbo.SORT temporary run storage:  "
+            "140760200970240' in database 'tempdb' because the 'PRIMARY' filegroup is full due to "
+            'lack of storage space or database files reaching the maximum allowed size.")',
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'SECONDARY' filegroup is full due to lack of storage space or database files reaching "
+            "the maximum allowed size.",
+        ],
+    )
+    def test_tempdb_storage_exhausted_is_retryable(self, error_msg):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable), error_msg
+
+    def test_tempdb_storage_exhausted_is_not_non_retryable(self):
+        error_msg = (
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    def test_tempdb_storage_exhausted_has_a_friendly_exhausted_message(self):
+        exhausted = MSSQLSource().get_retry_exhausted_errors()
+        error_msg = (
+            "Could not allocate space for object 'dbo.SORT temporary run storage' in database "
+            "'tempdb' because the 'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        matches = [message for pattern, message in exhausted.items() if pattern in error_msg]
+        assert matches, error_msg
+        assert "still enabled" in matches[0]
 
 
 class TestMSSQLSourceValidateCredentials:
@@ -685,7 +889,27 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
 
-    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+    def test_lock_timeout_returns_actionable_message_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # Real SQL Server error 1222: a metadata statement waited past `SET LOCK_TIMEOUT` for a lock
+        # held by the customer's own workload.
+        lock_timeout_error = pymssql.OperationalError(
+            1222,
+            b"Lock request time out period exceeded.DB-Lib error message 20018, severity 16:\n"
+            b"General SQL Server error: Check messages from the SQL Server\n",
+        )
+        mocker.patch.object(source, "get_schemas", side_effect=lock_timeout_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _LOCK_TIMEOUT_VALIDATION_ERROR
+        capture.assert_not_called()
+
+    def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
         )
@@ -702,7 +926,7 @@ class TestMSSQLSourceValidateCredentials:
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error == _GENERIC_CONNECTION_ERROR
+        assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(

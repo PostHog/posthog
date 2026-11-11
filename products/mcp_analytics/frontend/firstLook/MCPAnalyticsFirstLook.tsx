@@ -9,8 +9,7 @@ import { Link } from 'lib/lemon-ui/Link/Link'
 import posthog from 'lib/posthog-typed'
 import { cn } from 'lib/utils/css-classes'
 
-import { BrandMark } from '../components/BrandMark'
-import { harnessMark } from '../dashboard/harnessRegistry'
+import { HarnessLogo } from '../dashboard/harness'
 import type { FirstLookChip } from './firstLookCopy'
 import { mcpFirstLookLogic } from './mcpFirstLookLogic'
 
@@ -29,11 +28,7 @@ function Chip({ chip }: { chip: FirstLookChip }): JSX.Element {
             )}
         >
             <span className="flex items-center text-xs leading-none">
-                {chip.harness ? (
-                    <BrandMark name={harnessMark(chip.harness)} className="size-3.5" />
-                ) : (
-                    CHIP_ICON[chip.key]
-                )}
+                {chip.harness ? <HarnessLogo category={chip.harness} className="size-3.5" /> : CHIP_ICON[chip.key]}
             </span>
             <span className="text-muted">{chip.label}</span>
             <span className="font-medium text-primary">{chip.value}</span>

@@ -31,6 +31,7 @@ class SavedScoutReads:
         skill_name: str | None = None,
         include_general: bool = True,
         include_expired: bool = False,
+        only_without_expiry: bool = False,
         date_from: datetime | None = None,
         date_to: datetime | None = None,
         limit: int = 20,
@@ -51,6 +52,8 @@ class SavedScoutReads:
             if row.origin in exclude_origins or not _within_dates(row.created_at, date_from, date_to):
                 continue
             if not include_expired and row.expires_at and datetime.fromisoformat(row.expires_at) <= now:
+                continue
+            if only_without_expiry and row.expires_at:
                 continue
             if text and text.casefold() not in row.content.casefold():
                 continue

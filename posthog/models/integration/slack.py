@@ -28,6 +28,7 @@ from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.ingress.slack.provider import build_slack_signature_scheme
 from posthog.ingress.verify.schemes import VerificationOutcome, hmac_sha256_signature
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.instance_setting import get_instance_settings
 
 from . import model
@@ -91,11 +92,11 @@ SLACK_MEMBERS_MAX_REQUESTS = 10
 class SlackIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration, *, source: str = "integration") -> None:
+    def __init__(self, integration: IntegrationRecord, *, source: str = "integration") -> None:
         if integration.kind not in SLACK_INTEGRATION_KINDS:
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         # The egress `source` label. A flow that posts on its own names itself here, so its Slack
         # calls and 429s can be told apart from every other caller of the same integration.
         self.source = source

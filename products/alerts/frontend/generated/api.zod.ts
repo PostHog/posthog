@@ -56,6 +56,30 @@ export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Open a PagerDuty incident when this alert starts firing, and resolve it when the alert stops. Only an alert whose pagerduty_available is true can take one. The returned IDs identify the destination.
+ */
+export const alertsDestinationsPagerdutyCreateBodyPagerdutySeverityDefault = `critical`
+export const alertsDestinationsPagerdutyCreateBodyPagerdutyRegionDefault = `us`
+
+export const AlertsDestinationsPagerdutyCreateBody = /* @__PURE__ */ zod.object({
+    pagerduty_routing_key: zod
+        .string()
+        .describe('The 32-character integration key of a PagerDuty Events API v2 integration.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(alertsDestinationsPagerdutyCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity of the incidents the alert opens.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(alertsDestinationsPagerdutyCreateBodyPagerdutyRegionDefault)
+        .describe('Region of the PagerDuty account.\n\n\* `us` - us\n\* `eu` - eu'),
+})
+
+/**
  * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
 export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0
@@ -1195,6 +1219,23 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['MetricsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(

@@ -13,6 +13,9 @@
 # the corresponding `_cache_*` function in conftest.py, and if it no longer holds,
 # delete that patch — do not "fix" the test.
 
+from functools import cached_property
+from typing import Any, cast
+
 import pytest
 
 from django.db.models.fields.reverse_related import ForeignObjectRel
@@ -58,13 +61,13 @@ def test_rel_identity_cache_matches_unpatched_django():
     orig_eq = _unpatched(ForeignObjectRel.__eq__)
     for rel in rels[:5]:
         # identity is an undocumented Django internal, absent from django-stubs.
-        cached_identity = rel.identity  # type: ignore[attr-defined] # via the cached_property installed by conftest
+        cached_identity = rel.identity  # via the cached_property installed by conftest
         cached_hash = hash(rel)
         # Recompute from the original property fget (cached_property.func). Subclass fgets
         # (ManyToOneRel etc.) internally do `super().identity`, which routes through the
         # base class's cached_property and leaves the partial base tuple in the instance
         # dict — so clear the instance cache before and after to keep the rel pristine.
-        descriptor = type(rel).identity  # type: ignore[attr-defined]
+        descriptor = cast("cached_property[tuple[Any, ...]]", type(rel).identity)
         rel.__dict__.pop("identity", None)
         try:
             fresh_identity = descriptor.func(rel)

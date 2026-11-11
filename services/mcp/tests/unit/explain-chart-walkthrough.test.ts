@@ -14,7 +14,7 @@ import { buildStoryPages } from 'products/product_analytics/mcp/apps/explainChar
 const DAYS = ['2026-10-01', '2026-10-02', '2026-10-03', '2026-10-04', '2026-10-05']
 const MARKER_LAYOUT = { radius: 10, distance: 22, bounds: { left: 0, top: 0, right: 400, bottom: 300 } }
 
-describe('explain chart walkthrough', () => {
+describe('explain chart', () => {
     it('keeps a small rate from rounding to zero', () => {
         const facts = chapterFacts([0.02, 0.02, 0.02, 0.02, 0.02], DAYS, [1, 3], {
             interval: 'day',
@@ -95,6 +95,72 @@ describe('explain chart walkthrough', () => {
 
         expect(chapter?.range).toBeNull()
         expect(chapter?.anchor).toBeNull()
+    })
+
+    it('describes a funnel by its steps and puts the marker on the step people reach', () => {
+        const chapter = { summary: null, cause: null, confidence: null, confidenceReason: null, evidence: [] }
+        const data: ExplainChartData = {
+            shape: 'funnel_steps',
+            query: { kind: 'FunnelsQuery', series: [] },
+            steps: [
+                { name: 'Pageview', count: 1000 },
+                { name: 'Signed up', count: 600 },
+                { name: 'Paid', count: 30 },
+            ],
+            breakdowns: [],
+            seriesIndex: 0,
+            insightName: 'Signups',
+            headline: 'A headline.',
+            chapters: [
+                { ...chapter, title: 'The drop to paying', range: [1, 2] },
+                { ...chapter, title: 'Signing up', range: [1, 1] },
+            ],
+        }
+
+        const [summary, ...pages] = buildStoryPages(data, String)
+        const signingUp = pages.find((page) => page.title === 'Signing up')
+        const paying = pages.find((page) => page.title === 'The drop to paying')
+
+        expect(summary?.facts).toContain('The biggest drop is from ⟦d:Signed up⟧ to ⟦d:Paid⟧, where ⟦v:5%⟧ go on.')
+        expect(signingUp?.facts).toBe('⟦v:600⟧ reached ⟦d:Signed up⟧: ⟦v:60%⟧ of the 1000 at ⟦d:Pageview⟧.')
+        expect(paying?.facts).toBe('From ⟦d:Signed up⟧ to ⟦d:Paid⟧, ⟦v:5%⟧ go on: ⟦v:600⟧ to ⟦v:30⟧.')
+        expect(paying?.anchor).toBe(2)
+    })
+
+    it('measures the step after an optional step from the last required step', () => {
+        const data: ExplainChartData = {
+            shape: 'funnel_steps',
+            query: {
+                kind: 'FunnelsQuery',
+                series: [{}, { optionalInFunnel: true }, {}, {}],
+            },
+            steps: [
+                { name: 'Pageview', count: 100 },
+                { name: 'Took the tour', count: 10 },
+                { name: 'Signed up', count: 50 },
+                { name: 'Paid', count: 40 },
+            ],
+            breakdowns: [],
+            seriesIndex: 0,
+            insightName: 'Signups',
+            headline: 'A headline.',
+            chapters: [
+                {
+                    title: 'Signing up',
+                    range: [2, 2],
+                    summary: null,
+                    cause: null,
+                    confidence: null,
+                    confidenceReason: null,
+                    evidence: [],
+                },
+            ],
+        }
+
+        const [summary, signingUp] = buildStoryPages(data, String)
+
+        expect(summary?.facts).toContain('The biggest drop is from ⟦d:Pageview⟧ to ⟦d:Signed up⟧, where ⟦v:50%⟧ go on.')
+        expect(signingUp?.facts).toBe('⟦v:50⟧ reached ⟦d:Signed up⟧: ⟦v:50%⟧ of the 100 at ⟦d:Pageview⟧.')
     })
 
     it('does not compare a period that has not ended with complete ones', () => {

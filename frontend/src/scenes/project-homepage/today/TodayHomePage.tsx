@@ -2,37 +2,23 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useLayoutEffect, useRef } from 'react'
 
-import { Skeleton, Text } from '@posthog/quill'
+import { Text } from '@posthog/quill'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import { TodayExplore } from './TodayExplore'
+import { TodayFirstEventWatcher } from './TodayFirstEventWatcher'
 import { TodayForYou } from './TodayForYou'
 import { todayHighlightsLogic } from './todayHighlightsLogic'
+import { TodayHomeComposer } from './TodayHomeComposer'
 import { reportIdFromPath, todayLogic } from './todayLogic'
-import { TodayPulse } from './TodayPulse'
-import { TodayPulseEditor } from './TodayPulseEditor'
+import { TodayPromoBanner } from './TodayPromoBanner'
+import { TodayPulseSection } from './TodayPulseSection'
 import { TodayRecents } from './TodayRecents'
 import { TodaySampleBanner } from './TodaySampleBanner'
 
 const DATE_FORMAT = new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' })
-
-function TodayPulseSkeleton(): JSX.Element {
-    return (
-        <ul className="TodayPulse" aria-busy aria-label="Loading key numbers">
-            {['w-14', 'w-16', 'w-20'].map((width) => (
-                <li key={width} className="TodayPulse__metric">
-                    <span className="TodayPulse__name">
-                        <Skeleton className={`inline-block h-3 align-middle ${width}`} />
-                    </span>
-                    <span className="TodayPulse__row">
-                        <span className="TodayPulse__value">
-                            <Skeleton className="inline-block h-4 w-28 align-middle" />
-                        </span>
-                    </span>
-                </li>
-            ))}
-        </ul>
-    )
-}
 
 function TodayMetaLine(): JSX.Element {
     const { now } = useValues(todayLogic)
@@ -47,10 +33,51 @@ function TodayMetaLine(): JSX.Element {
 }
 
 export function TodayHomePage(): JSX.Element {
-    const { greeting, isNewProject, recentObjects, returnFocusReportId } = useValues(todayLogic)
+    const {
+        greeting,
+        isNewProject,
+        recentObjects,
+        recentsHasLoaded,
+        frequentObjectsLoading,
+        returnFocusReportId,
+        useSampleData,
+    } = useValues(todayLogic)
     const { setReturnFocusReportId } = useActions(todayLogic)
-    const { highlights, highlightsPending, pulseTiles, pulsePinsLoaded } = useValues(todayHighlightsLogic)
+    const {
+        currentProjectId,
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulsePending,
+        pulseTiles,
+        pulseSlots,
+    } = useValues(todayHighlightsLogic)
+    const { pulseViewMounted, pulseViewUpdated, pulseViewUnmounted } = useActions(todayHighlightsLogic)
     const rootRef = useRef<HTMLDivElement>(null)
+    const { currentOrganization } = useValues(organizationLogic)
+    const postHogAiTasks = useFeatureFlag('PHAI_SANDBOX_MODE')
+    const homeComposer = postHogAiTasks && !!currentOrganization?.is_ai_data_processing_approved
+
+    useLayoutEffect(() => {
+        pulseViewMounted(useSampleData)
+        return () => pulseViewUnmounted()
+    }, [currentProjectId, useSampleData, pulseViewMounted, pulseViewUnmounted])
+
+    useLayoutEffect(() => {
+        pulseViewUpdated()
+    }, [
+        highlights,
+        highlightsLoading,
+        highlightsFailed,
+        highlightsPending,
+        pulsePending,
+        pulseTiles,
+        pulseSlots,
+        pulseViewUpdated,
+        currentProjectId,
+        useSampleData,
+    ])
 
     useLayoutEffect(() => {
         const scroller = rootRef.current?.closest('main')
@@ -79,25 +106,25 @@ export function TodayHomePage(): JSX.Element {
     return (
         <div ref={rootRef} className="TodayHome Today__page" data-quill>
             <TodaySampleBanner />
+            <TodayPromoBanner />
             <section className="TodayHome__intro" aria-label="Today">
                 <div className="TodayHome__greeting">
                     <Text render={<h1 />} className="m-0 text-[21px] font-[560] tracking-[-0.015em]">
                         {greeting}
                     </Text>
                 </div>
-                <div className="TodayHome__metaRow">
-                    <TodayMetaLine />
-                    {!highlightsPending && highlights && pulsePinsLoaded ? <TodayPulseEditor /> : null}
-                </div>
+                <TodayMetaLine />
+                {homeComposer ? <TodayHomeComposer /> : null}
             </section>
             <div className="TodayHome__body">
-                {highlightsPending ? (
-                    <TodayPulseSkeleton />
-                ) : highlights && pulseTiles.length > 0 ? (
-                    <TodayPulse metrics={pulseTiles} />
-                ) : null}
-                {isNewProject && recentObjects.length === 0 ? <TodayExplore /> : <TodayRecents />}
-                <TodayForYou />
+                {isNewProject ? <TodayFirstEventWatcher /> : <TodayPulseSection />}
+                {isNewProject ? <TodayForYou /> : null}
+                {recentsHasLoaded && !frequentObjectsLoading && recentObjects.length === 0 ? (
+                    <TodayExplore />
+                ) : (
+                    <TodayRecents />
+                )}
+                {isNewProject ? null : <TodayForYou />}
             </div>
         </div>
     )

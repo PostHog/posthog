@@ -34,7 +34,7 @@ HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES = 50_000_000_000
 
 class MetricsTable(Table):
     description: str = "OpenTelemetry metric data points (gauges, sums, histograms), one row per data point. Labels are not on the row: join `metric_series` on `series_fingerprint` for `attributes` and `resource_attributes`."
-    workload: Workload | None = Workload.LOGS  # reuse LOGS workload for now
+    workload: Workload | None = Workload.METRICS
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -54,11 +54,6 @@ class MetricsTable(Table):
         ),
         "timestamp": DateTimeDatabaseField(
             name="timestamp", nullable=False, description="When the metric data point was recorded."
-        ),
-        "observed_timestamp": DateTimeDatabaseField(
-            name="observed_timestamp",
-            nullable=False,
-            description="When the collector observed/ingested the data point.",
         ),
         "original_expiry_timestamp": DateTimeDatabaseField(
             name="original_expiry_timestamp", nullable=False, description="When the data point leaves retention."
@@ -132,7 +127,7 @@ class MetricsTable(Table):
 
 class MetricSamplesTable(Table):
     description: str = "OpenTelemetry metric data points grouped by series and UTC hour. Each row holds the points of one series-hour in parallel arrays, so the same array index identifies one point. Use `ARRAY JOIN` to read one row per point. One series-hour can have more than one row until ClickHouse merges them. Join `metric_series` on `series_fingerprint` for labels."
-    workload: Workload | None = Workload.LOGS
+    workload: Workload | None = Workload.METRICS
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -191,11 +186,6 @@ class MetricSamplesTable(Table):
         "timestamp_arr": DateTimeArrayDatabaseField(
             name="timestamp_arr", nullable=False, description="When each data point was recorded."
         ),
-        "observed_timestamp_arr": DateTimeArrayDatabaseField(
-            name="observed_timestamp_arr",
-            nullable=False,
-            description="When the collector observed each data point.",
-        ),
         "value_arr": FloatArrayDatabaseField(
             name="value_arr", nullable=False, description="Numeric value of each data point (for gauge/sum metrics)."
         ),
@@ -229,7 +219,7 @@ class MetricSamplesTable(Table):
 
 class MetricNamesTable(Table):
     description: str = "One row per metric name, service and UTC hour with labeled data points. Use it to find the metric names of a time range."
-    workload: Workload | None = Workload.LOGS
+    workload: Workload | None = Workload.METRICS
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -267,7 +257,7 @@ class MetricNamesTable(Table):
 
 class MetricSeriesTable(Table):
     description: str = "One row per unique metric series (metric + label set), keyed by `series_fingerprint`. Labels are stored here once and joined to `metrics` at query time."
-    workload: Workload | None = Workload.LOGS
+    workload: Workload | None = Workload.METRICS
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -320,7 +310,7 @@ class MetricSeriesTable(Table):
 
 class MetricAttributesTable(Table):
     description: str = "Distinct metric attribute key/value pairs with occurrence counts, used to power metric attribute autocomplete and faceting."
-    workload: Workload | None = Workload.LOGS
+    workload: Workload | None = Workload.METRICS
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
@@ -555,7 +545,7 @@ class MetricsKafkaMetricsTable(DANGEROUS_NoTeamIdCheckTable):
     """
 
     description: str = "Per-partition Kafka consumption metadata for the metrics ingestion topic; not scoped to teams, used to track ingestion lag."
-    workload: Workload | None = Workload.LOGS
+    workload: Workload | None = Workload.METRICS
 
     fields: dict[str, FieldOrTable] = {
         "_partition": IntegerDatabaseField(name="_partition", nullable=False),

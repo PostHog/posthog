@@ -2,15 +2,17 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo, useRef } from 'react'
 
-import { Resizer } from 'lib/components/Resizer/Resizer'
-import { resizerLogic } from 'lib/components/Resizer/resizerLogic'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
+import { Resizer } from 'lib/lemon-ui/Resizer/Resizer'
+import { resizerLogic } from 'lib/lemon-ui/Resizer/resizerLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import MaxTool from 'scenes/max/MaxTool'
 import { castAssistantQuery } from 'scenes/max/utils'
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 
+import { isHogQLQuery, isInsightQueryNode } from '~/queries/schema/node-guards'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { AnyAssistantGeneratedQuery } from '~/queries/schema/schema-assistant-messages'
 import {
     AssistantFunnelsQuery,
@@ -26,7 +28,6 @@ import {
     NodeKind,
     QuerySchema,
 } from '~/queries/schema/schema-general'
-import { isHogQLQuery, isInsightQueryNode, setLatestVersionsOnQuery } from '~/queries/utils'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 

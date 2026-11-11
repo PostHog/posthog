@@ -50,9 +50,11 @@ import {
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
     TaxonomicFilterValue,
+    isHiddenEventStandIn,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
-import { hiddenEventNames } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
+import { fuzzyEventSearchEnabled } from 'lib/components/TaxonomicFilter/utils/fuzzyEventSearch'
+import { hiddenEventNames, hiddenEventStandInsMatchingSearch } from 'lib/components/TaxonomicFilter/utils/hiddenEvents'
 import {
     MCP_TOOL_CALL_EVENT,
     MCP_TOOL_CALL_SUGGESTED_PROPERTIES,
@@ -86,7 +88,7 @@ import {
     getProductEventFilterOptions,
     getProductEventPropertyFilterOptions,
 } from 'scenes/hog-functions/filters/productEventFilterOptions'
-import { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
+import type { MaxContextTaxonomicFilterOption } from 'scenes/max/maxTypes'
 import { NotebookType } from 'scenes/notebooks/types'
 import { projectLogic } from 'scenes/projectLogic'
 import { SavedFiltersTaxonomicGroup } from 'scenes/session-recordings/filters/SavedFiltersTaxonomicGroup'
@@ -577,6 +579,7 @@ export interface taxonomicFilterLogicValues {
         allowNonCapturedEvents: boolean
         excludedProperties: TaxonomicFilterGroupValueMap
         includeHiddenEvents: boolean | undefined
+        offerHiddenEventStandIns: boolean | undefined
         propertyAllowList: TaxonomicFilterGroupValueMap | undefined
         showNumericalPropsOnly: boolean | undefined
     }
@@ -705,11 +708,13 @@ export interface taxonomicFilterLogicMeta {
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined,
             arg: any,
             arg2: any,
+            arg3: any,
             allowNonCapturedEvents: boolean
         ) => {
             allowNonCapturedEvents: boolean
             excludedProperties: TaxonomicFilterGroupValueMap
             includeHiddenEvents: boolean | undefined
+            offerHiddenEventStandIns: boolean | undefined
             propertyAllowList: TaxonomicFilterGroupValueMap | undefined
             showNumericalPropsOnly: boolean | undefined
         }
@@ -756,6 +761,7 @@ export interface taxonomicFilterLogicMeta {
                 allowNonCapturedEvents: boolean
                 excludedProperties: TaxonomicFilterGroupValueMap
                 includeHiddenEvents: boolean | undefined
+                offerHiddenEventStandIns: boolean | undefined
                 propertyAllowList: TaxonomicFilterGroupValueMap | undefined
                 showNumericalPropsOnly: boolean | undefined
             },
@@ -1110,6 +1116,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.excludedProperties,
                 s.propertyAllowList,
                 (_, props) => props.includeHiddenEvents,
+                (_, props) => props.offerHiddenEventStandIns,
                 (_, props) => props.showNumericalPropsOnly,
                 s.allowNonCapturedEvents,
             ],
@@ -1119,12 +1126,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     | import('lib/components/TaxonomicFilter/types').TaxonomicFilterGroupValueMap
                     | undefined,
                 includeHiddenEvents: boolean | undefined,
+                offerHiddenEventStandIns: boolean | undefined,
                 showNumericalPropsOnly: boolean | undefined,
                 allowNonCapturedEvents: boolean
             ) => ({
                 excludedProperties,
                 propertyAllowList,
                 includeHiddenEvents,
+                offerHiddenEventStandIns,
                 showNumericalPropsOnly,
                 allowNonCapturedEvents,
             }),
@@ -1216,6 +1225,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         | undefined
                     allowNonCapturedEvents: boolean
                     includeHiddenEvents: boolean | undefined
+                    offerHiddenEventStandIns: boolean | undefined
                     showNumericalPropsOnly: boolean | undefined
                 },
                 {
@@ -1247,11 +1257,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     excludedProperties,
                     propertyAllowList,
                     includeHiddenEvents,
+                    offerHiddenEventStandIns,
                     showNumericalPropsOnly,
                     allowNonCapturedEvents,
                 } = propertyFilters
-                const fuzzyEventSearch =
-                    !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_FUZZY_EVENT_SEARCH] && !allowNonCapturedEvents
+                const fuzzyEventSearch = fuzzyEventSearchEnabled(featureFlags, allowNonCapturedEvents)
                 const groups: TaxonomicFilterGroup[] = [
                     {
                         name: 'Events',
@@ -1267,8 +1277,19 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }).url,
                         excludedProperties: [
                             ...(excludedProperties?.[TaxonomicFilterGroupType.Events]?.filter(isString) ?? []),
-                            ...hiddenEventNames(currentTeam?.flag_evaluations_mode, includeHiddenEvents),
+                            ...hiddenEventNames(
+                                currentTeam?.flag_evaluations_mode,
+                                includeHiddenEvents,
+                                offerHiddenEventStandIns
+                            ),
                         ],
+                        hiddenEventStandIns: offerHiddenEventStandIns
+                            ? (searchQuery: string) =>
+                                  hiddenEventStandInsMatchingSearch(
+                                      searchQuery,
+                                      excludedProperties?.[TaxonomicFilterGroupType.Events]
+                                  )
+                            : undefined,
                         ...withKeywordShortcuts<Record<string, any>>(
                             {
                                 getName: (eventDefinition) => eventDefinition.name,
@@ -1927,7 +1948,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getName: (option: SimpleOption | QuickFilterItem) => option.name,
                         // The collapsed "URL contains <query>" row is a QuickFilterItem whose
                         // selection value is the typed query, so generic consumers reading the
-                        // committed value get the query (matching the rebuild menu), not the label.
+                        // committed value get the query, not the label.
                         getValue: (option: SimpleOption | QuickFilterItem) =>
                             isQuickFilterItem(option) ? option.filterValue : option.name,
                         getPopoverHeader: () => `Pageview URL`,
@@ -2073,7 +2094,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ),
                         // Recently-used entries are stored stripped of `active`, so treat only an explicit
                         // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
-                        // Keep in sync with the Feature Flags group in utils/buildTaxonomicGroups.tsx.
                         getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
                         localItemsSearch: (items, query) => {
                             if (!query) {
@@ -2720,6 +2740,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     wasFromPinnedList,
                     wasFromRecents,
                     wasQuickFilter,
+                    wasHiddenEventStandIn: isHiddenEventStandIn(item),
                     hadSearchInput,
                     position: meta?.position,
                     query: values.searchQuery || undefined,
@@ -2731,8 +2752,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         filterValue: item.filterValue,
                         propertyFilterType: item.propertyFilterType,
                         eventName: item.eventName,
-                        // Mirrors the rebuild menu's `wasUrlContainsShortcut` so contains-shortcut
-                        // adoption is comparable across arms, not muddied with keyword shortcuts.
+                        // Keeps contains-shortcut adoption separate from keyword shortcuts.
                         wasUrlContainsShortcut: item.isContainsShortcut === true,
                     }),
                 })
@@ -2747,7 +2767,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 const isPropertyFilterLogicGroup =
                     PROPERTY_TAXONOMIC_GROUP_TYPES.has(sourceGroupType) ||
                     SHORTCUT_TO_PROPERTY_FILTER_GROUP_TYPES.has(sourceGroupType) ||
-                    sourceGroupType.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
+                    sourceGroupType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix)
                 const recordHereNow = props.selectingKeyOnly || hasCompletePropertyFilter || !isPropertyFilterLogicGroup
 
                 if (recordHereNow && !isQuickFilterItem(item)) {

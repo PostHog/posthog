@@ -1,13 +1,6 @@
-import { urls } from 'scenes/urls'
-
-import type {
-    ExternalDataSourceSerializersApi,
-    ExternalDataSchemaApi,
-} from 'products/warehouse_sources/frontend/generated/api.schemas'
-
 import type { InboxOnboardingDraftApi, InboxOnboardingSourceApi } from '../../generated/api.schemas'
 import { AGENT_ROSTER_GROUPS, AgentRosterDefinition } from '../components/config/agentRosterMeta'
-import { WAREHOUSE_SOURCE_SETUP, type SourceProductStatus, type WarehouseBackedSource } from '../signalSourcesLogic'
+import type { SourceProductStatus } from '../signalSourcesLogic'
 import { SignalSourceProduct, SignalSourceType, type SignalSourceConfig } from '../types'
 
 export interface InboxSetupSource {
@@ -15,12 +8,6 @@ export interface InboxSetupSource {
     sources: InboxOnboardingSourceApi[]
     available: boolean
     unavailableReason: string
-    warehouseSource: WarehouseBackedSource | null
-    setupUrl: string | null
-}
-
-interface InboxSetupWarehouseSource extends Pick<ExternalDataSourceSerializersApi, 'id' | 'source_type'> {
-    schemas?: readonly Pick<ExternalDataSchemaApi, 'name'>[]
 }
 
 const SOURCE_TYPES: Partial<Record<string, InboxOnboardingSourceApi['source_type'][]>> = {
@@ -29,101 +16,65 @@ const SOURCE_TYPES: Partial<Record<string, InboxOnboardingSourceApi['source_type
     llm_analytics: [SignalSourceType.EvaluationReport],
     analytics: [SignalSourceType.AnomalyInvestigation],
     health_checks: [SignalSourceType.HealthIssue],
-    engineering_analytics: [
-        SignalSourceType.CiFlakyCheck,
-        SignalSourceType.CiBrokenDefaultBranch,
-        SignalSourceType.CiDurationRegression,
-    ],
 }
 
-const SOURCES_EXCLUDED_FROM_SETUP: ReadonlySet<string> = new Set(['pganalyze', 'github', 'engineering_analytics'])
+// Onboarding offers PostHog products only. Warehouse-backed sources are connected from the Configuration tab after activation.
+const ONBOARDING_ROSTER_AGENTS: readonly AgentRosterDefinition[] = AGENT_ROSTER_GROUPS.filter(
+    (group) => group.id === 'posthog'
+).flatMap((group) => group.agents)
+
+export const ONBOARDING_SOURCE_PRODUCTS: ReadonlySet<string> = new Set(
+    ONBOARDING_ROSTER_AGENTS.map((definition) => definition.sourceProduct)
+)
 
 export function setupSources(
     configs: SignalSourceConfig[],
     statuses: Partial<Record<string, SourceProductStatus>>,
     scannerCount: number,
-    flags: Record<string, boolean | string | undefined>,
-    hasEvents: boolean,
-    warehouseSources: readonly InboxSetupWarehouseSource[] | null = null
+    hasEvents: boolean
 ): InboxSetupSource[] {
-    return AGENT_ROSTER_GROUPS.flatMap((group) => group.agents)
-        .filter(
-            (definition) =>
-                !definition.legacy &&
-                !SOURCES_EXCLUDED_FROM_SETUP.has(definition.source) &&
-                (!definition.flag || flags[definition.flag])
-        )
-        .map((definition) => {
-            const existing = configs.filter((config) => config.source_product === definition.sourceProduct)
-            const status = statuses[definition.source]
-            const warehouseSource = Object.hasOwn(WAREHOUSE_SOURCE_SETUP, definition.source)
-                ? (definition.source as WarehouseBackedSource)
-                : null
-            const warehouseSetup = warehouseSource ? WAREHOUSE_SOURCE_SETUP[warehouseSource] : null
-            const connectedSources =
-                warehouseSources?.filter((source) => source.source_type === warehouseSetup?.dwSourceType) ?? []
-            const hasRequiredTables =
-                !!warehouseSetup &&
-                warehouseSetup.requiredTables.every((table) => {
-                    // Case-insensitive: some sources name tables in PascalCase (e.g. BugHerd `Tasks`).
-                    const wanted = table.toLowerCase()
-                    return connectedSources.some((source) =>
-                        source.schemas?.some((schema) => {
-                            const name = schema.name.toLowerCase()
-                            return name === wanted || name.endsWith(`.${wanted}`)
-                        })
-                    )
-                })
-            const setupUrl =
-                connectedSources.length && !hasRequiredTables
-                    ? urls.dataWarehouseSource(connectedSources[0].id, 'schemas')
-                    : null
-            const available =
-                definition.source === 'replay_vision'
-                    ? scannerCount > 0
-                    : warehouseSetup && warehouseSources !== null
-                      ? hasRequiredTables
-                      : definition.source === 'health_checks'
-                        ? hasEvents
+    return ONBOARDING_ROSTER_AGENTS.map((definition) => {
+        const existing = configs.filter((config) => config.source_product === definition.sourceProduct)
+        const status = statuses[definition.source]
+        const available =
+            definition.source === 'replay_vision'
+                ? scannerCount > 0
+                : definition.source === 'health_checks'
+                  ? hasEvents
+                  : status
+                    ? status.enabled === true && (status.dataStatus === 'recent' || status.dataStatus === 'unavailable')
+                    : existing.length > 0
+        const types =
+            SOURCE_TYPES[definition.source] ??
+            existing.map((config) => config.source_type as InboxOnboardingSourceApi['source_type'])
+        return {
+            definition,
+            available: available && (types.length > 0 || definition.source === 'replay_vision'),
+            unavailableReason:
+                status?.dataStatus === 'error'
+                    ? 'Could not check data'
+                    : definition.source === 'replay_vision' && status?.enabled
+                      ? 'No scanners'
+                      : status?.enabled === false
+                        ? 'Not enabled'
                         : status
-                          ? status.enabled === true &&
-                            (status.dataStatus === 'recent' || status.dataStatus === 'unavailable')
-                          : existing.length > 0
-            const types =
-                SOURCE_TYPES[definition.source] ??
-                (warehouseSetup?.completion.kind === 'source_config'
-                    ? [warehouseSetup.completion.sourceType]
-                    : existing.map((config) => config.source_type as InboxOnboardingSourceApi['source_type']))
-            return {
-                definition,
-                warehouseSource,
-                setupUrl,
-                available: available && (types.length > 0 || definition.source === 'replay_vision'),
-                unavailableReason: setupUrl
-                    ? 'Needs tables'
-                    : status?.dataStatus === 'error'
-                      ? 'Could not check data'
-                      : definition.source === 'replay_vision' && status?.enabled
-                        ? 'No scanners'
-                        : status?.enabled === false
-                          ? 'Not enabled'
-                          : status
-                            ? 'No recent data'
-                            : definition.source === 'health_checks'
-                              ? 'No data yet'
-                              : 'Not connected',
-                sources: types.map((source_type) => ({
-                    source_product: definition.sourceProduct,
-                    source_type,
-                    enabled: true,
-                })),
-            }
-        })
+                          ? 'No recent data'
+                          : definition.source === 'health_checks'
+                            ? 'No data yet'
+                            : 'Not connected',
+            sources: types.map((source_type) => ({
+                source_product: definition.sourceProduct,
+                source_type,
+                enabled: true,
+            })),
+        }
+    })
 }
 
 export function newInboxSetupDraft(sources: InboxSetupSource[], scannerIds: string[]): InboxOnboardingDraftApi {
     return {
         step: 'signals',
+        setup_mode: 'guided',
         sources: sources.filter((source) => source.available).flatMap((source) => source.sources),
         scanner_ids: scannerIds,
         suggestions: [],
@@ -138,7 +89,9 @@ export function reconcileInboxSetupDraft(
     sources: InboxSetupSource[],
     scannerIds: string[] | null = null
 ): InboxOnboardingDraftApi {
-    const chosenProducts = new Set(draft.sources.map((source) => source.source_product))
+    // A draft saved before onboarding became PostHog-only can still carry a warehouse-backed source.
+    const keptSources = draft.sources.filter((source) => ONBOARDING_SOURCE_PRODUCTS.has(source.source_product))
+    const chosenProducts = new Set(keptSources.map((source) => source.source_product))
     const newSources = sources
         .filter((source) => source.available && !chosenProducts.has(source.definition.sourceProduct))
         .flatMap((source) => source.sources)
@@ -146,8 +99,10 @@ export function reconcileInboxSetupDraft(
     const selectedScanners = availableScanners
         ? draft.scanner_ids.filter((id) => availableScanners.has(id))
         : draft.scanner_ids
-    return newSources.length || selectedScanners.length !== draft.scanner_ids.length
-        ? { ...draft, sources: [...draft.sources, ...newSources], scanner_ids: selectedScanners }
+    return newSources.length ||
+        keptSources.length !== draft.sources.length ||
+        selectedScanners.length !== draft.scanner_ids.length
+        ? { ...draft, sources: [...keptSources, ...newSources], scanner_ids: selectedScanners }
         : draft
 }
 

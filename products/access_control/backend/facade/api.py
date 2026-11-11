@@ -19,13 +19,14 @@ Do NOT:
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Callable, Collection, Mapping, Sequence
 from copy import copy
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.db import transaction
 from django.db.models import Q
-from django.db.models.signals import post_save
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.http import Http404
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -34,7 +35,7 @@ from posthog.hogql.property_access_types import RestrictedProperty
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
-from posthog.models import Organization, OrganizationMembership, PropertyDefinition, Team
+from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
 from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -43,12 +44,13 @@ from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, APISco
 
 from products.access_control.backend.activity_logging import get_access_control_log_entry
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.event_definitions.backend.models import effective_project_id_expr
+from products.event_definitions.backend.models import PropertyDefinition, effective_project_id_expr
 
 from ..models.access_control import AccessControl
 from ..models.property_access_control import PropertyAccessControl
 from ..models.team_access_control_config import TeamAccessControlConfig
 from ..property_access_control import (
+    get_non_writable_property_names as _get_non_writable_property_names,
     get_restricted_properties_with_group_type_index_for_team as _get_restricted_properties_with_group_type_index_for_team,
     is_property_access_control_enabled,
 )
@@ -56,6 +58,7 @@ from . import contracts
 from .contracts import PropertyAccessLevel
 from .enums import AI_EVENT_PROPERTY_CHOICES
 from .user_access_control import (
+    ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE,
     RESOURCE_INHERITANCE_MAP,
     RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS,
     AccessControlLevel,
@@ -104,6 +107,19 @@ def _to_rule(rule: PropertyAccessControl) -> contracts.PropertyAccessControlRule
     )
 
 
+def get_property_definition_labels(
+    *, team_id: int, property_definition_ids: list[UUID]
+) -> dict[UUID, contracts.PropertyDefinitionLabel]:
+    return {
+        definition.id: contracts.PropertyDefinitionLabel(
+            id=definition.id,
+            name=definition.name,
+            is_person=definition.type == PropertyDefinition.Type.PERSON,
+        )
+        for definition in PropertyDefinition.objects.filter(team_id=team_id, id__in=property_definition_ids)
+    }
+
+
 def _get_property_definition(property_definition_id: str, team_id: int) -> PropertyDefinition:
     # Callers often send the property name. The pk is a UUID, and Django raises its own
     # ValidationError for any other string, which the API would turn into a 500.
@@ -133,8 +149,24 @@ def get_restricted_properties_with_group_type_index_for_team(
     return _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
 
 
+def get_restricted_properties_for_group_type(
+    *, user: User | None, team_id: int, group_type_index: int
+) -> set[RestrictedProperty]:
+    """Return property restrictions for a query over one group type, leaving out other group types' restrictions."""
+    return {
+        restriction
+        for restriction in _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id)
+        if restriction.property_type != PropertyDefinition.Type.GROUP
+        or restriction.group_type_index in (None, group_type_index)
+    }
+
+
 def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> contracts.RestrictedPropertyNames:
-    """Return restricted event and person property names."""
+    """Return restricted event, person, and group property names."""
+    group: defaultdict[int | None, set[str]] = defaultdict(set)
+    for restriction in restrictions:
+        if restriction.property_type == PropertyDefinition.Type.GROUP:
+            group[restriction.group_type_index].add(restriction.name)
     return contracts.RestrictedPropertyNames(
         event=frozenset(
             restriction.name
@@ -146,6 +178,30 @@ def split_restricted_property_names(restrictions: set[RestrictedProperty]) -> co
             for restriction in restrictions
             if restriction.property_type == PropertyDefinition.Type.PERSON
         ),
+        group={group_type_index: frozenset(names) for group_type_index, names in group.items()},
+    )
+
+
+def get_restricted_group_property_names_by_type_index(
+    *, user: User | None, team_id: int
+) -> dict[int | None, frozenset[str]]:
+    """Return restricted group property names keyed by group type index (None applies to every group type)."""
+    names_by_index: dict[int | None, set[str]] = defaultdict(set)
+    for restriction in _get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team_id):
+        if restriction.property_type == PropertyDefinition.Type.GROUP:
+            names_by_index[restriction.group_type_index].add(restriction.name)
+    return {index: frozenset(names) for index, names in names_by_index.items()}
+
+
+def get_non_writable_group_property_names(*, user: User | None, team_id: int, group_type_index: int) -> frozenset[str]:
+    """Return group property names of this group type that the user cannot write."""
+    return frozenset(
+        _get_non_writable_property_names(
+            team_id=team_id,
+            user=user,
+            property_type=PropertyDefinition.Type.GROUP,
+            group_type_index=group_type_index,
+        )
     )
 
 
@@ -213,6 +269,54 @@ def person_property_names_with_access_rules(*, team_id: int) -> frozenset[str]:
             team_id=team_id, property_definition__type=PropertyDefinition.Type.PERSON
         ).values_list("property_definition__name", flat=True)
     )
+
+
+def group_property_names_with_access_rules(*, team_id: int, group_type_index: int) -> frozenset[str]:
+    """Group properties of one group type with any access rule on the team, for callers that share a result across users."""
+    return frozenset(
+        PropertyAccessControl.objects.filter(
+            team_id=team_id,
+            property_definition__type=PropertyDefinition.Type.GROUP,
+            property_definition__group_type_index=group_type_index,
+        ).values_list("property_definition__name", flat=True)
+    )
+
+
+def property_key_overlaps_restriction(key: str, restricted_names: Collection[str]) -> bool:
+    """Whether a top-level property key is restricted, sits under a restricted name, or holds one inside its value.
+
+    Names are dot paths, as HogQL reads them: a rule on `a.b` covers the flat key `a.b` and the child `b` of `a`.
+    """
+    segments = key.split(".")
+    for name in restricted_names:
+        name_segments = name.split(".")
+        shared = min(len(segments), len(name_segments))
+        if segments[:shared] == name_segments[:shared]:
+            return True
+    return False
+
+
+def redact_restricted_properties(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
+    """Drop restricted properties, following dot paths into nested objects and arrays the way HogQL masks them."""
+    return _redact_object(properties, restricted_names)
+
+
+def _redact_object(properties: Mapping[str, Any], restricted_names: Collection[str]) -> dict[str, Any]:
+    redacted: dict[str, Any] = {}
+    for key, value in properties.items():
+        if any(key == name or key.startswith(f"{name}.") for name in restricted_names):
+            continue
+        children = [name[len(key) + 1 :] for name in restricted_names if name.startswith(f"{key}.")]
+        redacted[key] = _redact_value(value, children) if children else value
+    return redacted
+
+
+def _redact_value(value: Any, restricted_names: Collection[str]) -> Any:
+    if isinstance(value, Mapping):
+        return _redact_object(value, restricted_names)
+    if isinstance(value, list):
+        return [_redact_value(item, restricted_names) for item in value]
+    return value
 
 
 def team_has_public_sharing_access_rules(*, team_id: int) -> bool:
@@ -418,6 +522,164 @@ def resource_has_rules(*, team_id: int, resource: APIScopeObject) -> bool:
     return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=True).exists()
 
 
+def access_rules(*, team_id: int, resources: Collection[str]) -> list[contracts.AccessRule]:
+    """Every rule of the team on these resources, object-level and resource-level, whatever its level.
+
+    For a caller that must predict what resolution decides after it changes which rules reach an
+    object. Like `object_ids_with_rules`, it ignores whether the organization enforces rules today,
+    because the rules apply again when it does.
+    """
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    rows = AccessControl.objects.filter(team_id=team_id, resource__in=list(resources)).values_list(
+        "resource",
+        "resource_id",
+        "access_level",
+        "organization_member_id",
+        "role_id",
+        "organization_member__organization_id",
+        "role__organization_id",
+    )
+    return [
+        contracts.AccessRule(
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member_id=member_id,
+            role_id=role_id,
+            # Resolution reads a member's rules only in the member's own organization, and a role's
+            # rules only for a role of that organization (see UserAccessControl._filter_options).
+            applies=(member_id is None or role_id is None)
+            and (member_id is None or member_organization_id == team.organization_id)
+            and (role_id is None or role_organization_id == team.organization_id),
+        )
+        for (
+            resource,
+            resource_id,
+            access_level,
+            member_id,
+            role_id,
+            member_organization_id,
+            role_organization_id,
+        ) in rows
+    ]
+
+
+def replace_object_access_rules(
+    *, team_id: int, resource: str, resource_id: str, rules: Sequence[contracts.ObjectAccessRuleInput]
+) -> None:
+    """Make the rules on one object exactly `rules`, the object's default rule included.
+
+    A rule that is already there stays. The others are created or deleted one at a time, so each
+    change goes into the activity log. An empty `rules` removes every rule on the object. The
+    caller decides whether the change is allowed.
+    """
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    wanted: dict[tuple[UUID | None, UUID | None], str] = {}
+    for rule in rules:
+        _validate_resource_access_level(resource, rule.access_level)
+        key = (rule.organization_member_id, rule.role_id)
+        if key in wanted:
+            raise InvalidObjectAccessControlError("Provide each subject only once.")
+        wanted[key] = rule.access_level
+    member_ids = {member_id for member_id, _ in wanted if member_id is not None}
+    role_ids = {role_id for _, role_id in wanted if role_id is not None}
+    if member_ids != set(
+        OrganizationMembership.objects.filter(organization_id=team.organization_id, id__in=member_ids).values_list(
+            "id", flat=True
+        )
+    ):
+        raise InvalidObjectAccessControlError("organization_member does not belong to this team's organization.")
+    if role_ids != set(
+        Role.objects.filter(organization_id=team.organization_id, id__in=role_ids).values_list("id", flat=True)
+    ):
+        raise InvalidObjectAccessControlError("role does not belong to this team's organization.")
+
+    with transaction.atomic():
+        kept: set[tuple[UUID | None, UUID | None]] = set()
+        for existing in AccessControl.objects.select_for_update().filter(
+            team_id=team_id, resource=resource, resource_id=resource_id
+        ):
+            key = (existing.organization_member_id, existing.role_id)
+            if key not in kept and wanted.get(key) == existing.access_level:
+                kept.add(key)
+            else:
+                existing.delete()
+        for (member_id, role_id), access_level in wanted.items():
+            if (member_id, role_id) not in kept:
+                AccessControl.objects.create(
+                    team_id=team_id,
+                    resource=resource,
+                    resource_id=resource_id,
+                    access_level=access_level,
+                    organization_member_id=member_id,
+                    role_id=role_id,
+                )
+
+
+def object_has_access_rules(*, team_id: int, resource: str, resource_id: str) -> bool:
+    """Whether the object has access rules of its own, as opposed to only the rules it inherits."""
+    return AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id).exists()
+
+
+def _copyable_object_rules(team_id: int, resource: str, resource_id: str) -> list[contracts.ObjectAccessRuleInput]:
+    # Rules naming a member or role of another organization never apply, so they are not copied.
+    team = Team.objects.only("id", "organization_id").get(id=team_id)
+    return [
+        contracts.ObjectAccessRuleInput(
+            access_level=rule.access_level,
+            organization_member_id=rule.organization_member_id,
+            role_id=rule.role_id,
+        )
+        for rule in AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=resource_id)
+        .filter(Q(organization_member__isnull=True) | Q(organization_member__organization_id=team.organization_id))
+        .filter(Q(role__isnull=True) | Q(role__organization_id=team.organization_id))
+    ]
+
+
+def check_object_access_rules_copy(
+    *, team_id: int, resource: str, from_resource_id: str, to_resource_id: str | None
+) -> None:
+    """Raise `InvalidObjectAccessControlError` when copying the rules of one object to another would pass
+    the cap the rule endpoint applies when a rule is first set on an object.
+
+    `to_resource_id` is None for an object that doesn't exist yet, which has no rules.
+    """
+    if not AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=from_resource_id).exists():
+        return
+    if (
+        to_resource_id is not None
+        and AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id=to_resource_id).exists()
+    ):
+        return
+    objects_with_rules = (
+        AccessControl.objects.filter(team_id=team_id, resource=resource, resource_id__isnull=False)
+        .values("resource_id")
+        .distinct()
+        .count()
+    )
+    if objects_with_rules >= ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE:
+        raise InvalidObjectAccessControlError(
+            f"Reached the limit of {ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE} {resource}s with access control overrides."
+        )
+
+
+def copy_object_access_rules(*, team_id: int, resource: str, from_resource_id: str, to_resource_id: str) -> None:
+    """Make the rules on one object the same as the rules on another object of the same resource.
+
+    Replaces every rule the target has, through `replace_object_access_rules`, so each change goes
+    into the activity log. The caller decides whether the change is allowed.
+    """
+    check_object_access_rules_copy(
+        team_id=team_id, resource=resource, from_resource_id=from_resource_id, to_resource_id=to_resource_id
+    )
+    replace_object_access_rules(
+        team_id=team_id,
+        resource=resource,
+        resource_id=to_resource_id,
+        rules=_copyable_object_rules(team_id, resource, from_resource_id),
+    )
+
+
 def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) -> bool:
     """Whether the role is a role of that organization.
 
@@ -520,7 +782,7 @@ def upsert_property_access_control(
             team_id=team_id,
             property_definition=prop_def,
             organization_member_id=input.organization_member_id,
-            role_id=input.role_id,
+            role_id=input.role_id,  # type: ignore[misc]  # nullable FK; django-stubs drops None from *_id lookups
             defaults={
                 "access_level": input.access_level.value,
             },
@@ -571,20 +833,23 @@ def _to_object_rule(rule: AccessControl) -> contracts.ObjectAccessControlRule:
 
 
 def _validate_object_access_control_level(input: contracts.SetObjectAccessControlInput) -> APIScopeObject:
-    resource = input.resource
+    return _validate_resource_access_level(input.resource, input.access_level)
+
+
+def _validate_resource_access_level(resource: str, access_level: str | None) -> APIScopeObject:
     if resource not in API_SCOPE_OBJECTS or resource in INTERNAL_API_SCOPE_OBJECTS:
         raise InvalidObjectAccessControlError(f"{resource} is not an access controlled resource.")
     scoped_resource = cast(APIScopeObject, resource)
 
-    if input.access_level is not None:
+    if access_level is not None:
         levels = ordered_access_levels(scoped_resource)
-        if input.access_level not in levels:
+        if access_level not in levels:
             raise InvalidObjectAccessControlError(
                 f"Invalid access level for {resource}. Must be one of: {', '.join(levels)}."
             )
         # `ordered_access_levels` can include levels the settings UI never offers for a resource
         # (for example "none" on a project), so the bounds apply here as well as in the API.
-        level_index = levels.index(input.access_level)
+        level_index = levels.index(cast(AccessControlLevel, access_level))
         if level_index < levels.index(minimum_access_level(scoped_resource)):
             raise InvalidObjectAccessControlError(f"Access level is below the minimum for {resource}.")
         if level_index > levels.index(highest_access_level(scoped_resource)):
@@ -773,7 +1038,124 @@ def available_access_levels() -> list[PropertyAccessLevel]:
     return list(PropertyAccessLevel)
 
 
+_PROPERTY_LEVEL_ORDER = (PropertyAccessLevel.NONE, PropertyAccessLevel.READ, PropertyAccessLevel.READ_WRITE)
+
+
+def stored_property_rule_floor(*, user: User, team_id: int) -> PropertyAccessLevel | None:
+    """The lowest level the stored property rules can give ``user`` on one property of the team.
+
+    The property-rule counterpart of ``UserAccessControl.stored_rule_floor``, with the same
+    candidates per property: the user's member rows, else their role rows and the default rows.
+    Rows match as ``_resolve_access_level`` matches them: a row naming the user's membership is
+    a member row whatever its role, and a row naming one of the user's roles is a role row.
+    It holds whether or not the organization is entitled to property access control or roles.
+    ``None`` means no stored rule applies. This includes org admins, who bypass property rules.
+    """
+    organization_id = Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first()
+    if organization_id is None:
+        return None
+    membership = OrganizationMembership.objects.filter(user=user, organization_id=organization_id).first()
+    if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+        return None
+    role_ids = list(
+        RoleMembership.objects.filter(user=user, role__organization_id=organization_id)
+        .valid_for_authorization()
+        .values_list("role_id", flat=True)
+    )
+    rows = PropertyAccessControl.objects.filter(team_id=team_id, property_definition__isnull=False).filter(
+        Q(organization_member=None, role=None) | Q(organization_member_id=membership.id) | Q(role_id__in=role_ids)
+    )
+    rows_by_property: dict[UUID | None, list[PropertyAccessControl]] = {}
+    for row in rows:
+        rows_by_property.setdefault(row.property_definition_id, []).append(row)
+    lowest: PropertyAccessLevel | None = None
+    for property_rows in rows_by_property.values():
+        member_rows = [row for row in property_rows if row.organization_member_id == membership.id]
+        for row in member_rows or property_rows:
+            # A level outside the order is unknown: count it as no access.
+            level = next((known for known in _PROPERTY_LEVEL_ORDER if known.value == row.access_level), None)
+            level = level or PropertyAccessLevel.NONE
+            if lowest is None or _PROPERTY_LEVEL_ORDER.index(level) < _PROPERTY_LEVEL_ORDER.index(lowest):
+                lowest = level
+    return lowest
+
+
+def connect_access_change_receivers(
+    *,
+    on_rule_change: Callable[[int, str], None],
+    on_role_membership_change: Callable[[int, UUID], None],
+    is_active: Callable[[], bool],
+    dispatch_uid: str,
+) -> None:
+    """Call back when an access rule or a role membership is saved or deleted.
+
+    ``on_rule_change(team_id, resource)`` runs after a rule is saved or deleted. A property rule
+    comes in as the ``property_definition`` resource.
+    ``on_role_membership_change(user_id, organization_id)`` runs after a role membership is
+    saved or deleted. ``organization_id`` is the role's organization, read before a delete while
+    the role is still there: most role memberships carry no organization membership.
+
+    Neither runs while ``is_active()`` is false, so a disabled caller costs no role query.
+
+    Both run inside the change's transaction: defer real work with ``transaction.on_commit``.
+    Only ids cross this boundary, never the models.
+    """
+
+    def rule_changed(sender: object, instance: AccessControl, **kwargs: object) -> None:
+        if is_active():
+            on_rule_change(instance.team_id, instance.resource)
+
+    def role_membership_changed(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+        if is_active():
+            on_role_membership_change(instance.user_id, instance.role.organization_id)
+
+    # Outside a transaction a callback's on_commit runs at once, so it must not run before the
+    # delete: read the organization before it, and call back after it.
+    pending_attr = f"_{dispatch_uid}_role_organization_id"
+
+    def role_membership_deleting(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+        if is_active():
+            setattr(instance, pending_attr, instance.role.organization_id)
+
+    def role_membership_deleted(sender: object, instance: RoleMembership, **kwargs: object) -> None:
+        organization_id = getattr(instance, pending_attr, None)
+        if organization_id is not None:
+            on_role_membership_change(instance.user_id, organization_id)
+
+    # weak=False: the receivers are closures, and nothing else holds them.
+    post_save.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_saved")
+    post_delete.connect(rule_changed, sender=AccessControl, weak=False, dispatch_uid=f"{dispatch_uid}_rule_deleted")
+
+    def property_rule_changed(sender: object, instance: PropertyAccessControl, **kwargs: object) -> None:
+        if is_active():
+            on_rule_change(instance.team_id, "property_definition")
+
+    post_save.connect(
+        property_rule_changed,
+        sender=PropertyAccessControl,
+        weak=False,
+        dispatch_uid=f"{dispatch_uid}_property_rule_saved",
+    )
+    post_delete.connect(
+        property_rule_changed,
+        sender=PropertyAccessControl,
+        weak=False,
+        dispatch_uid=f"{dispatch_uid}_property_rule_deleted",
+    )
+    post_save.connect(
+        role_membership_changed, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_saved"
+    )
+    pre_delete.connect(
+        role_membership_deleting, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleting"
+    )
+    post_delete.connect(
+        role_membership_deleted, sender=RoleMembership, weak=False, dispatch_uid=f"{dispatch_uid}_role_deleted"
+    )
+
+
 __all__ = [
+    "connect_access_change_receivers",
+    "stored_property_rule_floor",
     "InvalidPropertyAccessControlTargetError",
     "PropertyAccessControlRuleNotFoundError",
     "PropertyAccessLevel",
