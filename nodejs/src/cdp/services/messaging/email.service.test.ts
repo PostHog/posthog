@@ -3123,93 +3123,49 @@ describe('EmailService', () => {
             })
         })
 
-        const useMessageAssets = ({ failing }: { failing: boolean }): MessageAssetsService => {
-            const kafka = createRecordingIngestionOutputs([MESSAGE_ASSETS_OUTPUT])
-            const messageAssets = new MessageAssetsService(kafka.outputs)
-            if (failing) {
-                jest.spyOn(messageAssets, 'buildRowForEmail').mockImplementation(() => {
-                    throw new Error('Asset row fault')
-                })
+        it.each([
+            {
+                outcome: 'delivered',
+                rejectWith: undefined,
+                delivered: 1,
+                error: undefined,
+                metrics: ['email_sent', 'email_untracked'],
+            },
+            {
+                outcome: 'rejected',
+                rejectWith: 'SES rejected the email',
+                delivered: 0,
+                error: expect.stringContaining('SES rejected the email'),
+                metrics: ['email_failed'],
+            },
+        ])(
+            'keeps a $outcome send as it was when the engagement setting read fails',
+            async ({ rejectWith, delivered, error, metrics }) => {
+                const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
+                service = createService({}, {}, { teamConfigDb: teamConfigDb.postgres })
+                if (rejectWith) {
+                    ses.failWith({ status: 400, type: 'MessageRejected', message: rejectWith })
+                }
+                const failuresBefore = await metricValue('cdp_email_engagement_setting_read_failures_total', {})
+
+                const result = await service.executeSendEmail(invocation)
+                await teamConfigDb.close()
+
+                expect(ses.sent).toHaveLength(delivered)
+                expect(result.error).toEqual(error)
+                expect(result.metrics.map((m) => m.metric_name)).toEqual(metrics)
+                expect(result.capturedPostHogEvents).toEqual([])
+                expect(result.logs).toContainEqual(
+                    expect.objectContaining({
+                        level: 'warn',
+                        message:
+                            'Could not read the engagement setting, so no engagement event was recorded for this email.',
+                    })
+                )
+                expect(await metricValue('cdp_email_engagement_setting_read_failures_total', {})).toBe(
+                    failuresBefore + 1
+                )
             }
-            service['messageAssetsService'] = messageAssets
-            return messageAssets
-        }
-        const withUnreachableTeamConfig = async (): Promise<() => Promise<void>> => {
-            const teamConfigDb = await postgresThatDropsConnections(hub.DATABASE_URL, () => true)
-            service = createService({}, {}, { teamConfigDb: teamConfigDb.postgres })
-            return teamConfigDb.close
-        }
-
-        it.each([
-            {
-                stage: 'saving the email copy',
-                step: 'saved_copy',
-                warning: 'Email sent, but its saved copy could not be created.',
-                breakBookkeeping: (): Promise<() => Promise<void>> => {
-                    useMessageAssets({ failing: true })
-                    return Promise.resolve(() => Promise.resolve())
-                },
-            },
-            {
-                stage: 'reading the engagement setting',
-                step: 'engagement_setting',
-                warning: 'Could not read the engagement setting, so no engagement event was recorded for this email.',
-                breakBookkeeping: withUnreachableTeamConfig,
-            },
-        ])('keeps a delivered email sent when $stage fails', async ({ step, warning, breakBookkeeping }) => {
-            const restore = await breakBookkeeping()
-            const failuresBefore = await metricValue('cdp_email_bookkeeping_failures_total', { step })
-
-            const result = await service.executeSendEmail(invocation)
-            await restore()
-
-            expect(ses.sent).toHaveLength(1)
-            expect(await metricValue('cdp_email_bookkeeping_failures_total', { step })).toBe(failuresBefore + 1)
-            expect(result.error).toBeUndefined()
-            expect(result.emailSendResult).toEqual({ status: 'accepted' })
-            expect(result.metrics.map((metric) => metric.metric_name)).toContain('email_sent')
-            expect(result.metrics.map((metric) => metric.metric_name)).not.toContain('email_failed')
-            expect(result.invocation.state.vmState?.stack).toEqual([{ success: true }])
-            expect(result.logs).toContainEqual(expect.objectContaining({ level: 'warn', message: warning }))
-        })
-
-        it.each([
-            { link: 'adds', outcome: 'succeeds' },
-            { link: 'leaves out', outcome: 'fails' },
-        ])('$link the View email link when saving the copy $outcome', async ({ outcome }) => {
-            const saved = outcome === 'succeeds'
-            invocation.state.actionId = 'email_1'
-            const messageAssets = useMessageAssets({ failing: !saved })
-
-            const result = await service.executeSendEmail(invocation)
-            messageAssets.queueInvocationResults([result])
-            await messageAssets.flush()
-
-            const sentLine = result.logs.find((log) => log.message.startsWith('Email sent to '))
-            expect(sentLine).toBeDefined()
-            expect(sentLine?.message.includes(`[Email:${invocation.id}:email_1]`)).toBe(saved)
-            expect(result.messageAssets).toHaveLength(saved ? 1 : 0)
-        })
-
-        it('records a rejected send as failed when the engagement setting read also fails', async () => {
-            const restore = await withUnreachableTeamConfig()
-            ses.failWith({ status: 400, type: 'MessageRejected', message: 'SES rejected the email' })
-
-            const result = await service.executeSendEmail(invocation)
-            await restore()
-
-            expect(ses.sent).toHaveLength(0)
-            expect(result.error).toContain('SES rejected the email')
-            expect(result.metrics.map((metric) => metric.metric_name)).toEqual(['email_failed'])
-            expect(result.invocation.state.vmState?.stack).toEqual([{ success: false }])
-            expect(result.capturedPostHogEvents).toEqual([])
-            expect(result.logs).toContainEqual(
-                expect.objectContaining({
-                    level: 'warn',
-                    message:
-                        'Could not read the engagement setting, so no engagement event was recorded for this email.',
-                })
-            )
-        })
+        )
     })
 })
