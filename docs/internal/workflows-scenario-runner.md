@@ -172,7 +172,6 @@ The first slice is local only, on real time.
 
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
-Today `smoke` offers `event_email` and checks `at_least_once`; the rest of its row arrives with the stacks that add those traffic kinds and invariants.
 
 | Card                     | Traffic                                               | Valves                                                            | Invariants                                                                | Failure class                                |
 | ------------------------ | ----------------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------- |
@@ -253,7 +252,7 @@ sequenceDiagram
 ```
 
 During drive and convergence the Runner polls `Environment.health()` every 5 seconds.
-It reads `Environment.exits()` once `role.kill` exists to tell a caused exit from an unexplained one.
+It reads `Environment.exits()` from `Judge.open` on, to tell an exit a valve caused from an unexplained one.
 `Valves.releaseAll` also runs in a `finally`, so no valve outlives its card.
 
 ### An email worker killed mid-batch
@@ -336,7 +335,7 @@ sequenceDiagram
         E-->>R: dependency down
         V-->>R: requested, not observed
         Note over R: invalid
-    else a role exited without a kill causing it, from role.kill on
+    else a role exited without a valve causing it
         E-->>R: exit not caused by a valve
         Note over R: failed: role exited
     else not converged within the bound
@@ -375,7 +374,7 @@ Only the Environment has two implementations, and only it knows how a role is fo
 The card format and the scorecard event are the external contracts: other people and tools read them, so they change only with a schema version.
 The other interfaces are internal seams; each module keeps the responsibilities in the module table.
 
-These contracts cover the whole first slice, so some members are not in the code yet; later stacks add them: the `Valves` module, `Environment.actuate`, the edge's `caDir` and `feedbackUrl` with its CONNECT proxy and SNS feedback, `Judge.measure` and the measurements, the `event_webhook`, `transactional_email` and `bounce_followup` traffic kinds, and the `duplicate_sends`, `refused_at_intake` and `bounced_suppressed` invariants.
+These contracts cover the whole first slice, so some members are not in the code yet; later stacks add them: the `role.freeze` and `pg.drop_connections` valves with the `freeze` and `pg.terminate` actuations, the edge's SNS feedback with `ses.reject` type `bounce` and `ses.throttle`, the `bounce_followup` traffic kind, the `bounced_suppressed` invariant, and the cards other than `smoke` and `email-worker-killed`.
 
 ### Cards
 
@@ -383,20 +382,40 @@ The schema is `Card` in `cards/schema.ts`.
 A card names its profile, its seed, the number of teams to seed, its traffic kinds and their duration, its valve entries, `convergeWithin`, its invariants and measurements, and its gates.
 
 ```yaml
-id: smoke
+id: email-worker-killed
 version: 1
 clock: real
 profile: synthetic
-seed: 1
+seed: 2
 setup:
   teams: 1
 drive:
   for: 30s
   traffic:
     - name: event_email
+    - name: transactional_email
+valves:
+  - valve: role.kill
+    target: cdp-cyclotron-worker-email
+    dose: {}
+    when:
+      name: running_on_queue
+      params:
+        queue: email
+        atLeast: 1
+    for: 1s
 convergeWithin: 2m
 invariants:
   - name: at_least_once
+  - name: duplicate_sends
+  - name: refused_at_intake
+gates:
+  duplicate_sends: 3
+  refused_at_intake: 0
+measure:
+  - name: role_cpu_seconds
+  - name: role_rss_max_bytes
+  - name: delivery_latency_ms
 ```
 
 A valve entry names a valve, its target (a role, `postgres` or a provider host), its dose, exactly one of `at` (an offset from the start of the drive) or `when`, and `for`.
@@ -438,8 +457,8 @@ export interface Runner {
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, the intake accepted fewer than `minOffered` of the target units before the drive ended, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
-  - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a `role.kill` causing it, even if every delivery later arrives. The role-exit rule applies once `role.kill` arrives; until then the supervisor restarts the role and the status does not see the exit.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so this outranks a failed invariant.
+  - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back, or when the scorecard files could not be written. A run interrupted after the capture keeps the status's code, unless its files could not be written.
 
@@ -457,8 +476,11 @@ export interface Environment {
   exits(): RoleExit[]
   down(): Promise<void>
 }
+
+export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 ```
 
+- **Role handles.** `role(name)` returns the role's base `url` and its `/_metrics` URL, which the runner's sampler scrapes.
 - **`up` owns the stack.**
   - It takes a lock on its state directory, so one runner uses it at a time.
   - It stops the leftovers of a crashed invocation: processes whose marker names its state directory.
@@ -497,7 +519,7 @@ export function startProviderEdge(options: {
   configurationSets?: ConfigurationSets // validated as SES does, for the fake-ses adapter
   trackingKeys?: string // ENCRYPTION_SALT_KEYS, to read the action id from the tracking code
   caDir?: string // creates the CA and leaf certificates; without it the edge serves plain HTTP only
-  feedbackUrl?: string // cdp-api's SES webhook
+  region?: string // the SNS certificate's host is sns.<region>.amazonaws.com; us-east-1 when unset
 }): Promise<ProviderEdge>
 ```
 
@@ -533,14 +555,14 @@ export type TruthRecord = {
 
 ```ts
 // nodejs/tests/scenarios/valves/valves.ts
-export interface ValveDefinition<P> {
-  name: string
-  params: z.ZodType<P>
-  apply(ctx: ValveContext, target: string, dose: P): Promise<Actuation>
+export type ValveDefinition = Definition & {
+  // Definition holds the name and the params schema
+  target: z.ZodType<string>
+  apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
 }
 
 export interface Valves {
-  start(entries: ValveEntry[], ctx: ValveContext): Promise<void> // schedules each entry; returns at once
+  start(entries: ValveEntry[], context: ValveContext): Promise<void> // schedules each entry; returns at once
   releaseAll(): Promise<void> // cancels pending entries, awaits in-flight ones, then releases; idempotent
   timeline(): ValveTimelineEntry[] // requested, applied, observed and released times, and any error
 }
@@ -568,7 +590,7 @@ export function drive(
 - **Intakes.** Events go to the topic the events consumer reads. Transactional sends go to cdp-api's template route.
 - **Pacing.** Each traffic kind offers `ratePerSecond` units for the drive's duration, from its profile entry. Sampling uses the card's `seed`, so two runs of one card offer the same sequence of units.
 - **No retries.** Every call, its answer and its expected deliveries are recorded, refusals included. A call that gets no answer is recorded as a transport error.
-- **Load.** `offeredUnits` counts the units the intake accepted before the drive ended. A refusal, a transport error, or an answer after the drive's end does not count, so a generator that falls behind and an intake that refuses or stalls enough units both make the run `invalid`.
+- **Load.** `offeredUnits` counts the units whose answer arrived before the drive ended: every event Kafka accepted, and every call to a CDP role's intake, such as cdp-api, whatever it answered. A refusal or transport error from a role is the engine's answer, which `refused_at_intake` judges. A failed Kafka produce does not count, because Kafka is a dependency. So a generator that falls behind, or a Kafka that refuses enough events, makes the run `invalid`.
 - **Waits.** A traffic kind that needs an earlier delivery first reads the edge's truth with a bound. When the bound passes, the unit is recorded as not offered and the run is `invalid`.
 
 ### Judge
@@ -576,11 +598,10 @@ export function drive(
 ```ts
 // nodejs/tests/scenarios/judge/judge.ts
 export interface Judge {
-  open(seed: SeedState): Promise<void>
+  open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
   check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
-  measure(measurements: Named[]): Promise<Measurement[]>
   evidence(): { journal: JournalEntry[]; truth: TruthRecord[] } // journal.json and truth.json
 }
 
@@ -600,7 +621,7 @@ export type InvariantResult = {
   - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
   - `bounced_suppressed`: the follow-up to a bounced address is refused with `recipient_suppressed`, and the truth has no 2xx send to that address after the feedback.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
-- **Measurements.** Each has a unit and a better direction in its definition. The Judge samples every role's `/_metrics` every 5 seconds from the drive's start to convergence.
+- **Measurements.** Each has a unit and a better direction in its definition. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
@@ -611,10 +632,11 @@ export type InvariantResult = {
 // nodejs/tests/scenarios/probe/cyclotron-probe.ts
 export interface CyclotronProbe {
   unfinishedJobs(query: { teams: number[]; queues: ('hogflow' | 'email')[] }): Promise<number>
+  runningJobs(query: { teams: number[]; queues: ('hogflow' | 'email')[] }): Promise<number>
 }
 ```
 
-It is the runner's only query against `cyclotron_jobs`: jobs that are `available`, scheduled for later included, or `running`.
+These are the runner's only queries against `cyclotron_jobs`. `unfinishedJobs` counts jobs that are `available`, scheduled for later included, or `running`; `runningJobs` counts the `running` ones, for a valve's `when`.
 When Cyclotron gains its own read of the same counts, that read replaces this module.
 
 ### Scorecard
@@ -678,20 +700,20 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                              |
-| ------------------- | --------------- | ---------------------------------------------------------------------------------------------------- |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                      |
-| `status_reason`     | string          | Why, in one line                                                                                     |
-| `started_at`        | string          | ISO 8601 time the run started                                                                        |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                              |
-| `duration_s`        | number          | Seconds from start to end                                                                            |
-| `units_target`      | number or null  | Units the profile asked for                                                                          |
-| `units_offered`     | number or null  | Units the intake accepted before the drive ended                                                     |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                  |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                         |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                  |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                           |
+| Property            | Type            | Meaning                                                                                                                |
+| ------------------- | --------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                                        |
+| `status_reason`     | string          | Why, in one line                                                                                                       |
+| `started_at`        | string          | ISO 8601 time the run started                                                                                          |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                |
+| `duration_s`        | number          | Seconds from start to end                                                                                              |
+| `units_target`      | number or null  | Units the profile asked for                                                                                            |
+| `units_offered`     | number or null  | Units whose answer arrived before the drive ended: events Kafka accepted, and role intake calls whatever they answered |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                    |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                           |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                   |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                    |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                             |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:
