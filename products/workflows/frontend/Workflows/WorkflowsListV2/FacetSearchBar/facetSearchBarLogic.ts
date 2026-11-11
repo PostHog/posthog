@@ -68,6 +68,9 @@ const DRAFT_PATTERN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"?|(\S*))$/
 // A token is complete when whitespace follows it, or when its quoted value is closed.
 const COMPLETE_TOKEN = /(^|\s)(-?)([\w-]+):(?:"((?:[^"\\]|\\.)*)"|([^\s"]+)(?=\s))/g
 
+const isInsideOpenQuote = (input: string, offset: number): boolean =>
+    (input.slice(0, offset).match(/(?<!\\)"/g)?.length ?? 0) % 2 === 1
+
 /** Takes every complete, known `facet:value` token out of the input. The rest stays as typed. */
 function extractCompleteFilters(
     input: string,
@@ -76,10 +79,19 @@ function extractCompleteFilters(
     const filters: FacetFilter[] = []
     const remaining = input.replace(
         COMPLETE_TOKEN,
-        (token: string, lead: string, minus: string, key: string, quoted?: string, bare?: string) => {
+        (
+            token: string,
+            lead: string,
+            minus: string,
+            key: string,
+            quoted: string | undefined,
+            bare: string | undefined,
+            offset: number
+        ) => {
             const facet = findFacet(facets, key)
             const value = facet && normalizeFacetValue(facet, tokenValue(quoted, bare))
-            if (!facet || !value) {
+            // A token inside a quoted value that is still being typed is part of that value.
+            if (!facet || !value || isInsideOpenQuote(input, offset)) {
                 return token
             }
             filters.push({ facet: facet.key, value, negated: minus === '-' })

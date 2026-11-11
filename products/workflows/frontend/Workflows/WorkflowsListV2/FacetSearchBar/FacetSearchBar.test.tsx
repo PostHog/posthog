@@ -166,6 +166,12 @@ describe('FacetSearchBar', () => {
         ['a typed facet value followed by a space', 'status:active ', 'status:active', ''],
         ['a closed quoted value', 'sends:"Your trial ends"', 'sends:"Your trial ends"', ''],
         ['text around a typed facet value', 'wel status:active ren', 'status:active', 'wel ren'],
+        [
+            'a quoted value that holds a facet token',
+            'sends:"Check status:active now" wel',
+            'sends:"Check status:active now"',
+            'wel',
+        ],
     ])('turns %s into a pill', (_, typed, query, text) => {
         setup()
         clickInput()
