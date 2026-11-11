@@ -823,9 +823,24 @@ class TestVercelIntegration(TestCase):
 
         mock_report.assert_not_called()
 
-    def test_get_resource_not_found(self):
+    @parameterized.expand([("missing_id",), ("another_organization",), ("not_a_number",)])
+    def test_resource_not_found(self, case: str):
+        if case == "another_organization":
+            other_org = Organization.objects.create(name="Other Org")
+            _, other_resource = self.make_team_with_vercel(other_org, self.user)
+            resource_id = str(other_resource.pk)
+        else:
+            resource_id = "999999" if case == "missing_id" else "abc"
+
         with self.assertRaises(NotFound):
-            VercelIntegration.get_resource("999999")
+            VercelIntegration.get_resource(self.installation_id, resource_id)
+        with self.assertRaises(NotFound):
+            VercelIntegration.update_resource(self.installation_id, resource_id, {"name": "Hacked"})
+        with self.assertRaises(NotFound):
+            VercelIntegration.delete_resource(self.installation_id, resource_id)
+        if case == "another_organization":
+            other_resource.refresh_from_db()
+            assert other_resource.config["name"] == "Test Resource"
 
     def test_create_resource(self):
         resource_data = {
@@ -856,7 +871,7 @@ class TestVercelIntegration(TestCase):
         resource.config["metadata"] = {}
         resource.save()
 
-        result = VercelIntegration.get_resource(str(resource.pk))
+        result = VercelIntegration.get_resource(self.installation_id, str(resource.pk))
 
         assert result["id"] == str(resource.pk)
         assert result["productId"] == "posthog"
@@ -877,7 +892,7 @@ class TestVercelIntegration(TestCase):
         resource.save()
 
         update_data = {"name": "Updated Name", "metadata": {"new": "value"}}
-        result = VercelIntegration.update_resource(str(resource.pk), update_data)
+        result = VercelIntegration.update_resource(self.installation_id, str(resource.pk), update_data)
 
         resource.refresh_from_db()
         assert resource.config["name"] == "Updated Name"
@@ -889,12 +904,8 @@ class TestVercelIntegration(TestCase):
     def test_delete_resource(self):
         team, resource = self.make_team_with_vercel(self.organization, self.user)
         resource_id = str(resource.pk)
-        VercelIntegration.delete_resource(resource_id)
+        VercelIntegration.delete_resource(self.installation_id, resource_id)
         assert not Integration.objects.filter(pk=resource_id).exists()
-
-    def test_delete_resource_not_found(self):
-        with self.assertRaises(NotFound):
-            VercelIntegration.delete_resource("999999")
 
     def test_create_resource_missing_name(self):
         resource_data = {
