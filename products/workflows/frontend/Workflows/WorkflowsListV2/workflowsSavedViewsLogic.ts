@@ -293,7 +293,10 @@ interface EditsWhileViewsLoad {
     columns?: OptionalColumn[]
 }
 
-// A stalled request would hide every workflow row behind the loading state with no way to retry, so each one fails after this long.
+type SavedViewMutation = (stillCurrent: () => boolean, signal: AbortSignal) => Promise<void>
+
+// A stalled request would hide every workflow row behind the loading state, or hold every later save in the queue,
+// with no way to retry, so each request fails after this long.
 export const SAVED_VIEWS_REQUEST_TIMEOUT_MS = 10_000
 
 export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
@@ -728,7 +731,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         }
         const executeMutation = async (
             action: SavedViewAction,
-            run: (stillCurrent: () => boolean) => Promise<void>,
+            run: SavedViewMutation,
             generation: number,
             teamId: number | null,
             target?: WorkflowSavedView,
@@ -740,9 +743,18 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 return
             }
             actions.setPendingAction(action)
+            // A request past its deadline is aborted and anything it does afterwards is dropped,
+            // so the queue moves on.
+            let settled = false
+            const currentRun = (): boolean => !settled && stillCurrent()
             try {
-                await run(stillCurrent)
+                await withTimeout(
+                    (signal) => run(currentRun, signal),
+                    SAVED_VIEWS_REQUEST_TIMEOUT_MS,
+                    `workflowsSavedViewsLogic: ${action} timed out`
+                )
             } catch (error) {
+                settled = true
                 if (stillCurrent()) {
                     const failure = handleFailure(action, error, target)
                     if (failure) {
@@ -750,6 +762,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     }
                 }
             } finally {
+                settled = true
                 if (stillCurrent()) {
                     actions.setPendingAction(null)
                 }
@@ -758,7 +771,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         const runMutation = (
             action: SavedViewAction,
             key: string,
-            run: (stillCurrent: () => boolean) => Promise<void>,
+            run: SavedViewMutation,
             target?: WorkflowSavedView,
             onFailure?: (failure: unknown) => void
         ): Promise<void> => {
@@ -869,11 +882,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     await runMutation(
                         'reset',
                         currentViewId,
-                        async (stillCurrent) => {
+                        async (stillCurrent, signal) => {
                             try {
                                 const latest = await api.workflowViewsRetrieve(
                                     String(values.currentTeamId),
-                                    currentViewId
+                                    currentViewId,
+                                    { signal }
                                 )
                                 if (!stillCurrent()) {
                                     return
@@ -1026,11 +1040,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     await runMutation(
                         'save-as',
                         name.trim(),
-                        async (stillCurrent) => {
-                            const view = await api.workflowViewsCreate(String(values.currentTeamId), {
-                                name: name.trim(),
-                                state,
-                            })
+                        async (stillCurrent, signal) => {
+                            const view = await api.workflowViewsCreate(
+                                String(values.currentTeamId),
+                                { name: name.trim(), state },
+                                { signal }
+                            )
                             if (!stillCurrent()) {
                                 return
                             }
@@ -1059,11 +1074,12 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     await runMutation(
                         'update',
                         current.id,
-                        async (stillCurrent) => {
+                        async (stillCurrent, signal) => {
                             const view = await api.workflowViewsPartialUpdate(
                                 String(values.currentTeamId),
                                 current.id,
-                                { version: latestVersion(current), state }
+                                { version: latestVersion(current), state },
+                                { signal }
                             )
                             if (!stillCurrent()) {
                                 return
@@ -1089,11 +1105,13 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 await runMutation(
                     'rename',
                     `${id}:${name.trim()}`,
-                    async (stillCurrent) => {
-                        const updated = await api.workflowViewsPartialUpdate(String(values.currentTeamId), id, {
-                            version: latestVersion(current),
-                            name: name.trim(),
-                        })
+                    async (stillCurrent, signal) => {
+                        const updated = await api.workflowViewsPartialUpdate(
+                            String(values.currentTeamId),
+                            id,
+                            { version: latestVersion(current), name: name.trim() },
+                            { signal }
+                        )
                         if (!stillCurrent()) {
                             return
                         }
@@ -1111,9 +1129,14 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 await runMutation(
                     'delete',
                     id,
-                    async (stillCurrent) => {
+                    async (stillCurrent, signal) => {
                         await api
-                            .workflowViewsDestroy(String(values.currentTeamId), id, { version: latestVersion(current) })
+                            .workflowViewsDestroy(
+                                String(values.currentTeamId),
+                                id,
+                                { version: latestVersion(current) },
+                                { signal }
+                            )
                             .catch(ignoreMissingView)
                         if (!stillCurrent()) {
                             return
@@ -1134,8 +1157,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 )
             },
             restoreMyWorkflows: async () =>
-                await runMutation('restore', '', async (stillCurrent) => {
-                    const view = await api.workflowViewsRestoreDefaultCreate(String(values.currentTeamId))
+                await runMutation('restore', '', async (stillCurrent, signal) => {
+                    const view = await api.workflowViewsRestoreDefaultCreate(String(values.currentTeamId), { signal })
                     if (!stillCurrent()) {
                         return
                     }

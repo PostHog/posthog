@@ -1316,6 +1316,42 @@ describe('workflowsSavedViewsLogic', () => {
         }
     )
 
+    it('fails a stalled save after the deadline and runs the next change', async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        let patches = 0
+        useMocks({
+            patch: {
+                '/api/projects/:team_id/workflow_views/:id/': async ({ request }) => {
+                    patches++
+                    if (patches === 1) {
+                        return new Promise(() => {})
+                    }
+                    return [200, { ...savedView, ...((await request.json()) as Partial<WorkflowViewApi>) }]
+                },
+            },
+        })
+        router.actions.push(urls.workflows(), { view: VIEW_ID })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        workflowsListV2Logic.actions.setValue({ filters: [status('draft')], text: '' })
+        jest.useFakeTimers()
+        try {
+            void logic.asyncActions.updateActiveView()
+            const renamed = logic.asyncActions.renameView(VIEW_ID, 'Renamed flows')
+            await jest.advanceTimersByTimeAsync(SAVED_VIEWS_REQUEST_TIMEOUT_MS)
+            expect(toastError).toHaveBeenCalledWith(
+                "Couldn't update Active flows. Check your connection and try again."
+            )
+            await renamed
+        } finally {
+            jest.useRealTimers()
+        }
+        expect(patches).toBe(2)
+        expect(logic.values.saving).toBe(false)
+        expect(logic.values.views.find((view) => view.id === VIEW_ID)?.name).toEqual('Renamed flows')
+    })
+
     it('keeps local edits on All when the view being updated was deleted by someone else', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
         useMocks({ patch: { '/api/projects/:team_id/workflow_views/:id/': () => [404, { detail: 'Not found.' }] } })
