@@ -240,7 +240,6 @@ class TestSandboxEmailSteps(APIBaseTest):
         [
             ("create", None),
             ("test_run_override", {}),
-            # The saved owner decides, whatever the override claims.
             ("test_run_override_claiming_no_owner", {"origin_product": None}),
         ]
     )
@@ -268,9 +267,7 @@ class TestSandboxEmailSteps(APIBaseTest):
         [
             ("new_value_on_publish", None, "active", 400),
             ("stored_value_on_publish", "live", "active", 200),
-            # Some writes, such as an approved suggestion, store a draft without validating it.
             ("value_only_in_the_staged_draft", "draft", "active", 400),
-            # A web draft save tolerates unfinished steps, but a wrong-kind sender is never unfinished.
             ("new_value_in_a_web_draft_save", None, "draft", 400),
         ]
     )
