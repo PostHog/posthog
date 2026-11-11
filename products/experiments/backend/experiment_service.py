@@ -38,7 +38,7 @@ from posthog.api.cohort import (
     CohortSerializer,
     get_flags_blocking_cohort_deletion,
 )
-from posthog.api.utils import ServiceRequest
+from posthog.api.utils import ServiceRequest, parse_id_list
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import (
     ACTIONS,
@@ -97,7 +97,7 @@ from products.experiments.backend.metric_calculation.config import (
     stamp_calculation_keys,
 )
 from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
-from products.experiments.backend.metric_resolution import MetricRole
+from products.experiments.backend.metric_resolution import MetricRole, find_metric_dict
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
     defined_event_names,
@@ -3988,6 +3988,14 @@ class ExperimentService:
         separately because that relation is excluded from it.
         """
         changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        if before_update is not None:
+            # A restamp of the fingerprints alone, for example after the calculation key version changes, is no
+            # metric change.
+            for field_name in ("metrics", "metrics_secondary"):
+                if _metric_list_view(getattr(before_update, field_name)) == _metric_list_view(
+                    getattr(experiment, field_name)
+                ):
+                    changed_fields = [name for name in changed_fields if name != field_name]
         # Check if saved_metric assignment has changed
         if before_saved_metrics != self._saved_metric_signature(experiment):
             changed_fields = [*changed_fields, "saved_metrics"]
@@ -4530,6 +4538,10 @@ class ExperimentService:
             else:
                 queryset = queryset.filter(archived=False)
 
+            feature_flag_ids = parse_id_list(query_params.get("feature_flag_ids"), name="feature_flag_ids", parse=int)
+            if feature_flag_ids is not None:
+                queryset = queryset.filter(feature_flag_id__in=feature_flag_ids)
+
             feature_flag_id = query_params.get("feature_flag_id")
             if feature_flag_id:
                 try:
@@ -4716,6 +4728,7 @@ class ExperimentService:
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
+            "configuration_by_day": {day.isoformat(): status for day, status in stored.configuration_by_day.items()},
             "errors": errors if errors else None,
             "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": stored.earliest.created_at.isoformat()
@@ -4725,8 +4738,13 @@ class ExperimentService:
             "recalculation_status": active_recalculation.status if active_recalculation else None,
             "recalculation_created_at": active_recalculation.created_at.isoformat() if active_recalculation else None,
         }
+        metric_definition = find_metric_dict(experiment, metric_uuid) or {}
         response["formatted_results"] = ExperimentTimeseriesFormatter(
-            MetricTimeseries.from_stored(status=overall_status, timeseries=timeseries)
+            MetricTimeseries.from_stored(
+                status=overall_status,
+                timeseries=timeseries,
+                is_quantile=metric_definition.get("metric_type") == "quantile",
+            )
         ).format()
         return response
 

@@ -709,10 +709,10 @@ class AdvancedActivityLogsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         # Masking happens at serialization, so value filters must not match entries whose values are hidden.
         if not filters_match_change_values(filters):
             return queryset
-        hidden_names = self.property_value_visibility.hidden_group_property_names(self.team_id, self.organization.id)
-        if not hidden_names:
+        hidden = self.property_value_visibility.hidden_group_values_filter(self.team_id, self.organization.id)
+        if hidden is None:
             return queryset
-        return queryset.exclude(scope="Group", detail__name__in=hidden_names)
+        return queryset.exclude(hidden)
 
     @extend_schema(parameters=[AdvancedActivityLogFiltersSerializer])
     def list(self, request, *args, **kwargs):

@@ -2,7 +2,7 @@ import math
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
@@ -21,6 +21,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.bias_risk import multiple_variant_count
+from products.experiments.backend.health.checks.change_wording import RESET_EFFECT, suggested_start
 from products.experiments.backend.health.checks.forced_variant import (
     SOME_CONDITIONS_PINNED,
     assigns_nobody_by_split,
@@ -137,10 +138,8 @@ def segments_first_exposed_after(ctx: HealthContext) -> date | None:
     """The day after which the segments count the users, in the team's timezone. None for the whole run. After a split
     change, the users first exposed before it got their variants from another split, so they would fail the test
     against the current split in any segment they fill."""
-    history = ctx.flag_history
-    if not isinstance(history, FlagHistory) or _split_change_cause(ctx) is None:
-        return None
-    return _last_split_change_day(history)
+    split_changes = _split_change_cause(ctx)
+    return None if split_changes is None else split_changes.last_day
 
 
 def srm_values(ctx: HealthContext) -> CheckValues:
@@ -190,12 +189,11 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     if _split_changed_after_the_end(ctx):
         return not_applicable(SPLIT_CHANGED_AFTER_END)
     share_off_split = _share_off_split(exposures.total_exposures, exposures.sample_ratio_expected)
-    split_change = _split_change_warning(ctx)
-    history = ctx.flag_history
+    split_changes = _split_changes(ctx)
     ruled_out = False
-    if split_change is not None and isinstance(history, FlagHistory):
-        if not _skew_predates_the_change(ctx, exposures, history):
-            return _after_split_change(ctx, exposures, history, split_change, p_value, share_off_split)
+    if split_changes is not None:
+        if not _skew_predates_the_change(ctx, exposures, split_changes):
+            return _after_split_change(ctx, exposures, split_changes, p_value, share_off_split)
         ruled_out = True
     cause = _segment_cause(exposures, exposures.unit)
     pinned = _pinned_cause(ctx, exposures)
@@ -226,15 +224,14 @@ def _small_mismatch(share_off_split: float, unit: str) -> list[str]:
 def _after_split_change(
     ctx: HealthContext,
     exposures: ExposureTotals,
-    history: FlagHistory,
-    split_change: ExperimentHealthFinding,
+    split_changes: "_SplitChanges",
     p_value: float,
     share_off_split: float,
 ) -> ExperimentHealthFinding:
     # A retest that passes keeps the severity: the users exposed after the change are fewer than those the test covers,
     # so it can't rule out a mismatch with another cause. The retest only adds evidence.
     unit = exposures.unit
-    retest, p_value_after_change = _retest_after_change(ctx, exposures, history, unit)
+    retest, p_value_after_change = _retest_after_change(ctx, exposures, split_changes, unit)
     evidence: dict[str, str | int | float | None] = {
         "p_value": p_value,
         "share_off_split": round(share_off_split, 4),
@@ -258,12 +255,10 @@ def _after_split_change(
                 f"The distribution of {unit}s across variants doesn't match your current rollout percentages "
                 f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
                 *_small_mismatch(share_off_split, unit),
-                f"The variant split changed after launch while {unit}s were exposed, and some of them got their "
-                "variants from another split, which can cause this.",
+                _changed_while_exposed(split_changes, unit),
                 *retest,
                 *(cause.sentences if cause is not None else ()),
-                # The split check doesn't run after the end, so its finding isn't there to follow.
-                *([] if ctx.has_ended else [f'Follow the steps in "{split_change.title}" to fix the results.']),
+                *_next_step(ctx, split_changes),
             ]
         ),
         evidence=evidence,
@@ -272,8 +267,31 @@ def _after_split_change(
     )
 
 
+def _changed_while_exposed(split_changes: "_SplitChanges", unit: str) -> str:
+    if split_changes.warning_title is None:
+        return (
+            f"The variant split changed after launch, and {unit}s exposed before the change got their variants from "
+            "another split, which can cause this."
+        )
+    return (
+        f"The variant split changed after launch while {unit}s were exposed, and some of them got their variants from "
+        "another split, which can cause this."
+    )
+
+
+def _next_step(ctx: HealthContext, split_changes: "_SplitChanges") -> list[str]:
+    if split_changes.warning_title is None:
+        start_at = suggested_start(split_changes.changes[-1].changed_at, split_changes.team_timezone)
+        # A reset also clears the end date and the conclusion, which would undo an ended experiment's decision.
+        if ctx.has_ended:
+            return [f"Move the start date to {start_at}."]
+        return [f"Move the start date to {start_at}, or reset the experiment.", RESET_EFFECT]
+    # The split check doesn't run after the end, so its finding isn't there to follow.
+    return [] if ctx.has_ended else [f'Follow the steps in "{split_changes.warning_title}" to fix the results.']
+
+
 def _retest_after_change(
-    ctx: HealthContext, exposures: ExposureTotals, history: FlagHistory, unit: str
+    ctx: HealthContext, exposures: ExposureTotals, split_changes: "_SplitChanges", unit: str
 ) -> tuple[list[str], float | None]:
     """The sentence about the test of the users first exposed after the day of the last split change, who got their
     variants from the current split alone, and its p-value."""
@@ -287,7 +305,7 @@ def _retest_after_change(
             f"The exposure criteria count {unit}s at an activation, so the {unit}s exposed after the change can't "
             "be tested alone."
         ], None
-    changed_on = _last_split_change_day(history)
+    changed_on = split_changes.last_day
     after_change = sample_ratio_test(
         {
             variant: sum(count for day, count in daily.items() if day > changed_on)
@@ -308,31 +326,76 @@ def _retest_after_change(
     ], after_change.p_value
 
 
-def _last_split_change_day(history: FlagHistory) -> date:
-    return history.counted(SplitChange)[-1].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
+@frozen
+class _SplitChanges:
+    """The split changes after launch that can have moved users who were already exposed, in time order."""
+
+    changes: tuple[SplitChange, ...]
+    team_timezone: str
+    # None when the split check couldn't compare the changes with the exposures, so its finding has no steps to follow.
+    warning_title: str | None
+
+    @property
+    def first_day(self) -> date:
+        return _day_in(self.team_timezone, self.changes[0].changed_at)
+
+    @property
+    def last_day(self) -> date:
+        return _day_in(self.team_timezone, self.changes[-1].changed_at)
 
 
-def _split_change_cause(ctx: HealthContext) -> ExperimentHealthFinding | None:
-    """The warning of the split change check, when the change can explain the mismatch."""
-    warning = _split_change_warning(ctx)
+def _day_in(team_timezone: str, at: datetime) -> date:
+    return at.astimezone(ZoneInfo(team_timezone)).date()
+
+
+def _split_changes(ctx: HealthContext) -> _SplitChanges | None:
+    """The split changes that the split check reports, from the first that can have moved an exposed user."""
+    finding = _split_change_finding(ctx)
     history = ctx.flag_history
-    if warning is None or not isinstance(history, FlagHistory) or ctx.exposures is None:
+    if finding is None or ctx.exposures is None:
         return None
-    return None if _skew_predates_the_change(ctx, ctx.exposures, history) else warning
+    if isinstance(history, FlagHistory):
+        if finding.severity != ExperimentHealthFindingSeverity.WARNING:
+            return None
+        return _SplitChanges(
+            changes=history.counted(SplitChange), team_timezone=history.team_timezone, warning_title=finding.title
+        )
+    if not isinstance(history, FlagHistoryNotChecked):
+        return None
+    # A change on the first day of exposures may predate them all. It counts, as when the split check's query fails.
+    first_day = min(
+        (day for daily in ctx.exposures.daily_exposures.values() for day, count in daily.items() if count > 0),
+        default=None,
+    )
+    if first_day is None:
+        return None
+    changes = tuple(
+        change
+        for change in history.of_kind(SplitChange)
+        if _day_in(history.team_timezone, change.changed_at) >= first_day
+    )
+    if not changes:
+        return None
+    return _SplitChanges(changes=changes, team_timezone=history.team_timezone, warning_title=None)
 
 
-def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, history: FlagHistory) -> bool:
+def _split_change_cause(ctx: HealthContext) -> _SplitChanges | None:
+    """The split changes, when they can explain the mismatch."""
+    split_changes = _split_changes(ctx)
+    if split_changes is None or ctx.exposures is None:
+        return None
+    return None if _skew_predates_the_change(ctx, ctx.exposures, split_changes) else split_changes
+
+
+def _skew_predates_the_change(ctx: HealthContext, exposures: ExposureTotals, split_changes: _SplitChanges) -> bool:
     """Whether the users first exposed before the first split change, those first exposed after the last one and all
     exposed users show the same shares, and those after it don't match the current split. Mixing assignments then
     can't explain the mismatch, because each group of users alone shows it."""
     events = ctx.exposure_events
     if events is None or events.activation is not None:
         return False
-    changes = history.counted(SplitChange)
-    if not changes:
-        return False
-    first_day = changes[0].changed_at.astimezone(ZoneInfo(history.team_timezone)).date()
-    last_day = _last_split_change_day(history)
+    first_day = split_changes.first_day
+    last_day = split_changes.last_day
     weights = exposures.sample_ratio_expected
     # A user first exposed on the day of a change can have either split, so neither group counts them.
     before = {
@@ -370,16 +433,14 @@ def _during_the_run(ctx: HealthContext) -> HealthContext:
     return ctx
 
 
-def _split_change_warning(ctx: HealthContext) -> ExperimentHealthFinding | None:
+def _split_change_finding(ctx: HealthContext) -> ExperimentHealthFinding | None:
     try:
         outcome = split_changed_mid_run(_during_the_run(ctx))
     except Exception as error:
         # The health endpoint reports the failure of the split check itself. Here it must not hide the mismatch.
         capture_exception(error)
         return None
-    if isinstance(outcome, ExperimentHealthFinding) and outcome.severity == ExperimentHealthFindingSeverity.WARNING:
-        return outcome
-    return None
+    return outcome if isinstance(outcome, ExperimentHealthFinding) else None
 
 
 def _flag_of_the_run(ctx: HealthContext) -> FlagState | None:

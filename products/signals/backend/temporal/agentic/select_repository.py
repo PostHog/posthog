@@ -33,6 +33,7 @@ from products.signals.backend.temporal.agentic import (
     resolve_user_id_for_team,
 )
 from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.trial.reports import trial_report_activity
 from products.tasks.backend.facade.agents import (
     AgentTurnFailed,
     EmptyAgentTurnError,
@@ -73,10 +74,7 @@ def _pilot_code_availability(team_id: int) -> ReportResearchContext:
     adapters = [
         GitHubIntegration(item, source="signals_report_research", priority=Priority.NORMAL) for item in integrations
     ]
-    if all(
-        adapter.integration.repository_cache_updated_at and adapter.integration.repository_cache == []
-        for adapter in adapters
-    ):
+    if all(adapter.repository_cache_confirmed_empty() for adapter in adapters):
         return ReportResearchContext(mode="data_only", repository_status="no_repositories")
     if not team_has_code_access(team_id):
         return ReportResearchContext(mode="data_only", repository_status="github_unavailable")
@@ -177,6 +175,7 @@ def _capture_repo_research_event(
 @temporalio.activity.defn
 @scoped_temporal()
 @close_db_connections
+@trial_report_activity
 async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelectionResult:
     """Select the most relevant repository for a report's signals.
 

@@ -32,6 +32,9 @@ const earlyAccessFeatureCreate = (): ToolBase<
         if (params.documentation_url !== undefined) {
             body['documentation_url'] = params.documentation_url
         }
+        if (params.image_url !== undefined) {
+            body['image_url'] = params.image_url
+        }
         if (params.payload !== undefined) {
             body['payload'] = params.payload
         }
@@ -82,6 +85,7 @@ const earlyAccessFeatureList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/early_access_feature/`,
             query: {
+                ids: params.ids,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -118,6 +122,9 @@ const earlyAccessFeaturePartialUpdate = (): ToolBase<
         }
         if (params.documentation_url !== undefined) {
             body['documentation_url'] = params.documentation_url
+        }
+        if (params.image_url !== undefined) {
+            body['image_url'] = params.image_url
         }
         const result = await context.api.request<Schemas.EarlyAccessFeature>({
             method: 'PATCH',

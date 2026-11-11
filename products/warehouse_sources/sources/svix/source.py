@@ -18,7 +18,12 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.svix._config import SvixSourceConfig
-from products.warehouse_sources.sources.svix.settings import ENDPOINTS, SVIX_ENDPOINTS
+from products.warehouse_sources.sources.svix.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+    SVIX_ENDPOINTS,
+)
 from products.warehouse_sources.sources.svix.svix import SvixResumeConfig, svix_source, validate_credentials
 
 
@@ -54,7 +59,7 @@ class SvixSource(ResumableSource[SvixSourceConfig, SvixResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your Svix API key to pull your webhook platform data into the PostHog Data warehouse.
 
-You can create an API key under **Settings → API Access** in the [Svix dashboard](https://dashboard.svix.com/). The region is encoded in the key (the `sk_` prefix), so use the key for the environment you want to sync. The key grants read access to your applications and event types.
+You can create an API key under **Settings → API Access** in the [Svix dashboard](https://dashboard.svix.com/). The region is encoded in the key (the `sk_` prefix), so use the key for the environment you want to sync. The key grants read access to your applications, event types, endpoints, messages and delivery attempts.
 """,
             iconPath="/static/services/svix.png",
             docsUrl="https://posthog.com/docs/cdp/sources/svix",
@@ -95,17 +100,21 @@ You can create an API key under **Settings → API Access** in the [Svix dashboa
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — Svix's list endpoints expose no server-side
-        # updated-since filter, so there is no incremental cursor to advance.
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=False,
-                supports_append=False,
-                incremental_fields=[],
+        # Messages and attempts sync incrementally on `timestamp` by walking newest first to the
+        # watermark. The other list endpoints expose no updated-since filter, so they are full refresh.
+        schemas = []
+        for endpoint in ENDPOINTS:
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=bool(incremental_fields),
+                    # The lookback re-reads rows, so only merge keeps them unique.
+                    supports_append=False,
+                    incremental_fields=incremental_fields,
+                    default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS if incremental_fields else None,
+                )
             )
-            for endpoint in ENDPOINTS
-        ]
         if names is not None:
             names_set = set(names)
             schemas = [s for s in schemas if s.name in names_set]
@@ -116,6 +125,11 @@ You can create an API key under **Settings → API Access** in the [Svix dashboa
     ) -> tuple[bool, str | None]:
         # The API key is account-wide, so a single probe validates access to every schema.
         return validate_credentials(config.api_key)
+
+    def resume_covers_run(self, *, incremental_or_append: bool, schema_name: str | None = None) -> bool:
+        # A two-level fan-out (applications -> endpoints -> child) carries no resume state.
+        config = SVIX_ENDPOINTS.get(schema_name or "")
+        return config is None or config.parent != "endpoints"
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[SvixResumeConfig]:
         return ResumableSourceManager[SvixResumeConfig](inputs, SvixResumeConfig)
@@ -135,5 +149,7 @@ You can create an API key under **Settings → API Access** in the [Svix dashboa
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every Svix endpoint is full refresh
+            db_incremental_field_last_value=(
+                inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None
+            ),
         )

@@ -262,8 +262,8 @@ RUN set -eux; \
 # every sandbox image with no PostHog commit or review. Bump this deliberately
 # in a reviewed PR when picking up a new agent release. COMMIT_HASH invalidates
 # the layer for PostHog-side image changes that keep the agent version unchanged.
-ARG AGENT_VERSION=2.4.316
-ARG AGENT_TARBALL_SHA256="a6600fad67ecac4498c1eb57a3e03aeb7492ccbf3a178b70dd364619c066ad83"
+ARG AGENT_VERSION=2.4.319
+ARG AGENT_TARBALL_SHA256="15be3027f95812f4b270ad3bcc7e503d2a867c74e48757bc649fed2b41e582c8"
 ARG AGENT_TARBALL_URL=https://github.com/PostHog/posthog/releases/download/agent-v${AGENT_VERSION}/posthog-agent-${AGENT_VERSION}.tgz
 ARG COMMIT_HASH
 RUN mkdir -p /scripts && \

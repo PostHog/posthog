@@ -15,6 +15,7 @@ from rest_framework.relations import PKOnlyObject
 from rest_framework.utils import model_meta
 
 from posthog.helpers.trigram_search import search_match_type_from_instance
+from posthog.ip_restrictions import get_ip_blocked_organization_ids
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_notification_lock import LOCKABLE_NOTIFICATION_SETTINGS
@@ -317,6 +318,14 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):
+        request = self.context.get("request")
+        if request is not None and str(instance.id) in get_ip_blocked_organization_ids(request):
+            return {
+                "id": str(instance.id),
+                "name": instance.name,
+                "slug": instance.slug,
+                "membership_level": self.get_membership_level(instance),
+            }
         return super().to_representation(instance)
 
 

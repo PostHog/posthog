@@ -281,7 +281,10 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             ("by_kind_and_status", "kind=certify&status=dismissed", status.HTTP_200_OK, []),
             ("by_subject", "subject_id={view_id}", status.HTTP_200_OK, ["view"]),
             ("by_assignee", "assignee_id={user_id}", status.HTTP_200_OK, ["view"]),
+            ("catalog_surface", "surface=catalog", status.HTTP_200_OK, ["table", "view"]),
+            ("models_surface_skips_table_deprecations", "surface=models", status.HTTP_200_OK, []),
             ("unknown_status", "status=bogus", status.HTTP_400_BAD_REQUEST, None),
+            ("unknown_surface", "surface=bogus", status.HTTP_400_BAD_REQUEST, None),
         ]
     )
     def test_list_filters(self, _name: str, query: str, expected_status: int, expected: list[str] | None) -> None:
@@ -416,6 +419,58 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             30,
         )
         assert (after_a_run["enabled"], after_a_run["eligible"], after_a_run["days_with_data"]) == (True, True, 12)
+
+    @parameterized.expand(
+        [
+            ("member_counts_and_shows_only_views_they_can_read", None, "none", 1, True, 1),
+            ("member_counts_and_shows_only_views_they_can_edit", None, "viewer", 1, True, 1),
+            (
+                "token_that_writes_only_tables_gets_no_view_rows",
+                ["warehouse_view:read", "warehouse_table:write"],
+                "none",
+                0,
+                False,
+                0,
+            ),
+        ]
+    )
+    def test_show_more_counts_and_shows_only_waiting_rows_the_caller_can_act_on(
+        self,
+        _name: str,
+        token_scopes: list[str] | None,
+        denied_view_level: str,
+        expected_waiting: int,
+        expected_can_show_more: bool,
+        expected_surfaced: int,
+    ) -> None:
+        WarehouseSuggestionTeamConfig.objects.create(team=self.team, eligible=True)
+        denied_view = self._make_view("secret_orders")
+        for view in (self.view, denied_view):
+            ingest_one(
+                self.team.id,
+                replace(
+                    make_draft(fingerprint=f"deprecate:{view.id}", subject_id=view.id),
+                    kind=WarehouseSuggestionKind.DEPRECATE,
+                    payload=DeprecatePayload(
+                        subject_name=view.name, refresh_seconds_per_month=0, refresh_bytes_per_month=0
+                    ),
+                ),
+            )
+        self._restrict("warehouse_view", denied_view.id, denied_view_level)
+        if token_scopes:
+            self.client.credentials(HTTP_AUTHORIZATION=self._bearer(token_scopes))
+
+        waiting = self.client.get(f"{self.url}/status/?surface=models").json()
+        shown = self.client.post(f"{self.url}/surface_more/", {"surface": "models"})
+        surfaced_views = set(
+            WarehouseSuggestion.objects.for_team(self.team.id)
+            .filter(surfaced_at__isnull=False)
+            .values_list("subject_id", flat=True)
+        )
+
+        assert (waiting["waiting"], waiting["can_show_more"]) == (expected_waiting, expected_can_show_more)
+        assert (shown.status_code, shown.json()["surfaced"]) == (status.HTTP_200_OK, expected_surfaced)
+        assert surfaced_views == ({self.view.id} if expected_surfaced else set())
 
     def test_a_member_sees_nothing_about_subjects_they_cannot_read(self) -> None:
         visible = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE)

@@ -360,6 +360,13 @@ export const HarnessLogoInResults: Story = {
     tags: ['harness-result-visual'],
     parameters: {
         pageUrl: urls.sqlEditor({ query: HARNESS_SQL }),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/projects/:team_id/mcp_analytics/custom_harnesses/': [],
+                },
+            },
+        },
         testOptions: {
             waitForSelector: '.rdg [data-attr="hogqlx-brand-mark-label"]',
             viewport: { width: 1600, height: 900 },

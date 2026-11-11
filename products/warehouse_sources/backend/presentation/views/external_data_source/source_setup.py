@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Collection, Iterable, Mapping
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import Q, TextChoices
 from django.utils import timezone
 
 import temporalio
@@ -58,6 +58,7 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
     PendingSourceCredential,
     get_or_create_warehouse_destination,
+    sync_frequency_to_sync_frequency_interval,
     sync_old_schemas_with_new_schemas,
 )
 from products.warehouse_sources.backend.facade.source_inputs import (
@@ -99,7 +100,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, SourceKey
+from products.warehouse_sources.backend.facade.types import (
+    DataWarehouseManagedViewSetKind,
+    SettableSyncFrequency,
+    SourceKey,
+)
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 from products.warehouse_sources.backend.presentation.views.destination_links import (
     EMPTY_SET_MESSAGE,
@@ -131,6 +136,21 @@ def _payload_enabled_columns(schema: dict[str, Any]) -> list[str] | None:
     if not isinstance(payload_enabled_columns, list):
         return None
     return [str(column) for column in payload_enabled_columns if isinstance(column, str)]
+
+
+def _is_column_name_list(value: Any) -> bool:
+    return isinstance(value, list) and all(isinstance(column, str) for column in value)
+
+
+def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
+    """A table's `sync_frequency` from the create payload, such as `1hour`, or the 6-hour default.
+
+    Only frequencies a schema update accepts count, so creation cannot go below the 5-minute floor.
+    """
+    interval = (
+        sync_frequency_to_sync_frequency_interval(frequency) if frequency in SettableSyncFrequency.values else None
+    )
+    return interval or timedelta(hours=6)
 
 
 class ExternalDataSourceListSerializer(serializers.ListSerializer):
@@ -892,6 +912,20 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         return updated_source
 
 
+class ExternalDataSourceCreateCreatedVia(TextChoices):
+    """The `CreatedVia` values a caller may set. The class name keeps the generated enum name.
+
+    `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
+    caller (that would let any client self-label as wizard- or self-driving-created). They
+    are derived server-side by upgrading a machine-injected `mcp` value based on the request
+    transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
+    """
+
+    WEB = "web", "web"
+    API = "api", "api"
+    MCP = "mcp", "mcp"
+
+
 class ExternalDataSourceCreateSerializer(serializers.Serializer):
     source_type = SourceTypeField(
         help_text="The source type (e.g. 'Postgres', 'Stripe').",
@@ -919,15 +953,7 @@ class ExternalDataSourceCreateSerializer(serializers.Serializer):
         help_text="Connection mode: 'warehouse' (import) or 'direct' (live query).",
     )
     created_via = serializers.ChoiceField(
-        # `wizard` and `self_driving` are intentionally omitted: they are never accepted from a
-        # caller (that would let any client self-label as wizard- or self-driving-created). They
-        # are derived server-side by upgrading a machine-injected `mcp` value based on the request
-        # transport (the wizard, PostHog Desktop, or the wizard's self-driving program).
-        choices=[
-            ExternalDataSource.CreatedVia.WEB,
-            ExternalDataSource.CreatedVia.API,
-            ExternalDataSource.CreatedVia.MCP,
-        ],
+        choices=ExternalDataSourceCreateCreatedVia.choices,
         required=False,
         default=ExternalDataSource.CreatedVia.API,
         help_text=(
@@ -1395,11 +1421,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             source_config = validated_config
 
         api_version = source.default_version
-        cdc_enabled = (
-            payload.get("cdc_enabled", False)
-            and source_type_supports_cdc(source_type_model)
-            and base.is_cdc_enabled_for_team(self.team)
-        )
+        cdc_enabled = payload.get("cdc_enabled", False) and source_type_supports_cdc(source_type_model)
 
         # Schema discovery and the payload checks run before the insert, so a failure leaves no source and
         # no credentials row. Discovery opens its own connection, so it must not run in a transaction.
@@ -1711,10 +1733,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             payload_masked_columns = schema.get("masked_columns")
             # Dropping a malformed mask would sync the column in plaintext, so reject it.
-            if payload_masked_columns is not None and not (
-                isinstance(payload_masked_columns, list)
-                and all(isinstance(column, str) for column in payload_masked_columns)
-            ):
+            if payload_masked_columns is not None and not _is_column_name_list(payload_masked_columns):
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
@@ -1723,6 +1742,16 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
             masked_columns: list[str] | None = payload_masked_columns or None
+
+            # A stored string key would later split into one key per character.
+            if primary_key_columns is not None and not _is_column_name_list(primary_key_columns):
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
+                return Response(
+                    status=status.HTTP_400_BAD_REQUEST,
+                    data={
+                        "message": f"primary_key_columns for schema '{schema.get('name')}' must be a list of column names or null."
+                    },
+                )
 
             if should_sync and requires_incremental_fields and incremental_field is None:
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
@@ -1740,6 +1769,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
             schema_name = schema.get("name")
             source_schema = source_schemas_by_name.get(schema_name)
+            detected_primary_keys = source_schema.detected_primary_keys if source_schema else None
+            # A caller who sent no key gets the one discovery detected. Sync-time re-detection can
+            # disagree with discovery (e.g. permissions differences across query paths) and leave
+            # the merge without a key.
+            effective_primary_key_columns = primary_key_columns or detected_primary_keys
 
             # An incremental sync merges rows on a primary key. Created without one, the table
             # syncs once (the first write overwrites) and then fails on every later run, so the
@@ -1755,7 +1789,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 and sync_type == "incremental"
                 and not primary_key_columns
                 and introspected_columns
-                and not source_schema.detected_primary_keys  # type: ignore[union-attr]
+                and not detected_primary_keys
                 and not has_id_column
             ):
                 self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
@@ -1844,13 +1878,6 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             # enables get a concrete CDC method + config.
             cdc_not_set_up = is_cdc_schema and not should_sync
             if requires_incremental_fields and new_source_model.supports_scheduled_sync:
-                # If the caller didn't provide primary_key_columns, fall back to whatever the
-                # source detected during schema discovery. Otherwise we rely on sync-time
-                # re-detection, which can disagree with discovery (e.g. permissions differences
-                # across query paths) and leave incremental syncs without a primary key.
-                effective_primary_key_columns = primary_key_columns or (
-                    source_schema.detected_primary_keys if source_schema else None
-                )
                 # Lookback only applies to incremental (merge-by-PK makes the overlap re-read idempotent).
                 # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
                 # creation paths reject the same inputs instead of silently dropping null/float values.
@@ -1907,6 +1934,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "cdc_table_mode": cdc_table_mode,
                 }
                 sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
+            elif sync_type == ExternalDataSchema.SyncType.XMIN and new_source_model.supports_scheduled_sync:
+                # The xmin reader keys on the source's own primary key, so a caller's pick would not match it.
+                sync_type_config = {
+                    "schema_metadata": schema_metadata,
+                    **({"primary_key_columns": detected_primary_keys} if detected_primary_keys else {}),
+                }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 
@@ -1918,7 +1951,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     source_columns=[column[0] for column in introspected_columns],
                     # A sync merges and partitions on `id` when no key is stored or detected.
                     primary_key_columns=sync_type_config.get("primary_key_columns")
-                    or (source_schema.detected_primary_keys if source_schema else None)
+                    or detected_primary_keys
                     or [column[0] for column in introspected_columns if column[0].lower() == "id"][:1],
                     incremental_fields=[incremental_field],
                 )
@@ -1933,11 +1966,11 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 )
 
             # CDC schemas benefit from a tighter poll cadence — the extraction workflow is cheap
-            # and the value prop is near-real-time. Other sync types use the 6h default.
+            # and the value prop is near-real-time. Other sync types use the payload's frequency, or 6h.
             schema_sync_frequency_interval = (
                 timedelta(minutes=5)
                 if is_cdc_schema and not cdc_not_set_up and new_source_model.supports_scheduled_sync
-                else timedelta(hours=6)
+                else _payload_sync_frequency_interval(schema.get("sync_frequency"))
             )
             schema_model = ExternalDataSchema.objects.create(
                 name=schema_name,
@@ -1988,7 +2021,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     columns=filter_dwh_columns_by_enabled_columns(
                         direct_engine_adapter.columns_to_dwh_columns(source_schema.columns if source_schema else []),
                         enabled_columns,
-                        source_schema.detected_primary_keys if source_schema else None,
+                        detected_primary_keys,
                         incremental_field,
                         normalize=False,
                     ),
@@ -2293,6 +2326,37 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         if secret_ref_response is not None:
             return secret_ref_response
 
+        return self._setup_source(
+            request,
+            source_type=source_type,
+            payload=payload,
+            build_schemas=lambda source_schemas, permission_errors: build_default_schemas(
+                source_schemas, permission_errors=permission_errors
+            ),
+            prefix=serializer.validated_data.get("prefix"),
+            description=serializer.validated_data.get("description"),
+            created_via=ExternalDataSource.CreatedVia.MCP,
+            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+        )
+
+    def _setup_source(
+        self,
+        request: Request,
+        *,
+        source_type: str,
+        payload: dict,
+        build_schemas: Callable[[list[SourceSchema], Mapping[str, str | None]], list[dict]],
+        prefix: str | None,
+        description: str | None,
+        created_via: str,
+        direct_query_enabled: bool = False,
+        destination_ids: list | None = None,
+        webhook_tables: Callable[[], Collection[str]] | None = None,
+    ) -> Response:
+        """Validate a payload, discover its tables, and create the source with `build_schemas(tables, permission_errors)`.
+
+        `webhook_tables`, read after `build_schemas` runs, limits which tables a registered webhook may turn on.
+        """
         resolved = self._resolve_stored_credential(source_type, payload)
         if resolved.error_response is not None:
             return resolved.error_response
@@ -2364,18 +2428,19 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
         # Build the schemas array server-side so the caller never has to. We've already validated
         # config + credentials above, so `_create_external_data_source` skips that second gate
         # (`skip_credential_validation`) to avoid a duplicate live credential round-trip.
-        payload["schemas"] = build_default_schemas(source_schemas, permission_errors=setup_permissions)
+        payload["schemas"] = build_schemas(source_schemas, setup_permissions)
 
         response = self._create_external_data_source(
             request,
             source_type=source_type,
             payload=payload,
-            prefix=serializer.validated_data.get("prefix"),
-            description=serializer.validated_data.get("description"),
+            prefix=prefix,
+            description=description,
             access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
-            created_via=ExternalDataSource.CreatedVia.MCP,
-            direct_query_enabled=serializer.validated_data.get("direct_query_enabled", False),
+            created_via=created_via,
+            direct_query_enabled=direct_query_enabled,
             skip_credential_validation=True,
+            destination_ids=destination_ids,
         )
         # Stored credentials are single-use: once the source owns them (in job_inputs), drop the stash.
         if resolved.credential is not None and response.status_code == status.HTTP_201_CREATED:
@@ -2383,7 +2448,12 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         if response.status_code == status.HTTP_201_CREATED and isinstance(source, WebhookSource):
             webhook_result = self._auto_register_webhook(
-                source, source_config, str(response.data["id"]), source_schemas, permission_errors=setup_permissions
+                source,
+                source_config,
+                str(response.data["id"]),
+                source_schemas,
+                permission_errors=setup_permissions,
+                only_tables=webhook_tables() if webhook_tables else None,
             )
             if webhook_result is not None:
                 response.data["webhook"] = webhook_result
