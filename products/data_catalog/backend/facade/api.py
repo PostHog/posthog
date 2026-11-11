@@ -36,6 +36,7 @@ from ..logic.metrics import (
     bulk_approve_metrics,
     bulk_change_metric_owner,
     bulk_soft_delete_metrics,
+    metrics_for_list,
     metrics_for_team,
     metrics_visible_to_user,
     refresh_metric_from_insight,
@@ -47,7 +48,7 @@ from ..logic.pending_review import PendingGroup, PendingKind, TeamPendingReview,
 from ..logic.relationships import accept_proposal, propose_relationship, reject_proposal, relationships_for_team
 from ..logic.validation import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH, validate_metric_definition
 from ..models import METRIC_NAME_MAX_LENGTH
-from .contracts import HogQLMetricDefinition, MetricRead, MetricSummary
+from .contracts import HogQLMetricDefinition, MetricListFilters, MetricRead, MetricSummary
 from .models import Metric, RelationshipProposal, TableCertification
 
 __all__ = [
@@ -64,6 +65,7 @@ __all__ = [
     "HogQLMetricDefinition",
     "Metric",
     "MetricBulkSkip",
+    "MetricListFilters",
     "MetricSummary",
     "MetricRead",
     "metric_reads_for_ids",
@@ -90,6 +92,7 @@ __all__ = [
     "live_metric_summaries",
     "metric_names_for_ids",
     "metrics_for_team",
+    "metrics_for_list",
     "metrics_visible_to_user",
     "propose_certification",
     "propose_relationship",

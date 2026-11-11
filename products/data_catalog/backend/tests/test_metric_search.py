@@ -51,6 +51,7 @@ class TestSplitSearch(SimpleTestCase):
             ("commas_and_spaces", " mrr ,  monthly   recurring revenue,", ["mrr", "monthly recurring revenue"]),
             ("duplicates_any_case", "MRR, mrr, Mrr", ["MRR"]),
             ("cap_on_a_long_list", ",".join(f"term {index}" for index in range(8000)), [f"term {i}" for i in range(5)]),
+            ("nul_byte", "mr\x00r, arr", ["mrr", "arr"]),
         ]
     )
     def test_split_search(self, _name: str, search: str, expected: list[str]) -> None:
@@ -110,6 +111,32 @@ class TestMetricListSearch(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("name", "mrr", "mrr", "name match"),
+            ("words_in_the_description", "subscription revenue", "mrr", "all words in the description"),
+            ("words_split", "mrr subscriptions", "mrr", "all words in the name and description"),
+            (
+                "typo_in_two_words",
+                "weekly activ organisations",
+                "weekly_active_organizations",
+                "similar spelling to the name",
+            ),
+            ("one_right_word_is_not_a_typo", "active users", "weekly_active_organizations", "some words in the name"),
+        ]
+    )
+    def test_match_reason_says_where_the_words_matched(self, _name: str, search: str, metric: str, reason: str) -> None:
+        with team_scope(self.team.id):
+            for name, description in [
+                ("mrr", "Monthly recurring revenue from paid subscriptions."),
+                ("weekly_active_organizations", "Organizations with an active member this week."),
+            ]:
+                Metric.objects.for_team(self.team.id).create(team=self.team, name=name, description=description)
+
+        results = self.client.get(self.url, {"search": search}).json()["results"]
+
+        assert {row["name"]: row["match_reason"] for row in results}[metric] == reason
+
+    @parameterized.expand(
+        [
             ("approved_only", {"status": "approved"}, ["revenue_approved"]),
             ("proposed_only", {"status": "proposed"}, ["revenue_proposed"]),
             ("hogql_only", {"definition_kind": "HogQLQuery"}, ["revenue_approved"]),
@@ -140,7 +167,10 @@ class TestMetricListSearch(APIBaseTest):
                 )
 
         default = self.client.get(self.url, {"search": "revenue"}).json()
+        second = self.client.get(self.url, {"search": "revenue", "offset": "10"}).json()
         larger = self.client.get(self.url, {"search": "revenue", "limit": "20"}).json()
 
-        assert (len(default["results"]), default["next"] is not None) == (10, True)
+        assert (len(default["results"]), default["count"], default["next"] is not None) == (10, 12, True)
+        assert (len(second["results"]), second["count"], second["next"]) == (2, 12, None)
+        assert {row["name"] for row in default["results"]}.isdisjoint(row["name"] for row in second["results"])
         assert len(larger["results"]) == 12

@@ -7,7 +7,7 @@ hit is a confident match.
 
 import re
 from collections.abc import Sequence
-from enum import IntEnum
+from enum import IntEnum, StrEnum
 from functools import reduce
 from operator import or_
 from typing import TYPE_CHECKING
@@ -22,15 +22,17 @@ from django.contrib.postgres.search import (
 )
 from django.db.models import BooleanField, Case, Expression, Func, Q, QuerySet, Value, When
 from django.db.models.expressions import CombinedExpression
-from django.db.models.functions import Coalesce, Greatest
+from django.db.models.functions import Coalesce, Greatest, Least
 
 from posthog.dataclasses import frozen
+from posthog.helpers.trigram_search import normalize_search_term
 from posthog.models import Team, User
 
+from ..facade.contracts import MetricListFilters
 from ..facade.enums import MetricStatus
 from ..models import Metric
 from .analytics import AnalyticsProps, capture_metric_search_event
-from .metrics import metrics_visible_to_user
+from .metrics import metrics_for_list
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -40,15 +42,19 @@ MAX_SEARCH_PHRASING_LENGTH = 200
 # A search answers with a short ranked page unless the caller asks for more.
 SEARCH_DEFAULT_LIMIT = 10
 
-# A hit scores 1 / (RRF_K + its rank), the scale of reciprocal rank fusion.
-RRF_K = 60
-
 # word_similarity of a misspelled word against the closest word in a name. "retension" scores about
-# 0.5 against "retention".
+# 0.5 against "retention". Every word of a phrasing must reach it, so one correct word does not carry
+# the others.
 TRIGRAM_MIN_WORD_SIMILARITY = 0.45
+# Shorter words, such as "of", share too few trigrams with any name to count for or against a typo match.
+_TYPO_MIN_WORD_LENGTH = 3
 
 _ACRONYM_MAX_LENGTH = 6
 _WORD_RE = re.compile(r"[a-z0-9]+")
+
+
+class SearchMode(StrEnum):
+    LEXICAL = "lexical"
 
 
 class MatchTier(IntEnum):
@@ -68,15 +74,17 @@ CONFIDENT_TIER = MatchTier.ALL_WORDS
 @frozen
 class MetricSearchHit:
     metric: Metric
-    score: float
     match_reason: str
 
 
 @frozen
 class MetricSearchResult:
+    """One page of ranked hits. ``total`` counts the hits on every page."""
+
     hits: list[MetricSearchHit]
+    total: int
     confident_match: bool
-    search_mode: str
+    search_mode: SearchMode
 
 
 @frozen
@@ -91,7 +99,7 @@ def normalize_phrasings(queries: Sequence[str]) -> list[str]:
     phrasings: list[str] = []
     seen: set[str] = set()
     for query in queries:
-        phrasing = " ".join(query.split())[:MAX_SEARCH_PHRASING_LENGTH]
+        phrasing = " ".join(normalize_search_term(query).split())[:MAX_SEARCH_PHRASING_LENGTH]
         if phrasing and phrasing.lower() not in seen:
             phrasings.append(phrasing)
             seen.add(phrasing.lower())
@@ -187,32 +195,37 @@ def _full_text_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID
         .annotate(
             _rank=SearchRank(full_vector, any_word),
             _all_text=matched("_text", all_words),
+            _all_name=matched("_name", all_words),
+            _all_description=matched("_description", all_words),
             _hit_name=matched("_name", any_word),
             _hit_description=matched("_description", any_word),
         )
-        .values("id", "_rank", "_all_text", "_hit_name", "_hit_description")
+        .values("id", "_rank", "_all_text", "_all_name", "_all_description", "_hit_name", "_hit_description")
     )
 
     matches: dict[UUID, _LexicalMatch] = {}
     for row in rows:
-        place = "name" if row["_hit_name"] else "description" if row["_hit_description"] else "definition"
         # A match only inside the query definition (a table or column name) never counts as all words.
-        tier = MatchTier.ALL_WORDS if row["_all_text"] else MatchTier.SOME_WORDS
-        reason = f"all words in the {place}" if tier == MatchTier.ALL_WORDS else f"some words in the {place}"
+        if row["_all_text"]:
+            place = "name" if row["_all_name"] else "description" if row["_all_description"] else "name and description"
+            tier, reason = MatchTier.ALL_WORDS, f"all words in the {place}"
+        else:
+            place = "name" if row["_hit_name"] else "description" if row["_hit_description"] else "definition"
+            tier, reason = MatchTier.SOME_WORDS, f"some words in the {place}"
         matches[row["id"]] = _LexicalMatch(tier=tier, rank=float(row["_rank"]), reason=reason)
     return matches
 
 
 def _typo_matches(candidates: QuerySet[Metric], phrasing: str) -> dict[UUID, _LexicalMatch]:
-    if not _words(phrasing):
+    """Names that hold every word of the phrasing, allowing for spelling. The weakest word sets the score."""
+    words = [word for word in _words(phrasing) if len(word) >= _TYPO_MIN_WORD_LENGTH]
+    if not words:
         return {}
+    per_word = [
+        Greatest(TrigramWordSimilarity(word, "name"), TrigramWordSimilarity(word, "display_name")) for word in words
+    ]
     rows = (
-        candidates.annotate(
-            _similarity=Greatest(
-                TrigramWordSimilarity(phrasing, "name"),
-                TrigramWordSimilarity(phrasing, "display_name"),
-            )
-        )
+        candidates.annotate(_similarity=Least(*per_word) if len(per_word) > 1 else per_word[0])
         .filter(_similarity__gte=TRIGRAM_MIN_WORD_SIMILARITY)
         .values_list("id", "_similarity")
     )
@@ -246,18 +259,16 @@ def search_metrics(
     candidates: QuerySet[Metric],
     queries: Sequence[str],
     *,
-    status: str | None = None,
-    limit: int | None = SEARCH_DEFAULT_LIMIT,
+    limit: int = SEARCH_DEFAULT_LIMIT,
+    offset: int = 0,
 ) -> MetricSearchResult:
-    """Rank ``candidates`` against one or more phrasings of the same need.
+    """Rank ``candidates`` against one or more phrasings of the same need, and load one page of hits.
 
-    ``candidates`` must already be the metrics the caller may see. ``limit=None`` returns every hit.
+    ``candidates`` must already be the metrics the caller may see.
     """
     phrasings = normalize_phrasings(queries)
-    if status:
-        candidates = candidates.filter(status=status)
     if not phrasings:
-        return MetricSearchResult(hits=[], confident_match=False, search_mode="lexical")
+        return MetricSearchResult(hits=[], total=0, confident_match=False, search_mode=SearchMode.LEXICAL)
 
     lexical = _lexical_lane(candidates, phrasings)
     # Rank on light rows, then load full metrics only for the hits that are returned.
@@ -265,6 +276,7 @@ def search_metrics(
         metric_id: (name, status)
         for metric_id, name, status in candidates.filter(id__in=set(lexical)).values_list("id", "name", "status")
     }
+    # Inside one tier an approved metric ranks first, because approval says more than the text rank.
     ranked = sorted(
         rows,
         key=lambda metric_id: (
@@ -273,19 +285,16 @@ def search_metrics(
             -lexical[metric_id].rank,
             rows[metric_id][0],
         ),
-    )[:limit]
-    metrics = {metric.id: metric for metric in candidates.filter(id__in=ranked).select_related("created_by", "owner")}
+    )
+    page = ranked[offset : offset + limit]
+    metrics = {metric.id: metric for metric in candidates.filter(id__in=page).select_related("created_by", "owner")}
     hits = [
-        MetricSearchHit(
-            metric=metrics[metric_id],
-            score=round(1.0 / (RRF_K + position), 6),
-            match_reason=lexical[metric_id].reason,
-        )
-        for position, metric_id in enumerate(ranked, start=1)
+        MetricSearchHit(metric=metrics[metric_id], match_reason=lexical[metric_id].reason)
+        for metric_id in page
         if metric_id in metrics
     ]
     confident = any(match.tier >= CONFIDENT_TIER for match in lexical.values())
-    return MetricSearchResult(hits=hits, confident_match=confident, search_mode="lexical")
+    return MetricSearchResult(hits=hits, total=len(ranked), confident_match=confident, search_mode=SearchMode.LEXICAL)
 
 
 def search_catalog(
@@ -294,23 +303,24 @@ def search_catalog(
     user: User,
     user_access_control: "UserAccessControl",
     search: str,
-    status: str | None = None,
-    definition_kind: str | None = None,
-    limit: int | None = None,
+    filters: MetricListFilters,
+    limit: int = SEARCH_DEFAULT_LIMIT,
+    offset: int = 0,
     analytics_props: AnalyticsProps | None = None,
 ) -> MetricSearchResult:
-    """Search the metrics the user may see, and record the search without its text."""
-    candidates = metrics_visible_to_user(team, user, user_access_control)
-    if definition_kind:
-        candidates = candidates.filter(definition__kind=definition_kind)
+    """Search the metrics the list would show the user, and record the search without its text."""
+    candidates = metrics_for_list(team, user, user_access_control, filters)
     phrasings = split_search(search)
-    result = search_metrics(candidates, phrasings, status=status, limit=limit)
+    result = search_metrics(candidates, phrasings, limit=limit, offset=offset)
+    # Later pages of the same search are not new searches.
+    if offset > 0:
+        return result
     top = result.hits[0] if result.hits else None
     capture_metric_search_event(
         team=team,
         user=user,
         phrasing_count=len(phrasings),
-        result_count=len(result.hits),
+        result_count=result.total,
         confident_match=result.confident_match,
         search_mode=result.search_mode,
         top_metric_name=top.metric.name if top else None,

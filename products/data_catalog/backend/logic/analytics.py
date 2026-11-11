@@ -99,7 +99,7 @@ def capture_metric_search_event(
             "confident_match": confident_match,
             "search_mode": search_mode,
             "top_metric_name": top_metric_name,
-            "top_match_reason": top_match_reason.split(":")[0] if top_match_reason else None,
+            "top_match_reason": top_match_reason,
         },
         team=team,
         user=user,

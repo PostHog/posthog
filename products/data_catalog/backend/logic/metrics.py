@@ -31,7 +31,7 @@ from posthog.models.scoping import team_scope
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend.facade.models import Insight
 
-from ..facade.contracts import MetricBulkOwnerChange
+from ..facade.contracts import MetricBulkOwnerChange, MetricListFilters
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
 from ..tasks.tasks import sync_metric_lineage_task
@@ -706,6 +706,18 @@ def metrics_visible_to_user(team: Team, user: User, user_access_control: UserAcc
         if not references_denied_table(metric.referenced_table_names, denied_tables)
     ]
     return metrics.filter(id__in=visible_metric_ids)
+
+
+def metrics_for_list(
+    team: Team, user: User, user_access_control: UserAccessControl, filters: MetricListFilters
+) -> QuerySet[Metric]:
+    """The metrics the list shows the caller. The plain list and the ranked search both start here."""
+    metrics = metrics_visible_to_user(team, user, user_access_control)
+    if filters.status:
+        metrics = metrics.filter(status=filters.status)
+    if filters.definition_kind:
+        metrics = metrics.filter(definition__kind=filters.definition_kind)
+    return metrics
 
 
 def approved_metric_names_for_team(team: Team, user: Optional[User]) -> list[str]:

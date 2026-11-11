@@ -6,12 +6,11 @@ Thin: validate via the serializer, call the facade, serialize the result. Domain
 
 from functools import reduce
 from operator import or_
-from typing import cast
+from typing import Any, cast
 
-from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVectorField
-from django.db.models import Func, Q, QuerySet, Value
+from django.contrib.postgres.search import SearchQuery, SearchRank
+from django.db.models import Q, QuerySet
 from django.db.models.expressions import CombinedExpression
-from django.db.models.functions import Coalesce
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
@@ -27,6 +26,7 @@ from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
 from posthog.api.mixins import ValidatedRequest, validated_request
+from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties
@@ -102,25 +102,12 @@ class MetricSearchFilter(CatalogSearchFilter):
         "definition. Synonyms do not match unless the metric's text contains them."
     )
 
-    def get_search_vector(self, request: Request, view: APIView) -> CombinedExpression:
-        definition = Func(
-            Value("english"),
-            "definition",
-            Value('["string"]'),
-            function="jsonb_to_tsvector",
-            output_field=SearchVectorField(),
-        )
-        return CombinedExpression(
-            super().get_search_vector(request, view),
-            "||",
-            Func(
-                Coalesce(definition, Value("", output_field=SearchVectorField())),
-                Value("A"),
-                function="setweight",
-                output_field=SearchVectorField(),
-            ),
-            output_field=SearchVectorField(),
-        )
+
+class MetricListPagination(PrecountedLimitOffsetPagination):
+    """Pages the ranked search from a count the search returns, so the view loads only the rows on the page."""
+
+    def get_schema_operation_parameters(self, view: APIView) -> list[dict[str, Any]]:
+        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
 
 
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -131,18 +118,19 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     filter_backends = [MetricSearchFilter]
     search_fields = ["name", "display_name", "description"]
     serializer_class = MetricSerializer
+    pagination_class = MetricListPagination
     queryset = Metric.objects.unscoped()
 
-    def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
-        metrics = api.metrics_visible_to_user(
-            self.team,
-            cast(User, self.request.user),
-            self.user_access_control,
+    def _list_filters(self) -> api.MetricListFilters:
+        params = self.request.query_params
+        return api.MetricListFilters(
+            status=params.get("status") or None, definition_kind=params.get("definition_kind") or None
         )
-        if status_filter := self.request.query_params.get("status"):
-            metrics = metrics.filter(status=status_filter)
-        if definition_kind := self.request.query_params.get("definition_kind"):
-            metrics = metrics.filter(definition__kind=definition_kind)
+
+    def safely_get_queryset(self, queryset: QuerySet[Metric]) -> QuerySet[Metric]:
+        metrics = api.metrics_for_list(
+            self.team, cast(User, self.request.user), self.user_access_control, self._list_filters()
+        )
         return metrics.select_related("created_by", "owner")
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str] | None:
@@ -192,32 +180,30 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     def _ranked_search_list(self, request: Request, search: str) -> Response:
+        paginator = cast(MetricListPagination, self.paginator)
+        if paginator.limit_query_param not in request.query_params:
+            paginator.default_limit = api.SEARCH_DEFAULT_LIMIT
+        limit = paginator.get_limit(request) or api.SEARCH_DEFAULT_LIMIT
         result = api.search_catalog(
             team=self.team,
             user=cast(User, request.user),
             user_access_control=self.user_access_control,
             search=search,
-            status=request.query_params.get("status"),
-            definition_kind=request.query_params.get("definition_kind"),
+            filters=self._list_filters(),
+            limit=limit,
+            offset=paginator.get_offset(request),
             analytics_props=get_request_analytics_properties(request),
         )
-        if (
-            isinstance(self.paginator, LimitOffsetPagination)
-            and self.paginator.limit_query_param not in request.query_params
-        ):
-            self.paginator.default_limit = api.SEARCH_DEFAULT_LIMIT
-        metrics = [hit.metric for hit in result.hits]
-        page = self.paginate_queryset(metrics)
-        shown = page if page is not None else metrics
+        # The search already cut the page, so the paginator takes the total from it and slices nothing.
+        paginator.set_count(result.total)
+        metrics = paginator.paginate_queryset([hit.metric for hit in result.hits], request, view=self) or []
         context = {
             **self.get_serializer_context(),
-            "drift_map": api.compute_drift(shown),
+            "drift_map": api.compute_drift(metrics),
             "match_reasons": {hit.metric.id: hit.match_reason for hit in result.hits},
         }
-        serializer = self.get_serializer(shown, many=True, context=context)
-        if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
+        serializer = self.get_serializer(metrics, many=True, context=context)
+        return paginator.get_paginated_response(serializer.data)
 
     @extend_schema(
         description="Create a metric. When a live metric already holds the name, returns 409 unless overwrite "
