@@ -659,16 +659,22 @@ describe('WorkflowsScene', () => {
                         (element) => element.textContent === '..'
                     )!,
             ],
-        ])('moves a workflow dragged by its name onto %s', async (_, target) => {
+        ])('moves a workflow dragged by its name onto %s, and offers no drag until it lands', async (_, target) => {
+            holdMoves = true
             await renderFolder('Billing/Cards', 'Renewal reminder')
+            const dragHandle = (): HTMLElement | null => screen.queryByLabelText('Drag workflow Renewal reminder')
+            expect(dragHandle()).not.toBeNull()
             const name = [...document.querySelectorAll('[data-attr="workflows-list-v2-name"]')].find(
                 (element) => element.textContent === 'Renewal reminder'
             )!
             await dragOnto(name, target)
             jest.restoreAllMocks()
             await waitFor(() => expect(moveRequests).toEqual([{ id: 'renewal', newPath: 'Billing/Renewal reminder' }]))
+            expect(dragHandle()).toBeNull()
+            act(() => releaseHeldMoves[0]())
             act(() => router.actions.push(urls.workflows(), { q: 'in:Billing' }))
             await waitFor(() => expect(shownRowNames()).toContain('Renewal reminder'))
+            await waitFor(() => expect(dragHandle()).not.toBeNull())
         })
 
         it('keeps a folder rename pending until the move lands, then renames from the new name', async () => {

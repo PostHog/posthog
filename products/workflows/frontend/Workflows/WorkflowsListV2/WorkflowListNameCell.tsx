@@ -17,7 +17,7 @@ import { WorkflowListRow } from './workflowListRows'
 
 export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Element {
     const { suggestionsAvailable } = useValues(workflowSuggestionsAvailabilityLogic)
-    const { placements } = useValues(workflowFoldersLogic)
+    const { placements, pendingFileMoveIds } = useValues(workflowFoldersLogic)
     const { syncTypeAndRef } = useActions(projectTreeDataLogic)
     const candidate = placements?.[`hog_flow::${row.id}`]
     const entry = candidate?.shortcut ? undefined : candidate
@@ -59,7 +59,11 @@ export function WorkflowListNameCell({ row }: { row: WorkflowListRow }): JSX.Ele
     return (
         <WorkflowFolderRow
             icon={<IconDecisionTree />}
-            drag={entry && canMove ? { id: getItemId(entry), label: `Drag workflow ${row.name}` } : undefined}
+            drag={
+                entry && canMove && !pendingFileMoveIds.includes(entry.id)
+                    ? { id: getItemId(entry), label: `Drag workflow ${row.name}` }
+                    : undefined
+            }
             onMouseEnter={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
             onFocus={() => !entry && canMove && syncTypeAndRef('hog_flow', row.id)}
         >

@@ -51,6 +51,7 @@ export function WorkflowFolderContents(): JSX.Element {
         selectedFileIds,
         selectableFiles,
         otherProductFileCount,
+        pendingFileMoveIds,
     } = useValues(workflowFoldersLogic)
     const { folderDraft, folderDraftError, creatingFolder } = useValues(workflowFoldersLogic)
     const {
@@ -199,7 +200,8 @@ export function WorkflowFolderContents(): JSX.Element {
                         <WorkflowFolderRow
                             icon={<IconLetter />}
                             drag={
-                                ['viewer', 'none'].includes(item.entry.user_access_level ?? '')
+                                ['viewer', 'none'].includes(item.entry.user_access_level ?? '') ||
+                                pendingFileMoveIds.includes(item.entry.id)
                                     ? undefined
                                     : { id: getItemId(item.entry), label: `Drag email template ${item.name}` }
                             }

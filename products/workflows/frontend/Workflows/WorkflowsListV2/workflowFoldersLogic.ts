@@ -110,6 +110,7 @@ export interface workflowFoldersLogicValues {
     otherFileCountsLoading: boolean
     otherFilesScanFailed: boolean
     otherProductFileCount: number
+    pendingFileMoveIds: string[]
     placements: Record<string, FileSystemEntry> | null
     selectableFiles: Record<string, FileSystemEntry>
     selectedFileIds: string[]
@@ -260,6 +261,7 @@ export interface workflowFoldersLogicMeta {
         browserLoadFailed: (folderScanFailed: boolean) => boolean
         folderDraftError: (folderDraft: WorkflowFolderDraft | null, takenFolderPaths: string[] | null) => string | null
         folderMutationDisabledReason: (pendingActions: ProjectTreeAction[]) => (folder: string) => string | null
+        pendingFileMoveIds: (pendingActions: ProjectTreeAction[]) => string[]
         folderJumpPaths: (folderPaths: string[], folderJumpSearch: string) => string[]
         otherProductFileCount: (
             otherFileCounts: Record<string, number> | null,
@@ -787,6 +789,14 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                         : null
                 },
         ],
+        // A second move of a file queued before the first lands starts from its old path again.
+        pendingFileMoveIds: [
+            (s) => [s.pendingActions],
+            (pendingActions: ProjectTreeAction[]): string[] =>
+                pendingActions.flatMap((action) =>
+                    action.type === 'move' && action.item.type !== 'folder' && action.item.id ? [action.item.id] : []
+                ),
+        ],
         folderJumpPaths: [
             (s) => [s.folderPaths, s.folderJumpSearch],
             (paths: string[], search: string): string[] =>
@@ -1157,9 +1167,9 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                 lemonToast.error(`Couldn't move the file. ${movingReason}.`)
                 return
             }
-            const items = values.selectedFiles.some((item) => item.id === drop.item.id)
-                ? values.selectedFiles
-                : [drop.item]
+            const items = (
+                values.selectedFiles.some((item) => item.id === drop.item.id) ? values.selectedFiles : [drop.item]
+            ).filter((item) => !values.pendingFileMoveIds.includes(item.id))
             const moves = items.flatMap((item) => {
                 const destination =
                     drop.folder === 'Unfiled'

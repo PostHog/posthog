@@ -393,6 +393,38 @@ describe('workflowFoldersLogic', () => {
         await waitFor(() => expect(movedPath).toBe('Archive/Welcome'))
     })
 
+    it.each([
+        ['lands', 200],
+        ['fails', 500],
+    ])('moves a dropped file only once until its move %s', async (_, status) => {
+        await expectLogic(logic).toFinishAllListeners()
+        let releaseMove!: () => void
+        const moveHeld = new Promise<void>((resolve) => (releaseMove = resolve))
+        const moves: string[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/file_system/direct/move/': async ({ request }) => {
+                    const body = (await request.json()) as { new_path: string }
+                    moves.push(body.new_path)
+                    await moveHeld
+                    return [
+                        status,
+                        { id: 'direct', path: body.new_path, type: 'hog_flow', ref: FIXTURE_WORKFLOWS[0].id },
+                    ]
+                },
+            },
+        })
+        await logic.asyncActions.dropFile('project/direct', 'project://Billing/Cards')
+        await waitFor(() => expect(moves).toEqual(['Billing/Cards/Welcome']))
+        await logic.asyncActions.dropFile('project/direct', 'project://Empty')
+        releaseMove()
+        await waitFor(() => expect(projectTreeDataLogic.values.pendingActions).toEqual([]))
+        expect(moves).toEqual(['Billing/Cards/Welcome'])
+
+        await logic.asyncActions.dropFile('project/direct', 'project://Empty')
+        await waitFor(() => expect(moves).toEqual(['Billing/Cards/Welcome', 'Empty/Welcome']))
+    })
+
     it('shows files moved directly into Unfiled inside the Unfiled folder', async () => {
         await expectLogic(logic).toFinishAllListeners()
         addProjectFiles([
