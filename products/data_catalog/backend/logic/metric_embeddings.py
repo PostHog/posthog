@@ -154,9 +154,15 @@ def refresh_metric_embedding(metric: Metric, *, force: bool = False) -> Embeddin
 
 
 def clear_stale_embedding(metric: Metric) -> None:
-    """Drop the vector of a metric whose search text changed, so the backfill sweep finds it if the refresh fails."""
-    Metric.objects.for_team(metric.team_id).filter(pk=metric.pk, embedding__isnull=False).update(
-        embedding=None, embedding_text_hash=""
+    """Drop the vector of a metric whose search text changed, so the backfill sweep finds it if the refresh fails.
+
+    A write that resends the same text keeps its vector, because the stored hash still matches.
+    """
+    (
+        Metric.objects.for_team(metric.team_id)
+        .filter(pk=metric.pk, embedding__isnull=False)
+        .exclude(embedding_text_hash=search_text_hash(metric_search_text(metric)))
+        .update(embedding=None, embedding_text_hash="")
     )
 
 

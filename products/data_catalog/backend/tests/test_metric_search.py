@@ -2,8 +2,10 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.db.models import QuerySet
 from django.test import SimpleTestCase
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 from rest_framework import status
@@ -20,7 +22,7 @@ from products.data_catalog.backend.logic.metric_embeddings import (
     search_text_hash,
 )
 from products.data_catalog.backend.logic.metric_search import search_metrics, split_search
-from products.data_catalog.backend.logic.metrics import update_metric, upsert_metric
+from products.data_catalog.backend.logic.metrics import metrics_for_team, update_metric, upsert_metric
 from products.data_catalog.backend.models import Metric
 from products.data_catalog.backend.tasks.tasks import backfill_metric_embeddings_task
 from products.data_catalog.evals.metric_search_cases import LEXICAL_CASE_TYPES, SEARCH_CASES, CaseType, SearchCase
@@ -109,6 +111,22 @@ class TestMetricSearchFixtureCatalog(BaseTest):
         assert set(ranked) == {"nps_score", "api_error_rate", "logo_churn_rate"}
         assert ranked.index("nps_score") <= 1, ranked
 
+    def test_semantic_lane_reads_every_vector_in_one_query(self) -> None:
+        def queries_for_one_search(candidates: QuerySet[Metric]) -> int:
+            with CaptureQueriesContext(connection) as queries:
+                search_metrics(candidates, ["loyalty"], embed_query=lambda _text: [1.0, 0.0])
+            return len(queries.captured_queries)
+
+        with team_scope(self.team.id):
+            candidates = metrics_for_team(self.team)
+            _store_vector(candidates, "nps_score", [1.0, 0.0])
+            with_one_vector = queries_for_one_search(candidates)
+            for name in ("mrr", "arr", "logo_churn_rate"):
+                _store_vector(candidates, name, [0.5, 0.5])
+            with_four_vectors = queries_for_one_search(candidates)
+
+        assert with_four_vectors == with_one_vector
+
     def test_confident_word_matches_rank_above_meaning_only_hits(self) -> None:
         with team_scope(self.team.id):
             candidates = Metric.objects.for_team(self.team.id).filter(
@@ -179,7 +197,10 @@ class TestMetricEmbeddingRefresh(BaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             update_metric(metric, team=self.team, user=self.user, owner=None)
+        with self.captureOnCommitCallbacks(execute=True):
+            update_metric(self._stored("mrr"), team=self.team, user=self.user, description="Monthly revenue")
         assert generate.call_count == 1
+        assert self._stored("mrr").embedding == [0.1, 0.2]
 
         generate.return_value = _embedding([0.3, 0.4])
         with self.captureOnCommitCallbacks(execute=True):

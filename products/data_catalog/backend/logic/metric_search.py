@@ -297,9 +297,14 @@ def _semantic_lane(candidates: QuerySet[Metric], query_embedding: list[float], t
     if count > SEMANTIC_MAX_CANDIDATES:
         logger.warning("metric_semantic_search_skipped_large_catalog", embedded_metrics=count)
         return {}
-    rows = embedded.only(
-        "id", "name", "display_name", "description", "unit", "embedding", "embedding_model", "embedding_text_hash"
-    ).iterator(chunk_size=200)
+    # defer(None) drops the embedding deferral that metrics_for_team adds, which only() would keep.
+    rows = (
+        embedded.defer(None)
+        .only(
+            "id", "name", "display_name", "description", "unit", "embedding", "embedding_model", "embedding_text_hash"
+        )
+        .iterator(chunk_size=200)
+    )
     # A vector made from text that changed since is skipped until the refresh task replaces it.
     similarities = (
         (metric.id, cosine_similarity(query_embedding, cast(list[float], metric.embedding)))
