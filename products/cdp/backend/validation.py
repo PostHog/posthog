@@ -26,7 +26,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.actions.backend.facade.api import get_actions
-from products.cdp.backend.credential_auth import AuthScheme, bind_secret_auth, validate_auth_declarations
+from products.cdp.backend.credential_auth import AuthScheme, validate_auth_declarations
 from products.cdp.backend.filters import (
     DATA_WAREHOUSE_SOURCES,
     FILTER_FUNCTIONS,
@@ -774,32 +774,7 @@ class _TemplatingChoiceField(serializers.ChoiceField):
 class AuthDeclarationSchemaSerializer(serializers.Serializer):
     scheme = serializers.ChoiceField(
         choices=AuthScheme.choices,
-        help_text="Where the worker puts the credential. query and body need opt_in.",
-    )
-    name = serializers.CharField(required=False, help_text="The header or query parameter that holds the credential.")
-    prefix = serializers.CharField(required=False, help_text="Text the header value starts with, such as 'Token '.")
-    path = serializers.CharField(required=False, help_text="The dotted path of the JSON body key for scheme body.")
-    opt_in = serializers.BooleanField(required=False, help_text="Must be true for scheme query or body.")
-    username_input = serializers.CharField(
-        required=False, help_text="For scheme basic on a secret: the non-secret input that holds the username."
-    )
-    username_field = serializers.CharField(
-        required=False, help_text="For scheme basic on an integration: the connection field that holds the username."
-    )
-    password_field = serializers.CharField(
-        required=False, help_text="For scheme basic on an integration: the connection field that holds the password."
-    )
-    field = serializers.CharField(
-        required=False, help_text="For an integration: the connection field that holds the credential."
-    )
-    origins = serializers.ListField(
-        child=serializers.CharField(),
-        required=False,
-        help_text="For a secret: the origins, such as https://api.example.com, the secret may be sent to.",
-    )
-    origin_input = serializers.CharField(
-        required=False,
-        help_text="For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.",
+        help_text="The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.",
     )
 
 
@@ -857,7 +832,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     templating = _TemplatingChoiceField(choices=[True, False, "hog", "liquid"], required=False)
     auth = AuthDeclarationField(
         required=False,
-        help_text="How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.",
+        help_text="Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind.",
     )
 
     # TODO Validate choices if type=choice
@@ -1239,7 +1214,6 @@ class InputsSerializer(serializers.DictField):
         errors: dict[str, Any] = {}
 
         existing_secret_inputs = self.context.get("encrypted_inputs")
-        kept_secret_keys: set[str] = set()
         # Note this should always be the child of a dict serializer with a sibling 'inputs_schema' field so we can validate against the relevant schema
         parent_serializer = self.parent
         try:
@@ -1275,7 +1249,6 @@ class InputsSerializer(serializers.DictField):
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
                         value = existing_value
-                        kept_secret_keys.add(key)
                     elif is_masked:
                         # Nothing stored to keep. Silently dropping the input here has disabled
                         # webhook auth in production - fail so the caller re-enters the value.
@@ -1320,8 +1293,6 @@ class InputsSerializer(serializers.DictField):
                 else:
                     errors[key] = e.detail
 
-        self._bind_secret_auth(inputs_schema, result, kept_secret_keys, existing_secret_inputs or {}, errors)
-
         if errors:
             raise ValidationError(errors)
 
@@ -1346,29 +1317,6 @@ class InputsSerializer(serializers.DictField):
 
         return result
         # Unlike standard dict validation we are iterating the schema - not the inputs
-
-    @staticmethod
-    def _bind_secret_auth(
-        inputs_schema: list[dict[str, Any]],
-        result: dict[str, Any],
-        kept_secret_keys: set[str],
-        existing_secret_inputs: dict[str, Any],
-        errors: dict[str, Any],
-    ) -> None:
-        # A kept secret keeps the binding it was typed with, so editing the schema or the URL input never moves it.
-        for schema in inputs_schema:
-            key = str(schema["key"])
-            if not schema.get("secret") or key not in result:
-                continue
-            if key in kept_secret_keys:
-                stored_auth = (existing_secret_inputs.get(key) or {}).get("auth")
-                if stored_auth:
-                    result[key]["auth"] = stored_auth
-            elif "auth" in schema:
-                try:
-                    result[key]["auth"] = bind_secret_auth(schema["auth"], result)
-                except ValidationError as error:
-                    errors[key] = error.detail
 
 
 def _contains_behavioral_property(filters: dict) -> bool:

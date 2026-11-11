@@ -135,54 +135,12 @@ export const HogFunctionsCreateBody = () => zod.object({
                                 '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
                             )
                             .describe(
-                                'Where the worker puts the credential. query and body need opt_in.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                            ),
-                        name: zod
-                            .string()
-                            .optional()
-                            .describe('The header or query parameter that holds the credential.'),
-                        prefix: zod
-                            .string()
-                            .optional()
-                            .describe("Text the header value starts with, such as 'Token '."),
-                        path: zod.string().optional().describe('The dotted path of the JSON body key for scheme body.'),
-                        opt_in: zod.boolean().optional().describe('Must be true for scheme query or body.'),
-                        username_input: zod
-                            .string()
-                            .optional()
-                            .describe('For scheme basic on a secret: the non-secret input that holds the username.'),
-                        username_field: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                'For scheme basic on an integration: the connection field that holds the username.'
-                            ),
-                        password_field: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                'For scheme basic on an integration: the connection field that holds the password.'
-                            ),
-                        field: zod
-                            .string()
-                            .optional()
-                            .describe('For an integration: the connection field that holds the credential.'),
-                        origins: zod
-                            .array(zod.string())
-                            .optional()
-                            .describe(
-                                'For a secret: the origins, such as https:\/\/api.example.com, the secret may be sent to.'
-                            ),
-                        origin_input: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                'For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.'
+                                "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
                             ),
                     })
                     .optional()
                     .describe(
-                        'How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.'
+                        "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                     ),
             })
         )
@@ -294,61 +252,12 @@ export const HogFunctionsCreateBody = () => zod.object({
                                             '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
                                         )
                                         .describe(
-                                            'Where the worker puts the credential. query and body need opt_in.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                        ),
-                                    name: zod
-                                        .string()
-                                        .optional()
-                                        .describe('The header or query parameter that holds the credential.'),
-                                    prefix: zod
-                                        .string()
-                                        .optional()
-                                        .describe("Text the header value starts with, such as 'Token '."),
-                                    path: zod
-                                        .string()
-                                        .optional()
-                                        .describe('The dotted path of the JSON body key for scheme body.'),
-                                    opt_in: zod.boolean().optional().describe('Must be true for scheme query or body.'),
-                                    username_input: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For scheme basic on a secret: the non-secret input that holds the username.'
-                                        ),
-                                    username_field: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For scheme basic on an integration: the connection field that holds the username.'
-                                        ),
-                                    password_field: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For scheme basic on an integration: the connection field that holds the password.'
-                                        ),
-                                    field: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For an integration: the connection field that holds the credential.'
-                                        ),
-                                    origins: zod
-                                        .array(zod.string())
-                                        .optional()
-                                        .describe(
-                                            'For a secret: the origins, such as https:\/\/api.example.com, the secret may be sent to.'
-                                        ),
-                                    origin_input: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.'
+                                            "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
                                         ),
                                 })
                                 .optional()
                                 .describe(
-                                    'How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.'
+                                    "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                 ),
                         })
                     )
@@ -519,54 +428,12 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                                 '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
                             )
                             .describe(
-                                'Where the worker puts the credential. query and body need opt_in.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                            ),
-                        name: zod
-                            .string()
-                            .optional()
-                            .describe('The header or query parameter that holds the credential.'),
-                        prefix: zod
-                            .string()
-                            .optional()
-                            .describe("Text the header value starts with, such as 'Token '."),
-                        path: zod.string().optional().describe('The dotted path of the JSON body key for scheme body.'),
-                        opt_in: zod.boolean().optional().describe('Must be true for scheme query or body.'),
-                        username_input: zod
-                            .string()
-                            .optional()
-                            .describe('For scheme basic on a secret: the non-secret input that holds the username.'),
-                        username_field: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                'For scheme basic on an integration: the connection field that holds the username.'
-                            ),
-                        password_field: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                'For scheme basic on an integration: the connection field that holds the password.'
-                            ),
-                        field: zod
-                            .string()
-                            .optional()
-                            .describe('For an integration: the connection field that holds the credential.'),
-                        origins: zod
-                            .array(zod.string())
-                            .optional()
-                            .describe(
-                                'For a secret: the origins, such as https:\/\/api.example.com, the secret may be sent to.'
-                            ),
-                        origin_input: zod
-                            .string()
-                            .optional()
-                            .describe(
-                                'For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.'
+                                "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
                             ),
                     })
                     .optional()
                     .describe(
-                        'How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.'
+                        "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                     ),
             })
         )
@@ -678,61 +545,12 @@ export const HogFunctionsPartialUpdateBody = () => zod.object({
                                             '\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
                                         )
                                         .describe(
-                                            'Where the worker puts the credential. query and body need opt_in.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body'
-                                        ),
-                                    name: zod
-                                        .string()
-                                        .optional()
-                                        .describe('The header or query parameter that holds the credential.'),
-                                    prefix: zod
-                                        .string()
-                                        .optional()
-                                        .describe("Text the header value starts with, such as 'Token '."),
-                                    path: zod
-                                        .string()
-                                        .optional()
-                                        .describe('The dotted path of the JSON body key for scheme body.'),
-                                    opt_in: zod.boolean().optional().describe('Must be true for scheme query or body.'),
-                                    username_input: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For scheme basic on a secret: the non-secret input that holds the username.'
-                                        ),
-                                    username_field: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For scheme basic on an integration: the connection field that holds the username.'
-                                        ),
-                                    password_field: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For scheme basic on an integration: the connection field that holds the password.'
-                                        ),
-                                    field: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For an integration: the connection field that holds the credential.'
-                                        ),
-                                    origins: zod
-                                        .array(zod.string())
-                                        .optional()
-                                        .describe(
-                                            'For a secret: the origins, such as https:\/\/api.example.com, the secret may be sent to.'
-                                        ),
-                                    origin_input: zod
-                                        .string()
-                                        .optional()
-                                        .describe(
-                                            'For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin.'
+                                            "The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.\n\n\* `bearer` - bearer\n\* `header` - header\n\* `basic` - basic\n\* `query` - query\n\* `body` - body"
                                         ),
                                 })
                                 .optional()
                                 .describe(
-                                    'How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value.'
+                                    "Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind."
                                 ),
                         })
                     )

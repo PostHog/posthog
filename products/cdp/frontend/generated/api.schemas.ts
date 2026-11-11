@@ -339,7 +339,7 @@ export const AuthSchemeEnumApi = {
 } as const
 
 export interface AuthDeclarationSchemaApi {
-    /** Where the worker puts the credential. query and body need opt_in.
+    /** The scheme the template expects. The worker applies the scheme and origins of the connection's kind, not this value.
      *
      * * `bearer` - bearer
      * * `header` - header
@@ -347,26 +347,6 @@ export interface AuthDeclarationSchemaApi {
      * * `query` - query
      * * `body` - body */
     scheme: AuthSchemeEnumApi
-    /** The header or query parameter that holds the credential. */
-    name?: string
-    /** Text the header value starts with, such as 'Token '. */
-    prefix?: string
-    /** The dotted path of the JSON body key for scheme body. */
-    path?: string
-    /** Must be true for scheme query or body. */
-    opt_in?: boolean
-    /** For scheme basic on a secret: the non-secret input that holds the username. */
-    username_input?: string
-    /** For scheme basic on an integration: the connection field that holds the username. */
-    username_field?: string
-    /** For scheme basic on an integration: the connection field that holds the password. */
-    password_field?: string
-    /** For an integration: the connection field that holds the credential. */
-    field?: string
-    /** For a secret: the origins, such as https://api.example.com, the secret may be sent to. */
-    origins?: string[]
-    /** For a secret: the URL input whose origin, when the secret is typed, becomes the only allowed origin. */
-    origin_input?: string
 }
 
 export type InputsSchemaItemApiChoicesItem = { [key: string]: unknown }
@@ -388,7 +368,7 @@ export interface InputsSchemaItemApi {
     integration_field?: string
     requiredScopes?: string
     templating?: boolean | 'hog' | 'liquid'
-    /** How the worker applies this credential to a fetch that passes the input as `auth`. Code never reads the value. */
+    /** Integration inputs only. Marks a connection whose credential the worker applies when code passes the input to fetch as `auth`. Placement and allowed origins come from the connection's kind. */
     auth?: AuthDeclarationSchemaApi
 }
 
