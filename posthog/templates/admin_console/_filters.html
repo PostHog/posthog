@@ -1,0 +1,35 @@
+{# A Filters block: a GET form with its fields in one card per group. #}
+<form method="get" class="flex flex-col gap-4 max-w-xl">
+    {% for hidden in filters.form.hidden_fields %}
+        {{ hidden }}
+        {% for error in hidden.errors %}
+            <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+        {% endfor %}
+    {% endfor %}
+    {% for error in filters.form.non_field_errors %}
+        <p class="quill-field__error m-0" role="alert">{{ error }}</p>
+    {% endfor %}
+    {% for title, fields in filters.bound_groups %}
+        <section class="quill-card group/card flex flex-col"
+                 data-quill
+                 data-slot="card"
+                 data-size="default">
+            <div class="quill-card__header group/card-header" data-slot="card-header">
+                <h2 class="quill-card__title m-0" data-slot="card-title">{{ title }}</h2>
+            </div>
+            <div class="quill-card__content flex flex-col gap-4"
+                 data-slot="card-content">
+                {% for field in fields %}
+                    {% include "admin_console/_form_field.html" %}
+                {% endfor %}
+            </div>
+        </section>
+    {% endfor %}
+    <div class="flex flex-wrap gap-2">
+        <button type="submit"
+                {% if filters.pending_label %}data-pending-label="{{ filters.pending_label }}"{% endif %}
+                class="quill-button quill-button--variant-primary quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+            {{ filters.submit_label }}
+        </button>
+    </div>
+</form>
