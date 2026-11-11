@@ -2,6 +2,8 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
+import type { TrendsQuery } from '~/queries/schema/schema-general'
+
 import type {
     MonitoringLeadCheckApi,
     MonitoringSummaryStateEnumApi,
@@ -12,6 +14,7 @@ import type {
 import type { MonitoringTimeline } from '../components/detail/reportCheckObservations'
 import { monitoringPeriodLabel } from '../components/detail/reportCheckPresentation'
 import { formatReportMetricValue } from './reportMetrics'
+import { monitoringChartBucketPositioner } from './reportMonitoringChart'
 
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
@@ -47,6 +50,26 @@ export function monitoringTimeLeft(endsAt: string, now: number): string {
         return hours === 0 ? 'Under 1h left' : `${hours}h left`
     }
     return hours ? `${days}d ${hours}h left` : `${days}d left`
+}
+
+/** The list does not poll, so a window that ended since it loaded reads as ended, as the server would say. */
+export function monitoringDisplayState(
+    summary: ReportMonitoringSummaryApi,
+    now: number
+): MonitoringSummaryStateEnumApi {
+    return now >= Date.parse(summary.ends_at) ? 'window_ended' : summary.state
+}
+
+/** A merge starts Monitoring at the latest merge time, so the latest merged PR is the one the window counts from. */
+export function latestMergedPullRequest<T extends { merged: boolean; merged_at?: string | null }>(
+    pullRequests: readonly T[]
+): T | undefined {
+    return pullRequests
+        .filter((pr) => pr.merged)
+        .reduce<T | undefined>(
+            (latest, pr) => (!latest || (pr.merged_at ?? '') > (latest.merged_at ?? '') ? pr : latest),
+            undefined
+        )
 }
 
 /**
@@ -120,16 +143,16 @@ export interface MonitoringTrend {
 
 /**
  * The report metric's trailing buckets, split where Monitoring started. Null when the snapshot cannot
- * place the fix: no series, no bucket size, or a snapshot measured before Monitoring began.
+ * place the fix: no series or bucket dates, no bucket size, or a snapshot measured before Monitoring began.
  */
 export function monitoringTrend(
     summary: ReportMonitoringSummaryApi,
     metric: (ReportMetricApi & { interval?: string | null }) | undefined,
-    timezone: string,
-    weekStartDay: number = 0
+    timezone: string
 ): MonitoringTrend | null {
     const lead = summary.lead_check
-    const values = metric?.series?.filter((point) => Number.isFinite(point)) ?? []
+    const values = metric?.series ?? []
+    const buckets = metric?.series_buckets ?? []
     const interval = metric?.interval
     const fix = Date.parse(summary.started_at)
     if (
@@ -137,29 +160,31 @@ export function monitoringTrend(
         !metric?.value_at ||
         Date.parse(metric.value_at) < fix ||
         values.length < 2 ||
+        buckets.length !== values.length ||
         // Bars grow up from zero, so a series or target below zero has no honest drawing here.
-        values.some((value) => value < 0) ||
+        values.some((value) => !Number.isFinite(value) || value < 0) ||
         (lead.comparison.value ?? 0) < 0 ||
         !interval ||
         !BUCKET_INTERVALS.has(interval)
     ) {
         return null
     }
-    const unit = interval as 'minute' | 'hour' | 'day' | 'week' | 'month'
-    const measured = dayjs(metric.value_at).tz(timezone)
-    // Trends starts weeks on the project's week start day, not the browser locale's.
-    const lastStart =
-        unit === 'week'
-            ? measured.startOf('day').subtract((measured.day() - weekStartDay + 7) % 7, 'day')
-            : measured.startOf(unit)
-    const starts = values.map((_, index) => lastStart.subtract(values.length - 1 - index, unit).valueOf())
+    // The snapshot records each bucket's own date, so skipped days, an excluded partial period and the
+    // project's week start all place the fix where Trends put the data.
+    const placed = monitoringChartBucketPositioner(
+        buckets,
+        timezone,
+        interval as NonNullable<TrendsQuery['interval']>
+    )(fix)
+    // A fix after a bucket ended, such as on a day the query skips, starts with the next bucket.
+    const fixIndex = placed && placed.fraction >= 1 ? placed.index + 1 : placed?.index
+    if (fixIndex === undefined || fixIndex >= values.length) {
+        return null
+    }
     const factor = bucketTargetFactor(lead, interval)
     return {
         values,
-        fixIndex: Math.max(
-            0,
-            starts.findLastIndex((start) => start <= fix)
-        ),
+        fixIndex,
         target:
             factor != null && lead.comparison.operator !== 'between' && lead.comparison.value != null
                 ? lead.comparison.value * factor

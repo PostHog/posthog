@@ -6,10 +6,15 @@ import { LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import type { ReportMetricApi, ReportMonitoringSummaryApi } from 'products/signals/frontend/generated/api.schemas'
+import {
+    MonitoringSummaryStateEnumApi,
+    type ReportMetricApi,
+    type ReportMonitoringSummaryApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
 import {
     MONITORING_SUMMARY_TAGS,
+    monitoringDisplayState,
     monitoringFigures,
     monitoringSummaryTimeline,
     monitoringTrend,
@@ -41,25 +46,21 @@ export function ReportCardMonitoringPanel({
     metrics?: ReportMetricApi[]
     now: number
 }): JSX.Element {
-    const { timezone, currentTeam } = useValues(teamLogic)
+    const { timezone } = useValues(teamLogic)
     const lead = summary.lead_check
     const metric = lead?.metric_id ? metrics?.find((candidate) => candidate.metric_id === lead.metric_id) : undefined
     const interval = metricInterval(metric)
-    const trend = monitoringTrend(
-        summary,
-        metric ? { ...metric, interval } : undefined,
-        timezone,
-        currentTeam?.week_start_day ?? 0
-    )
+    const trend = monitoringTrend(summary, metric ? { ...metric, interval } : undefined, timezone)
     const figures = monitoringFigures(summary, interval)
-    const tag = MONITORING_SUMMARY_TAGS[summary.state]
+    const state = monitoringDisplayState(summary, now)
+    const tag = MONITORING_SUMMARY_TAGS[state]
 
     return (
         <div className="flex w-full shrink-0 flex-col gap-1.5 @lg:w-56" data-attr="report-card-monitoring-panel">
-            {trend ? <ReportCardMonitoringTrend trend={trend} state={summary.state} /> : null}
+            {trend ? <ReportCardMonitoringTrend trend={trend} state={state} /> : null}
             {!lead ? (
                 <div className="flex min-h-10 items-center justify-center rounded border border-dashed border-primary px-2 text-center text-xs text-tertiary">
-                    {summary.state === 'window_ended'
+                    {state === MonitoringSummaryStateEnumApi.WindowEnded
                         ? 'The final checks are running'
                         : `Final checks run ${dayjs(summary.ends_at).format('MMM D')}`}
                 </div>
@@ -72,27 +73,29 @@ export function ReportCardMonitoringPanel({
                     <span aria-hidden>→</span>
                     <span className="text-right">
                         Since fix{' '}
-                        <span className={clsx('font-semibold', SINCE_FIX_TEXT[summary.state] ?? 'text-secondary')}>
+                        <span className={clsx('font-semibold', SINCE_FIX_TEXT[state] ?? 'text-secondary')}>
                             {figures.sinceFix ?? '–'}
                         </span>
                     </span>
                 </div>
             ) : null}
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                {/* The row is a link: a tap that opens this explanation must not also open the report. */}
-                <span
-                    className="inline-flex shrink-0"
-                    onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                    }}
-                >
-                    <Tooltip title={tag.description} openOnClick>
+                <Tooltip title={tag.description} openOnClick>
+                    <button
+                        type="button"
+                        className="inline-flex shrink-0 cursor-help rounded"
+                        data-attr="report-card-monitoring-state"
+                        // The row is a link: a tap that opens this explanation must not also open the report.
+                        onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                        }}
+                    >
                         <LemonTag size="small" type={tag.type}>
                             {tag.label}
                         </LemonTag>
-                    </Tooltip>
-                </span>
+                    </button>
+                </Tooltip>
                 {figures ? (
                     <span className="min-w-0 text-[11px] leading-tight text-tertiary">{figures.basis}</span>
                 ) : null}

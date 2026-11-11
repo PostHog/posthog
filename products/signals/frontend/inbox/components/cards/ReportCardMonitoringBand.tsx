@@ -5,6 +5,7 @@ import type { ReportMonitoringSummaryApi } from 'products/signals/frontend/gener
 
 import type { SignalReport } from '../../types'
 import {
+    latestMergedPullRequest,
     monitoringPullRequestStatus,
     monitoringTimeLeft,
     monitoringWindowProgress,
@@ -25,7 +26,7 @@ export function ReportCardMonitoringBand({
     /** Onboarding sample: the PR url is fabricated, so it renders as text. */
     preview?: boolean
 }): JSX.Element {
-    const pullRequest = reportPullRequests(report).find((pr) => pr.merged) ?? primaryReportPullRequest(report)
+    const pullRequest = latestMergedPullRequest(reportPullRequests(report)) ?? primaryReportPullRequest(report)
     const prUrl = safeHttpUrl(pullRequest.url)
     const prNumber = prUrl ? parsePrUrlParts(prUrl)?.number : null
     const prStatus = monitoringPullRequestStatus(pullRequest, report.monitoring_started_at)

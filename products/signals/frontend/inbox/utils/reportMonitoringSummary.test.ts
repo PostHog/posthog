@@ -5,6 +5,8 @@ import type {
 } from 'products/signals/frontend/generated/api.schemas'
 
 import {
+    latestMergedPullRequest,
+    monitoringDisplayState,
     monitoringFigures,
     monitoringPullRequestStatus,
     monitoringTrend,
@@ -42,46 +44,74 @@ function summary(
     return { state: 'not_on_track', started_at: startedAt, ends_at: '2026-11-13T18:00:00Z', lead_check: leadCheck }
 }
 
-function metric(valueAt: string): ReportMetricApi & { interval: string } {
+const DAILY_BUCKETS = ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07', '2026-11-08', '2026-11-09']
+
+function metric(
+    overrides: Partial<ReportMetricApi> & { interval?: string } = {}
+): ReportMetricApi & { interval: string } {
     return {
         metric_id: 'errors',
         title: 'Errors',
         kind: 'occurrences',
         value: 1,
-        value_at: valueAt,
+        value_at: '2026-11-09T12:00:00Z',
         series: [9, 8, 9, 7, 2, 1],
+        series_buckets: DAILY_BUCKETS,
         value_format: 'count',
         unit: 'calls',
         interval: 'day',
+        ...overrides,
     }
 }
 
 describe('Monitoring summary on an inbox row', () => {
     it.each([
-        ['in UTC', 'UTC', '2026-11-09T12:00:00Z', 2],
+        ['in UTC', 'UTC', summary(), metric(), 2],
         // 18:00 UTC on Nov 6 is already Nov 7 in Tokyo, so the fix lands one daily bucket later.
-        ['in the team timezone', 'Asia/Tokyo', '2026-11-09T12:00:00Z', 3],
-    ])('places the fix in the bucket it happened in, %s', (_name, timezone, valueAt, fixIndex) => {
-        expect(monitoringTrend(summary(), metric(valueAt), timezone)?.fixIndex).toBe(fixIndex)
+        ['in the team timezone', 'Asia/Tokyo', summary(), metric(), 3],
+        [
+            'after a day the query skips',
+            'UTC',
+            summary(lead(), '2026-11-07T12:00:00Z'),
+            metric({ series: [9, 8, 9, 2], series_buckets: ['2026-11-04', '2026-11-05', '2026-11-06', '2026-11-09'] }),
+            3,
+        ],
+        [
+            'in the week Trends started on Monday',
+            'UTC',
+            summary(lead(), '2026-11-08T18:00:00Z'),
+            metric({ series: [9, 8, 2], series_buckets: ['2026-10-26', '2026-11-02', '2026-11-09'], interval: 'week' }),
+            1,
+        ],
+    ])('places the fix in the bucket it happened in, %s', (_name, timezone, monitoring, snapshot, fixIndex) => {
+        expect(monitoringTrend(monitoring, snapshot, timezone)?.fixIndex).toBe(fixIndex)
     })
 
     it.each([
-        // Sunday Nov 8 is the last day of a Monday-start week, and the first of a Sunday-start week.
-        ['Monday', 1, 1],
-        ['Sunday', 0, 2],
-    ])('places a weekly fix in the project week that starts on %s', (_name, weekStartDay, fixIndex) => {
-        const weekly = { ...metric('2026-11-10T12:00:00Z'), series: [9, 8, 2], interval: 'week' }
-        expect(monitoringTrend(summary(lead(), '2026-11-08T18:00:00Z'), weekly, 'UTC', weekStartDay)?.fixIndex).toBe(
-            fixIndex
-        )
-    })
-
-    it.each([
-        ['a snapshot measured in an earlier bucket', metric('2026-11-05T12:00:00Z')],
-        ['a snapshot measured earlier in the same bucket', metric('2026-11-06T12:00:00Z')],
-        ['negative values', { ...metric('2026-11-09T12:00:00Z'), series: [-3, -2, -1] }],
+        ['a snapshot measured before the fix', metric({ value_at: '2026-11-06T12:00:00Z' })],
+        [
+            'a series that ends before the fix',
+            metric({
+                series_buckets: ['2026-10-30', '2026-10-31', '2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04'],
+            }),
+        ],
+        ['a snapshot without bucket dates', metric({ series_buckets: null })],
+        ['negative values', metric({ series: [-3, -2, -1, -1, -1, -1] })],
     ])('draws no trend from %s', (_name, snapshot) => {
         expect(monitoringTrend(summary(), snapshot, 'UTC')).toBeNull()
+    })
+
+    it.each([
+        ['before the window ends', '2026-11-13T17:59:00Z', 'not_on_track'],
+        ['once the window has ended', '2026-11-13T18:00:00Z', 'window_ended'],
+    ])('reads the state %s', (_name, now, expected) => {
+        expect(monitoringDisplayState(summary(), Date.parse(now))).toBe(expected)
+    })
+
+    it('counts the window from the latest merge', () => {
+        const first = { merged: true, merged_at: '2026-11-05T10:00:00Z' }
+        const latest = { merged: true, merged_at: '2026-11-06T18:00:00Z' }
+        expect(latestMergedPullRequest([first, { merged: false, merged_at: null }, latest])).toBe(latest)
     })
 
     it.each([
@@ -111,7 +141,7 @@ describe('Monitoring summary on an inbox row', () => {
             null,
         ],
     ])('target line: %s', (_name, leadCheck, target) => {
-        expect(monitoringTrend(summary(leadCheck), metric('2026-11-09T12:00:00Z'), 'UTC')?.target).toBe(target)
+        expect(monitoringTrend(summary(leadCheck), metric(), 'UTC')?.target).toBe(target)
     })
 
     it.each([

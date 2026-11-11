@@ -334,6 +334,7 @@ describe('reportMetrics', () => {
                         value: 21,
                         value_at: '2026-09-09T12:00:00Z',
                         series: [5, 9, 21],
+                        series_buckets: ['2026-09-07', '2026-09-08', '2026-09-09'],
                         interval: 'day',
                     },
                 ],
@@ -345,6 +346,7 @@ describe('reportMetrics', () => {
             value: 21,
             value_at: '2026-09-09T12:00:00Z',
             series: [5, 9, 21],
+            series_buckets: ['2026-09-07', '2026-09-08', '2026-09-09'],
             query: SNAPSHOT_METRIC.query,
         })
         // The same numbers back, or another report's snapshot, leave the row object untouched.
