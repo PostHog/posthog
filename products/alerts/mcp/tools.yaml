@@ -35,6 +35,13 @@ tools:
             read as a z-score detector, and any llm-only field you sent with it is dropped without an error. Requires an
             insight ID and at least one subscribed user.
 
+            Choosing a detector: prefer a threshold when a fixed bound or a percentage change describes the problem, and
+            a statistical detector (zscore, mad) when a stable series only needs "far from normal". Pick llm when the
+            series is noisy or low-count, has strong seasonality, or when what counts as unusual is easier to describe
+            in words than as a bound (put that in instructions). Before you create an llm alert, run alert-simulate with
+            the same detector_config to show the user one verdict and its rationale, tell the user that each check uses
+            AI credits, and prefer a daily or hourly cadence.
+
             The config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index,
             check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate
             (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row'
@@ -135,10 +142,14 @@ tools:
         description: >
             Get a specific alert by ID. Returns the full alert configuration including check results, threshold
             settings, detector_config (for anomaly detection alerts), and subscribed users. Check results include
-            anomaly_scores, triggered_points, and triggered_dates for detector-based alerts. By default returns the last
-            5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within a time window,
-            and checks_limit to control the maximum returned (default 5, max 500). When date filters are provided
-            without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.
+            anomaly_scores, triggered_points, and triggered_dates for statistical detector alerts. A check of an llm
+            (AI) detector alert has no per-point scores: anomaly_scores is null, triggered_points holds only the latest
+            point when the model said it is anomalous, and the model's verdict is in triggered_metadata.rationale (one
+            or two sentences about the latest point) and triggered_metadata.kind (spike, drop, flatline, trend_break,
+            level_shift, pattern_change, or none). Report the rationale to the user instead of scores. By default
+            returns the last 5 checks. Use checks_date_from and checks_date_to (e.g. '-24h', '-7d') to get checks within
+            a time window, and checks_limit to control the maximum returned (default 5, max 500). When date filters are
+            provided without checks_limit, up to 500 checks are returned. Check history is retained for 14 days.
     alert-simulate:
         operation: alerts_simulate_create
         enabled: true
@@ -221,4 +232,5 @@ tools:
             configuration, timing information, and firing check history. Supports filtering by insight ID
             (`insight_id`), fuzzy name search (`search`), and creator (`created_by` user UUID). Alerts can use either
             threshold-based conditions (absolute_value, relative_increase, relative_decrease) or anomaly detection via
-            detector_config (zscore, mad, iqr, isolation_forest, knn, etc.).
+            detector_config (zscore, mad, iqr, isolation_forest, knn, etc., or llm for an AI judgment of the latest
+            point).

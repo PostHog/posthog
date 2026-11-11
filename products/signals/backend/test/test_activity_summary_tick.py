@@ -8,8 +8,9 @@ from typing import Any
 import pytest
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 import redis
@@ -90,6 +91,7 @@ from products.signals.backend.activity_summary.tick import (
     run_pair,
 )
 from products.signals.backend.models import SignalSourceConfig, UserActivitySummary, UserActivitySummaryQueueState
+from products.signals.backend.personal_ranking_tasks import build_lock_key
 from products.signals.backend.test.test_activity_summary_render import FakeLLM
 from products.tasks.backend.facade.user_task_summaries import UserTaskTime
 
@@ -130,6 +132,8 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "rebuild_before": "not a time",
             "max_org_share": 2,
             "rebuild_budget_share": 2,
+            "inbox_visit_budget_share": 0,
+            "outdated_rebuild_after_days": 0,
             "max_error_rate": 0,
             "self_driving_organization_percentage": 101,
             "deny_organization_ids": "org-b",
@@ -161,10 +165,12 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             "capture_events": False,
             "emit_profile_embeddings": True,
             "rebuild_before": "2026-10-01T00:00:00",
+            "outdated_rebuild_after_days": 10,
             "enroll_all_approved": True,
             "count_views": True,
             "target_interval_days_free": 7,
             "max_org_share": 0.3,
+            "inbox_visit_budget_share": 0.5,
             "self_driving_organization_percentage": 12.5,
             "deny_organization_ids": ["org-b", 4],
             "min_score": 4.5,
@@ -188,10 +194,12 @@ _CONFIG_CASES: list[tuple[str, Any, ActivitySummaryConfig]] = [
             capture_events=False,
             emit_profile_embeddings=True,
             rebuild_before=datetime.datetime(2026, 10, 1, tzinfo=datetime.UTC),
+            outdated_rebuild_after_days=10.0,
             enroll_all_approved=True,
             count_views=True,
             target_interval_days_free=7.0,
             max_org_share=0.3,
+            inbox_visit_budget_share=0.5,
             self_driving_organization_percentage=12.5,
             deny_organization_ids=("org-b",),
             source_weights=SourceWeights(new_views=1.0, repeat_view_days=0.25, mcp=2.0),
@@ -413,6 +421,30 @@ class TestActivitySummaryQueue(BaseTest):
             *[(self.team.id, before_rebuild.id), (self.team.id, old_version.id)][:rebuilds],
             (self.team.id, busy.id),
         ]
+
+    @parameterized.expand(
+        [
+            ("no new rows", 0, None, None),
+            ("enough new rows", 3, None, "activity"),
+            ("older than outdated_rebuild_after_days", 0, 1.0, "stale"),
+            ("younger than outdated_rebuild_after_days", 0, 5.0, None),
+        ]
+    )
+    def test_a_version_bump_above_the_floor_waits_for_new_rows_or_outdated_rebuild_after_days(
+        self, _name: str, new_rows: int, after_days: float | None, trigger: str | None
+    ) -> None:
+        summarized = NOW - datetime.timedelta(days=2)
+        self._summary(self.user, generated_at=summarized, input_watermark=summarized)
+        self._changes(self.user, 1, days_ago=5)
+        self._changes(self.user, new_rows, days_ago=0.5)
+        config = self._config(outdated_rebuild_after_days=after_days)
+
+        with patch("products.signals.backend.activity_summary.queue.PROMPT_VERSION", PROMPT_VERSION + 1):
+            self._seed(config)
+            selection = select_pairs(config, NOW, 10)
+
+        assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
+        assert (selection.outdated_pairs, selection.current_version_share) == (int(trigger is None), 0.0)
 
     def test_leaves_out_pairs_that_are_not_due_or_not_enrolled(self) -> None:
         waiting, scout_only, setup_only, impersonated, skipped_team = (
@@ -870,6 +902,10 @@ class TestActivitySummaryQueue(BaseTest):
             ),
             ("no summary and views on two days", True, False, [("a", [2]), ("b", [1, 2])], None),
             ("no summary and views on three days when views do not count", False, False, [("a", [3, 2, 1])], None),
+            ("no summary and one Inbox visit", True, False, [("scene:Inbox", [1])], "inbox_visit"),
+            ("no summary and one visit to another scene", True, False, [("scene:Insight", [1])], None),
+            ("no summary and one Inbox visit when views do not count", False, False, [("scene:Inbox", [1])], None),
+            ("a summary and an Inbox visit", True, True, [("scene:Inbox", [1])], None),
         ]
     )
     def test_views_make_a_pair_due_by_weighted_score_or_on_active_days(
@@ -893,8 +929,56 @@ class TestActivitySummaryQueue(BaseTest):
 
         assert [(pair.user_id, pair.trigger) for pair in selection.pairs] == [(self.user.id, trigger)][: bool(trigger)]
         assert selection.due_by_trigger == {
-            name: int(name == trigger) for name in ("activity", "views", "cold_start_views", "stale", "mcp")
+            name: int(name == trigger)
+            for name in ("activity", "views", "cold_start_views", "stale", "mcp", "inbox_visit")
         }
+
+    @parameterized.expand(
+        [
+            (
+                "the share takes the Inbox visits first, paying pairs first",
+                2,
+                ["paying", "free0", "busy0", "busy1", "busy2"],
+            ),
+            ("the unused share goes back to the other passes", 0, ["paying", "busy0", "busy1", "busy2", "busy3"]),
+        ]
+    )
+    def test_inbox_visits_fill_a_reserved_share_of_the_tick(
+        self, _name: str, free_inbox_users: int, expected: list[str]
+    ) -> None:
+        paying_org = Organization.objects.create(name="Paying", has_active_subscription=True)
+        paying_team = Team.objects.create(organization=paying_org, name="Paying")
+        users: dict[str, tuple[Team, User]] = {}
+        summarized = NOW - datetime.timedelta(days=10)
+        for index in range(4):
+            busy = self._user(f"busy{index}@example.com")
+            self._summary(busy, generated_at=summarized, input_watermark=summarized)
+            self._changes(busy, 20, days_ago=0.5)
+            users[f"busy{index}"] = (self.team, busy)
+        for index in range(free_inbox_users):
+            users[f"free{index}"] = (self.team, self._user(f"free{index}@example.com"))
+        users["paying"] = (paying_team, User.objects.create_and_join(paying_org, "paying@example.com", None))
+        for name, (team, user) in users.items():
+            if not name.startswith("busy"):
+                FileSystemViewLog.objects.create(
+                    team=team,
+                    user=user,
+                    type="scene",
+                    ref="Inbox",
+                    viewed_at=NOW - datetime.timedelta(days=1),
+                    view_days=[(NOW - datetime.timedelta(days=1)).date()],
+                )
+        config = ActivitySummaryConfig(
+            enabled=True, enroll_all_approved=True, count_views=True, max_org_share=1, inbox_visit_budget_share=0.4
+        )
+        self._seed(config)
+
+        selection = select_pairs(config, NOW, 5)
+
+        assert [(pair.team_id, pair.user_id) for pair in selection.pairs] == [
+            (users[name][0].id, users[name][1].id) for name in expected
+        ]
+        assert selection.due_by_trigger["inbox_visit"] == free_inbox_users + 1
 
     def test_the_feed_counts_one_repeat_day_for_many_reopens_of_a_known_object_in_a_day(self) -> None:
         watermark = NOW - datetime.timedelta(days=2)
@@ -1047,16 +1131,22 @@ class TestActivitySummaryQueue(BaseTest):
         assert plan.mcp_feed.sessions == 3 * (1 - members_left)
         assert [pair.trigger for pair in plan.pairs] == ["mcp"][: 1 - members_left]
 
-    @parameterized.expand([("activity", 24), ("views", 168), ("cold_start_views", 168), (None, 24)])
+    @parameterized.expand(
+        [("activity", 24), ("views", 168), ("cold_start_views", 168), ("inbox_visit", 24), (None, 24)]
+    )
     def test_an_ok_update_emits_the_embedding_and_an_event_without_the_summary(
         self, trigger: str | None, wait_hours: int
     ) -> None:
         self._changes(self.user, 3)
+        cache.delete(build_lock_key(self.team.id, self.user.id))
+        self.addCleanup(cache.delete, build_lock_key(self.team.id, self.user.id))
         capture = MagicMock()
         with (
             patch("products.signals.backend.activity_summary.logic.gateway_client", return_value=FakeLLM([ANSWER])),
             patch("posthog.api.embedding_worker.emit_embedding_request") as emit,
             patch.object(tick, "ph_background_capture", return_value=capture),
+            patch("products.signals.backend.personal_ranking.config.read_flag_payload", return_value={}),
+            patch("products.signals.backend.personal_ranking_tasks.build_personal_inbox_ranking.delay") as queue,
         ):
             result = run_pair(
                 ActivitySummaryPairInput(
@@ -1080,6 +1170,7 @@ class TestActivitySummaryQueue(BaseTest):
         assert event["event"] == "activity summary generated"
         assert event["properties"]["trigger"] == trigger
         assert "signup funnel" not in json.dumps(event["properties"]).lower()
+        assert queue.call_args_list == [call(self.team.id, self.user.id, None, None, True, "first_summary")]
 
     @parameterized.expand(
         [
@@ -1170,6 +1261,8 @@ def _plan(pairs: int, **overrides: Any) -> ActivitySummaryTickPlan:
         "tiers": [ActivitySummaryTierStats(tier="paying", due_pairs=pairs)],
         "enrollment": EnrollmentCounts(qualifying_organizations=3, enrolled_organizations=2, enrolled_teams=4),
         "due_by_trigger": {"activity": 1, "views": pairs - 1},
+        "outdated_pairs": 2,
+        "current_version_share": 0.75,
         "stop_reason": None,
         "mcp_buffer_days": 10,
     }
@@ -1248,6 +1341,7 @@ async def test_the_tick_bounds_concurrency_and_stops_at_the_daily_caps_and_the_e
         ("views", 168.0, 10)
     }
     assert result.due_by_trigger == plan.due_by_trigger
+    assert (result.outdated_pairs, result.current_version_share) == (2, 0.75)
     assert (result.picked, result.statuses, result.stop_reason) == (picked, {pair_status: picked}, stop_reason)
     assert result.tiers == plan.tiers
     assert (result.new_builds, result.refresh_builds) == builds

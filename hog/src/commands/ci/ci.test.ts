@@ -391,7 +391,9 @@ describe('hog ci setup', () => {
                     : policyApi()(url),
         })
 
-        expect(run.error()).toMatchObject({ message: 'No repository acme/web that PostHog can see.' })
+        expect(run.error()).toMatchObject({
+            message: 'PostHog answered with HTTP 404: No repository acme/web that PostHog can see.',
+        })
         expect(run.error().hint).toContain('--subject-id')
     })
 })

@@ -23,6 +23,9 @@ APIScopeObject = Literal[
     "action",
     "access_control",
     "account",
+    # Notes on Customer Analytics accounts, split off `account` so a note can be written without the rest of
+    # the account surface (rename, delete, properties, relationships).
+    "account_note",
     "activity_log",
     "alert",
     "annotation",
@@ -552,6 +555,8 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
 # Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
 # legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
 LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
+    # Notes moved from `account:*` to `account_note:*`, so keys and tokens issued before the split keep working.
+    "account_note": "account",
     "inbox": "task",
     # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
     "messaging_preference": "hog_flow",
