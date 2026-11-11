@@ -643,7 +643,7 @@ def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, owner: User, actor:
         was_impersonated=was_impersonated,
         item_id=alert.id,
         scope="AlertConfiguration",
-        activity="took_ownership",
+        activity="took_ownership" if owner.pk == actor.pk else "transferred_ownership",
         detail=Detail(
             name=alert.name or f"Alert for {alert.insight.name}",
             changes=[

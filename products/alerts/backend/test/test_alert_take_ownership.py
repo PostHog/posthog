@@ -76,7 +76,11 @@ class TestAlertTakeOwnership(APIBaseTest):
         assert alert.created_by == owner
         assert alert.enabled is True
         # created_by is excluded from the save diff, so the takeover logs its own activity.
-        takeover = ActivityLog.objects.get(scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership")
+        takeover = ActivityLog.objects.get(
+            scope="AlertConfiguration",
+            item_id=str(alert.id),
+            activity="transferred_ownership" if another_member else "took_ownership",
+        )
         assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
@@ -188,7 +192,7 @@ class TestAlertTakeOwnership(APIBaseTest):
             assert alert.created_by == self.user
             assert alert.enabled is enabled
             assert not ActivityLog.objects.filter(
-                scope="AlertConfiguration", item_id=str(alert_id), activity="took_ownership"
+                scope="AlertConfiguration", item_id=str(alert_id), activity="transferred_ownership"
             ).exists()
         else:
             assert response.status_code == status.HTTP_200_OK, response.content
@@ -196,7 +200,7 @@ class TestAlertTakeOwnership(APIBaseTest):
             assert alert.enabled is True
             assert (
                 ActivityLog.objects.get(
-                    scope="AlertConfiguration", item_id=str(alert_id), activity="took_ownership"
+                    scope="AlertConfiguration", item_id=str(alert_id), activity="transferred_ownership"
                 ).user
                 == self.user
             )

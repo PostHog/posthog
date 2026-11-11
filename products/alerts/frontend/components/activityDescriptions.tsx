@@ -34,6 +34,36 @@ const getContextDescription = (context: any): JSX.Element | null => {
     return null
 }
 
+function describeOwnershipChange(logItem: ActivityLogItem): HumanizedChange {
+    const isTransfer = logItem.activity === 'transferred_ownership'
+    const owner = logItem.detail.changes?.find((change) => change.field === 'created_by')?.after
+    const ownerEmail =
+        owner && typeof owner === 'object' && !Array.isArray(owner) && typeof owner.email === 'string'
+            ? owner.email
+            : 'another member'
+    const action = isTransfer ? 'transferred ownership of the alert' : 'took ownership of the alert'
+    const target = (
+        <>
+            {formattedName(logItem.detail.name)}
+            {getContextDescription(logItem.detail.context)}
+            {isTransfer && (
+                <>
+                    {' '}
+                    to <strong>{ownerEmail}</strong>
+                </>
+            )}
+        </>
+    )
+    return {
+        summary: activityLogSummary(logItem, action, target),
+        description: (
+            <>
+                <ActivityLogUserName logItem={logItem} /> {action} {target}
+            </>
+        ),
+    }
+}
+
 export function alertConfigurationActivityDescriber(
     logItem: ActivityLogItem,
     asNotification?: boolean
@@ -138,44 +168,8 @@ export function alertConfigurationActivityDescriber(
         }
     }
 
-    if (logItem.activity == 'took_ownership') {
-        const contextDesc = getContextDescription(logItem?.detail?.context)
-        const owner = logItem.detail.changes?.find((change) => change.field === 'created_by')?.after
-        const ownerEmail =
-            owner && typeof owner === 'object' && !Array.isArray(owner) && typeof owner.email === 'string'
-                ? owner.email
-                : null
-        const transferredTo = ownerEmail && ownerEmail !== logItem.user?.email ? ownerEmail : null
-        return {
-            summary: activityLogSummary(
-                logItem,
-                transferredTo ? 'Transferred ownership of the alert' : 'Took ownership of the alert',
-                <>
-                    {formattedName(logItem.detail.name)}
-                    {contextDesc}
-                    {transferredTo && (
-                        <>
-                            {' '}
-                            to <strong>{transferredTo}</strong>
-                        </>
-                    )}
-                </>
-            ),
-            description: (
-                <>
-                    <ActivityLogUserName logItem={logItem} />{' '}
-                    {transferredTo ? 'transferred ownership of the alert' : 'took ownership of the alert'}{' '}
-                    {formattedName(logItem?.detail.name)}
-                    {contextDesc}
-                    {transferredTo && (
-                        <>
-                            {' '}
-                            to <strong>{transferredTo}</strong>
-                        </>
-                    )}
-                </>
-            ),
-        }
+    if (['took_ownership', 'transferred_ownership'].includes(logItem.activity)) {
+        return describeOwnershipChange(logItem)
     }
 
     if (logItem.activity == 'updated') {
