@@ -4,11 +4,9 @@ Every scorer reads what Slack would show: the rendered summary goes through
 `slack_rich_text`, and a span counts as styled only when every character of it
 lands in a bold (or italic) rich-text element.
 
-The value and name lists come from the case input, not from the normaliser's
-patterns, so the normalised arm cannot score well by construction. The date
-detector below is independent of `report_text._TIME_PATTERNS` on purpose, and
-it also matches relative words ("yesterday", "this week") that the normaliser
-does not style.
+The value and name lists come from the case input rather than from patterns over
+the output, so a summary that drops or rewrites a value cannot score well. The
+date detector also matches relative words ("yesterday", "this week").
 """
 
 from __future__ import annotations
@@ -20,18 +18,13 @@ from typing import Any
 from posthog.slack.markdown import slack_rich_text
 
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
-from products.subscriptions.backend.logic.report_text import ReportSummary, ReportText, ReportTextItem
+from products.subscriptions.backend.logic.report_text import ReportSummary
 
 SLACK_ALLOWED_ROOT = "https://app.example.com/"
 
-ARM_RAW = "raw"
-ARM_NORMALISED = "normalised"
+ARM_STRUCTURED = "structured"
 ARM_MARKDOWN = "markdown"
-ARM_MARKDOWN_NORMALISED = "markdown_normalised"
-ARMS = (ARM_RAW, ARM_NORMALISED, ARM_MARKDOWN, ARM_MARKDOWN_NORMALISED)
-
-# Each normalised arm is compared with the arm it was rendered from.
-NORMALISED_ARM_SOURCES = {ARM_NORMALISED: ARM_RAW, ARM_MARKDOWN_NORMALISED: ARM_MARKDOWN}
+ARMS = (ARM_STRUCTURED, ARM_MARKDOWN)
 
 _MONTH = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?"
 _DATE_PATTERN = re.compile(
@@ -118,17 +111,6 @@ def slack_view(rendered: str) -> SlackView:
     return SlackView(text="".join(text_parts), segments=tuple(segments))
 
 
-def render_structured(summary: ReportSummary, *, normalised: bool) -> str:
-    return "\n\n".join(finding.render_bullet("•", "*", style_untagged_text=normalised) for finding in summary.findings)
-
-
-def normalise_markdown(markdown: str) -> str:
-    return "\n".join(
-        ReportText(items=[ReportTextItem(kind="text", text=line)]).render(style_untagged_text=True) if line else line
-        for line in markdown.splitlines()
-    )
-
-
 def single_text_finding_rate(summary: ReportSummary) -> float | None:
     if not summary.findings:
         return None
@@ -143,11 +125,9 @@ def single_text_finding_rate(summary: ReportSummary) -> float | None:
 def render_arms(summary: ReportSummary | None, markdown: str | None) -> dict[str, str]:
     arms: dict[str, str] = {}
     if summary is not None:
-        arms[ARM_RAW] = render_structured(summary, normalised=False)
-        arms[ARM_NORMALISED] = render_structured(summary, normalised=True)
+        arms[ARM_STRUCTURED] = summary.render(slack_formatting=True)
     if markdown is not None:
         arms[ARM_MARKDOWN] = markdown.strip()
-        arms[ARM_MARKDOWN_NORMALISED] = normalise_markdown(markdown.strip())
     return arms
 
 
@@ -278,10 +258,6 @@ def link_integrity(rendered: str, input_text: str) -> Ratio:
     return Ratio(hits=len(urls) - len(misses), total=len(urls), misses=misses)
 
 
-def text_preserved(source: str, normalised: str) -> bool:
-    return slack_view(source).text == slack_view(normalised).text
-
-
 def _arm_output(output: dict | None, arm: str) -> str | None:
     if not output:
         return None
@@ -361,19 +337,6 @@ class LinkIntegrity(_ArmScorer):
         return self._ratio_score(link_integrity(rendered, output.get("input_text") or ""))
 
 
-class TextPreserved(_ArmScorer):
-    metric = "text_preserved"
-
-    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs: Any) -> Score:
-        normalised = _arm_output(output, self.arm)
-        source = _arm_output(output, NORMALISED_ARM_SOURCES[self.arm])
-        if output is None or normalised is None or source is None:
-            return self._missing(output)
-        preserved = text_preserved(source, normalised)
-        metadata = {} if preserved else {"source": slack_view(source).text, "normalised": slack_view(normalised).text}
-        return Score(name=self._name(), score=1.0 if preserved else 0.0, metadata=metadata)
-
-
 class FindingsTagged(Scorer):
     """1 minus the share of structured findings that came back as one plain text item."""
 
@@ -391,6 +354,4 @@ def all_scorers() -> list[Scorer]:
     scorers: list[Scorer] = [FindingsTagged()]
     for arm in ARMS:
         scorers.extend([ValuesStyled(arm), DatesStyled(arm), NotMisstyled(arm), NamesTagged(arm), LinkIntegrity(arm)])
-        if arm in NORMALISED_ARM_SOURCES:
-            scorers.append(TextPreserved(arm))
     return scorers

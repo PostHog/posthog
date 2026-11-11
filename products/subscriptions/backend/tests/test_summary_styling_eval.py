@@ -1,22 +1,18 @@
 import pytest
 
 from products.subscriptions.evals.styling import (
-    ARM_RAW,
+    ARM_STRUCTURED,
     DatesStyled,
     NamesTagged,
     NotMisstyled,
-    TextPreserved,
     ValuesStyled,
     extract_input_values,
 )
 
 
-def _output(rendered: str, *, source: str | None = None) -> dict:
-    arms = {ARM_RAW: rendered, "normalised": rendered}
-    if source is not None:
-        arms[ARM_RAW] = source
+def _output(rendered: str) -> dict:
     return {
-        "arms": arms,
+        "arms": {ARM_STRUCTURED: rendered},
         "input_values": ["1,463", "18%", "4d 4h"],
         "input_names": ["Weekly signups", "Upgrades this week"],
     }
@@ -59,28 +55,14 @@ def test_scorers_read_styles_as_slack_renders_them(rendered: str, expected: dict
     scores = {
         scorer.metric: scorer._run_eval_sync(output).score
         for scorer in (
-            ValuesStyled("normalised"),
-            DatesStyled("normalised"),
-            NamesTagged("normalised"),
-            NotMisstyled("normalised"),
+            ValuesStyled(ARM_STRUCTURED),
+            DatesStyled(ARM_STRUCTURED),
+            NamesTagged(ARM_STRUCTURED),
+            NotMisstyled(ARM_STRUCTURED),
         )
     }
 
     assert scores == expected
-
-
-@pytest.mark.parametrize(
-    ("source", "normalised", "expected"),
-    [
-        ("• Signups hit 512 on Nov 4.", "• Signups hit *512* on _Nov 4_.", 1.0),
-        ("• Signups hit 512 on Nov 4.", "• Signups hit *521* on _Nov 4_.", 0.0),
-    ],
-    ids=["markers_only", "changed_word"],
-)
-def test_text_preserved_ignores_markers_but_not_words(source: str, normalised: str, expected: float) -> None:
-    score = TextPreserved("normalised")._run_eval_sync(_output(normalised, source=source))
-
-    assert score.score == expected
 
 
 def test_input_values_keep_thousands_separators_and_durations() -> None:

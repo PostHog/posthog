@@ -2,12 +2,11 @@
 
 Arms, scored side by side on the same invented cases:
 
-- raw: the production prompt and schema, rendered with the untagged-text normaliser off.
-- normalised: the same model output, rendered the way production renders it.
+- structured: the production prompt and schema, rendered the way production renders it for Slack.
 - markdown: the same input data, but the model writes plain Markdown bullets without a schema.
-- markdown_normalised: the markdown arm passed through the same normaliser.
 
-The raw and normalised arms share one model call per case because they differ only in rendering.
+`structured__findings_tagged` tracks how often the model returns a finding as one untagged text
+item, which renders with no styling at all.
 Stub mode returns canned replies, so the suite runs without model credentials. Set
 SUMMARY_STYLING_EVAL_LIVE=1 to call OpenAI directly with OPENAI_API_KEY, using the production prompt, model and parameters.
 
