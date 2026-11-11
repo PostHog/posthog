@@ -12396,10 +12396,10 @@ Today (9): `collections`, `courses`, `enrollments`, `groups`, `instructors`, `or
 
 Diffed against: <https://developers.thinkific.com/openapi/thinkific-admin-api-v1.yaml>
 
-- [ ] `GET /coupons (+ /coupons/{id})` — the actual discount codes; promotions are synced but the coupons they attach to are not, so redemption analysis is impossible (high)
-- [ ] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course, the lookup needed to interpret any lesson-level progress (high)
-- [ ] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the finest grain of course content and the join target for completion analysis (high)
-- [ ] `GET /course_reviews (+ /course_reviews/{id})` — student ratings and review text per course, a headline course-quality metric (high)
+- [x] `GET /coupons (+ /coupons/{id})` — the actual discount codes; promotions are synced but the coupons they attach to are not, so redemption analysis is impossible (high)
+- [x] `GET /courses/{id}/chapters (+ /chapters/{id})` — curriculum structure under each synced course, the lookup needed to interpret any lesson-level progress (high)
+- [x] `GET /chapters/{id}/contents (+ /contents/{id})` — lesson-level records, the finest grain of course content and the join target for completion analysis (high)
+- [x] `GET /course_reviews (+ /course_reviews/{id})` — student ratings and review text per course, a headline course-quality metric (high)
 - [ ] `GET /collections/{id}/products (+ /collection_memberships/{id})` — join table linking the synced collections to the synced products (medium)
 - [ ] `GET /custom_profile_field_definitions` — lookup decoding the custom profile fields carried on user records (medium)
 - [ ] `GET /bundles/{id}/courses` — bundle-to-course mapping, needed to attribute bundle revenue to individual courses (medium)
