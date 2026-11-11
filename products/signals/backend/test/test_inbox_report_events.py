@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 from django.core.exceptions import ValidationError
+from django.db import OperationalError, connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -129,6 +130,29 @@ class TestInboxReportReadyEvent(BaseTest):
                 send_inbox_report_ready_events(team_id=self.team.id, report_id="not-a-report-id", source_products=[])
 
         assert sent == []
+
+    def test_a_report_the_database_failed_to_claim_is_sent_by_the_retry(self):
+        report = self._report()
+        failed: list[str] = []
+
+        def database_drops_the_first_read(execute, sql, params, many, context):
+            if not failed and SignalScoutRun._meta.db_table in sql:
+                failed.append(sql)
+                raise OperationalError("server closed the connection unexpectedly")
+            return execute(sql, params, many, context)
+
+        with (
+            recorded_internal_events() as (sent, _),
+            connection.execute_wrapper(database_drops_the_first_read),
+        ):
+            emit_inbox_report_ready_event(team_id=self.team.id, report_id=str(report.id), source_products=["scout"])
+
+        assert failed
+        assert [(event["report_id"], event["source_products"]) for event in inbox_report_ready_events(sent)] == [
+            (str(report.id), ["scout"])
+        ]
+        report.refresh_from_db()
+        assert report.ready_event_delivered_at is not None
 
     def test_only_the_project_the_flag_is_on_for_sends_its_reports(self):
         other_team = Team.objects.create(organization=self.organization)

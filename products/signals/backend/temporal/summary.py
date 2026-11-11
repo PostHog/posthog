@@ -44,7 +44,7 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
-from products.signals.backend.inbox_report_events import send_inbox_report_ready_events
+from products.signals.backend.inbox_report_events import emit_inbox_report_ready_event
 from products.signals.backend.issue_dependencies import reports_waiting_on_issues_of
 from products.signals.backend.models import (
     SIGNALS_AT_RUN_INCREMENT,
@@ -1860,7 +1860,7 @@ class EmitInboxReportReadyInput:
 @scoped_temporal()
 @close_db_connections
 async def emit_inbox_report_ready_activity(input: EmitInboxReportReadyInput) -> None:
-    await database_sync_to_async(send_inbox_report_ready_events, thread_sensitive=False)(
+    await database_sync_to_async(emit_inbox_report_ready_event, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, source_products=input.source_products
     )
 

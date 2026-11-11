@@ -36,6 +36,7 @@ INBOX_REPORT_DESTINATIONS_FLAG = "inbox-report-destinations"
 _INBOX_REPORT_EVENT_NAMESPACE = uuid.UUID("0b5e7c1a-4f3d-4e8b-9a2c-6d1f8e3b7a90")
 
 _DELIVERY_TIMEOUT_SECONDS = 10
+_RETRY_DELAY_SECONDS = 60
 
 _STALE_CLAIM_AGE = timedelta(minutes=15)
 _RECONCILE_BATCH_SIZE = 200
@@ -63,6 +64,19 @@ def emit_inbox_report_ready_event(*, team_id: int, report_id: str, source_produc
         send_inbox_report_ready_events(team_id=team_id, report_id=report_id, source_products=source_products)
     except Exception:
         logger.exception("inbox_report_ready_event_failed", team_id=team_id, report_id=report_id)
+        _schedule_retry(team_id=team_id, report_id=report_id, source_products=source_products)
+
+
+def _schedule_retry(*, team_id: int, report_id: str, source_products: list[str]) -> None:
+    from products.signals.backend.tasks import retry_inbox_report_ready_event  # noqa: PLC0415
+
+    try:
+        retry_inbox_report_ready_event.apply_async(
+            kwargs={"team_id": team_id, "report_id": report_id, "source_products": source_products},
+            countdown=_RETRY_DELAY_SECONDS,
+        )
+    except Exception:
+        logger.exception("inbox_report_ready_event_retry_not_scheduled", team_id=team_id, report_id=report_id)
 
 
 def send_inbox_report_ready_events(*, team_id: int, report_id: str, source_products: list[str]) -> None:
