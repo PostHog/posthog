@@ -19,7 +19,7 @@ export interface APIKeyTableRow {
     last_rolled_at: string | null
 }
 
-// First name plus last initial ("Jane D.") so people sharing a first name are distinguishable.
+// "Jane D.": the last initial separates people who share a first name.
 export function formatCreatedBy(user: NonNullable<APIKeyTableRow['created_by']>): string {
     const firstName = user.first_name?.trim()
     if (!firstName) {
