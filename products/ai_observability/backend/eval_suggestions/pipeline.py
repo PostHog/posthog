@@ -36,6 +36,8 @@ from products.ai_observability.backend.models.eval_suggestions import (
 )
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 
+from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
+
 from . import (
     catalog,
     coverage as coverage_stage,
@@ -197,7 +199,8 @@ def paid_draft(team: Team, run: EvalSuggestionRun, brief: str, budget: float) ->
     reserved = drafting.max_cost_usd(brief)
     if not _reserve(run, reserved, budget):
         return None
-    call = drafting.draft_check(team.pk, brief)
+    # The brief carries segment values and tool names, so an organization in privacy mode keeps it out of analytics.
+    call = drafting.draft_check(team.pk, brief, privacy_mode=is_privacy_mode_enabled(team))
     EvalSuggestionRun.objects.for_team(team.pk).filter(id=run.id).update(
         cost_usd=F("cost_usd") - reserved + call.cost_usd
     )
@@ -544,18 +547,21 @@ def draft_stage(
     draftable = [(c.gap, c.proposal) for c in handoff.gaps if dedupe([c.proposal], coverage, matches, {})]
     if skip is None and not draftable:
         skip = "no uncovered finding"
-    # A draft that starts too late to finish would be paid for and then lost with the timed-out attempt.
+    sample = (
+        hydrate_sample(team, handoff.window, list(handoff.profile.segments), handoff.sample) if skip is None else None
+    )
+    # Checked after hydration, which can take minutes: a draft that starts too late to finish would be paid for and
+    # then lost with the timed-out attempt.
     if (
         skip is None
         and deadline is not None
         and deadline - time.monotonic() < drafting.max_draft_seconds() + DRAFT_MEASURE_BUDGET_SECONDS
     ):
         skip = "not enough time left"
-    if skip is not None:
+    if skip is not None or sample is None:
         stages.set("drafting", "skipped", detail=skip)
         _save(run, handoff, stages, "drafting")
         return 0
-    sample = hydrate_sample(team, handoff.window, list(handoff.profile.segments), handoff.sample)
     try:
         drafted = _drafted_proposals(team, run, draftable, sample, handoff.profile, settings, stages)
     except Exception as error:

@@ -151,10 +151,15 @@ def _parse(content: str | None) -> Draft | None:
     )
 
 
-def draft_check(team_id: int, brief: str) -> DraftCall:
+def draft_check(team_id: int, brief: str, *, privacy_mode: bool) -> DraftCall:
+    """`privacy_mode` keeps the brief and the draft out of the gateway's analytics."""
     distinct_id = team_distinct_id(team_id)
     client = build_openai_client(
-        GATEWAY_ROUTE, ai_product=AI_PRODUCT, properties={"team_id": str(team_id)}, distinct_id=distinct_id
+        GATEWAY_ROUTE,
+        ai_product=AI_PRODUCT,
+        properties={"team_id": str(team_id)},
+        distinct_id=distinct_id,
+        privacy_mode=privacy_mode,
     )
     # Retries run here rather than in the SDK, so every failed attempt that may have billed is counted. Only a
     # capacity refusal (429) is known not to bill; any other failure counts at the most one call can cost.

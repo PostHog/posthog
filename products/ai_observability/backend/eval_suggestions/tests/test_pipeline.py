@@ -365,7 +365,7 @@ class TestDraftingBudget(BaseTest):
             patch.object(drafting, "build_openai_client", return_value=client),
             patch.object(drafting, "RETRY_BACKOFF_SECONDS", 0),
         ):
-            call = drafting.draft_check(self.team.pk, brief)
+            call = drafting.draft_check(self.team.pk, brief, privacy_mode=False)
 
         one_call = drafting.max_cost_usd(brief) / (2 + drafting.STANDARD_MAX_RETRIES)
         assert call.cost_usd == pytest.approx(served_cost + unsettled_calls * one_call)
@@ -441,6 +441,55 @@ class TestRunRecords(BaseTest):
         assert run.status == EvalSuggestionRunStatus.FAILED
         fetch_coverage.assert_not_called()
         assert publish_stage(self.team.pk, str(run.id)) == 0
+
+    @patch.object(pipeline, "_drafted_proposals")
+    def test_the_draft_deadline_counts_the_time_hydration_took(self, drafted: MagicMock) -> None:
+        run = create_run(self.team, "scheduled")
+        handoff = pipeline.Handoff(
+            window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
+            profile=pipeline.TeamProfile.empty(),
+            sample=[],
+            proposals=[],
+            gaps=[pipeline.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
+            screened_judges=[],
+            judge_target="trace",
+            judge_model="gpt-5-mini",
+            sources={},
+            candidate_options={},
+        )
+        clock = [0.0]
+
+        def slow_hydration(*_args: Any) -> MagicMock:
+            clock[0] += 120
+            return MagicMock()
+
+        needed = drafting.max_draft_seconds() + pipeline.DRAFT_MEASURE_BUDGET_SECONDS
+        with (
+            patch.object(pipeline, "_load", return_value=handoff),
+            patch.object(pipeline, "_paid_skip", return_value=None),
+            patch.object(pipeline, "hydrate_sample", side_effect=slow_hydration),
+            patch.object(pipeline.time, "monotonic", side_effect=lambda: clock[0]),
+        ):
+            draft_stage(
+                self.team.pk, str(run.id), include_paid=True, settings=SuggestionSettings(), deadline=needed + 60
+            )
+
+        drafted.assert_not_called()
+        run.refresh_from_db()
+        assert run.stages["drafting"] == {"status": "skipped", "detail": "not enough time left"}
+
+    @parameterized.expand([("privacy_on", True), ("privacy_off", False)])
+    def test_a_paid_draft_follows_the_organization_privacy_mode(self, _name: str, privacy: bool) -> None:
+        run = create_run(self.team, "scheduled")
+        with (
+            patch.object(pipeline, "is_privacy_mode_enabled", return_value=privacy),
+            patch.object(
+                pipeline.drafting, "draft_check", return_value=drafting.DraftCall(draft=None, cost_usd=0.0)
+            ) as draft_check,
+        ):
+            paid_draft(self.team, run, "brief", budget=10.0)
+
+        assert draft_check.call_args.kwargs["privacy_mode"] is privacy
 
     @patch.object(pipeline, "_drafted_proposals")
     def test_a_draft_that_cannot_finish_before_the_deadline_is_not_started(self, drafted: MagicMock) -> None:
