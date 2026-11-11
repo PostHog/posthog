@@ -22,7 +22,22 @@ export function PlatformAlertDestinationAddForm(): JSX.Element {
 
     // Plain fields rather than a kea-forms <Form>, because this sits inside the alert's own form.
     return (
-        <div className="space-y-2 border rounded p-2">
+        <div
+            className="space-y-2 border rounded p-2"
+            // Enter in the URL adds the destination. Without this it would submit or advance the alert's own
+            // form, which drops what was typed here. The Slack picker keeps Enter for choosing a channel.
+            onKeyDown={(event) => {
+                if (
+                    event.key === 'Enter' &&
+                    destinationForm.type !== 'slack' &&
+                    event.target instanceof HTMLInputElement
+                ) {
+                    event.preventDefault()
+                    event.stopPropagation()
+                    submitDestinationForm()
+                }
+            }}
+        >
             <LemonField.Pure label="Type">
                 <LemonSelect
                     value={destinationForm.type}
