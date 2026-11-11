@@ -327,6 +327,7 @@ export interface autoresearchPipelineLogicValues {
     modelsError: boolean
     modelsLoaded: boolean
     modelsLoading: boolean
+    notMadeLiveReasons: Record<string, string>
     onlinePerformance: OnlinePerformanceRowApi[]
     onlinePerformanceError: boolean
     onlinePerformanceLoading: boolean
@@ -346,7 +347,6 @@ export interface autoresearchPipelineLogicValues {
     queuedSuggestionCount: number
     reportByRun: Record<string, string | null>
     reportByRunLoading: boolean
-    notMadeLiveReasons: Record<string, string>
     runRoles: Record<string, RunRole>
     runs: AutoresearchRunApi[]
     runsError: boolean
