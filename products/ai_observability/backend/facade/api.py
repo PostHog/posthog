@@ -57,6 +57,7 @@ from ..logic.message_normalizer.errors import RecipeCompileError as RecipeCompil
 from ..logic.message_normalizer.normalizer import check_stored_recipe_source
 from ..logic.traces.cluster_queries import ClusterRunWindow, can_read_clusters, load_cluster_runs
 from ..logic.traces.clusters import ClusterMemberships, TraceCluster
+from ..logic.traces.dataset_item import StepDatasetItem
 from ..logic.traces.evaluation_result import EvaluationResult
 from ..logic.traces.evaluation_result_queries import load_evaluation_results, load_output_configs
 from ..logic.traces.evaluation_summary import EvaluationSummary
@@ -169,6 +170,15 @@ def load_trace_node_raw(
 ) -> Callable[[], contracts.TraceNodeRaw]:
     event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
     return lambda: _to_node_raw(node_id, event)
+
+
+def load_trace_node_dataset_item(
+    team: Team, user: User | None, trace_id: str, node_id: str, timestamp_hint: datetime
+) -> Callable[[], contracts.TraceNodeDatasetItem]:
+    event = _load_node_event(team, user, trace_id, node_id, timestamp_hint)
+    return lambda: _to_node_dataset_item(
+        StepDatasetItem(trace_id=trace_id, trace_timestamp=timestamp_hint, event=event)
+    )
 
 
 def _load_node_event(
@@ -285,6 +295,18 @@ def _to_node_raw(node_id: str, event: NodeEvent | None) -> contracts.TraceNodeRa
     if event is None:
         return contracts.TraceNodeRaw(id=node_id, kind="trace", event=None)
     return contracts.TraceNodeRaw(id=node_id, kind=event.kind, event=_to_node_event(event))
+
+
+def _to_node_dataset_item(item: StepDatasetItem) -> contracts.TraceNodeDatasetItem:
+    return contracts.TraceNodeDatasetItem(
+        client_item_id=item.source_event_id,
+        source_trace_id=item.trace_id,
+        source_event_id=item.source_event_id,
+        source_timestamp=item.trace_timestamp,
+        input=item.input,
+        source_output=item.source_output,
+        metadata=item.metadata,
+    )
 
 
 def _to_node_detail(team_id: int, node_id: str, event: NodeEvent | None) -> contracts.TraceNodeDetail:

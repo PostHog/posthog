@@ -19,6 +19,7 @@
         "fix": "pnpm lint:fix; s=$?; pnpm format && exit $s"
     },
     "dependencies": {
+        "@aws-sdk/client-kms": "^3.975.0",
         "@hono/node-server": "^2.1.5",
         "hono": "^4.13.14",
         "jose": "^6.0.10",

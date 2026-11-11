@@ -19,6 +19,7 @@ import re
 import builtins
 import dataclasses
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 from typing import ClassVar, Literal
 
 from posthog.integrations.backend import (
@@ -40,9 +41,11 @@ from posthog.integrations.contracts import (
     IntegrationPatch,
     IntegrationRecord,
     IntegrationUsage,
+    RepositoryCache,
     UnknownIntegrationKind,
     UnsupportedAuthType,
     UnsupportedIntegrationFilter,
+    UpdatedRows,
 )
 from posthog.integrations.enums import AuthType
 from posthog.integrations.observability import instrumented, record_token_refresh
@@ -276,6 +279,12 @@ class IntegrationReader:
         """The number of rows of every team with this external id."""
         return self._backend.count(self._cross_team_scope("count_by_external_id"), RowFilter(external_id=external_id))
 
+    @instrumented("count_by_external_ids")
+    def count_by_external_ids(self, external_ids: Iterable[str]) -> dict[str, int]:
+        """The number of rows of every team for each external id, in one read. An id without rows is not a key."""
+        scope = self._cross_team_scope("count_by_external_ids")
+        return self._backend.count_by_external_ids(scope, external_ids=sorted(set(external_ids)))
+
     @instrumented("exists_by_external_id")
     def exists_by_external_id(self, external_id: str) -> bool:
         """True when a row of any team has this external id."""
@@ -445,8 +454,10 @@ class AuthAccessor(IntegrationReader):
     ) -> tuple[IntegrationRecord, bool]:
         """Create the row with this external id, or replace the config of the existing one.
 
-        Returns the row and True when it is new. Raises `IntegrationConflict` when a row with this
-        external id exists outside the scope, for example with another auth type.
+        A replace also clears `errors`, because a new config is a reconnect. `created_by_id=None` keeps
+        the creator of an existing row. Returns the row and True when it is new. Raises
+        `IntegrationConflict` when a row with this external id exists outside the scope, for example
+        with another auth type.
         """
         new = self._new_row(team_id, external_id, config, sensitive_config, created_by_id)
         return self._backend.upsert(self._scope(), new)
@@ -488,6 +499,48 @@ class AuthAccessor(IntegrationReader):
     def change_external_id(self, team_id: int, id: int, external_id: str) -> IntegrationRecord:
         """Give the row another external id. Raises `IntegrationConflict` when the team has a row of the kind with that id."""
         return self._backend.change_external_id(self._scope(), team_id=team_id, id=id, external_id=external_id)
+
+    @instrumented("update_where")
+    def update_where(self, team_id: int, *, where: Mapping[str, ConfigValue], patch: IntegrationPatch) -> UpdatedRows:
+        """Apply `patch` to every row of the team whose config matches `where`, all or none.
+
+        The rows stay locked until every write is done, so a concurrent write of one of them is kept.
+        Returns every matched row after the write, oldest first, and the ids of the rows that changed.
+        """
+        checked_where = _checked_where(where)
+        if not checked_where:
+            raise ValueError("update_where needs a where filter. Use update to write one row.")
+        row_filter = RowFilter(team_id=team_id, where=checked_where)
+        return self._backend.update_where(self._scope(), row_filter, _checked_patch(patch))
+
+    @instrumented("get_repository_cache")
+    def get_repository_cache(self, team_id: int, id: int) -> RepositoryCache:
+        """The GitHub repository list that the row caches. Raises `IntegrationNotFound`."""
+        return self._backend.get_repository_cache(self._scope(), team_id=team_id, id=id)
+
+    @instrumented("set_repository_cache")
+    def set_repository_cache(
+        self,
+        team_id: int,
+        id: int,
+        *,
+        repositories: builtins.list[dict[str, object]] | None,
+        updated_at: datetime,
+    ) -> None:
+        """Store the time of a repository list fetch, and the list itself when it is not None.
+
+        Pass `repositories=None` when the list did not change, so the large list is not written again.
+        Writes only the cache, so a concurrent change of the config is kept.
+        """
+        self._backend.set_repository_cache(
+            self._scope(), team_id=team_id, id=id, repositories=repositories, updated_at=updated_at
+        )
+
+    @instrumented("expire_repository_cache_by_external_id", rows="written")
+    def expire_repository_cache_by_external_id(self, external_id: str) -> int:
+        """Mark the cached repository list of every team's row with this external id as stale."""
+        scope = self._cross_team_scope("expire_repository_cache_by_external_id")
+        return self._backend.expire_repository_cache_by_external_id(scope, external_id=external_id)
 
     async def acreate(
         self,
