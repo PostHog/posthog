@@ -92,10 +92,20 @@ const isToolCall = (item: ThreadItem): boolean => item.type === 'tool_invocation
 const ridesAlong = (item: ThreadItem): boolean =>
     item.type === 'assistant_thought' || (item.type === 'task_notification' && item.status === 'completed')
 
+// The agent must call this tool before its final reply, so it follows every chart the agent shows. The key has
+// a qualified form on the Claude SDK wire path and a bare form on a native MCP path.
+const TASK_SUMMARY_TOOL_KEYS = new Set(['task_summary_update', 'mcp__posthog-code-tools__task_summary_update'])
+
+const isTaskSummaryCall = (item: ThreadItem, toolInvocations: ReadonlyMap<string, ToolInvocation>): boolean => {
+    const invocation = toolInvocations.get(item.toolCallId!)
+    return !!invocation && TASK_SUMMARY_TOOL_KEYS.has(resolveToolCall(invocation).resolvedKey)
+}
+
 /**
  * PostHog Desktop's grouping: two or more tool calls fold into a group, and a lone call keeps its row. A
  * closed run's last call keeps its row when it is a finished widget, so the chart the agent talks about stays
- * visible. The trailing run closes only once `settled`, so its chart cannot appear and then fold again.
+ * visible. The task summary call does not count as the last call. The trailing run closes only once `settled`,
+ * so its chart cannot appear and then fold again.
  */
 export function groupToolRuns(
     items: ThreadItem[],
@@ -112,7 +122,9 @@ export function groupToolRuns(
     }
     for (const item of items) {
         if (isToolCall(item) && !pinnedToolIds.has(item.toolCallId!)) {
-            runLastCall = item.toolCallId
+            if (!isTaskSummaryCall(item, toolInvocations)) {
+                runLastCall = item.toolCallId
+            }
         } else if (!ridesAlong(item)) {
             closeRun()
         }

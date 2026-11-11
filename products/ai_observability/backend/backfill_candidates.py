@@ -161,7 +161,7 @@ def _unit_key(target: str) -> ast.Expr:
     raise ValueError(f"Unsupported evaluation target: {target}")
 
 
-def _ai_events_unit_key(target: str) -> ast.Expr:
+def ai_events_unit_key(target: str) -> ast.Expr:
     """The same unit id as `ai_events` carries it, where trace and session are native columns."""
     if target == EvaluationTarget.TRACE.value:
         return ast.Field(chain=["trace_id"])
@@ -364,7 +364,7 @@ def _heavy_matches(
     """Which of these candidates match the condition sets in full, heavy filters included."""
     if not candidates:
         return set()
-    unit_key = _ai_events_unit_key(target)
+    unit_key = ai_events_unit_key(target)
     trace_ids = sorted({candidate.trace_id for candidate in candidates if candidate.trace_id})
     scope: ast.Expr = ast.CompareOperation(
         op=ast.CompareOperationOp.In,
@@ -468,7 +468,7 @@ def count_backfill_candidates(
     # is being counted, so the count asks ai_events for all of it and comes back with one number.
     # The scan is the wide one this module otherwise avoids, which is the price of counting a
     # filter on a property only that table holds, and the execution cap bounds it.
-    ai_unit_key = _ai_events_unit_key(target)
+    ai_unit_key = ai_events_unit_key(target)
     ai_units = parse_select(_AI_UNITS_SQL)
     assert isinstance(ai_units, ast.SelectQuery)
     rows = _run_on_ai_events(

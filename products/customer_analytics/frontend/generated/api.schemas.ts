@@ -2169,6 +2169,43 @@ export interface PatchedAccountApi {
     readonly updated_at?: string | null
 }
 
+export interface AccountAutomationApi {
+    /** ID of the workflow the caller can read. */
+    workflow_id: string
+    /** Name of the workflow. */
+    workflow_name: string
+    /** ID of this execution, including repeated workflow runs. */
+    invocation_id: string
+    /** Run status: running, succeeded, failed, or canceled. */
+    status: string
+    /** Original trigger or scheduling time. */
+    triggered_at: string
+    /**
+     * Last successfully completed step time, or null when evidence is unavailable.
+     * @nullable
+     */
+    last_completed_step_at: string | null
+    /**
+     * Current name of the last completed step, or null when unavailable.
+     * @nullable
+     */
+    last_completed_step_name: string | null
+    /**
+     * Future pause time from retained logs, or null. This does not guarantee an action.
+     * @nullable
+     */
+    expected_resume_at: string | null
+}
+
+export interface PaginatedAccountAutomationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: AccountAutomationApi[]
+}
+
 export interface ConversationMessageSenderApi {
     /** Display name of the message sender. */
     readonly name: string
@@ -3290,12 +3327,12 @@ export interface CustomPropertySyncRunApi {
      */
     readonly attempt: number | null
     /**
-     * Temporal workflow identifier associated with the current account sync phase.
+     * Staff-only Temporal workflow identifier of the run. Null for non-staff users.
      * @nullable
      */
     readonly workflow_id: string | null
     /**
-     * Temporal run identifier associated with the current account sync phase.
+     * Identifier of the worker job that executed the run. Person and group runs use it to find the run's progress log lines. Null for runs recorded before it was stored.
      * @nullable
      */
     readonly workflow_run_id: string | null
@@ -5316,6 +5353,18 @@ export const AccountsPersonsRetrieveSortDirection = {
     Asc: 'asc',
     Desc: 'desc',
 } as const
+
+export type AccountsAutomationsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
 
 export type AccountsEmailThreadsListParams = {
     /**
