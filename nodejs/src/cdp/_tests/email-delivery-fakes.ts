@@ -74,6 +74,7 @@ export type BucketAnswer = 'pass' | 'refuse' | 'hold' | 'holdCopies' | 'holdFile
 export class BucketProxy {
     answer: BucketAnswer = 'pass'
     lastModifiedAgeMs = 0
+    downloadDelayMs = 0
     requests = 0
     abandonedRequests = 0
     downloads = 0
@@ -121,6 +122,10 @@ export class BucketProxy {
         this.requests++
         if (request.method === 'GET') {
             this.downloads++
+        }
+        if (request.method === 'GET' && this.downloadDelayMs > 0) {
+            setTimeout(() => this.answerRequest(request, response), this.downloadDelayMs)
+            return
         }
         this.answerRequest(request, response)
     }

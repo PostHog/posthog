@@ -130,7 +130,7 @@ const sesSendResultsTotal = new Counter({
 
 const emailSendsStoppedForJobOwnershipTotal = new Counter({
     name: 'cdp_email_sends_stopped_for_job_ownership_total',
-    help: 'Emails a worker did not send right before the send, by reason: lost_job (a janitor reset gave the job to another worker, which sends it) or check_failed (the ownership read failed or outlived the send deadline, so the send waits for a retry).',
+    help: 'Emails a worker did not send right before the send, by reason: lost_job (a janitor reset gave the job to another worker, which sends it) or check_failed (the ownership read failed or did not answer in time, so the send waits for a retry).',
     labelNames: ['reason'],
 })
 
@@ -937,19 +937,20 @@ export class EmailService {
                   }
                 : paramsWithReplyTo
 
-            const deadline = params.attachments?.length
-                ? AbortSignal.timeout(this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS)
-                : undefined
+            const sendDeadlineMs = this.sesConfig.attachmentSendDeadlineMs ?? ATTACHMENT_SEND_DEADLINE_MS
+            const sendDeadlineAt = Date.now() + sendDeadlineMs
+            const deadline = params.attachments?.length ? AbortSignal.timeout(sendDeadlineMs) : undefined
             const files = deadline ? await this.loadAttachments(invocation.teamId, params.attachments!, deadline) : []
             const ownershipCheckRetries: number = invocation.queueMetadata?.ownershipCheckRetries ?? 0
-            const checkTimeout = AbortSignal.timeout(
-                this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
-            )
+            const ownershipCheckTimeoutMs = this.sesConfig.ownershipCheckTimeoutMs ?? OWNERSHIP_CHECK_TIMEOUT_MS
+            const halfTheSendTimeLeftMs = Math.max(0, Math.floor((sendDeadlineAt - Date.now()) / 2))
             const ownership = isTest
                 ? 'owner'
                 : await this.jobOwnershipBeforeSend(
                       invocation,
-                      deadline ? AbortSignal.any([deadline, checkTimeout]) : checkTimeout
+                      AbortSignal.timeout(
+                          deadline ? Math.min(ownershipCheckTimeoutMs, halfTheSendTimeLeftMs) : ownershipCheckTimeoutMs
+                      )
                   )
             const sendsAfterFailedChecks =
                 ownership === 'check_failed' && ownershipCheckRetries >= MAX_OWNERSHIP_CHECK_RETRIES
