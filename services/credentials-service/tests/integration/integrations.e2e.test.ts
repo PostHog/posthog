@@ -18,11 +18,12 @@ import { INTEGRATIONS_AUDIENCE, type SigningKeys } from '@/auth/types'
 import { Envelope } from '@/crypto/envelope'
 import { LocalKms } from '@/crypto/local-kms'
 import { type EncryptionContext, type Kms, KmsError } from '@/crypto/types'
+import { deleteExpiredIdempotencyKeys } from '@/db/idempotency'
 import { listIntegrations } from '@/db/integration-queries'
 import { insertIntegration } from '@/db/integrations'
 import { runMigrations } from '@/db/migrate'
 import { createApp } from '@/http/app'
-import { AuditQueue } from '@/integrations/audit'
+import { AuditQueue, insertAuditRows } from '@/integrations/audit'
 import { IntegrationsService } from '@/integrations/service'
 import { logger } from '@/lib/logging'
 import { register } from '@/metrics'
@@ -30,7 +31,8 @@ import { register } from '@/metrics'
 const WEB = 'posthog-web-django'
 const WORKER = 'temporal-worker-data-warehouse'
 const CDP = 'cdp-api'
-const DEPLOYMENTS = [WEB, WORKER, CDP]
+const BATCH_EXPORTS = 'temporal-worker-batch-exports'
+const DEPLOYMENTS = [WEB, WORKER, CDP, BATCH_EXPORTS]
 const PAIRS: Record<string, { privateKey: KeyObject; publicKey: KeyObject }> = Object.fromEntries(
     DEPLOYMENTS.map((deployment) => [deployment, generateKeyPairSync('ed25519')])
 )
@@ -221,7 +223,7 @@ beforeAll(async () => {
     pool = new Pool({ connectionString: container.getConnectionUri(), max: 5 })
     audit = new AuditQueue(pool, { flushIntervalMs: 60_000 })
     app = buildApp(new LocalKms([randomBytes(32)]))
-    for (const level of ['debug', 'info', 'warn', 'error'] as const) {
+    for (const level of ['debug', 'info', 'warn', 'error', 'audit'] as const) {
         vi.spyOn(logger, level).mockImplementation((event: string, fields?: Record<string, unknown>) => {
             logLines.push(JSON.stringify({ event, fields }))
         })
@@ -424,6 +426,102 @@ describe('CRUD', () => {
         expect(await ids('')).toEqual(['plain'])
         expect(await ids('?source_rows=only')).toEqual(['source'])
         expect(await ids('?source_rows=include')).toEqual(['plain', 'source'])
+    })
+})
+
+describe('audit write safety', () => {
+    it.each([
+        ['a NUL', 'caller\u0000x', 'callerx'],
+        ['a lone surrogate', 'caller\uD800x', 'caller\uFFFDx'],
+    ])('stores a batch whose caller holds %s', async (_label, caller, stored) => {
+        const entry = {
+            actor: { deployment: WEB, caller, userId: null, jti: 'j', requestId: 'r' },
+            operation: 'read',
+            outcome: 'ok',
+            ownerType: 'team',
+            ownerId: TEAM_A,
+            integrationId: null,
+            kind: 'hubspot',
+        }
+
+        await insertAuditRows(pool, [entry, { ...entry, actor: { ...entry.actor, caller: 'plain' } }])
+
+        const rows = (await pool.query('SELECT caller FROM audit_log')).rows.map((row) => row.caller)
+        expect(rows.sort()).toEqual([stored, 'plain'].sort())
+    })
+})
+
+describe('patch audit', () => {
+    it('audits a patch that changes nothing as a read', async () => {
+        const created = await create()
+
+        const res = await call('PATCH', `/${created.id}`, { ops: ['write'], body: {} })
+
+        expect(res.status).toBe(200)
+        expect((await auditRows()).map((row) => row.operation)).toEqual(['create', 'read'])
+    })
+})
+
+describe('idempotency key cleanup', () => {
+    it('deletes expired keys and keeps live ones', async () => {
+        await pool.query(
+            `INSERT INTO idempotency_keys (deployment, owner_type, owner_id, operation, key, request_hash, expires_at)
+             VALUES ($1, 'team', 1, 'create', 'old', '\\x00', now() - interval '1 hour'),
+                    ($1, 'team', 1, 'create', 'new', '\\x00', now() + interval '1 hour')`,
+            [WEB]
+        )
+
+        expect(await deleteExpiredIdempotencyKeys(pool)).toBe(1)
+
+        const left = await pool.query('SELECT key FROM idempotency_keys')
+        expect(left.rows.map((row) => row.key)).toEqual(['new'])
+    })
+})
+
+describe('source row grants', () => {
+    // temporal-worker-batch-exports may read postgresql rows but has no source-row grant.
+    async function setup(): Promise<{ plain: any; source: any }> {
+        const plain = await create({ kind: 'postgresql', integration_id: 'plain', sensitive_config: {} })
+        const source = await create({
+            kind: 'postgresql',
+            integration_id: 'source',
+            is_source_row: true,
+            sensitive_config: {},
+        })
+        return { plain, source }
+    }
+
+    it('refuses a deployment with no grant on every route that reads a source row', async () => {
+        const { plain, source } = await setup()
+        const as = { deployment: BATCH_EXPORTS, ops: undefined }
+
+        expect((await call('GET', `/${plain.id}`, as)).status).toBe(200)
+        for (const res of [
+            await call('GET', `/${source.id}`, as),
+            await call('POST', '/batch-get', { ...as, body: { refs: [plain.id, source.id] } }),
+            await call('POST', '/resolve', { ...as, body: { refs: [source.id] } }),
+            await call('GET', '/?source_rows=only', as),
+            await call('GET', '/?source_rows=include', as),
+        ]) {
+            expect(res.status).toBe(403)
+            expect(res.json.error.code).toBe('forbidden_kind')
+        }
+    })
+
+    it('lists the ordinary rows of a deployment with no grant', async () => {
+        const { plain } = await setup()
+
+        const res = await call('GET', '/', { deployment: BATCH_EXPORTS })
+
+        expect(res.json.results.map((row: any) => row.id)).toEqual([plain.id])
+    })
+
+    it('lets a deployment with the grant list and read source rows', async () => {
+        const { source } = await setup()
+
+        const res = await call('GET', '/?source_rows=only', { deployment: WORKER })
+
+        expect(res.json.results.map((row: any) => row.id)).toEqual([source.id])
     })
 })
 

@@ -430,6 +430,9 @@ When the queue is full, the service drops the rows and counts them on `credentia
 Every audit row is also written to stdout as one JSON line (`integrations:audited`), before the response. It holds field names only, never values. The queue never drops this line.
 
 Idempotency keys are scoped by deployment, owner and operation.
+The request hash covers the secret key names but not their values, so a stored hash cannot be used to guess a weak secret offline.
+A retry with the same key and a different secret value replays the first create.
+The service deletes keys that passed their 24 hour window every 10 minutes.
 
 `PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
 
