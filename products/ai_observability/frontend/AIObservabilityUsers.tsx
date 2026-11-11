@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
@@ -25,7 +26,10 @@ export function AIObservabilityUsers(): JSX.Element {
         AIObservabilityInstrumentationCheckEnumApi.UserIdentity,
         'Users are not identified in your AI events'
     )
-    const chartTable = metricChartTableProps(USERS_DATA_NODE_KEY, <AIObservabilityMetricChart metric="users" />)
+    const redesign = useFeatureFlag('AI_OBSERVABILITY_TRACES_USERS_REDESIGN')
+    const chartTable = redesign
+        ? metricChartTableProps(USERS_DATA_NODE_KEY, <AIObservabilityMetricChart metric="users" />)
+        : { query: {}, context: {} }
 
     const { renderSortableColumnTitle } = useSortableColumns(usersSort, setUsersSort)
 

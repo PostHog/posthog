@@ -7,7 +7,6 @@ import { urls } from 'scenes/urls'
 
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { aiObservabilityMetricChartLogic } from './aiObservabilityMetricChartLogic'
@@ -40,7 +39,7 @@ describe('aiObservabilityMetricChartLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () =>
-            logic.actions.openBucketTrace({ label: '2026-11-10 18:28:00' })
+            logic.actions.openBucketTrace({ label: '2026-11-10T18:28:00Z' })
         ).toFinishAllListeners()
 
         expect(router.values.searchParams.trace).toBe(openTrace)
@@ -53,28 +52,35 @@ describe('aiObservabilityMetricChartLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () =>
-            logic.actions.openBucketTrace({ label: '2026-11-10 18:28:00' })
+            logic.actions.openBucketTrace({ label: '2026-11-10T18:28:00Z' })
         ).toFinishAllListeners()
 
         expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('trace-1'))
     })
 
     it.each([
-        ['matches a property filter on any event of a trace', urls.aiObservabilityTraces(), undefined, true],
-        ['matches each generation on the Users tab', urls.aiObservabilityUsers(), 'users', false],
-    ] as const)('%s', (_name, url, metric, wholeTraces) => {
+        ['hides support traces on the Traces tab', urls.aiObservabilityTraces(), undefined, true],
+        ['keeps them on the Users tab, as its table does', urls.aiObservabilityUsers(), 'users', false],
+    ] as const)('%s', (_name, url, metric, hidden) => {
         router.actions.push(url, { date_from: '-1h' })
         const logic = aiObservabilityMetricChartLogic({ metric })
         logic.mount()
-        aiObservabilitySharedLogic.actions.setPropertyFilters([
-            {
-                key: '$ai_trace_name',
-                value: 'checkout',
-                operator: PropertyOperator.Exact,
-                type: PropertyFilterType.Event,
-            },
-        ])
 
-        expect(logic.values.query.query.includes('properties.$ai_trace_id IN (SELECT')).toBe(wholeTraces)
+        expect(logic.values.filters.properties?.some((p) => String(p.key).includes('ai_support_impersonated'))).toBe(
+            hidden
+        )
+    })
+
+    it.each([
+        ['ends at the next bar', '2026-11-10T14:00:00Z', '2026-11-10T14:00:00Z'],
+        ["keeps the chart's own end for the last bar", null, '2026-11-10'],
+    ])('zooming %s', (_name, nextLabel, dateTo) => {
+        router.actions.push(urls.aiObservabilityTraces(), { date_from: '2026-11-10', date_to: '2026-11-10' })
+        const logic = aiObservabilityMetricChartLogic({})
+        logic.mount()
+
+        logic.actions.zoomTo('2026-11-10T13:00:00Z', nextLabel)
+
+        expect(aiObservabilitySharedLogic.values.dateFilter).toEqual({ dateFrom: '2026-11-10T13:00:00Z', dateTo })
     })
 })

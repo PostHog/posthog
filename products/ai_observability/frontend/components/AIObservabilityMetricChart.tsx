@@ -29,7 +29,14 @@ const METRIC_OPTIONS = (Object.keys(METRIC_CHART_DEFINITIONS) as MetricChartKey[
     label: METRIC_CHART_DEFINITIONS[key].label,
 }))
 
-export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: MetricChartKey }): JSX.Element {
+export function AIObservabilityMetricChart({
+    metric: pinnedMetric,
+    searchApplied,
+}: {
+    metric?: MetricChartKey
+    /** A plain HogQL query can't read the content the table searches. */
+    searchApplied?: boolean
+}): JSX.Element {
     const logic = aiObservabilityMetricChartLogic({ metric: pinnedMetric })
     const { activeMetric: metric, interval, canZoom, query, bucketTraceLoading } = useValues(logic)
     const { setMetric, zoomTo, openBucketTrace } = useActions(logic)
@@ -95,12 +102,15 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
     const isPointClickable = useCallback((index: number) => canZoom || opensTrace(index), [canZoom, opensTrace])
     const onPointClick = useCallback(
         ({ label, dataIndex }: { label: string; dataIndex: number }) =>
-            canZoom ? zoomTo(label, label) : opensTrace(dataIndex) && openBucketTrace({ label }),
-        [canZoom, zoomTo, opensTrace, openBucketTrace]
+            canZoom
+                ? zoomTo(label, labels[dataIndex + 1] ?? null)
+                : opensTrace(dataIndex) && openBucketTrace({ label }),
+        [canZoom, zoomTo, opensTrace, openBucketTrace, labels]
     )
     const onDateRangeZoom = useCallback(
-        ({ startLabel, endLabel }: { startLabel: string; endLabel: string }) => zoomTo(startLabel, endLabel),
-        [zoomTo]
+        ({ startLabel, endLabel }: { startLabel: string; endLabel: string }) =>
+            zoomTo(startLabel, labels[labels.indexOf(endLabel) + 1] ?? null),
+        [zoomTo, labels]
     )
 
     return (
@@ -108,18 +118,22 @@ export function AIObservabilityMetricChart({ metric: pinnedMetric }: { metric?: 
             className="border rounded bg-surface-primary p-2 flex flex-col gap-2"
             data-attr="ai-observability-metric-chart"
         >
-            {pinnedMetric ? (
-                <span className="text-sm font-semibold">{definition.label}</span>
-            ) : (
-                <LemonSelect
-                    size="small"
-                    value={metric}
-                    onChange={setMetric}
-                    options={METRIC_OPTIONS}
-                    className="self-start"
-                    data-attr="ai-observability-metric-chart-select"
-                />
-            )}
+            <div className="flex flex-wrap items-center gap-2">
+                {pinnedMetric ? (
+                    <span className="text-sm font-semibold">{definition.label}</span>
+                ) : (
+                    <LemonSelect
+                        size="small"
+                        value={metric}
+                        onChange={setMetric}
+                        options={METRIC_OPTIONS}
+                        data-attr="ai-observability-metric-chart-select"
+                    />
+                )}
+                {searchApplied && (
+                    <span className="text-xs text-secondary">The chart doesn't apply the content search.</span>
+                )}
+            </div>
             <div className="h-40 flex flex-col">
                 {responseLoading ? (
                     <LemonSkeleton className="h-full w-full" />

@@ -102,7 +102,7 @@ async function renderTraces({ flag = true, url = LIST_PATH } = {}): Promise<Rend
     panelLayoutLogic.mount()
     router.actions.push(url)
     const view = render(<AIObservabilityTraces />)
-    await waitFor(() => expect(view.container.querySelector('[data-attr="trace-name-link"]')).not.toBeNull())
+    await waitFor(() => expect(view.container.querySelector('[data-attr="trace-id-link"]')).not.toBeNull())
     return view
 }
 
@@ -212,6 +212,7 @@ describe('AIObservabilityTracesScene', () => {
 
         it.each([
             ['the row', firstCell],
+            ['the ID link', (view: RenderResult): HTMLElement => firstLink(view, 'trace-id-link')],
             ['the name link', (view: RenderResult): HTMLElement => firstLink(view, 'trace-name-link')],
         ])('opens the drawer on a plain click on %s', async (_name, target) => {
             const view = await renderTraces()
@@ -250,7 +251,7 @@ describe('AIObservabilityTracesScene', () => {
                 url: combineUrl(LIST_PATH, { trace: 'trace-2', ts: DRAWER_TIMESTAMP, step: 'gen-1' }).url,
             })
 
-            const { searchParams } = combineUrl(firstLink(view, 'trace-name-link').getAttribute('href') ?? '')
+            const { searchParams } = combineUrl(firstLink(view, 'trace-id-link').getAttribute('href') ?? '')
 
             expect(searchParams).toMatchObject({ back_to: 'traces' })
             expect(searchParams).not.toHaveProperty('trace')
@@ -287,9 +288,9 @@ describe('AIObservabilityTracesScene', () => {
             expect(router.values.searchParams).not.toHaveProperty('trace')
         })
 
-        it('leaves a Cmd-click on the name link for the browser to open the page in a new tab', async () => {
+        it('leaves a Cmd-click on the ID link for the browser to open the page in a new tab', async () => {
             const view = await renderTraces()
-            const link = firstLink(view, 'trace-name-link')
+            const link = firstLink(view, 'trace-id-link')
 
             const browserHandlesIt = fireEvent.click(link, { metaKey: true })
 
@@ -326,7 +327,7 @@ describe('AIObservabilityTracesScene', () => {
 
             await waitFor(() => expect(view.container.querySelector('[data-attr="trace-drawer"]')).toBeNull())
             expect(router.values.searchParams.trace).toBeUndefined()
-            expect(document.activeElement).toBe(firstLink(view, 'trace-name-link'))
+            expect(document.activeElement).toBe(firstLink(view, 'trace-id-link'))
         })
 
         it('marks only the open row', async () => {
@@ -418,8 +419,13 @@ describe('AIObservabilityTracesScene', () => {
                 { id: 'trace-1', errorCount: 2, events: [{ properties: { $ai_error: 'RateLimitError' } }] },
                 'RateLimitError+1',
             ],
-            ['only the count when the error sits on a nested span', { id: 'trace-1', errorCount: 2 }, '2\u00a0errors'],
-        ])('renders %s in the errors cell', (_name, record, expected) => {
+            ['only the count when the error sits on a nested span', { id: 'trace-1', errorCount: 2 }, '2 errors'],
+        ])('renders %s in the redesigned errors cell', (_name, record, expected) => {
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN], {
+                [FEATURE_FLAGS.AI_OBSERVABILITY_TRACES_USERS_REDESIGN]: true,
+            })
+
             expect(renderCell('errorCount', record)).toBe(expected)
         })
     })
