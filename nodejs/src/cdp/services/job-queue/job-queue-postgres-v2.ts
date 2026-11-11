@@ -352,7 +352,9 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
                 const job = this.pendingJobs.get(invocation.id)
                 if (job) {
                     try {
-                        await this.resultWrites.schedule(job.defer({ scheduledAt, state: encodeStateColumns(invocation).state }))
+                        await this.resultWrites.schedule(
+                            job.defer({ scheduledAt, state: encodeStateColumns(invocation).state })
+                        )
                     } finally {
                         this.forgetPendingJob(job)
                     }
