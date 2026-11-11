@@ -72,7 +72,7 @@ describe('DataTable', () => {
     ])('shift-click %s the selectable rows between two checkboxes', (_name, initial, expected) => {
         const people: TestRow[] = ['Ada', 'Grace', 'Barbara', 'Linus', 'Margaret', 'Ken'].map((name) => ({ name }))
         const onRowSelectionChange = jest.fn()
-        render(
+        const { container } = render(
             <DataTable
                 columns={[{ accessorKey: 'name', header: 'Name' }]}
                 data={people}
@@ -84,9 +84,11 @@ describe('DataTable', () => {
             />
         )
 
-        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Ada' }))
+        const checkbox = (name: string): Element =>
+            container.querySelector(`[role="checkbox"][aria-label="Select ${name}"]`)!
+        fireEvent.click(checkbox('Ada'))
         onRowSelectionChange.mockClear()
-        fireEvent.click(screen.getByRole('checkbox', { name: 'Select Margaret' }), { shiftKey: true })
+        fireEvent.click(checkbox('Margaret'), { shiftKey: true })
 
         const next = onRowSelectionChange.mock.calls[0][0]
         expect(Object.keys(next).sort()).toEqual([...expected].sort())
