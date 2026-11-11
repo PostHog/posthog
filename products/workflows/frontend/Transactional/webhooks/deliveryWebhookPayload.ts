@@ -11,7 +11,6 @@ export const DELIVERY_WEBHOOK_TEMPLATE_ID = 'template-webhook'
 export const DELIVERY_WEBHOOK_EVENTS = [
     { event: '$workflows_email_sent', label: 'Sent' },
     { event: '$workflows_email_delivered', label: 'Delivered' },
-    { event: '$workflows_email_delivery_delayed', label: 'Delivery delayed' },
     { event: '$workflows_email_bounced', label: 'Bounced' },
     { event: '$workflows_email_blocked', label: 'Marked as spam' },
     { event: '$workflows_email_failed', label: 'Failed' },
