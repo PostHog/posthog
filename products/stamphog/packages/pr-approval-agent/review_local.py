@@ -84,7 +84,7 @@ from github import (
     provenance_from_messages,
 )
 from policy import Attestation, FamiliarityPolicy
-from review_pr import REPO_ROOT, GateResult, Pipeline, flush_analytics
+from review_pr import ATTESTATION_LIFTED_GATES, REPO_ROOT, GateResult, Pipeline, flush_analytics
 from version import STAMPHOG_VERSION
 
 # The hosted server exports the sandbox's wall clock in milliseconds right before `uv run`, so the
@@ -273,6 +273,7 @@ def _build_pr_data(context: dict, *, checkout: bool = True) -> PRData:
         review_comments=review_comments,
         check_runs=context.get("check_runs") or [],
         author_is_bot=is_bot_author(user),
+        author_id=int(user.get("id") or 0),
         pr_reactions=pr_reactions,
         body=pr.get("body") or "",
         discussion=_normalize_discussion_for_prompt(context.get("discussion") or []),
@@ -308,7 +309,7 @@ def _author_team_slugs(context: dict) -> set[str]:
 
 
 def _run_gates_offline(pipeline: Pipeline) -> None:
-    """Run the four deterministic gate checks, the same ones that _run_gates runs.
+    """Run the deterministic gate checks, the same ones that _run_gates runs.
 
     Mirrors Pipeline._run_gates without the console output. Set `pipeline.author_team_slugs` first
     (see _author_team_slugs), or the membership checks call `gh`, which the sandbox cannot do.
@@ -316,6 +317,7 @@ def _run_gates_offline(pipeline: Pipeline) -> None:
     gates = [
         ("prerequisites", pipeline._check_prerequisites),
         ("deny-list", pipeline._check_deny_list),
+        ("every_file_attested", pipeline._check_every_file_attested),
         ("size", pipeline._check_size),
         ("tier", pipeline._check_tier),
     ]
@@ -417,6 +419,9 @@ def _attach_familiarity(pipeline: Pipeline, context: dict) -> None:
     pipeline.classification["familiarity"] = fam
 
 
+_TIER_OR_LIFTED_GATES = ATTESTATION_LIFTED_GATES | {"tier"}
+
+
 def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestation]:
     """The unfinished checks that alone keep this PR from a review, or nothing.
 
@@ -433,7 +438,7 @@ def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestatio
     pending = pipeline.pending_lifting_attestations()
     if not pending:
         return []
-    if any(not gate.passed and gate.gate not in ("deny-list", "tier") for gate in pipeline.gate_results):
+    if any(not gate.passed and gate.gate not in _TIER_OR_LIFTED_GATES for gate in pipeline.gate_results):
         return []
     tier_without_denies = assign_tier(
         deny_categories=[],
@@ -450,7 +455,7 @@ def _blocked_only_by_pending_attestations(pipeline: Pipeline) -> list[Attestatio
 
 # Gates the pre-check evaluates from the same inputs the sandbox uses, so a failure here is a
 # failure there. The size gate is not in this set: see _size_denial_is_final.
-_CHECKOUT_FREE_GATES = frozenset({"prerequisites", "deny-list", "tier"})
+_CHECKOUT_FREE_GATES = frozenset({"prerequisites", "deny-list", "every_file_attested", "tier"})
 
 
 def _size_denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
@@ -504,14 +509,15 @@ def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
     )
 
 
-def _pending_attestation_wait(pending: list[Attestation]) -> dict:
+def _pending_attestation_wait(pipeline: Pipeline, pending: list[Attestation]) -> dict:
     """The WAIT the full review returns while a check that may lift the deny has not reported."""
+    # The server queues no review of a self-driving inbox PR when a check reports.
+    again = "on the next push" if pipeline.self_driving else "when the check reports, or on the next push"
     return {
         "verdict": "WAIT",
         "reasoning": (
             f"The {pending_check_names(pending)} check has not finished for this commit, so stamphog "
-            "cannot tell yet whether the change it covers is safe. The review runs again on the next "
-            "push, or you can re-request it once the check reports."
+            f"cannot tell yet whether the change it covers is safe. Stamphog reviews again {again}."
         ),
         "risk": "unknown",
         "issues": [],
@@ -536,6 +542,20 @@ def _gate_refusal_reasoning(pipeline: Pipeline) -> str:
     )
 
 
+def _pipeline_without_checkout(context: dict) -> Pipeline:
+    pipeline = Pipeline(
+        0,
+        context.get("repo") or "",
+        self_driving=bool(context.get("self_driving_review")),
+        review_trigger=str(context.get("review_trigger") or ""),
+        admitted_bot=str(context.get("admitted_bot") or ""),
+        head_checkout=True,
+        checkout=False,
+    )
+    pipeline.pr = _build_pr_data(context, checkout=False)
+    return pipeline
+
+
 def pregate(context: dict) -> dict:
     """Gate-only run for the hosted server, before it waits for other bots or makes a sandbox.
 
@@ -555,15 +575,7 @@ def pregate(context: dict) -> dict:
     ``folder_policies_known`` in the context means the server placed the PR head's AGENT_APPROVALS.md
     files in the pre-check tree. ``not_final_reason`` names why a non-final outcome needs the sandbox.
     """
-    pipeline = Pipeline(
-        0,
-        context.get("repo") or "",
-        self_driving=bool(context.get("self_driving_review")),
-        review_trigger=str(context.get("review_trigger") or ""),
-        head_checkout=True,
-        checkout=False,
-    )
-    pipeline.pr = _build_pr_data(context, checkout=False)
+    pipeline = _pipeline_without_checkout(context)
     # Only the server's commit messages work here, because the pre-check tree is not a git
     # repository. Without them, provenance stays null on the fast-path event.
     if "commit_messages" in context:
@@ -571,7 +583,7 @@ def pregate(context: dict) -> dict:
     folder_policies_known = context.get("folder_policies_known") is True
     outcome = {"final": False, "needs_summary": False, "summary_model": SUMMARY_MODEL, "result": None}
 
-    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+    if pipeline.refuses_bot_author():
         pipeline._refuse_bot_author()
         return {**outcome, "final": True, "result": pipeline.to_dict()}
 
@@ -582,7 +594,7 @@ def pregate(context: dict) -> dict:
         if not _pending_attestation_outcome_is_known(pipeline, folder_policies_known):
             return {**outcome, "not_final_reason": "pending_migration_check"}
         pipeline.final_verdict = "WAIT"
-        pipeline.reviewer_output = _pending_attestation_wait(pending)
+        pipeline.reviewer_output = _pending_attestation_wait(pipeline, pending)
         pipeline._capture_review_completed(pipeline._gate_verdict(), "PENDING-ATTESTATION")
         return {**outcome, "final": True, "result": pipeline.to_dict()}
     if not _denial_is_final(pipeline, folder_policies_known):
@@ -614,15 +626,7 @@ def attest(context: dict) -> dict:
     needs its texts in ``manifest_contents``. Without them the reason is ``dependency_manifest``,
     and ``manifests`` names the paths for the server to read and pass in on a second run.
     """
-    pipeline = Pipeline(
-        0,
-        context.get("repo") or "",
-        self_driving=bool(context.get("self_driving_review")),
-        review_trigger=str(context.get("review_trigger") or ""),
-        head_checkout=True,
-        checkout=False,
-    )
-    pipeline.pr = _build_pr_data(context, checkout=False)
+    pipeline = _pipeline_without_checkout(context)
 
     def outcome(reason: str) -> dict:
         gates = [{"gate": g.gate, "passed": g.passed, "message": g.message} for g in pipeline.gate_results]
@@ -630,7 +634,7 @@ def attest(context: dict) -> dict:
         lifted = bool(pipeline.classification.get("lifted_files"))
         return {"attested": not reason, "reason": reason, "gates": gates, "lifted": lifted}
 
-    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+    if pipeline.refuses_bot_author():
         return outcome("bot_author")
     if context.get("folder_policies_known") is not True:
         return outcome("folder_policies_unknown")
@@ -662,6 +666,7 @@ def run(context: dict) -> dict:
         context.get("repo") or "",
         self_driving=bool(context.get("self_driving_review")),
         review_trigger=str(context.get("review_trigger") or ""),
+        admitted_bot=str(context.get("admitted_bot") or ""),
         head_checkout=True,
     )
     pipeline.pr = _build_pr_data(context)
@@ -669,7 +674,7 @@ def run(context: dict) -> dict:
     # properties are null for every hosted review.
     pipeline.provenance = _context_provenance(context, pipeline.pr)
 
-    if pipeline.pr.author_is_bot and not pipeline.self_driving:
+    if pipeline.refuses_bot_author():
         pipeline._refuse_bot_author()
         return pipeline.to_dict()
 
@@ -688,7 +693,7 @@ def run(context: dict) -> dict:
         # re-request the review that it displaced.
         if pending := _blocked_only_by_pending_attestations(pipeline):
             pipeline.final_verdict = "WAIT"
-            pipeline.reviewer_output = _pending_attestation_wait(pending)
+            pipeline.reviewer_output = _pending_attestation_wait(pipeline, pending)
             pipeline._capture_review_completed(gate_verdict, "PENDING-ATTESTATION")
             return pipeline.to_dict()
 

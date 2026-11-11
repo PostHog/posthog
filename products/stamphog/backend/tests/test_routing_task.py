@@ -447,6 +447,20 @@ def test_fallback_routes_at_once_when_stamphog_will_not_review(
     assert (record["mode"], record["trigger"], record["status"]) == ("fallback", "opened", "done")
 
 
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_fallback_waits_for_the_verdict_on_a_bot_the_policy_names(team, user, routing_chain, safety_net) -> None:
+    routing_chain.recorder.policy_files[".stamphog/policy.yml"] = (
+        "bot_authors:\n  - {name: renovate, login: 'renovate[bot]', id: 29139614}\n"
+    )
+    _setup(routing_chain, team, user, routing_mode="fallback", author_type="Bot")
+    routing_chain.recorder.prs[(REPO, PR_NUMBER)]["user"] = {"login": "renovate[bot]", "type": "Bot", "id": 29139614}
+
+    _route()
+
+    assert _stored(team.id)["status"] == "waiting"
+    assert _writes(routing_chain, "request_reviewers") == []
+
+
 _HELD_BACK = ("not_requested", "model_kept", "")
 _CUT_SKIPPED_HELD_BACK = ("not_requested", "cut_skipped", "")
 _BETA_CUT = ("cut", "model_cut", "Only renames an import.")

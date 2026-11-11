@@ -76594,6 +76594,7 @@ export namespace Schemas {
 
     /**
      * * `self_driving` - Self-driving
+     * * `bot_admission` - Bot author
      * * `manual` - Manual
      * * `reviewhog_clean` - Clean PostHog Review
      * * `label` - Label
@@ -76604,6 +76605,7 @@ export namespace Schemas {
 
     export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
+      BotAdmission: 'bot_admission',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
@@ -76731,6 +76733,7 @@ export namespace Schemas {
       /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - Self-driving
+       * * `bot_admission` - Bot author
        * * `manual` - Manual
        * * `reviewhog_clean` - Clean PostHog Review
        * * `label` - Label
@@ -140166,7 +140169,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -140176,6 +140179,7 @@ export namespace Schemas {
 
     export const StamphogReviewRunsListTrigger = {
       All: 'all',
+      BotAdmission: 'bot_admission',
       Label: 'label',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',

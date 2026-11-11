@@ -1097,21 +1097,31 @@ class StamphogGitHubClient:
             "refusing to review a truncated thread"
         )
 
-    def get_check_runs(self, repo: str, head_sha: str) -> list[dict]:
+    def get_check_runs(
+        self,
+        repo: str,
+        head_sha: str,
+        *,
+        check_name: str | None = None,
+        app_id: int | None = None,
+        priority: Priority = Priority.CRITICAL,
+    ) -> list[dict]:
         """Fetch the check runs for a commit, paginating through GitHub's endpoint.
 
         Returns the raw GitHub check-run objects (``name``, ``conclusion``, ``status``, ...). The engine's
         migration gate uses them: a passing ``Migration risk`` check lets a migration-only PR bypass the
         deny-list. Without them the hosted path can't see that success and over-refuses safe migration PRs.
-        Bounded by ``_MAX_PAGES``.
+        ``check_name`` and ``app_id`` make GitHub return only that check's runs. Bounded by ``_MAX_PAGES``.
         """
+        only = {key: value for key, value in (("check_name", check_name), ("app_id", app_id)) if value is not None}
         check_runs: list[dict] = []
         for page in range(1, _MAX_PAGES + 1):
             response = self._request(
                 "GET",
                 f"/repos/{repo}/commits/{head_sha}/check-runs",
                 endpoint="/repos/{owner}/{repo}/commits/{ref}/check-runs",
-                params={"per_page": _PER_PAGE, "page": page},
+                params={"per_page": _PER_PAGE, "page": page, **only},
+                priority=priority,
             )
             if response.status_code != 200:
                 raise StamphogGitHubError(

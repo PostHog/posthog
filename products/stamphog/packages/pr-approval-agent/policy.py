@@ -205,6 +205,19 @@ class Attestation:
     publisher_files: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True, kw_only=True)
+class BotAuthor:
+    """A bot whose PRs the hosted server may admit to review.
+
+    `login` and `id` together name one GitHub account, because a login can be renamed and claimed
+    by someone else while the numeric id cannot.
+    """
+
+    name: str
+    login: str
+    id: int
+
+
 @dataclass(frozen=True)
 class Policy:
     version: int
@@ -218,6 +231,7 @@ class Policy:
     ownership: tuple[OwnershipSource, ...]
     deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
     attestations: tuple[Attestation, ...] = ()
+    bot_authors: tuple[BotAuthor, ...] = ()
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -306,12 +320,13 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
-_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
 # GitHub Actions. Any workflow's GITHUB_TOKEN posts check runs as this App, so a result from it
 # proves nothing about who produced it.
 _GITHUB_ACTIONS_APP_ID = 15368
 _ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
 _ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files"}
+_BOT_AUTHOR_KEYS = {"name", "login", "id"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -453,6 +468,23 @@ def _parse_attestations(raw: Any, deny: Mapping[str, DenyCategory]) -> tuple[Att
             )
         )
     return tuple(attestations)
+
+
+def _parse_bot_authors(raw: Any) -> tuple[BotAuthor, ...]:
+    _require(isinstance(raw, list), "bot_authors: must be a list")
+    bot_authors: list[BotAuthor] = []
+    for index, entry in enumerate(raw):
+        context = f"bot_authors[{index}]"
+        _require(isinstance(entry, dict), f"{context}: must be a mapping")
+        _require(set(entry) == _BOT_AUTHOR_KEYS, f"{context}: keys must be {sorted(_BOT_AUTHOR_KEYS)}")
+        name, login = entry["name"], entry["login"]
+        _require(isinstance(name, str) and bool(name), f"{context}.name: must be a non-empty string")
+        _require(name not in {b.name for b in bot_authors}, f"{context}.name: duplicate {name!r}")
+        # GitHub appends [bot] to every App's login, so a bare login names a person or a machine user.
+        _require(isinstance(login, str) and login.endswith("[bot]"), f"{context}.login: must end with [bot]")
+        _require(login not in {b.login for b in bot_authors}, f"{context}.login: duplicate {login!r}")
+        bot_authors.append(BotAuthor(name=name, login=login, id=_require_positive_int(entry["id"], f"{context}.id")))
+    return tuple(bot_authors)
 
 
 def _parse_string_list(raw: object, context: str, *, non_empty: bool = False) -> tuple[str, ...]:
@@ -790,6 +822,7 @@ def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats:
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
         deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
         attestations=_parse_attestations(raw.get("attestations", []), deny),
+        bot_authors=_parse_bot_authors(raw.get("bot_authors", [])),
     )
 
 
