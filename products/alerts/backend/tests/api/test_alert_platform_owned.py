@@ -25,6 +25,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
     enabled_alert_insight_ids,
@@ -786,9 +787,18 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
             ([self.user.id], "signups")
         ]
         assert insight_short_ids_watched_by(team_id=self.team.id, user_id=self.user.id, limit=10) == ["signups"]
-        with patch(
-            "products.alerts.backend.presentation.views.alert.send_test_alert_email", return_value=True
-        ) as mock_send:
+        denied = User.objects.create_and_join(self.organization, "denied@example.com", None)
+        self.client.patch(f"{self.url}/{self.copy_id}/", {"subscribed_users": [self.user.id, denied.id]}, format="json")
+
+        def can_view(access_control: UserAccessControl, *_args: object) -> bool:
+            return access_control._user.id != denied.id
+
+        with (
+            patch.object(UserAccessControl, "check_access_level_for_object", autospec=True, side_effect=can_view),
+            patch(
+                "products.alerts.backend.presentation.views.alert.send_test_alert_email", return_value=True
+            ) as mock_send,
+        ):
             tested = self.client.post(f"{self.url}/{self.copy_id}/test-delivery/")
         assert (tested.status_code, tested.json()["email_recipient_count"]) == (status.HTTP_202_ACCEPTED, 1)
         assert mock_send.call_args.kwargs["recipients"] == [self.user.email]

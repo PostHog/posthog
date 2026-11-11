@@ -143,6 +143,7 @@ from products.alerts.backend.facade.platform import (
     platform_subscriber_ids,
     platform_takes_new_alert_with,
     set_native_subscribers,
+    subscribers_with_insight_access,
     sync_alert_subscriber_destinations,
     write_moved_alert_edit,
     write_native_alert_edit,
@@ -1743,10 +1744,15 @@ class AlertListFiltersSerializer(serializers.Serializer):
 
 
 def _subscriber_emails(alert: AlertConfiguration) -> list[str]:
-    """`get_subscribed_users_emails`, read from the subscriber destinations of an alert with no insight row."""
+    """`get_subscribed_users_emails`, read from the subscriber destinations of an alert with no insight row.
+    Only subscribers who can still view its insight, as a delivery reaches."""
     if not alert.has_no_insight_row:
         return alert.get_subscribed_users_emails()
-    user_ids = platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ())
+    user_ids = subscribers_with_insight_access(
+        team_id=alert.team_id,
+        configuration_id=alert.id,
+        user_ids=platform_subscriber_ids(team_id=alert.team_id, alert_ids=[alert.id]).get(alert.id, ()),
+    )
     return list(
         User.objects.filter(
             id__in=user_ids, organization_membership__organization_id=alert.team.organization_id
