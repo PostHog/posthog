@@ -16,18 +16,8 @@ import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail
 import { ContentAutopilotRankings } from './ContentAutopilotRankings'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 import { ContentAutopilotSiteGate } from './ContentAutopilotSiteGate'
-import { ContentAutopilotTraffic } from './ContentAutopilotTraffic'
 
-export interface ContentAutopilotBotsTab {
-    active: boolean
-    open: () => void
-    close: () => void
-    content: JSX.Element
-}
-
-type AiVisibilityTab = ContentAutopilotWorkspaceTab | 'bots'
-
-export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): JSX.Element => {
+export const ContentAutopilot = (): JSX.Element => {
     // Mounted here, so a prompt's own URL opens it whatever tab was last open.
     const { promptId } = useValues(contentAutopilotPromptDetailLogic)
     const {
@@ -66,16 +56,6 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
             },
             secondaryButton: { children: 'Keep drafting' },
         })
-    }
-    const selectTab = (tab: AiVisibilityTab): void => {
-        if (tab === 'bots') {
-            bots?.open()
-            return
-        }
-        if (bots?.active) {
-            bots.close()
-        }
-        setWorkspaceTab(tab)
     }
 
     return (
@@ -125,9 +105,9 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                     {promptId ? (
                         <ContentAutopilotPromptDetail />
                     ) : (
-                        <LemonTabs<AiVisibilityTab>
-                            activeKey={bots?.active ? 'bots' : workspaceTab}
-                            onChange={selectTab}
+                        <LemonTabs<ContentAutopilotWorkspaceTab>
+                            activeKey={workspaceTab}
+                            onChange={setWorkspaceTab}
                             data-attr="content-autopilot-workspace-tabs"
                             rightSlot={
                                 activeRun ? (
@@ -155,16 +135,10 @@ export const ContentAutopilot = ({ bots }: { bots?: ContentAutopilotBotsTab }): 
                                     content: <ContentAutopilotRankings />,
                                 },
                                 {
-                                    key: 'traffic',
-                                    label: 'Traffic',
-                                    content: <ContentAutopilotTraffic />,
-                                },
-                                {
                                     key: 'prompts',
                                     label: 'Prompts',
                                     content: <ContentAutopilotPrompts />,
                                 },
-                                bots ? { key: 'bots', label: 'Bots', content: bots.content } : null,
                                 {
                                     key: 'opportunities',
                                     label: profile ? `Opportunities (${visibleOpportunities.length})` : 'Opportunities',
