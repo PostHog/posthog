@@ -9,7 +9,7 @@ module stays pure.
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import field
+from dataclasses import field, replace
 
 import structlog
 
@@ -301,16 +301,25 @@ def decide_cuts(
     try:
         answer = call_model(SHARED_BEHAVIOR_SYSTEM_PROMPT, prompt.user_prompt, CUT_SCHEMA)
     except Exception:  # noqa: BLE001
-        return decision
+        answer = None
+    if answer is None:
+        if decision.llm_skipped is None:
+            return decision
+        return replace(decision, llm_skipped=LlmSkipReason.NO_ANSWER)
     owners = {candidate.owner for candidate in teams} - prompt.owners_left_out
     cuts = {owner: reason for owner, reason in _proposed_cuts(answer).items() if owner in owners}
     cut_teams = [team for team in teams if team.owner in cuts]
     new_cuts = [CutOwner(candidate=team, reason=cuts[team.owner]) for team in cut_teams]
+    team_reasons = {
+        team.owner: RoutingOwnerReason.MODEL_CUT if team.owner in cuts else RoutingOwnerReason.MODEL_KEPT
+        for team in teams
+        if team.owner in owners
+    }
     return RoutingDecision(
         kept=tuple(candidate for candidate in decision.kept if candidate.owner not in cuts),
         cut=(*decision.cut, *new_cuts),
-        llm_skipped=decision.llm_skipped,
-        reasons={**decision.reasons, **dict.fromkeys(cuts, RoutingOwnerReason.MODEL_CUT)},
+        llm_skipped=None,
+        reasons={**decision.reasons, **team_reasons},
         model_reasons={**decision.model_reasons, **cuts},
     )
 

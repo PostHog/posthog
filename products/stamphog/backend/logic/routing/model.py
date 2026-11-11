@@ -78,8 +78,8 @@ def _create_with_effort_fallback(
 class GatewayCutModel:
     """A `CutModelCall` for one routing run.
 
-    After the call, `sent_request` says whether a request reached the gateway, and `usage` holds
-    the token counts of an answer.
+    After the calls, `sent_request` says whether a request reached the gateway, and `usage` holds
+    the token counts summed over every answer.
     """
 
     def __init__(self, *, team_id: int, connected_by_user_id: int | None, attribution: Mapping[str, object]) -> None:
@@ -142,7 +142,11 @@ class GatewayCutModel:
             return None
         finally:
             client.close()
-        self.usage = CutUsage(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
+        previous = self.usage or CutUsage(input_tokens=0, output_tokens=0)
+        self.usage = CutUsage(
+            input_tokens=previous.input_tokens + response.usage.input_tokens,
+            output_tokens=previous.output_tokens + response.usage.output_tokens,
+        )
         if response.stop_reason != "end_turn":
             logger.info("stamphog_reviewer_routing_no_answer", stop_reason=response.stop_reason)
             return None

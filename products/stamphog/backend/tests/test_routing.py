@@ -363,11 +363,44 @@ _CUT_AGENT_INFRA = {"cuts": [{"owner": _AGENT_INFRA, "reason": "Only calls the e
 class TestSharedBehaviorCut:
     @parameterized.expand(
         [
-            ("cuts_the_team", [_candidate("team-big", lines=50)], False, _CUT_AGENT_INFRA, True, 2),
-            ("keeps_the_team", [_candidate("team-big", lines=50)], False, {"cuts": []}, False, 2),
-            ("cuts_a_sole_owner", [], False, _CUT_AGENT_INFRA, True, 1),
-            ("keeps_the_team_on_a_failed_call", [], False, RuntimeError("down"), False, 1),
-            ("skips_a_fork", [_candidate("team-big", lines=50)], True, _CUT_AGENT_INFRA, False, 0),
+            (
+                "cuts_the_team",
+                [_candidate("team-big", lines=50)],
+                False,
+                _CUT_AGENT_INFRA,
+                2,
+                None,
+                RoutingOwnerReason.MODEL_CUT,
+            ),
+            (
+                "keeps_the_team",
+                [_candidate("team-big", lines=50)],
+                False,
+                {"cuts": []},
+                2,
+                None,
+                RoutingOwnerReason.MODEL_KEPT,
+            ),
+            ("cuts_a_sole_owner", [], False, _CUT_AGENT_INFRA, 1, None, RoutingOwnerReason.MODEL_CUT),
+            ("keeps_a_sole_owner", [], False, {"cuts": []}, 1, None, RoutingOwnerReason.MODEL_KEPT),
+            (
+                "keeps_the_team_on_a_failed_call",
+                [],
+                False,
+                RuntimeError("down"),
+                1,
+                LlmSkipReason.NO_ANSWER,
+                RoutingOwnerReason.CUT_SKIPPED,
+            ),
+            (
+                "skips_a_fork",
+                [_candidate("team-big", lines=50)],
+                True,
+                _CUT_AGENT_INFRA,
+                0,
+                LlmSkipReason.FORK,
+                RoutingOwnerReason.CUT_SKIPPED,
+            ),
         ]
     )
     def test_second_pass(
@@ -376,8 +409,9 @@ class TestSharedBehaviorCut:
         others: list[OwnerCandidate],
         is_fork: bool,
         answer: Exception | Mapping[str, object],
-        expected_cut: bool,
         expected_calls: int,
+        expected_skip: LlmSkipReason | None,
+        expected_reason: RoutingOwnerReason,
     ) -> None:
         candidates = [*others, _candidate(_AGENT_INFRA, lines=10)]
         calls: list[str] = []
@@ -402,7 +436,10 @@ class TestSharedBehaviorCut:
             call_model=call_model,
         )
 
+        expected_cut = expected_reason == RoutingOwnerReason.MODEL_CUT
         assert (_AGENT_INFRA in [cut.candidate.owner for cut in decision.cut]) == expected_cut
+        assert decision.reasons[_AGENT_INFRA] == expected_reason
+        assert decision.llm_skipped == expected_skip
         assert len(calls) == expected_calls
         assert calls[-1:] == ([SHARED_BEHAVIOR_SYSTEM_PROMPT] if expected_calls else [])
 
