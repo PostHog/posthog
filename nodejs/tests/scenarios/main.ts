@@ -3,34 +3,21 @@ import { parseArgs } from 'util'
 
 import { CardError, LoadedCard, load } from './cards'
 import { createEnvironment } from './environment/environment'
-import { createRunner } from './runner/runner'
+import { Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
 
 const CARDS_DIR = path.join(__dirname, 'cards')
 const USAGE = 'Usage: scenarios run <card id or path>... [--profile <file>]'
-const CREDENTIALS = [
-    'SCENARIO_RUNS_HOST',
-    'SCENARIO_RUNS_PROJECT_ID',
-    'SCENARIO_RUNS_PROJECT_TOKEN',
-    'SCENARIO_RUNS_READ_KEY',
-]
 
 function cardPathOf(card: string): string {
     return card.endsWith('.yaml') || card.includes('/') ? path.resolve(card) : path.join(CARDS_DIR, `${card}.yaml`)
-}
-
-function credentialProblems(env: NodeJS.ProcessEnv): string[] {
-    const missing = CREDENTIALS.filter((name) => !env[name])
-    return missing.length > 0 && missing.length < CREDENTIALS.length
-        ? [`Scorecard credentials are set only in part; set all of them or none. Missing: ${missing.join(', ')}`]
-        : []
 }
 
 function preflight(
     cards: string[],
     profilePath: string | undefined
 ): { loaded: LoadedCard[] } | { problems: string[] } {
-    const problems = credentialProblems(process.env)
+    const problems: string[] = []
     const loaded = cards.flatMap((card) => {
         try {
             return [load(cardPathOf(card), { profilePath })]
@@ -62,18 +49,23 @@ async function main(argv: string[]): Promise<number> {
     const interrupt = new AbortController()
     process.once('SIGINT', () => interrupt.abort())
     process.once('SIGTERM', () => interrupt.abort())
-    const runner = createRunner(createEnvironment())
+    return runCards(createRunner(createEnvironment()), checked.loaded, interrupt.signal)
+}
+
+export async function runCards(runner: Runner, cards: LoadedCard[], interrupt: AbortSignal): Promise<number> {
     let code: number = EXIT_CODE.passed
+    let ran = 0
     try {
         await runner.up()
-        for (const loaded of checked.loaded) {
-            if (interrupt.signal.aborted) {
+        for (const loaded of cards) {
+            if (interrupt.aborted) {
                 break
             }
-            const result = await runner.run(loaded, interrupt.signal)
+            const result = await runner.run(loaded, interrupt)
             process.stdout.write(`${result.cardId}: ${result.status}, ${result.statusReason}\n`)
             process.stdout.write(`evidence: ${result.evidenceDir}\n`)
             code = Math.max(code, EXIT_CODE[result.status])
+            ran += 1
         }
     } catch (error) {
         process.stderr.write(`${(error as Error).message}\n`)
@@ -81,13 +73,19 @@ async function main(argv: string[]): Promise<number> {
     } finally {
         await runner.down()
     }
+    if (ran < cards.length) {
+        process.stderr.write(`Interrupted before ${cards.length - ran} of ${cards.length} cards ran.\n`)
+        code = Math.max(code, EXIT_CODE.invalid)
+    }
     return code
 }
 
-void main(process.argv.slice(2)).then(
-    (code) => process.exit(code),
-    (error: unknown) => {
-        process.stderr.write(`${String(error)}\n`)
-        process.exit(EXIT_CODE.invalid)
-    }
-)
+if (require.main === module) {
+    void main(process.argv.slice(2)).then(
+        (code) => process.exit(code),
+        (error: unknown) => {
+            process.stderr.write(`${String(error)}\n`)
+            process.exit(EXIT_CODE.invalid)
+        }
+    )
+}

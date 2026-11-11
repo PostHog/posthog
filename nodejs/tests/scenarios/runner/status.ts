@@ -3,7 +3,7 @@ import type { Convergence, InvariantResult } from '../judge/judge'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
-export const EXIT_CODE = { passed: 0, failed: 1, invalid: 2, writeFailed: 3 } as const
+export const EXIT_CODE = { passed: 0, failed: 1, invalid: 2 } as const
 
 export type Verdict = {
     minOffered: number

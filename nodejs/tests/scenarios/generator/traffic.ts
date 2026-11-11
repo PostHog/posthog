@@ -15,7 +15,7 @@ const Rate = z.object({ ratePerSecond: z.number().positive() }).strict()
 
 export type Unit = { unitId: string; teamId: number }
 
-export type OfferContext = { producer: KafkaProducerWrapper; eventsTopic: string }
+export type OfferContext = { producer: Pick<KafkaProducerWrapper, 'produce'>; eventsTopic: string }
 
 export type TrafficKind = Omit<TrafficDefinition, 'profile'> & {
     profile: typeof Rate

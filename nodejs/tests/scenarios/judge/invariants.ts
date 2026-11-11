@@ -1,7 +1,5 @@
 import { z } from 'zod'
 
-import { RETRIABLE_STATUS_CODES } from '~/cdp/utils/cdp-fetch'
-
 import type { Definition } from '../cards/definitions'
 import type { TruthRecord } from '../provider-edge'
 import type { InvariantResult, JournalEntry } from './judge'
@@ -16,11 +14,15 @@ const EVIDENCE_UNIT_IDS = 5
 
 export const deliveryKey = (unitId: string, actionId: string): string => `${unitId}/${actionId}`
 
+const TOO_MANY_REQUESTS = 429
+
 const isAccepted = (status: number): boolean => status >= 200 && status < 300
+
+const isNotRetriedBySes = (status: number): boolean => status >= 400 && status < 500 && status !== TOO_MANY_REQUESTS
 
 function endedByTerminalFault(records: TruthRecord[]): boolean {
     const last = records.at(-1)
-    return last?.fault !== undefined && !isAccepted(last.status) && !RETRIABLE_STATUS_CODES.includes(last.status)
+    return last?.fault !== undefined && isNotRetriedBySes(last.status)
 }
 
 function recordsByDelivery(truth: readonly TruthRecord[]): Map<string, TruthRecord[]> {

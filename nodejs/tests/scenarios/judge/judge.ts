@@ -32,14 +32,11 @@ export type InvariantResult = {
     unitIds: string[]
 }
 
-export type Measurement = { name: string; value: number; unit: string }
-
 export interface Judge {
     open(seed: SeedState): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
     check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
-    measure(measurements: Named[]): Promise<Measurement[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[] }
 }
 
@@ -86,7 +83,7 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
             journal = []
             await pullTruth()
             truth = []
-            teams = seed.teams.map(({ teamId }) => teamId)
+            teams = [...seed.teamIds]
         },
 
         record(unit) {
@@ -122,8 +119,6 @@ export function createJudge({ edgeUrl, probe, pollMs = 1000 }: JudgeOptions): Ju
                 return { name, gate: gates[name], ...definition.check({ journal, truth }, gates[name]) }
             })
         },
-
-        measure: () => Promise.resolve([]),
 
         evidence: () => ({ journal: [...journal], truth: [...truth] }),
     }
