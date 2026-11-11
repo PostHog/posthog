@@ -74,6 +74,7 @@ from products.signals.backend.anomaly_scores.queue import (
     eligible_teams,
     empty_train_counts,
     is_due,
+    load_due_list,
     remaining_budget,
     reserve_queries,
     scored_buckets,
@@ -1294,6 +1295,31 @@ class TestDueList(ClickhouseTestMixin, BaseTest):
 
         assert [(pick.insight_id, pick.scored_through) for pick in selection.picks] == [(due.id, watermarks)]
         assert (selection.active, selection.due_insights, selection.oldest_due_seconds) == (2, 1, 3600)
+
+    @time_machine.travel(NOW, tick=False)
+    def test_a_train_backlog_larger_than_the_read_leaves_room_for_scored_rows(self) -> None:
+        today = NOW.replace(hour=0)
+        never_scored = [
+            Insight.objects.create(team=self.team, name=f"never_scored_{index}", query=_trends(interval="day"))
+            for index in range(3)
+        ]
+        for index, insight in enumerate(never_scored):
+            self._row(insight, NOW - timedelta(days=10 - index), {})
+        scored = Insight.objects.create(team=self.team, name="scored", query=_trends(interval="day"))
+        self._row(scored, NOW - timedelta(hours=1), {"a": today - timedelta(days=1)})
+
+        with (
+            patch("products.signals.backend.anomaly_scores.queue._MAX_DUE_ROWS", 3),
+            patch("products.signals.backend.anomaly_scores.queue._MAX_NEVER_SCORED_DUE_ROWS", 2),
+        ):
+            due_list = load_due_list([self.team.id], (IntervalType.DAY,), NOW)
+
+        assert [insight.insight_id for insight in due_list.insights] == [
+            never_scored[0].id,
+            never_scored[1].id,
+            scored.id,
+        ]
+        assert due_list.oldest_due_seconds == 10 * 24 * 3600
 
     @parameterized.expand([("one_shard", 1, 1), ("three_shards", 3, 3)])
     @time_machine.travel(NOW, tick=False)

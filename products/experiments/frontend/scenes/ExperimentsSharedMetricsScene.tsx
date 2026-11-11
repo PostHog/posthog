@@ -29,7 +29,6 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 
 export const scene: SceneExport = {
@@ -41,7 +40,6 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
     const { sharedMetrics, sharedMetricsLoading, searchTerm, savingTagsMetricId, count, page } =
         useValues(sharedMetricsLogic)
     const { setSearchTerm, setPage, updateSharedMetricTags, deleteSharedMetric } = useActions(sharedMetricsLogic)
-    const { tags: allTags } = useValues(tagsModel)
     const { currentProjectId } = useValues(teamLogic)
     const [deleteCheckMetricId, setDeleteCheckMetricId] = useState<number | null>(null)
 
@@ -103,7 +101,6 @@ export function ExperimentsSharedMetricsScene(): JSX.Element {
                 return (
                     <InlineTagEditor
                         metric={metric}
-                        allTags={allTags}
                         onSave={(newTags) => updateSharedMetricTags(metric.id, newTags)}
                         saving={savingTagsMetricId === metric.id}
                     />
