@@ -1791,12 +1791,30 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
+                it('claims the workflow limit again when the flow loops back to an email whose earlier pass kept its pacing token', async () => {
+                    const emailService = sender()
+                    let ownsJob = false
+                    emailService.checkJobOwnershipBeforeSend(() => Promise.resolve(ownsJob))
+                    invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
+                    invocation.state.actionId = 'email-step'
+                    invocation.state.actionStepCount = 2
+                    const stopped = await emailService.executeSendEmail(invocation)
+                    ownsJob = true
+                    stopped.invocation.state.actionStepCount = 3
+
+                    const result = await emailService.executeSendEmail(stopped.invocation)
+
+                    expect(stopped.finished).toBe(false)
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toHaveLength(0)
+                })
+
                 it('claims the workflow limit for an email that carries the pacing marker of another email step', async () => {
                     const emailService = sender()
                     invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 1, period: 'hour' } }
                     const paid = await emailService.executeSendEmail(invocation)
                     invocation.id = new UUIDT().toString()
-                    invocation.queueMetadata = { workflowRateClaimed: 'another-email-step' }
+                    invocation.queueMetadata = { workflowRateClaimed: 'another-email-step:3' }
 
                     const result = await emailService.executeSendEmail(invocation)
 
