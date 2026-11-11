@@ -67,6 +67,14 @@ MAX_RANKED_DOMAINS = 20
 MAX_RANKED_PAGES = 20
 
 
+class BrandedSegment(LabeledStrEnum):
+    """Which checks a set-level read counts, by whether the prompt as it ran names the brand."""
+
+    ALL = "all", "All"
+    BRANDED = "branded", "Branded"
+    NON_BRANDED = "non_branded", "Non-branded"
+
+
 @frozen
 class PromptEngineCheck:
     """The most recent check of one prompt against one answer engine."""
@@ -95,6 +103,8 @@ class Prompt:
     current_version: int
     version_count: int
     latest_checks: tuple[PromptEngineCheck, ...]
+    # Whether the current text names the brand, from the target domains at read time.
+    branded: bool
 
 
 @frozen
@@ -283,8 +293,12 @@ class PromptSetOverview:
     prompts_tracked: int
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
+    branded: BrandedSegment
     current: PromptSetCounts
     previous: PromptSetCounts
+    # Answered checks in the current window on each side of the split, whatever `branded` selects.
+    branded_answers: int
+    non_branded_answers: int
     engines: tuple[PromptSetEngineCounts, ...]
     topics: tuple[PromptSetTopicCounts, ...]
     top_domains: tuple[PromptSetDomain, ...]
@@ -344,6 +358,8 @@ class PromptNotFoundError(Exception):
 
 
 BRAND_NAME_MAX_LENGTH = 200
+KEYWORD_MAX_LENGTH = 100
+MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
 
 
@@ -391,6 +407,16 @@ class BrandUpdate:
 
 
 @frozen
+class BrandCreate:
+    """A brand a person adds to the catalog. `domain` may be a URL or a host; it is stored as its registrable domain."""
+
+    domain: str
+    kind: BrandKind
+    name: str | None = None
+    aliases: tuple[str, ...] = ()
+
+
+@frozen
 class BrandSyncResult:
     domains: int
     created: int
@@ -398,6 +424,10 @@ class BrandSyncResult:
 
 class BrandNotFoundError(Exception):
     pass
+
+
+class BrandCreateError(Exception):
+    """The brand cannot be added. The message is safe to show the user."""
 
 
 class PromptUpdateError(Exception):
@@ -520,8 +550,114 @@ class PromptSetRankings:
     days: int
     window_from: dt.date
     window_to: dt.date
+    branded: BrandedSegment
     answers: int
+    competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]
     daily: tuple[RankedBrandDay, ...]
     top_domains: tuple[RankedDomain, ...]
     top_pages: tuple[RankedPage, ...]
+
+
+MAX_KEYWORD_MODIFIERS = 50
+MAX_MODIFIER_EXAMPLES = 3
+
+
+@frozen
+class Keyword:
+    id: str
+    keyword: str
+    created_at: dt.datetime
+
+
+@frozen
+class KeywordCreateResult:
+    created: int
+    skipped: int
+
+
+class KeywordNotFoundError(Exception):
+    pass
+
+
+class KeywordLimitError(Exception):
+    """The request would take the project past its keyword cap. The message is safe to show the user."""
+
+
+@frozen
+class KeywordReportRow:
+    """How one keyword shows up across the answered checks in the window. Each rate is None when its
+    denominator is zero."""
+
+    keyword: str
+    prompts: int
+    prompt_checks: int
+    prompt_mention_rate: float | None
+    prompt_cited_rate: float | None
+    searched_checks: int
+    searched_rate: float | None
+    searched_cited_rate: float | None
+    answer_checks: int
+    answer_rate: float | None
+    uses_per_answer: float | None
+    answer_mention_rate: float | None
+    avg_citation_position: float | None
+    median_first_mention_depth: float | None
+
+
+@frozen
+class KeywordReport:
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    answers: int
+    brand_names: tuple[str, ...]
+    keywords: tuple[KeywordReportRow, ...]
+
+
+class ModifierKind(LabeledStrEnum):
+    FRESHNESS = "freshness", "Freshness"
+    PRICING = "pricing", "Pricing"
+    COMPARISON = "comparison", "Comparison"
+    DOCS = "docs", "Docs"
+    SITE = "site", "Site"
+    COMPETITOR = "competitor", "Competitor"
+    OTHER = "other", "Other"
+
+
+@frozen
+class ModifierEngineCount:
+    engine: str
+    answers: int
+
+
+@frozen
+class KeywordModifier:
+    """A word or two-word phrase the engines searched for that the prompt did not contain."""
+
+    term: str
+    kind: ModifierKind
+    answers: int
+    share: float
+    cited_rate: float | None
+    engines: tuple[ModifierEngineCount, ...]
+    example_searches: tuple[str, ...]
+
+
+@frozen
+class KeywordModifierReport:
+    days: int
+    window_from: dt.date
+    window_to: dt.date
+    keyword: str | None
+    answers: int
+    baseline_cited_rate: float | None
+    modifiers: tuple[KeywordModifier, ...]
+
+
+@frozen
+class VisibilityDashboard:
+    """A dashboard created for the team's AI visibility."""
+
+    id: int
+    name: str

@@ -453,6 +453,10 @@ DEBUG=1 python manage.py demo_mts_example --team-id <id> --user-id <id>
 
 See the [example README](https://github.com/PostHog/posthog/blob/master/products/tasks/backend/logic/services/mts_example/README.md) for details on adapting it to your own use case.
 
+Signals report research stops retrying when GitHub still rejects repository credentials after the clone activity exhausts its retries.
+Transient clone failures remain retryable.
+When GitHub access is optional, research falls back to project data without code access.
+
 ## Code execution
 
 Agents run inside an isolated sandbox with full code execution capabilities.

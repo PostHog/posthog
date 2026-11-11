@@ -908,19 +908,25 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
 @pytest.mark.django_db
 @pytest.mark.parametrize("repository", ["posthog/posthog", None])
 @pytest.mark.parametrize(
-    "sandbox_error_type,expected_transient",
+    "sandbox_error_type,error_message,expected_transient",
     [
-        ("RepositoryCloneError", True),
-        ("RepositoryAccessError", False),
-        ("UnknownSandboxError", False),
-        ("startup_requires_action", False),
-        ("startup_unknown", False),
-        ("startup_transient", True),
-        ("startup_unknown_transient_sandbox", True),
+        ("RepositoryCloneError", None, True),
+        (
+            "RepositoryCloneError",
+            "Could not clone example/app: GitHub rejected the repository credentials",
+            False,
+        ),
+        ("RepositoryAccessError", None, False),
+        ("UnknownSandboxError", None, False),
+        ("UnknownSandboxError", "GitHub rejected the repository credentials", False),
+        ("startup_requires_action", None, False),
+        ("startup_unknown", None, False),
+        ("startup_transient", None, True),
+        ("startup_unknown_transient_sandbox", None, True),
     ],
 )
 async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
-    monkeypatch, ateam, repository, sandbox_error_type, expected_transient
+    monkeypatch, ateam, repository, sandbox_error_type, error_message, expected_transient
 ):
     report = await database_sync_to_async(SignalReport.objects.create)(
         team=ateam,
@@ -954,9 +960,11 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
                 else None,
             )
         error = (
-            RepositoryContextUnavailable(sandbox_error_type)
-            if sandbox_error_type == "RepositoryAccessError" and repository is not None
-            else SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+            RepositoryContextUnavailable(sandbox_error_type, error_message)
+            if sandbox_error_type in {"RepositoryAccessError", "RepositoryCloneError"} and repository is not None
+            else SandboxRunFailed(
+                error_message or "TaskRun reached terminal status=failed", error_type=sandbox_error_type
+            )
         )
         raise error
 
@@ -987,9 +995,9 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
         assert isinstance(error.value, ApplicationError)
         assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
         assert not error.value.non_retryable
-    elif sandbox_error_type == "RepositoryAccessError":
+    elif sandbox_error_type in {"RepositoryAccessError", "RepositoryCloneError"}:
         assert isinstance(error.value, ApplicationError)
-        assert error.value.type == "RepositoryAccessError"
+        assert error.value.type == sandbox_error_type
         assert error.value.non_retryable
     else:
         assert isinstance(error.value, SandboxRunFailed)
@@ -1003,6 +1011,12 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
         (None, None),
         ("example/app", RepositoryContextUnavailable("RepositoryAccessError")),
         ("example/app", RepositoryContextUnavailable("RepositoryCloneError")),
+        (
+            "example/app",
+            RepositoryContextUnavailable(
+                "RepositoryCloneError", "Could not clone example/app: GitHub rejected the repository credentials"
+            ),
+        ),
     ],
 )
 async def test_pilot_research_persists_a_report_without_code(monkeypatch, ateam, repository, failure):

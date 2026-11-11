@@ -33,7 +33,6 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
     )
 }
 
-/** The answer of the Context tab: the selection's duration beside its average, and the runs behind the average. */
 export function CIExplorerContextComparison({
     selection,
     context,
