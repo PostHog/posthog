@@ -210,6 +210,16 @@ export type CdpConfig = ClickhouseConfig & {
     // Comma-separated team ids, or "*", whose tracked sends add ph_workflow_run=<invocation id> to links
     // on the sender's own domain, so a landing page visit can be joined to the email that led to it.
     CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: string
+    CDP_EMAIL_ATTACHMENTS_S3_BUCKET: string
+    CDP_EMAIL_ATTACHMENTS_S3_REGION: string
+    CDP_EMAIL_ATTACHMENTS_S3_PREFIX: string
+    CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: string
+    CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: string
+    CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: string
+    CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: number
+    CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: number
+    CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
@@ -456,6 +466,16 @@ export function getDefaultCdpConfig(): CdpConfig {
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
         CDP_EMAIL_WORKFLOW_RUN_LINK_TAG_TEAMS: '',
+        CDP_EMAIL_ATTACHMENTS_S3_BUCKET: isDevEnv() || isTestEnv() ? 'email-attachments' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_REGION: 'us-east-1',
+        CDP_EMAIL_ATTACHMENTS_S3_PREFIX: 'attachments',
+        CDP_EMAIL_ATTACHMENTS_S3_ENDPOINT: isDevEnv() || isTestEnv() ? 'http://localhost:19000' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_PUBLIC_ENDPOINT: '',
+        CDP_EMAIL_ATTACHMENTS_S3_ACCESS_KEY_ID: isDevEnv() || isTestEnv() ? 'object_storage_root_user' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_SECRET_ACCESS_KEY: isDevEnv() || isTestEnv() ? 'object_storage_root_password' : '',
+        CDP_EMAIL_ATTACHMENTS_S3_TIMEOUT_MS: 10_000,
+        CDP_EMAIL_ATTACHMENTS_MAX_IN_FLIGHT: 4,
+        CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing
