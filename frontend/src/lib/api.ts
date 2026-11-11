@@ -2429,8 +2429,14 @@ const api = {
 
             return (response as FileSystemDeleteResponse) ?? null
         },
-        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
-            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
+        async move(
+            id: NonNullable<FileSystemEntry['id']>,
+            newPath: string,
+            options?: Pick<ApiMethodOptions, 'signal'>
+        ): Promise<FileSystemEntry> {
+            return await new ApiRequest()
+                .fileSystemMove(id)
+                .create({ data: { new_path: newPath }, signal: options?.signal })
         },
         async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
