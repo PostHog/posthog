@@ -236,8 +236,6 @@ const getDefaultFilterTestAccounts = (): boolean => {
     return stored === 'true'
 }
 
-// The user API checks this value with a coercing schema but stores the JSON it received, so a
-// string such as "false" can reach the client.
 const getAccountFilterTestAccounts = (): boolean | undefined => {
     const saved = userLogic.findMounted()?.values.user?.ui_configuration?.session_replay?.filter_test_accounts
     return typeof saved === 'boolean' ? saved : undefined
@@ -659,8 +657,6 @@ const getResetFilters = (props: SessionRecordingPlaylistLogicProps): RecordingUn
         : defaults
 }
 
-// The account owns `filter_test_accounts` where the caller does not set it, because the rehydrated
-// value is the last one set in this browser and can be older than one saved from another browser.
 const getMountOwnedFilters = (
     props: SessionRecordingPlaylistLogicProps,
     rehydratedFilters: RecordingUniversalFilters,
