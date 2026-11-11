@@ -263,16 +263,3 @@ def decide_cuts(
     if model_output is None:
         return _keep_all(candidates, LlmSkipReason.NO_ANSWER)
     return apply_cut_guards(candidates=candidates, model_output=model_output, owners_left_out=prompt.owners_left_out)
-
-
-def keep_pinned(candidates: Sequence[OwnerCandidate]) -> RoutingDecision:
-    """The owners of sensitive and new paths only, for a head that stamphog approved."""
-    return RoutingDecision(
-        kept=tuple(candidate for candidate in candidates if candidate.is_pinned),
-        cut=(),
-        llm_skipped=LlmSkipReason.STAMPHOG_APPROVED,
-        reasons={
-            candidate.owner: _guard_reason(candidate, frozenset()) or RoutingOwnerReason.STAMPHOG_APPROVED
-            for candidate in candidates
-        },
-    )

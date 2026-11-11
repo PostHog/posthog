@@ -785,6 +785,10 @@ export const ExperimentsListQueryParams = () => zod.object({
             'JSON-encoded list of tag names. Excludes experiments carrying any of the given tags, even when they also carry non-excluded tags.'
         ),
     feature_flag_id: zod.number().optional().describe('Filter to experiments linked to the given feature flag ID.'),
+    feature_flag_ids: zod
+        .string()
+        .optional()
+        .describe('Comma-separated feature flag IDs, at most 200. Returns experiments linked to any of them.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order: zod
@@ -5839,6 +5843,23 @@ export const ExperimentsCreateBody = () => zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -6976,6 +6997,23 @@ export const ExperimentsCreateBody = () => zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -12088,6 +12126,23 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -13233,6 +13288,23 @@ export const ExperimentsPartialUpdateBody = () => zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -18316,6 +18388,23 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),
@@ -19461,6 +19550,23 @@ export const ExperimentsDuplicateCreateBody = () => zod
                                 .union([zod.string(), zod.null()])
                                 .optional()
                                 .describe('Unique identifier. Auto-generated if omitted.'),
+                            value_format: zod
+                                .union([
+                                    zod.object({
+                                        type: zod.enum([
+                                            'currency',
+                                            'duration',
+                                            'duration_ms',
+                                            'percentage',
+                                            'percentage_scaled',
+                                        ]),
+                                    }),
+                                    zod.null(),
+                                ])
+                                .optional()
+                                .describe(
+                                    "For mean metrics without a threshold, ratio metrics and quantile metrics: what the metric's value is, so that results show it in a readable format. Set `type` to 'currency' for an amount in the project's base currency, 'duration' for seconds, 'duration_ms' for milliseconds, 'percentage' for a percent on a 0-100 scale, or 'percentage_scaled' for a fraction on a 0-1 scale. Omit it to show a plain number. It only changes how results show the value, and a change to it does not recalculate results."
+                                ),
                         })
                     )
                     .describe('List wrapper for OpenAPI schema generation — the field stores an array of metrics.'),

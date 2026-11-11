@@ -15,6 +15,7 @@ import {
 } from '../types'
 import type { QueuedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
+import type { RebuildableInputsSource } from './utils/rebuildable-inputs'
 
 export type HogBytecode = any[]
 
@@ -436,6 +437,10 @@ export type CyclotronJobInvocationHogFunctionContext = {
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     renderedWorkflowVersion?: number
+    // Set when the inputs come from the stored function config, so the job queue can drop them and the
+    // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
+    inputsSource?: RebuildableInputsSource
+    inputsOmitted?: true
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -507,7 +512,7 @@ export type HogFlowInvocationContext = {
         // invocation rebuilds its filter globals from stored state, which can arrive without the event
         // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
         delayUntilAt?: string
-        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // Set when a delay_until or time window step could not work out when to continue. The run aborts on it whatever
         // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
         // run the next step immediately, which for a "N days before X" message is worse than not sending.
         delayUntilUnresolved?: boolean
@@ -670,6 +675,7 @@ export type HogFunctionTypeType =
 export const RERUNNABLE_HOG_FUNCTION_TYPES = new Set<HogFunctionTypeType>(['destination', 'internal_destination'])
 
 export interface HogFunctionMappingType {
+    name?: string | null
     inputs_schema?: HogFunctionInputSchemaType[]
     inputs?: Record<string, CyclotronInputType> | null
     filters?: HogFunctionFilters | null
