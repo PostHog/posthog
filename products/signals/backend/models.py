@@ -584,6 +584,12 @@ class SignalReport(UUIDModel):
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
             ),
+            # Partial: the stuck-research sweep reads IN_PROGRESS reports across all teams by run start.
+            models.Index(
+                fields=["last_run_at"],
+                condition=models.Q(status="in_progress"),
+                name="signals_report_in_progress",
+            ),
             # Partial: the per-user daily create cap counts one member's reports from the start of the day.
             models.Index(
                 fields=["created_by", "created_at"],

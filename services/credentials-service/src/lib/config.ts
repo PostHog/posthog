@@ -49,6 +49,14 @@ export interface KubernetesSourceConfig {
     caFile: string
 }
 
+/** The service's own Postgres database. */
+export interface DatabaseConfig {
+    url: string
+    poolSize: number
+    /** The user of CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL, when the pod can see that URL. */
+    migrateUser?: string
+}
+
 export interface Config {
     port: number
     host: string
@@ -79,6 +87,13 @@ export interface Config {
 
     /** Unset until CREDENTIALS_SERVICE_KMS_PROVIDER is set: no route needs a KMS yet. */
     kms?: KmsConfig
+
+    /**
+     * Set when CREDENTIALS_SERVICE_DATABASE_URL is set. Without it the service serves platform
+     * secrets only, and the integration features are off.
+     */
+    database?: DatabaseConfig
+
     /**
      * Directory of Ed25519 public keys for the integrations audience, one `<deployment>.pub`
      * PEM file per caller. Unset means the service accepts no integrations token.
@@ -156,6 +171,50 @@ function kubernetesFromEnv(serviceAccountDir: string): KubernetesSourceConfig {
         tokenFile: join(serviceAccountDir, 'token'),
         caFile: join(serviceAccountDir, 'ca.crt'),
     }
+}
+
+/** The database settings, or undefined when no database URL is set. */
+export function loadDatabaseConfig(): DatabaseConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const database: DatabaseConfig = { url, poolSize: intFromEnv('CREDENTIALS_SERVICE_DATABASE_POOL_SIZE', 20, 1) }
+    const migrateUrl = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL
+    if (migrateUrl) {
+        try {
+            const migrateUser = decodeURIComponent(new URL(migrateUrl).username)
+            if (migrateUser) {
+                database.migrateUser = migrateUser
+            }
+        } catch {
+            throw new Error('CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL is not a valid URL')
+        }
+    }
+    return database
+}
+
+/**
+ * What the migrate entry point needs. The migrate role owns the tables. The runtime role is the
+ * one the service connects as, and gets grants from the migrations.
+ */
+export interface MigrateConfig {
+    url: string
+    /** Empty in single-role local development: the grants are then skipped. */
+    runtimeRole: string
+}
+
+/** Prefers the migrate URL, and falls back to the runtime URL for single-role local development. */
+export function loadMigrateConfig(): MigrateConfig | undefined {
+    const url = process.env.CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL || process.env.CREDENTIALS_SERVICE_DATABASE_URL
+    if (!url) {
+        return undefined
+    }
+    const runtimeRole = process.env.CREDENTIALS_SERVICE_RUNTIME_ROLE ?? ''
+    if (runtimeRole && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(runtimeRole)) {
+        throw new Error(`CREDENTIALS_SERVICE_RUNTIME_ROLE is not a valid role name: ${JSON.stringify(runtimeRole)}`)
+    }
+    return { url, runtimeRole }
 }
 
 function kmsFromEnv(env: string): KmsConfig | undefined {
@@ -240,6 +299,11 @@ export function loadConfig(serviceAccountDir = SERVICE_ACCOUNT_DIR): Config {
         reloadSeconds: intFromEnv('CREDENTIALS_SERVICE_RELOAD_SECONDS', 30, 1),
 
         metricsPort: intFromEnv('CREDENTIALS_SERVICE_METRICS_PORT', 9090),
+    }
+
+    const database = loadDatabaseConfig()
+    if (database) {
+        config.database = database
     }
 
     const integrationKeysDir = process.env.CREDENTIALS_SERVICE_INTEGRATION_CALLER_PUBLIC_KEYS_DIR

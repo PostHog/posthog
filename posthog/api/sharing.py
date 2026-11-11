@@ -72,9 +72,10 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.cohorts.backend.models.cohort import Cohort
-from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
-from products.dashboards.backend.api.dashboard import DashboardSerializer
-from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.facade.access import dashboard_access_method, record_dashboard_view
+from products.dashboards.backend.facade.api import get_dashboard
+from products.dashboards.backend.facade.contracts import DashboardSummary
+from products.dashboards.backend.presentation.views.dashboard import DashboardSerializer
 from products.exports.backend.api.exports import ExportedAssetCreateSerializer
 from products.exports.backend.facade.api import export_limit_context, query_with_reference_lines
 from products.exports.backend.models.exported_asset import (
@@ -199,24 +200,12 @@ def _require_resource_access(resource: APIScopeObject, resource_label: str) -> S
     return check
 
 
-def _require_dashboard_access(
-    view: "SharingConfigurationViewSet",
-    user_access_control: UserAccessControl,
-    dashboard: Model,
-    required_level: AccessControlLevel,
-) -> None:
-    dashboard = cast(Dashboard, dashboard)
-    access_level = user_access_control.get_user_access_level(dashboard)
-    if not access_level or not access_level_satisfied_for_resource("dashboard", access_level, required_level):
-        raise PermissionDenied(_denied_message("dashboard", required_level))
-
-
 # Maps every shareable FK on SharingConfiguration to the permission check that gates access to it.
 # A ``None`` value means the resource is created server-side and is not reachable through this viewset; if such
 # a config ever reaches the gate we fail closed rather than fall through to "allowed". The relationship is
 # enforced against the model below, so a newly added shareable resource cannot ship without a decision here.
 SHARING_RESOURCE_ACCESS_CHECKS: dict[str, SharingResourceAccessCheck | None] = {
-    "dashboard": _require_dashboard_access,
+    "dashboard": _require_resource_access("dashboard", "dashboard"),
     "insight": _require_resource_access("insight", "insight"),
     "recording": _require_resource_access("session_recording", "recording"),
     "notebook": _require_resource_access("notebook", "notebook"),
@@ -434,10 +423,10 @@ class SharingConfigurationViewSet(
             raise ValidationError("Either a dashboard, insight, recording or notebook must be specified")
 
         if dashboard_id:
-            try:
-                context["dashboard"] = Dashboard.objects.get(id=dashboard_id, team__project_id=self.team.project_id)
-            except Dashboard.DoesNotExist:
+            dashboard = get_dashboard(team_id=self.team.id, dashboard_id=dashboard_id)
+            if dashboard is None:
                 raise NotFound("Dashboard not found.")
+            context["dashboard"] = dashboard
         if insight_id:
             try:
                 context["insight"] = Insight.objects.get(id=insight_id, team__project_id=self.team.project_id)
@@ -468,7 +457,8 @@ class SharingConfigurationViewSet(
         never invalidates public share tokens.
         """
         context = context or self.get_serializer_context()
-        dashboard = context.get("dashboard")
+        dashboard_summary: DashboardSummary | None = context.get("dashboard")
+        dashboard_id = dashboard_summary.id if dashboard_summary else None
         insight = context.get("insight")
         recording = context.get("recording")
         notebook = context.get("notebook")
@@ -476,7 +466,7 @@ class SharingConfigurationViewSet(
         config_kwargs = {
             "team_id": self.team_id,
             "insight": insight,
-            "dashboard": dashboard,
+            "dashboard_id": dashboard_id,
             "recording": recording,
             "notebook": notebook,
             "expires_at": None,
@@ -486,14 +476,15 @@ class SharingConfigurationViewSet(
             dedupe=dedupe,
             team_id=self.team_id,
             insight=insight,
-            dashboard=dashboard,
+            dashboard_id=dashboard_id,
             recording=recording,
             notebook=notebook,
         )
         if instance is None:
             instance = SharingConfiguration(**config_kwargs)
 
-        if dashboard:
+        dashboard = instance.dashboard if dashboard_id else None
+        if dashboard is not None:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
             if dashboard.share_token and dashboard.share_token != instance.access_token:
                 if (
@@ -1199,7 +1190,9 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         elif resource.dashboard and not resource.dashboard.deleted:
             asset_title = resource.dashboard.name
             asset_description = resource.dashboard.description or ""
-            record_dashboard_view(resource.dashboard, context["dashboard_access_method"])
+            record_dashboard_view(dashboard_id=resource.dashboard.id, access_method=context["dashboard_access_method"])
+            # Reload the stamp that the view just wrote, so the payload shows this view as the last access.
+            resource.dashboard.refresh_from_db(fields=["last_accessed_at"])
 
             with task_chain_context():
                 # Viewers of a shared dashboard never get the tile details panel, so the people
