@@ -125,11 +125,11 @@ export async function startSampler(
 ): Promise<Sampler> {
     const samples: MetricSample[] = []
     const stopped = new AbortController()
-    const scrape = async (some: Target[]): Promise<void> => {
+    const scrape = async (some: Target[], timeoutMs = SCRAPE_TIMEOUT_MS): Promise<void> => {
         await Promise.all(
             some.map(async ({ role, metricsUrl }) => {
                 const at = Date.now()
-                const text = await internalFetch(metricsUrl, { timeoutMs: SCRAPE_TIMEOUT_MS })
+                const text = await internalFetch(metricsUrl, { timeoutMs })
                     .then((response) => (response.status === 200 ? response.text() : ''))
                     .catch(() => '')
                 const sample = sampleOf(role, at, text)
@@ -139,16 +139,16 @@ export async function startSampler(
             })
         )
     }
-    const scrapeAll = (): Promise<void> => scrape(targets)
     const sampledFrom = Date.now()
+    const deadline = sampledFrom + baselineWithinMs
     let missing = targets
     for (;;) {
-        await scrape(missing)
+        await scrape(missing, Math.min(SCRAPE_TIMEOUT_MS, Math.max(deadline - Date.now(), 1)))
         missing = targets.filter(({ role }) => !samples.some((sample) => sample.role === role))
         if (missing.length === 0) {
             break
         }
-        if (Date.now() + BASELINE_RETRY_MS > sampledFrom + baselineWithinMs) {
+        if (Date.now() + BASELINE_RETRY_MS > deadline) {
             throw new Error(
                 `No metrics baseline from ${missing.map(({ role }) => role).join(', ')} within ${baselineWithinMs} ms`
             )
@@ -159,7 +159,7 @@ export async function startSampler(
         while (!stopped.signal.aborted) {
             await sleep(SAMPLE_INTERVAL_MS, undefined, { signal: stopped.signal }).catch(() => undefined)
             if (!stopped.signal.aborted) {
-                await scrapeAll()
+                await scrape(targets)
             }
         }
     })()
@@ -170,7 +170,7 @@ export async function startSampler(
             (stopping ??= (async () => {
                 stopped.abort()
                 await sampling
-                await scrapeAll()
+                await scrape(targets)
                 return samples
             })()),
     }

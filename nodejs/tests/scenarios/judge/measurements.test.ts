@@ -154,9 +154,34 @@ describe('measurements', () => {
         }
     )
 
-    it('refuses to start without a baseline from every role, naming the roles that never answered', async () => {
-        await expect(
-            startSampler([{ role: 'cdp-api', metricsUrl: 'http://127.0.0.1:1/_metrics' }], { baselineWithinMs: 1200 })
-        ).rejects.toThrow('No metrics baseline from cdp-api within 1200 ms')
+    it.each<[string, (request: http.IncomingMessage, response: http.ServerResponse) => void]>([
+        ['refuses the scrape', (_request, response) => response.writeHead(503).end()],
+        ['never answers the scrape', () => undefined],
+    ])('refuses to start within its budget, naming only the role that %s', async (_story, silent) => {
+        const server = http.createServer((request, response) =>
+            request.url === '/answering'
+                ? response.end(
+                      'process_start_time_seconds 1\nprocess_cpu_seconds_total 1\nprocess_resident_memory_bytes 1'
+                  )
+                : silent(request, response)
+        )
+        await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+        const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+        const startedAt = Date.now()
+        try {
+            await expect(
+                startSampler(
+                    [
+                        { role: ROLE, metricsUrl: `${url}/answering` },
+                        { role: 'cdp-api', metricsUrl: `${url}/silent` },
+                    ],
+                    { baselineWithinMs: 600 }
+                )
+            ).rejects.toThrow(/^No metrics baseline from cdp-api within 600 ms$/)
+            expect(Date.now() - startedAt).toBeLessThan(1500)
+        } finally {
+            server.closeAllConnections()
+            await new Promise<void>((resolve) => server.close(() => resolve()))
+        }
     })
 })
