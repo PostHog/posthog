@@ -71,7 +71,7 @@ export function QuillAnnotationCard({
                 {!isSystemAnnotation && (
                     <div className="flex items-center gap-2">
                         <QuillPersonAvatar name={author.name} email={author.email} size="xs" />
-                        <Text size="xs" variant="muted" className="m-0 truncate">
+                        <Text size="xs" variant="muted" className="ph-no-capture m-0 truncate">
                             {author.label} • {createdAt}
                         </Text>
                     </div>
