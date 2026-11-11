@@ -16,7 +16,7 @@ from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
     mirror_platform_edit,
-    remove_native_destinations,
+    remove_alert_destinations,
 )
 from products.alerts_platform.backend.facade.contracts import (
     GroupingMode,
@@ -108,7 +108,7 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     # HogFunctions. Creates stay off, and out of the API schema, until `creates` and
     # `creates_native_alert` turn them on. The interval only sets a native create's cadence.
     native=NativeAlertLifecycle(
-        check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_native_destinations, creates=False
+        check_interval_minutes=MINUTES_PER_DAY, remove_destinations=remove_alert_destinations, creates=False
     ),
     native_create=creates_native_alert,
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,

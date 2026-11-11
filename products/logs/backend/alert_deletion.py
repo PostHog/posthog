@@ -31,10 +31,8 @@ def delete_alert(*, team_id: int, alert_id: UUID, only_platform_owned: bool = Fa
         if only_platform_owned:
             # Checked again under the lock, because the cutover and rollback commands take the same lock.
             _require_platform_owned(locked)
-        soft_delete_all_alert_destinations(
-            team_id=locked.team_id, alert_id=str(locked.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
-        )
-        on_deleted(team_id=locked.team_id, alert_id=locked.id)
+        if not on_deleted(team_id=locked.team_id, alert_id=locked.id):
+            remove_alert_destinations(team_id=locked.team_id, alert_id=locked.id)
         locked.delete()
     return True
 
@@ -55,12 +53,9 @@ def delete_platform_owned(*, team_id: int, legacy_configuration_id: UUID) -> Non
     delete_alert(team_id=team_id, alert_id=alert.id, only_platform_owned=True)
 
 
-def remove_native_destinations(*, team_id: int, configuration_id: UUID) -> None:
-    """Removes the HogFunction destinations of a logs alert with no logs row, which match on the
-    configuration's own id."""
-    soft_delete_all_alert_destinations(
-        team_id=team_id, alert_id=str(configuration_id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
-    )
+def remove_alert_destinations(*, team_id: int, alert_id: UUID) -> None:
+    """Removes the HogFunction destinations of a logs alert, which match on its public id."""
+    soft_delete_all_alert_destinations(team_id=team_id, alert_id=str(alert_id), allowed_event_ids=LOGS_ALERT_EVENT_IDS)
 
 
 def _require_platform_owned(alert: LogsAlertConfiguration) -> None:
