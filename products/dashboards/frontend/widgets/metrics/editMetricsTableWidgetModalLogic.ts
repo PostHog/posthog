@@ -12,9 +12,11 @@ import {
 } from '../editWidgetModalBuilders'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import {
+    METRICS_TABLE_MAX_GROUP_BY,
     METRICS_TABLE_MAX_LIMIT,
     type MetricsTableAggregation,
     type MetricsTableColumn,
+    metricsTableGroupByLabels,
     parseMetricsTableWidgetConfig,
 } from './metricsTableWidgetConfigValidation'
 
@@ -32,7 +34,7 @@ export interface editMetricsTableWidgetModalLogicValues {
     config: MetricsTableWidgetConfig
     dateFrom: WidgetDateFromValue
     defaultTitle: string
-    groupBy: string
+    groupBy: string[]
     interval: MetricsTableInterval | null
     limit: number
     onClose: () => void
@@ -54,7 +56,7 @@ export interface editMetricsTableWidgetModalLogicActions {
         metricType?: string
     ) => { index: number; metricName: string; metricType: string | null }
     setDateFrom: (dateFrom: WidgetDateFromValue) => { dateFrom: WidgetDateFromValue }
-    setGroupBy: (groupBy: string) => { groupBy: string }
+    setGroupBy: (groupBy: string[]) => { groupBy: string[] }
     setInterval: (interval: MetricsTableInterval | null) => { interval: MetricsTableInterval | null }
     setLimit: (limit: number) => { limit: number }
     setOrderByColumn: (orderByColumn: number) => { orderByColumn: number }
@@ -125,7 +127,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
     actions({
         ...widgetEditModalTileActions,
         loadConfig: (config: MetricsTableWidgetConfig) => ({ config }),
-        setGroupBy: (groupBy: string) => ({ groupBy }),
+        setGroupBy: (groupBy: string[]) => ({ groupBy }),
         setDateFrom: (dateFrom: WidgetDateFromValue) => ({ dateFrom }),
         setInterval: (interval: MetricsTableInterval | null) => ({ interval }),
         setLimit: (limit: number) => ({ limit }),
@@ -145,10 +147,15 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
     }),
     reducers({
         groupBy: [
-            '',
+            [] as string[],
             {
-                loadConfig: (_state: string, { config }: { config: MetricsTableWidgetConfig }) => config.groupBy ?? '',
-                setGroupBy: (_state: string, { groupBy }: { groupBy: string }) => groupBy,
+                loadConfig: (_state: string[], { config }: { config: MetricsTableWidgetConfig }) =>
+                    metricsTableGroupByLabels(config.groupBy),
+                setGroupBy: (_state: string[], { groupBy }: { groupBy: string[] }) =>
+                    [...new Set(groupBy.map((label) => label.trim()).filter(Boolean))].slice(
+                        0,
+                        METRICS_TABLE_MAX_GROUP_BY
+                    ),
             },
         ],
         dateFrom: [
@@ -260,7 +267,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
         config: [
             (s) => [s.groupBy, s.columns, s.dateFrom, s.interval, s.limit, s.orderByColumn, s.orderDirection],
             (
-                groupBy: string,
+                groupBy: string[],
                 columns: MetricsTableColumn[],
                 dateFrom: WidgetDateFromValue,
                 interval: MetricsTableInterval | null,
@@ -268,7 +275,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
                 orderByColumn: number,
                 orderDirection: MetricsTableOrderDirection
             ): MetricsTableWidgetConfig => ({
-                groupBy: groupBy.trim() || null,
+                groupBy: groupBy.length ? groupBy : null,
                 columns: columns.map((column) => ({ ...column, metricName: column.metricName.trim() })),
                 dateRange: { date_from: dateFrom },
                 interval,
@@ -281,7 +288,7 @@ export const editMetricsTableWidgetModalLogic = kea<editMetricsTableWidgetModalL
             (s) => [s.config],
             (config: MetricsTableWidgetConfig): string | undefined => {
                 if (!config.groupBy) {
-                    return 'Enter a label to make one row per value'
+                    return 'Enter at least one label to make the rows'
                 }
                 const columns: MetricsTableColumn[] = config.columns ?? []
                 if (!columns.length) {
