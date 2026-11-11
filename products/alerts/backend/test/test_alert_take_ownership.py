@@ -69,7 +69,9 @@ class TestAlertTakeOwnership(APIBaseTest):
             assert alert.created_by == previous_owner
             assert alert.enabled is False
             assert not ActivityLog.objects.filter(
-                scope="AlertConfiguration", item_id=str(alert.id), activity="took_ownership"
+                scope="AlertConfiguration",
+                item_id=str(alert.id),
+                activity__in=["took_ownership", "transferred_ownership"],
             ).exists()
             return
         assert response.status_code == status.HTTP_200_OK, response.content
@@ -199,7 +201,9 @@ class TestAlertTakeOwnership(APIBaseTest):
             assert alert.created_by == self.user
             assert alert.enabled is enabled
             assert not ActivityLog.objects.filter(
-                scope="AlertConfiguration", item_id=str(alert_id), activity="transferred_ownership"
+                scope="AlertConfiguration",
+                item_id=str(alert_id),
+                activity__in=["took_ownership", "transferred_ownership"],
             ).exists()
         else:
             assert response.status_code == status.HTTP_200_OK, response.content
