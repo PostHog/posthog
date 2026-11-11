@@ -19,7 +19,12 @@ from products.experiments.backend.health.bucketing_changes import (
     bucketing_net_effect,
     describe_bucketing_value,
 )
-from products.experiments.backend.health.checks.change_wording import duration, suggested_start, the_change
+from products.experiments.backend.health.checks.change_wording import (
+    RESET_EFFECT,
+    duration,
+    suggested_start,
+    the_change,
+)
 from products.experiments.backend.health.checks.flag_change_findings import (
     change_finding,
     changes_to_check,
@@ -94,6 +99,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
                 "People exposed in between got a new variant draw, so they may have switched variants.",
                 f"Move the start date to {suggested_start(effect.last.changed_at, history.team_timezone)}, or "
                 "reset the experiment.",
+                RESET_EFFECT,
             ],
         )
 
@@ -137,6 +143,7 @@ def bucketing_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
             *delay_after_launch(history, effect),
             *_consequence(effect),
             f"Reset the experiment, or move its start date to {start_at}.",
+            RESET_EFFECT,
         ],
     )
 

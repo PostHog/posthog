@@ -9,12 +9,14 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import ANY, MagicMock, patch
 
+from django import forms
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
 from django.contrib.messages import get_messages
+from django.core.cache import caches
 from django.core.management.base import CommandError
 from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
@@ -31,14 +33,22 @@ from temporalio.common import WorkflowIDConflictPolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.admin.authorization import DELETION_AUTHORIZED_GROUP
+from posthog.admin.console.api_key_search_tool import ApiKeySearchForm
 from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.results import (
+    CACHE_ALIAS as RESULTS_CACHE_ALIAS,
+    KEY_COOKIE,
+    KEY_PREFIX as RESULTS_KEY_PREFIX,
+    ResultCodec,
+)
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.csp_middleware import CSPMiddleware
 from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewayNotConfigured, LedgerEntry, Wallet
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.activity_logging.utils import activity_visibility_manager
 from posthog.models.data_deletion_request import DataDeletionRequest, RequestType
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig, RestrictionType
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig
@@ -58,8 +68,10 @@ from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.billing.quota_limiting import QuotaResource
+from ee.hogai.django_checkpoint.compaction import CompactionResult
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 PROJECT_PANEL_TITLES = ("Overview", "Deletion")
@@ -90,6 +102,31 @@ class _Tool(ConsoleTool):
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
     group = "Data"
+
+
+class _SecretTool(_Tool):
+    key = "issue-password"
+    runs = 0
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=())
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [
+            ToolOperation(
+                key="issue",
+                label="Issue a password",
+                handler=self.issue,
+                danger=True,
+                form_class=ReasonForm,
+                undo_hint="Rotate the password.",
+            )
+        ]
+
+    @classmethod
+    def issue(cls, request: HttpRequest, form: object) -> Page:
+        cls.runs += 1
+        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
 
 
 def _register_twice() -> None:
@@ -217,6 +254,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                 "not a table, notice or output",
             ),
             (
+                "secret_on_a_page_that_renders_again",
+                lambda: Page(blocks=(Secret(label="Password", value="x"),)).refuse_secrets("tool page"),
+                "only from an operation's result page",
+            ),
+            (
                 "table_row_missing_a_cell",
                 lambda: Page(blocks=(Table(columns=("Team", "Months"), rows=(Row(cells=(Cell(text="a"),)),)),)),
                 "1 cells for 2 columns",
@@ -283,6 +325,29 @@ class TestAdminConsoleTheme(SimpleTestCase):
         assert all(f'nonce="{allowed.group(1)}"' in tag for tag in inline_scripts), inline_scripts
 
 
+class TestAdminConsoleFormField(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("password_input_hides_the_key", "key", False),
+            ("text_input_keeps_what_staff_typed", "note", True),
+        ]
+    )
+    def test_a_form_shown_again_after_an_error_keeps_secrets_out(
+        self, _name: str, field_name: str, value_shown: bool
+    ) -> None:
+        class _KeyForm(ApiKeySearchForm):
+            note = forms.CharField()
+
+        form = _KeyForm(data={"key": "phx_pasted_secret_key", "note": "typed note"})
+        form.is_valid()
+        form.add_error(field_name, "Not found.")
+
+        html = render_to_string("admin_console/_form_field.html", {"field": form[field_name]})
+
+        assert "Not found." in html
+        assert ("phx_pasted_secret_key" in html or "typed note" in html) == value_shown
+
+
 class TestAdminConsoleViews(BaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -309,6 +374,56 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 403
 
+    @override_settings(SESSION_COOKIE_SECURE=True)
+    def test_a_secret_result_shows_once_and_a_reload_does_not_run_the_operation_again(self) -> None:
+        _SecretTool.runs = 0
+        with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+            result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+            cached = repr(caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}"))
+            key_cookie = response.cookies[KEY_COOKIE]
+            first = self.client.get(response["Location"])
+            reload = self.client.get(response["Location"])
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/admin/console/results/")
+        assert "example-secret-value" not in response["Location"]
+        assert "example-secret-value" not in cached and key_cookie.value not in cached
+        assert key_cookie["path"] == response["Location"] and key_cookie["httponly"] and key_cookie["secure"]
+        assert key_cookie["samesite"] == "Strict"
+        assert first.cookies[KEY_COOKIE]["max-age"] == 0
+        assert first.status_code == 200
+        assert "example-secret-value" in first.content.decode()
+        assert reload.status_code == 410
+        assert "example-secret-value" not in reload.content.decode()
+        assert _SecretTool.runs == 1
+        for page in (response, first, reload):
+            assert "no-store" in page["Cache-Control"]
+        assert any(entry.get("reason") == "Customer onboarding" for entry in audit_log)
+        assert "example-secret-value" not in repr(audit_log)
+
+    @parameterized.expand(
+        [
+            ("without_its_key", None, 410, "The key for this result is missing", True),
+            ("stored_by_another_version", KeyError("RenamedBlock"), 410, "PostHog was updated", False),
+        ]
+    )
+    def test_a_result_that_cannot_be_opened_explains_why(
+        self, _name: str, decode_error: Exception | None, status: int, explanation: str, kept: bool
+    ) -> None:
+        with patch.object(console, "get_tool", return_value=_SecretTool()):
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+        result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+        if decode_error is None:
+            self.client.cookies.pop(KEY_COOKIE)
+        with patch.object(ResultCodec, "loads", side_effect=decode_error):
+            page = self.client.get(response["Location"])
+
+        assert page.status_code == status
+        assert explanation in page.content.decode()
+        assert "example-secret-value" not in page.content.decode()
+        assert (caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}") is not None) == kept
+
     def test_team_page_shows_core_and_product_panels(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -323,8 +438,10 @@ class TestAdminConsoleViews(BaseTest):
             "Group types",
             "Email sending",
             "AI gateway",
+            "Experiments",
             "Project API token",
             "Project secret API keys",
+            "Trino compile check",
         ):
             assert title in content
         assert "Needs attention" in content and "Ingested events:" in content
@@ -339,7 +456,15 @@ class TestAdminConsoleViews(BaseTest):
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/")
         assert organization_page.status_code == 200
         organization_content = organization_page.content.decode()
-        for title in ("Overview", "Teams", "Billing", "Deletion", "Managed warehouse", "Legal documents"):
+        for title in (
+            "Overview",
+            "Teams",
+            "Billing",
+            "Deletion",
+            "Managed warehouse",
+            "Legal documents",
+            "PostHog Desktop",
+        ):
             assert title in organization_content
         assert f"/admin/console/teams/{self.team.pk}/" in organization_content
 
@@ -474,6 +599,36 @@ class TestAdminConsoleViews(BaseTest):
 
     @parameterized.expand(
         [
+            ("team_change_form", "team", "teams", []),
+            (
+                "organization_change_form_suggests_deactivation_reasons",
+                "organization",
+                "organizations",
+                [
+                    'list="id_is_not_active_reason_suggestions"',
+                    f'<option value="{Organization.DeactivationReason.DESKTOP_ABUSE}">',
+                ],
+            ),
+            ("changelist", None, None, []),
+        ]
+    )
+    def test_the_django_admin_banner_opens_the_console_page_of_the_record(
+        self, _name: str, record: str | None, plural: str | None, expected: list[str]
+    ) -> None:
+        obj = {"team": self.team, "organization": self.organization}.get(record or "")
+        url = f"/admin/posthog/{record}/{obj.pk}/change/" if obj is not None else "/admin/posthog/team/"
+
+        response = self.client.get(url)
+
+        assert response.status_code == 200
+        console_url = f"/admin/console/{plural}/{obj.pk}/" if obj is not None else "/admin/console/"
+        content = response.content.decode()
+        assert f'<a href="{console_url}">Open PostHog Admin</a>' in content
+        for text in expected:
+            assert text in content
+
+    @parameterized.expand(
+        [
             ("new_token", "phc_console_new", 302, "phc_console_new"),
             ("blank_token", "   ", 400, "phc_console_old"),
             ("identical_token", "phc_console_old", 400, "phc_console_old"),
@@ -567,6 +722,27 @@ class TestAdminConsoleViews(BaseTest):
         content = response.content.decode()
         assert "gateway down" in content
         assert "Outage goodwill" in content
+
+    @parameterized.expand(
+        [
+            ("explain_with_limit", {"explain": "on", "limit": "5"}, 302, (True, 5)),
+            ("compile_only", {"limit": ""}, 302, (False, None)),
+            ("limit_not_positive", {"limit": "0"}, 400, None),
+        ]
+    )
+    def test_trino_compile_check_enqueues_a_run_for_the_team(
+        self, _name: str, data: dict[str, str], expected_status: int, expected_run: tuple[bool, int | None] | None
+    ) -> None:
+        with patch("products.managed_warehouse.backend.tasks.run_trino_compile_check_task.delay") as delay:
+            response = self.client.post(f"/admin/console/teams/{self.team.pk}/trino-compile-check/start/", data)
+
+        assert response.status_code == expected_status
+        if expected_run is None:
+            delay.assert_not_called()
+            return
+        kwargs = delay.call_args.kwargs
+        assert (kwargs["team_id"], kwargs["explain"], kwargs["limit"]) == (self.team.pk, *expected_run)
+        assert any(kwargs["run_id"] in str(message) for message in get_messages(response.wsgi_request))
 
     @parameterized.expand(
         [
@@ -681,6 +857,56 @@ class TestAdminConsoleViews(BaseTest):
             assert text in content
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
         assert tool_url in organization_page
+
+    @parameterized.expand(
+        [
+            ("compacted", CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5)),
+            ("nothing_to_compact", CompactionResult(compacted=False)),
+        ]
+    )
+    @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
+    def test_compacting_conversations_previews_then_runs_on_confirm(
+        self, _name: str, result: CompactionResult, compact: MagicMock
+    ) -> None:
+        compact.return_value = result
+        ids = [str(Conversation.objects.create(team=self.team, user=self.user).id) for _ in range(2)]
+        url = "/admin/console/tools/ai-conversation-checkpoints/compact/"
+
+        preview = self.client.post(url, {"conversations": "\n".join(ids), "reason": "Threads too large to load"})
+
+        assert preview.status_code == 200
+        assert compact.call_count == 0
+        preview_content = preview.content.decode()
+        assert all(conversation_id in preview_content for conversation_id in ids)
+        assert "Deletes up to 0 checkpoints" in preview_content
+
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert compact.call_count == 2
+
+    @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
+    def test_compaction_preview_refuses_an_unknown_conversation(self, compact: MagicMock) -> None:
+        known = str(Conversation.objects.create(team=self.team, user=self.user).id)
+        unknown = "01920000-0000-0000-0000-000000000000"
+
+        response = self.client.post(
+            "/admin/console/tools/ai-conversation-checkpoints/compact/",
+            {"conversations": f"{known}\n{unknown}", "reason": "Threads too large to load"},
+        )
+
+        assert response.status_code == 400
+        assert unknown in response.content.decode()
+        compact.assert_not_called()
+
+    def test_the_old_compact_url_opens_the_console_form_for_the_conversation(self) -> None:
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        response = self.client.post(f"/admin/posthog_ai/conversation/{conversation.id}/compact/", follow=True)
+
+        tool_url = f"/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={conversation.id}"
+        assert response.redirect_chain == [(tool_url, 302)]
+        assert str(conversation.id) in response.content.decode()
 
     @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
     @patch("posthog.admin.console.usage_reports_tool.call_command")
@@ -957,6 +1183,102 @@ class TestAdminConsoleViews(BaseTest):
 
         assert response.status_code == 200
         assert "Open this page from the Remote config cache panel" in response.content.decode()
+
+    @parameterized.expand(
+        [
+            (
+                "values_list_the_matching_keys",
+                "/admin/redisvalues?q=cache:*",
+                "/admin/console/tools/redis-values/?q=cache:*",
+                ["cache:key", "x" * 200 + "...", "Next keys", "1:00:00"],
+            ),
+            (
+                "edit_ttl_opens_the_form_for_the_key",
+                "/admin/redis/edit-ttl?key=cache:key&c=0",
+                "/admin/console/tools/redis-values/set-ttl/?key=cache:key&c=0",
+                ['value="cache:key"', 'value="3600"'],
+            ),
+        ]
+    )
+    @patch("posthog.admin.console.redis_tool.get_client")
+    def test_the_old_redis_pages_open_the_redis_tool(
+        self, _name: str, old_url: str, new_url: str, expected: list[str], get_client: MagicMock
+    ) -> None:
+        redis_client = get_client.return_value
+        redis_client.scan.return_value = (5, [b"cache:key"])
+        redis_client.type.return_value = b"string"
+        redis_client.ttl.return_value = 3600
+        redis_client.memory_usage.return_value = 300
+        redis_client.get.return_value = "x" * 300
+
+        response = self.client.get(old_url, follow=True)
+
+        assert response.redirect_chain == [(new_url, 302)]
+        content = response.content.decode()
+        for text in expected:
+            assert text in content
+
+    @patch("posthog.admin.console.redis_tool.get_client")
+    def test_the_redis_tool_shows_the_whole_value_of_one_key(self, get_client: MagicMock) -> None:
+        redis_client = get_client.return_value
+        redis_client.type.return_value = b"string"
+        redis_client.ttl.return_value = -1
+        redis_client.memory_usage.return_value = 300
+        redis_client.get.return_value = "x" * 300
+
+        response = self.client.get("/admin/console/tools/redis-values/", {"key": "cache:key"})
+
+        content = response.content.decode()
+        assert "x" * 300 in content
+        assert "No TTL" in content
+
+    @parameterized.expand(
+        [
+            ("set", 3600, "7200", 302, "ttl_updated", "Set TTL to 7200s on Redis key cache:key"),
+            ("remove", 3600, "", 302, "ttl_removed", "Removed TTL from Redis key cache:key"),
+            ("missing_key", -2, "7200", 404, None, None),
+            ("without_reason", 3600, "7200", 400, None, None),
+            ("ttl_too_large", 3600, str(10**12), 400, None, None),
+        ]
+    )
+    @patch("posthog.admin.console.redis_tool.get_client")
+    def test_setting_a_redis_ttl_changes_the_key_and_logs_who_did_it(
+        self,
+        name: str,
+        current_ttl: int,
+        ttl_seconds: str,
+        expected_status: int,
+        expected_activity: str | None,
+        expected_detail: str | None,
+        get_client: MagicMock,
+    ) -> None:
+        redis_client = get_client.return_value
+        redis_client.ttl.return_value = current_ttl
+
+        response = self.client.post(
+            "/admin/console/tools/redis-values/set-ttl/?key=cache:key",
+            {"key": "cache:key", "ttl_seconds": ttl_seconds, "reason": "" if name == "without_reason" else "Stuck"},
+        )
+
+        assert response.status_code == expected_status
+        logs = ActivityLog.objects.filter(scope="Admin", item_id="cache:key")
+        if expected_activity is None:
+            redis_client.expire.assert_not_called()
+            redis_client.persist.assert_not_called()
+            assert not logs.exists()
+            return
+        assert response["Location"] == "/admin/console/tools/redis-values/?key=cache:key"
+        if ttl_seconds:
+            redis_client.expire.assert_called_once_with("cache:key", int(ttl_seconds))
+        else:
+            redis_client.persist.assert_called_once_with("cache:key")
+        log = logs.get()
+        assert (log.activity, log.user, log.organization_id) == (expected_activity, self.user, self.organization.id)
+        assert log.detail is not None
+        assert log.detail["name"] == expected_detail
+        assert log.detail["type"] == f"previous_ttl:{current_ttl}"
+        assert log.detail["context"] == {"reason": "Stuck"}
+        assert activity_visibility_manager.is_restricted(log, restrict_for_staff=True)
 
     @parameterized.expand(
         [

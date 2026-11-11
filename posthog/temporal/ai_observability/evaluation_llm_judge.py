@@ -547,10 +547,10 @@ def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActiv
 
     Fetches API key configuration internally to avoid passing sensitive data between activities.
     """
-    return _execute_llm_judge_activity(inputs)
+    return run_generation_llm_judge(inputs)
 
 
-def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
+def run_generation_llm_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     evaluation = inputs.evaluation
     try:
         event_data = hydrate_event_reference(inputs.event_data)
