@@ -166,8 +166,8 @@ def _search_workflows(**kwargs: Any) -> tuple[list[dict[str, Any]], int]:
     return results, count
 
 
-# Actions, dashboards and workflows are searched through their products' facades rather than unioned
-# by model class, so they are not in ENTITY_MAP. `search_entities` merges them in when one is requested.
+# Actions, dashboards and workflows are searched through their products' facades rather than unioned by model
+# class, so they are not in ENTITY_MAP. `search_entities` merges them in when one is requested.
 ACTION_ENTITY = "action"
 DASHBOARD_ENTITY = "dashboard"
 WORKFLOW_ENTITY = "hog_flow"
@@ -176,8 +176,7 @@ FACADE_SEARCHES: dict[str, FacadeSearch] = {
     ACTION_ENTITY: _search_actions,
     WORKFLOW_ENTITY: _search_workflows,
 }
-# Dashboards keep their place after insights, and actions theirs between notebooks and cohorts, in the
-# entity choices and the counts. The choices order is the enum order of the OpenAPI schema.
+# Actions keep their place between notebooks and cohorts in the entity choices and the counts.
 _UNION_ENTITY_NAMES = [*ENTITY_MAP]
 _DASHBOARD_SLOT = _UNION_ENTITY_NAMES.index("insight") + 1
 _ACTION_SLOT = _UNION_ENTITY_NAMES.index("cohort")
@@ -273,11 +272,10 @@ def search_entities(
     requested_facades = [name for name in facade_searches if name in entities]
     entities = entities - set(facade_searches)
 
+    # empty queryset to union things onto it
     counts: dict[str, int | None] = (
         dict.fromkeys(counted_entities if counted_entities is not None else entity_map) if include_counts else {}
     )
-    # An empty queryset to union the entity querysets onto. A union drops an empty member, so its
-    # model never reaches the SQL.
     qs: QuerySet[Any] = Team.objects.none()
 
     # add entities

@@ -2239,7 +2239,6 @@ class TestSharingConfigurationReadAccess(APIBaseTest):
             environment = Team.objects.create(
                 organization=self.organization, parent_team=self.team, project_id=self.team.project_id
             )
-            # Saving moves a dashboard to the root team, so only an update stores one on an environment.
             Dashboard.objects_including_soft_deleted.filter(pk=dashboard.pk).update(team_id=environment.id)
         SharingConfiguration.objects.create(
             team=self.team, dashboard=dashboard, enabled=True, access_token="project_board_secret"

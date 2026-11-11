@@ -500,8 +500,8 @@ def _format_activity_row(row: ActivityLog, team_ids: list[int]) -> dict[str, Any
 def _get_popular_dashboards(team_ids: list[int], access_control: UserAccessControl) -> list[dict[str, Any]]:
     if not team_ids:
         return []
-    # The listing leaves out the dashboards the user may not view, so restricted names and descriptions
-    # don't leak through this aggregation endpoint. If that check fails, list none instead of failing the page.
+    # Apply per-object access control so restricted dashboard names/descriptions don't leak via
+    # this aggregation endpoint (same pattern as the main dashboards viewset).
     try:
         dashboards = dashboards_by_last_access(
             team_ids=team_ids, user_access_control=access_control, limit=_POPULAR_DASHBOARDS_MAX_ITEMS

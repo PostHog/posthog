@@ -483,7 +483,6 @@ class SharingConfigurationViewSet(
         if instance is None:
             instance = SharingConfiguration(**config_kwargs)
 
-        # The summary carries no legacy share fields, so they are read from the row the config's relation loads.
         dashboard = instance.dashboard if dashboard_id else None
         if dashboard is not None:
             # Ensure the legacy dashboard fields are in sync with the sharing configuration
