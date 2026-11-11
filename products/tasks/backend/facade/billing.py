@@ -28,6 +28,7 @@ from products.tasks.backend.logic.services.task_usage import (
     TaskUsage,
     get_local_task_run_token_costs,
     get_local_task_token_cost,
+    get_task_reported_token_cost,
     get_task_usage,
 )
 
@@ -45,6 +46,7 @@ __all__ = [
     "get_local_task_run_token_costs",
     "get_local_task_token_cost",
     "get_task_sandbox_usage_by_team",
+    "get_task_reported_token_cost",
     "get_task_usage",
     "get_task_run_cost",
     "get_task_cost",
