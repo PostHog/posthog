@@ -3737,7 +3737,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         validated = super().to_internal_value(data)
         # `_create_in_folder` is the file-system convention, but MCP tools drop underscore fields, so agents send `folder`.
         folder = validated.pop("folder", None)
-        if folder and self.instance is None and not validated.get("_create_in_folder"):
+        # An empty folder is the project root, so only an omitted one falls back to the default.
+        if folder is not None and self.instance is None and "_create_in_folder" not in validated:
             try:
                 validate_file_system_placement(folder, validated.get("name"))
             except serializers.ValidationError as error:
