@@ -1295,6 +1295,18 @@ describe('EmailService', () => {
     })
     describe('native email sending with ses', () => {
         let invocation: CyclotronJobInvocationHogFunction
+        const captureEngagementEvents = async (): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO workflows_teamworkflowsconfig
+                    (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
+                     email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
+                 VALUES ($1, true, 'off', '', '', 0)
+                 ON CONFLICT (team_id) DO UPDATE SET capture_workflows_engagement_events = true`,
+                [team.id],
+                'test-capture-engagement-events'
+            )
+        }
         beforeEach(async () => {
             const actualFetch = jest.requireActual('~/common/utils/request').fetch as jest.Mock
             mockFetch.mockImplementation((...args: any[]): Promise<any> => {
@@ -1546,18 +1558,6 @@ describe('EmailService', () => {
                                 }))
                             ),
                         }))
-                )
-            }
-            const captureEngagementEvents = async (): Promise<void> => {
-                await hub.postgres.query(
-                    PostgresUse.COMMON_WRITE,
-                    `INSERT INTO workflows_teamworkflowsconfig
-                        (team_id, capture_workflows_engagement_events, email_tracking_consent_mode,
-                         email_sending_suspension_reason, ses_tenant_sending_status, email_sending_tier)
-                     VALUES ($1, true, 'off', '', '', 0)
-                     ON CONFLICT (team_id) DO UPDATE SET capture_workflows_engagement_events = true`,
-                    [team.id],
-                    'test-capture-engagement-events'
                 )
             }
             const untilDue = async (due: DateTime): Promise<void> => {
@@ -3070,11 +3070,7 @@ describe('EmailService', () => {
         ])(
             'should capture a $workflows_email_sent PostHog event and version the email_sent metric on success, for %s',
             async (_name, extraMetadata, subject, workflowVersion, transactional) => {
-                // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
-                jest.spyOn(
-                    (service as any).teamWorkflowsConfigService,
-                    'shouldCaptureEngagementEvents'
-                ).mockResolvedValue(true)
+                await captureEngagementEvents()
                 invocation.hogFunction.metadata = { ...invocation.hogFunction.metadata, ...extraMetadata }
                 invocation.state.renderedWorkflowVersion = workflowVersion
                 if (transactional) {
