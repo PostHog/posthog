@@ -12,6 +12,7 @@ import type { EmailStatus, EmailStatusReason } from '../email-status.service'
 import { removeWorkflowRunTag } from './link-tags'
 import { unquoteMailbox } from './suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
+import { sentTransactionalEmailIdentity } from './transactional-email-identity'
 
 /**
  * ---------- SNS envelope types ----------
@@ -982,7 +983,9 @@ export class SesWebhookHandler {
                     $email_to: rec.mail.destination?.[0],
                     $email_message_id: rec.mail.messageId,
                     ...(isSensitive ? {} : { $email_subject: rec.mail.commonHeaders?.subject }),
-                    ...(isTransactionalMail(rec.mail) ? { $email_transactional: true } : {}),
+                    ...(isTransactionalMail(rec.mail)
+                        ? { $email_transactional: true, ...sentTransactionalEmailIdentity(rec.mail.tags) }
+                        : {}),
                 }
 
                 // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)

@@ -449,7 +449,9 @@ export class EmailTrackingService {
                 distinctId,
                 metricName,
                 properties:
-                    properties?.$email_transactional === true
+                    properties?.$email_transactional === true &&
+                    properties.$email_template_id === undefined &&
+                    properties.$email_template_key === undefined
                         ? {
                               ...properties,
                               ...transactionalEmailIdentity(

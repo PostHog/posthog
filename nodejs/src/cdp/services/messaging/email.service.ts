@@ -46,7 +46,7 @@ import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
-import { transactionalEmailIdentity } from './helpers/transactional-email-identity'
+import { transactionalEmailIdentity, transactionalEmailIdentityTags } from './helpers/transactional-email-identity'
 import { callsSettledBefore, declaredFileBytes, exceedsLargestSend } from './in-flight-registry'
 import { MessageAssetsService } from './message-assets.service'
 import {
@@ -1482,7 +1482,10 @@ export class EmailService {
                     ? [{ Name: SES_SENSITIVE_TAG, Value: 'true' }]
                     : []),
                 ...(!isTest && isTransactionalEmailSend(result.invocation)
-                    ? [{ Name: SES_EMAIL_STATUS_TAG, Value: 'true' }]
+                    ? [
+                          { Name: SES_EMAIL_STATUS_TAG, Value: 'true' },
+                          ...transactionalEmailIdentityTags(result.invocation.hogFunction?.metadata),
+                      ]
                     : []),
             ],
             FeedbackForwardingEmailAddress: from.email,
