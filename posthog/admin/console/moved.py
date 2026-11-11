@@ -50,6 +50,8 @@ class MovedPage:
     title: str
     # Where the page lives now. A path parameter of `old_path` goes in as {name}, for example "?check={kind}".
     url: str
+    # Replaces the bookmark hint in the notice, when the new page alone does not show staff where to go next.
+    note: str = ""
 
 
 class MovedToConsole:
@@ -59,11 +61,11 @@ class MovedToConsole:
     """
 
     @staticmethod
-    def page_redirect(title: str, url: str) -> Callable[..., HttpResponse]:
+    def page_redirect(title: str, url: str, note: str = "") -> Callable[..., HttpResponse]:
         """A view for the old URL of a page that moved. It says so once, so a bookmark does not move silently."""
 
         def view(request: HttpRequest, **url_kwargs: object) -> HttpResponse:
-            messages.info(request, f"{title} moved to PostHog Admin. Update your bookmark to this page.")
+            messages.info(request, f"{title} moved to PostHog Admin. {note or 'Update your bookmark to this page.'}")
             # Old URLs with a path parameter, such as a health check kind, name it in `url` as {kind}.
             target = url.format(**{name: quote(str(value), safe="") for name, value in url_kwargs.items()})
             query = request.META.get("QUERY_STRING", "")

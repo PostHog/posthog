@@ -16,7 +16,7 @@ def moved_url_patterns(registry: ConsoleRegistry = console) -> list[URLPattern]:
             view = MovedToConsole.record_redirect(RECORD_TYPES[moved.record].plural, moved.target, moved.resolver)
             patterns.append(path(moved.old_path, view))
         else:
-            patterns.append(path(moved.old_path, MovedToConsole.page_redirect(moved.title, moved.url)))
+            patterns.append(path(moved.old_path, MovedToConsole.page_redirect(moved.title, moved.url, moved.note)))
     return patterns
 
 
@@ -56,6 +56,11 @@ urlpatterns = [
         "admin/console/tools/<slug:tool_key>/<slug:operation_key>/",
         admin.site.admin_view(views.run_tool_operation),
         name="admin_console_tool_operation",
+    ),
+    path(
+        "admin/console/results/<slug:result_id>/",
+        admin.site.admin_view(views.operation_result),
+        name="admin_console_result",
     ),
     *moved_url_patterns(),
     # APPEND_SLASH is off, so a console URL typed without its trailing slash would fall through to the

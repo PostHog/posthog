@@ -17,6 +17,7 @@ from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth import BACKEND_SESSION_KEY, SESSION_KEY
 from django.contrib.auth.models import Group
 from django.contrib.messages.storage.cookie import CookieStorage
+from django.core.cache import caches
 from django.core.exceptions import PermissionDenied
 from django.db.models import PROTECT, Model
 from django.http import HttpRequest, HttpResponse
@@ -43,7 +44,13 @@ from posthog.admin.console.organization_panels import BillingPanel, QuotaLimits
 from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, ReasonForm
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import ConsoleRegistry, console
-from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Table
+from posthog.admin.console.results import (
+    CACHE_ALIAS as RESULTS_CACHE_ALIAS,
+    KEY_COOKIE,
+    KEY_PREFIX as RESULTS_KEY_PREFIX,
+    ResultCodec,
+)
+from posthog.admin.console.tools import Cell, ConsoleTool, Live, Notice, Page, Paging, Row, Secret, Table, ToolOperation
 from posthog.admin.console.urls import moved_url_patterns
 from posthog.admin.console.user_panels import is_acting_as
 from posthog.admin.console.views import _offered_operations
@@ -79,6 +86,7 @@ _CLASS_ATTRIBUTE = re.compile(r'class="([^"]*)"')
 _TEMPLATE_TAG = re.compile(r"\{%.*?%\}|\{\{.*?\}\}")
 _PATH_PARAMETER = re.compile(r"<(?:(\w+):)?(\w+)>")
 _SAMPLE_VALUES = {"int": "7", "uuid": "0d7b8a52-4f0e-4b8e-9a43-6f1c2e5d9b10", "str": "example", "path": "example"}
+CONSOLE_HOME = "/admin/console/"
 TOOLS_PREFIX = "/admin/console/tools/"
 # Old URLs that take over a Django admin view on purpose, because the console adds a reason and cleanup the raw
 # view skips. Each ModelAdmin also refuses its raw view by permission, so the view stays closed when the moved
@@ -88,6 +96,8 @@ INTENTIONAL_ADMIN_OVERRIDES = frozenset(
         "admin/posthog/user/<int:pk>/delete/",
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
         "admin/posthog/datadeletionrequest/add/",
+        "admin/account_audits/accountauditcredential/add/",
+        "admin/managed_warehouse/managedwarehouseviewtranslationjob/add/",
     }
 )
 # Django's set-password form. UserAdmin sets change_password_form to None, so the raw view never shows a form.
@@ -131,6 +141,31 @@ class _Tool(ConsoleTool):
     title = "Some report"
     owner = Owner(name="Dev experience", crest="dev-experience")
     group = "Data"
+
+
+class _SecretTool(_Tool):
+    key = "issue-password"
+    runs = 0
+
+    def page(self, request: HttpRequest) -> Page:
+        return Page(blocks=())
+
+    def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        return [
+            ToolOperation(
+                key="issue",
+                label="Issue a password",
+                handler=self.issue,
+                danger=True,
+                form_class=ReasonForm,
+                undo_hint="Rotate the password.",
+            )
+        ]
+
+    @classmethod
+    def issue(cls, request: HttpRequest, form: object) -> Page:
+        cls.runs += 1
+        return Page(blocks=(Secret(label="Root password", value="example-secret-value"),))
 
 
 def _register_twice() -> None:
@@ -304,6 +339,11 @@ class TestAdminConsoleAssets(SimpleTestCase):
                     )
                 ),
                 "not a table, notice or output",
+            ),
+            (
+                "secret_on_a_page_that_renders_again",
+                lambda: Page(blocks=(Secret(label="Password", value="x"),)).refuse_secrets("tool page"),
+                "only from an operation's result page",
             ),
             (
                 "table_row_missing_a_cell",
@@ -512,6 +552,8 @@ class TestAdminConsoleMovedUrls(SimpleTestCase):
         target = moved.url.format(**values)
         assert response.status_code == 302
         assert response["Location"] == target + ("&" if "?" in target else "?") + "from=ticket"
+        if target == CONSOLE_HOME:
+            return
         tool_key = target.removeprefix(TOOLS_PREFIX).split("/")[0]
         assert target.startswith(TOOLS_PREFIX) and console.get_tool(tool_key) is not None, f"No tool for {target}"
 
@@ -579,6 +621,56 @@ class TestAdminConsoleViews(BaseTest):
         )
 
         assert response.status_code == 403
+
+    @override_settings(SESSION_COOKIE_SECURE=True)
+    def test_a_secret_result_shows_once_and_a_reload_does_not_run_the_operation_again(self) -> None:
+        _SecretTool.runs = 0
+        with patch.object(console, "get_tool", return_value=_SecretTool()), capture_logs() as audit_log:
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+            result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+            cached = repr(caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}"))
+            key_cookie = response.cookies[KEY_COOKIE]
+            first = self.client.get(response["Location"])
+            reload = self.client.get(response["Location"])
+
+        assert response.status_code == 302
+        assert response["Location"].startswith("/admin/console/results/")
+        assert "example-secret-value" not in response["Location"]
+        assert "example-secret-value" not in cached and key_cookie.value not in cached
+        assert key_cookie["path"] == response["Location"] and key_cookie["httponly"] and key_cookie["secure"]
+        assert key_cookie["samesite"] == "Strict"
+        assert first.cookies[KEY_COOKIE]["max-age"] == 0
+        assert first.status_code == 200
+        assert "example-secret-value" in first.content.decode()
+        assert reload.status_code == 410
+        assert "example-secret-value" not in reload.content.decode()
+        assert _SecretTool.runs == 1
+        for page in (response, first, reload):
+            assert "no-store" in page["Cache-Control"]
+        assert any(entry.get("reason") == "Customer onboarding" for entry in audit_log)
+        assert "example-secret-value" not in repr(audit_log)
+
+    @parameterized.expand(
+        [
+            ("without_its_key", None, 410, "The key for this result is missing", True),
+            ("stored_by_another_version", KeyError("RenamedBlock"), 410, "PostHog was updated", False),
+        ]
+    )
+    def test_a_result_that_cannot_be_opened_explains_why(
+        self, _name: str, decode_error: Exception | None, status: int, explanation: str, kept: bool
+    ) -> None:
+        with patch.object(console, "get_tool", return_value=_SecretTool()):
+            response = self.client.post("/admin/console/tools/issue-password/issue/", {"reason": "Customer onboarding"})
+        result_id = response["Location"].rstrip("/").rsplit("/", 1)[-1]
+        if decode_error is None:
+            self.client.cookies.pop(KEY_COOKIE)
+        with patch.object(ResultCodec, "loads", side_effect=decode_error):
+            page = self.client.get(response["Location"])
+
+        assert page.status_code == status
+        assert explanation in page.content.decode()
+        assert "example-secret-value" not in page.content.decode()
+        assert (caches[RESULTS_CACHE_ALIAS].get(f"{RESULTS_KEY_PREFIX}:{result_id}") is not None) == kept
 
     def _record(self, record: str) -> Model:
         if record == "deletion-request":

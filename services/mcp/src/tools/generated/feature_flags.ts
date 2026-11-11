@@ -289,6 +289,7 @@ const featureFlagGetAll = (): ToolBase<
                 excluded_properties: params.excluded_properties,
                 excluded_tags: params.excluded_tags,
                 has_evaluation_contexts: params.has_evaluation_contexts,
+                ids: params.ids,
                 key: params.key,
                 limit: params.limit,
                 offset: params.offset,
