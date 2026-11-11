@@ -442,6 +442,36 @@ class TestHogFunctionDrafts(DraftTestCase):
         assert staged_outcomes == expected_staged_outcomes
         assert HogFunction.objects.get(id=function_id).encrypted_inputs["token"]["value"] == expected_live_token
 
+    def test_draft_secret_recovered_before_a_live_rotation_does_not_count_as_entered(self):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+
+        with secret_reentry_flag(True):
+            self._stage(function_id, {"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(SENDER_URL)})
+            self._live_edit(function_id, {"inputs": sender_inputs(SENDER_URL, {"value": "rotated"})})
+            published = self._publish(function_id)
+
+        assert published.status_code == status.HTTP_400_BAD_REQUEST, published.json()
+        function = HogFunction.objects.get(id=function_id)
+        assert (function.hog, function.encrypted_inputs["token"]["value"]) == (SENDER_HOG, "rotated")
+
+    def test_restored_revision_publishes_once_a_draft_edit_enters_the_secret(self):
+        function_id = self._create(hog=SENDER_HOG, inputs={"url": {"value": SENDER_URL}, "token": {"value": "live"}})
+
+        with secret_reentry_flag(True):
+            self._live_edit(
+                function_id, {"hog": MOVED_SENDER_HOG, "inputs": sender_inputs(SENDER_URL, {"value": "live"})}
+            )
+            restored = self.client.post(self._url(function_id, "/revisions/1/restore"))
+            refused = self._publish(function_id)
+            self._stage(function_id, {"inputs": sender_inputs(SENDER_URL, {"value": "live"})})
+            published = self._publish(function_id)
+
+        assert restored.status_code == status.HTTP_200_OK, restored.json()
+        assert (refused.status_code, published.status_code) == (status.HTTP_400_BAD_REQUEST, status.HTTP_200_OK)
+        function = HogFunction.objects.get(id=function_id)
+        token = function.encrypted_inputs["token"]
+        assert (function.hog, token["value"], "entered" in token) == (SENDER_HOG, "live", False)
+
     @parameterized.expand(
         [
             (
