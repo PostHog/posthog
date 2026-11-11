@@ -15,6 +15,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.temporal.common.client import async_connect
 
 from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
+from products.alerts_platform.backend.delivery.routing import deliver_routes
 from products.alerts_platform.backend.facade.contracts import AlertDeliveryRequest
 from products.alerts_platform.backend.temporal.workflows import (
     AlertsPlatformDeliverPreviewWorkflow,
@@ -39,12 +40,14 @@ def deliver(delivery: AlertDeliveryRequest) -> None:
 def deliver_inline(delivery: AlertDeliveryRequest) -> None:
     """Sends every part before returning, for a caller about to remove the destinations."""
     for part in range(delivery.parts):
-        try:
-            deliver_evaluation(replace(delivery, part=part))
-        except Exception as error:
-            # The caller's change goes ahead. A send that failed leaves the incident open, which
-            # error tracking shows.
-            capture_exception(error, {"configuration_id": delivery.configuration_id})
+        # Routed receivers too, because a routed incident manager otherwise keeps the incident open.
+        for send in (deliver_evaluation, deliver_routes):
+            try:
+                send(replace(delivery, part=part))
+            except Exception as error:
+                # The caller's change goes ahead. A send that failed leaves the incident open, which
+                # error tracking shows.
+                capture_exception(error, {"configuration_id": delivery.configuration_id})
 
 
 async def _start(delivery: AlertDeliveryRequest) -> None:

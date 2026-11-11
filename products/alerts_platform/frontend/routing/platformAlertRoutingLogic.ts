@@ -42,6 +42,9 @@ const RECEIVER_FIELD_BY_ATTR: Record<string, keyof ReceiverForm> = {
     slack_workspace_id: 'slackChannel',
     slack_channel_id: 'slackChannel',
     webhook_url: 'webhookUrl',
+    pagerduty_routing_key: 'pagerdutyRoutingKey',
+    pagerduty_severity: 'pagerdutySeverity',
+    pagerduty_region: 'pagerdutyRegion',
     config: 'webhookUrl',
 }
 const ROUTE_FIELD_BY_ATTR: Record<string, keyof RouteForm> = {
