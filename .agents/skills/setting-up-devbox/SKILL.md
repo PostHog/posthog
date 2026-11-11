@@ -204,7 +204,8 @@ hogli devbox:worktree --on-clean stop           # save what worktrees:clean does
 - Pass `--provider hogland` with `--auto` to save Hogland as the default, which automatic boxes then use. `hogli devbox:config:rm worktree-provider` goes back to Coder.
 - `worktrees:clean --stop-boxes` hibernates the box, and `--delete-boxes` deletes it.
 - A worktree that still has a box on the other provider is refused until that box is removed.
-- `--clone-from` and `--start-app` are Coder-only.
+- `--clone-from <label>` clones the running Hogland devbox `wt-<label>`, or `default` for the devbox named `default`. It runs `hogland devbox clone`, so it needs a `hogland` CLI that has that command; an older one fails with the upgrade command. The clone copies the whole box, including secrets, so it asks for confirmation unless `-y` is passed. Pass `-y` only after the user agrees.
+- `--start-app` saves the setting on a new box as the file `~/.config/hogli/start-app`. Every later `devbox:worktree` run on that box then waits for the mirror to catch up and runs `hogli up -d`. A clone keeps the source's setting. On an existing box the flag is ignored, so delete or create that file on the box to change it.
 
 ### Provision a box for every new worktree
 
