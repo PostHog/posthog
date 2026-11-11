@@ -30,12 +30,18 @@ const propertyDenyList = [
     '$web_vitals_data',
 ]
 
+// posthog-js sends one `$web_vitals_<METRIC>_event` object per metric. Its attribution holds DOM
+// elements with keys that change on every page load, such as jQuery expando names, so a flattened
+// copy creates new property names on each page load. The scalar `$web_vitals_<METRIC>_value` keys
+// do not match and keep their behavior.
+const isWebVitalsEventObject = (key: string): boolean => key.startsWith('$web_vitals_') && key.endsWith('_event')
+
 const flattenProperties = (props: Record<string, any>, sep: string, nestedChain: string[] = []) => {
     // Accumulate with Object.assign: spreading the accumulator per key is O(N^2) in the
     // number of properties, and this runs synchronously on the ingestion consumer.
     const newProps: Record<string, any> = {}
     for (const [key, value] of Object.entries(props)) {
-        if (propertyDenyList.includes(key)) {
+        if (propertyDenyList.includes(key) || isWebVitalsEventObject(key)) {
             // Hide 'internal' properties used in event processing
         } else if (key === '$set' || key === '$set_once' || key === '$group_set') {
             newProps[key] = { ...props[key], ...flattenProperties(props[key], sep) }

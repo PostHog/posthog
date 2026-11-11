@@ -91,6 +91,26 @@ describe('the property flattener', () => {
         )
     })
 
+    test('web vitals event objects are left nested', async () => {
+        const properties = {
+            $web_vitals_INP_event: {
+                name: 'INP',
+                value: 96,
+                attribution: {
+                    interactionTarget: 'button.save',
+                    interactionTargetElement: { jQuery0123456789: { events: { click: [{ guid: 3 }] } } },
+                },
+            },
+            $web_vitals_INP_value: 96,
+            other: { nested: 'value' },
+        }
+        const event = createEvent({ event: '$web_vitals', properties })
+
+        const eventsOutput = await processEvent(event, { config: { separator: '__' } })
+
+        expect(eventsOutput.properties).toEqual({ ...properties, other__nested: 'value' })
+    })
+
     test('set and set once', async () => {
         const event = createEvent({
             event: '$identify',
