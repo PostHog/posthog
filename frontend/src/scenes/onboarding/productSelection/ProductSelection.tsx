@@ -45,7 +45,7 @@ function ChoosePathStep(): JSX.Element {
                 {useCases.map((useCase: UseCaseDefinition) => (
                     <LemonCard
                         key={useCase.key}
-                        className="OnboardingProductCard p-4 cursor-pointer"
+                        className="OnboardingProductCard p-4 cursor-pointer hover:transform-none"
                         onClick={() => selectUseCase(useCase.key)}
                         hoverEffect
                         data-attr={`use-case-${useCase.key}`}
@@ -67,7 +67,7 @@ function ChoosePathStep(): JSX.Element {
 
                 {/* Pick myself option */}
                 <LemonCard
-                    className="OnboardingProductCard p-4 cursor-pointer"
+                    className="OnboardingProductCard p-4 cursor-pointer hover:transform-none"
                     onClick={() => selectPickMyself()}
                     hoverEffect
                     data-attr="pick-myself-card"

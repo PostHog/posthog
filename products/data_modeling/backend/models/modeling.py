@@ -9,71 +9,20 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.database.models import SavedQuery
-from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_select
+from posthog.hogql.errors import BoundedResolverError, ResolutionDepthExceededError
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.incremental_filter import parse_model_query
 
 LabelPath = list[str]
 
 
 DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
 DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
-
-
-class BoundedResolverError(QueryError):
-    """Base class for bounded HogQL view-dependency resolution failures.
-
-    Inherits from QueryError so callers that catch the public HogQL exception
-    hierarchy (DRF handlers, workflow error mappers) keep treating cycle/depth/
-    timeout failures as user-facing 4xx errors rather than 500s. `initial_view`
-    names the saved query whose resolution was in progress when the failure
-    occurred — set by the resolver so callers can attribute and log the failure
-    without having to plumb context through themselves.
-    """
-
-    status_label: ClassVar[str] = "error"
-
-    def __init__(self, message: str, initial_view: str | None = None):
-        super().__init__(message)
-        self.initial_view = initial_view
-
-
-class ResolutionCycleError(BoundedResolverError):
-    """A view references itself through other views.
-
-    `view_name` is the inner view at which the cycle was detected (the one
-    already on the resolution stack). `initial_view` is the saved query the
-    caller asked to resolve.
-    """
-
-    status_label: ClassVar[str] = "cycle"
-
-    def __init__(self, view_name: str, initial_view: str | None = None):
-        message = f"Circular dependency detected in view '{view_name}'"
-        if initial_view and initial_view != view_name:
-            message += f" while resolving '{initial_view}'"
-        super().__init__(message, initial_view=initial_view)
-        self.view_name = view_name
-
-
-class ResolutionDepthExceededError(BoundedResolverError):
-    """View resolution would exceed the configured nesting depth."""
-
-    status_label: ClassVar[str] = "depth_exceeded"
-
-    def __init__(self, depth: int, max_depth: int, initial_view: str | None = None):
-        message = f"View resolution depth {depth} exceeded max {max_depth}"
-        if initial_view:
-            message += f" while resolving '{initial_view}'"
-        super().__init__(message, initial_view=initial_view)
-        self.depth = depth
-        self.max_depth = max_depth
 
 
 class ResolutionTimeoutError(BoundedResolverError):
@@ -125,16 +74,17 @@ DAG_RESOLUTION_DEADLINE_VIOLATIONS = Counter(
 
 
 class BoundedResolver(Resolver):
-    """A resolver bounded by view-depth, cycle detection, and a wall-clock deadline.
+    """A resolver with a configurable view depth and wall-clock deadline, plus resolution metrics.
 
-    Extends the base Resolver to (a) refuse re-entry into a view already on the
-    resolution stack, (b) cap the nested view depth, and (c) abort if total
-    wall-clock time exceeds a deadline. These guards protect callers from
-    pathological views that would otherwise consume a worker indefinitely.
+    The base Resolver already refuses cycles and applies hard limits on view depth,
+    expansion count and expanded SQL size. This subclass adds (a) a nesting depth
+    below the hard limit, (b) a deadline that raises `ResolutionTimeoutError`, and
+    (c) `DAG_RESOLUTION_*` metrics for data modeling callers.
 
     When `enforce_bounds=False`, depth and deadline violations emit metrics but
     do not raise. Cycle detection still raises unconditionally — without it the
     resolver would loop forever and the deadline check would never run.
+    The core Resolver's hard compilation limits still apply in observe-only mode.
 
     The deadline is checked on every `visit()` call, not only at view boundaries,
     so expensive non-join work between views is also interruptible. Metrics
@@ -163,20 +113,8 @@ class BoundedResolver(Resolver):
         source: str = RESOLUTION_SOURCE_OTHER,
         **kwargs,
     ):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, initial_view_name=initial_view_name, **kwargs)
         self.source = source
-        self.initial_view_name = initial_view_name
-        # views whose bodies are currently being visited; seeded with the current view name so
-        # it counts as "visited" for cycle detection
-        self.resolving_views: set[str] = {initial_view_name} if initial_view_name else set()
-        # set by visit_join_expr, consumed by the body visit it triggers (cycle detection needs
-        # the name during resolution, before the id map below is populated)
-        self._pending_view_name: str | None = None
-        # id(resolved union body) -> the view it was inlined from. The base resolver stamps
-        # `view_name` on SelectQuery bodies but not SelectSetQuery, so union-bodied views would
-        # otherwise lose their identity; get_parents reads this to record the view as the parent
-        # instead of descending into its own sources
-        self.union_view_name_by_id: dict[int, str] = {}
         self.max_view_depth = max_view_depth
         self.deadline_seconds = deadline_seconds
         self.enforce_bounds = enforce_bounds
@@ -227,85 +165,13 @@ class BoundedResolver(Resolver):
         # soft mode: record and keep walking — caller opted into observe-only deadlines
         self.deadline_violated = True
 
-    def visit_join_expr(self, node: ast.JoinExpr):
-        """Override to add cycle detection and depth limiting for view tables."""
-        # CTEs are handled entirely by the parent class, but for views we track visited for cycle detection
-        if (
-            isinstance(node.table, ast.Field)
-            and self.database is not None
-            # CTEs shadow database tables (the parent checks self.ctes before any table lookup),
-            # so a name bound in the current WITH scope is never a view reference; without this
-            # skip, a view whose body defines a same-named CTE reads as a cycle with itself
-            and self.ctes.get(".".join(str(n) for n in node.table.chain)) is None
-        ):
-            try:
-                database_table = self.database.get_table([str(n) for n in node.table.chain])
-            except QueryError:
-                pass  # falls through to the parent class
-            else:
-                if isinstance(database_table, SavedQuery):
-                    view_name = database_table.name
-                    if view_name in self.resolving_views:
-                        # cycles always raise — observe-only mode would loop forever
-                        raise ResolutionCycleError(view_name, initial_view=self.initial_view_name)
-                    # current_view_depth is incremented by Resolver.visit_join_expr inside super(); look ahead by one
-                    next_depth = self.current_view_depth + 1
-                    if next_depth > self.max_view_depth:
-                        if self.enforce_bounds:
-                            raise ResolutionDepthExceededError(
-                                next_depth, self.max_view_depth, initial_view=self.initial_view_name
-                            )
-                        # soft mode: still expand, but record the overshoot via max_view_depth_observed
-                    if next_depth > self.max_view_depth_observed:
-                        self.max_view_depth_observed = next_depth
-                    # Hand the name to the body visit rather than marking it resolving here: the
-                    # base resolver walks node.next_join from inside visit_join_expr, so anything
-                    # marked around super() stays marked while later tables in the same FROM
-                    # resolve, and siblings would read as cycles.
-                    previous_pending = self._pending_view_name
-                    self._pending_view_name = view_name
-                    try:
-                        result = super().visit_join_expr(node)
-                    finally:
-                        self._pending_view_name = previous_pending
-                    # a union body carries no view_name on the resolved tree; record its identity
-                    # so get_parents can recover the view name it was inlined from
-                    if isinstance(result, ast.JoinExpr) and isinstance(result.table, ast.SelectSetQuery):
-                        self.union_view_name_by_id[id(result.table)] = view_name
-                    return result
-
-        return super().visit_join_expr(node)
-
-    def _enter_view_body(self, stamped_view_name: str | None) -> str | None:
-        """Mark the view whose body is about to be visited, returning the name to pop after.
-
-        The base resolver inlines a view by replacing the table with its parsed body and
-        visiting that body before it walks `next_join`, so the body visit — not the JoinExpr
-        subtree — is what "on the current path" means for cycle detection. It stamps
-        `view_name` on `ast.SelectQuery` bodies only, so union-bodied views rely on the name
-        `visit_join_expr` left in `_pending_view_name`.
-        """
-        view_name = stamped_view_name or self._pending_view_name
-        self._pending_view_name = None
-        if view_name is not None:
-            self.resolving_views.add(view_name)
-        return view_name
-
-    def visit_select_query(self, node: ast.SelectQuery):
-        view_name = self._enter_view_body(node.view_name)
-        try:
-            return super().visit_select_query(node)
-        finally:
-            if view_name is not None:
-                self.resolving_views.discard(view_name)
-
-    def visit_select_set_query(self, node: ast.SelectSetQuery):
-        view_name = self._enter_view_body(None)
-        try:
-            return super().visit_select_set_query(node)
-        finally:
-            if view_name is not None:
-                self.resolving_views.discard(view_name)
+    def _check_saved_view_expansion(self, view_name: str) -> None:
+        super()._check_saved_view_expansion(view_name)
+        next_depth = self.current_view_depth + 1
+        if next_depth > self.max_view_depth_observed:
+            self.max_view_depth_observed = next_depth
+        if self.enforce_bounds and next_depth > self.max_view_depth:
+            raise ResolutionDepthExceededError(next_depth, self.max_view_depth, initial_view=self.initial_view_name)
 
 
 def bounded_resolver_factory_for_view(
@@ -493,7 +359,7 @@ def get_parents_from_model_query(
         model_query: The HogQL query string to parse.
         database: An optional prebuilt database to reuse for dependency resolution.
     """
-    hogql_query = parse_select(model_query)
+    hogql_query = parse_model_query(model_query)
     context = HogQLContext(
         team_id=team.pk,
         team=team,

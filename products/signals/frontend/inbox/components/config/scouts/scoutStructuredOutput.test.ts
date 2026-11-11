@@ -13,13 +13,23 @@ describe('scoutStructuredOutput', () => {
         ['an empty object', '{}', 'The schema must be a JSON object with at least one key.'],
         ['an array', '[{"type": "object"}]', 'The schema must be a JSON object with at least one key.'],
         ['a non-object root', '{"type": "string"}', 'The schema must set "type": "object" at its root.'],
-        [
-            'nesting that parses but is too deep to serialize',
-            `{"type": "object", "default": ${'['.repeat(100000)}${']'.repeat(100000)}}`,
-            'The schema is nested too deeply. Use fewer nested levels.',
-        ],
     ])('names what is wrong with %s', (_name, text, error) => {
         expect(parseScoutStructuredOutputSchema(text)).toEqual({ schema: null, error })
+    })
+
+    it('names nesting that parses but is too deep to serialize', () => {
+        // Node 26 serializes any nesting depth, so this stub stands in for browsers whose JSON.stringify still throws.
+        const stringify = jest.spyOn(JSON, 'stringify').mockImplementation(() => {
+            throw new RangeError('Maximum call stack size exceeded')
+        })
+        try {
+            expect(parseScoutStructuredOutputSchema('{"type": "object", "default": [[[]]]}')).toEqual({
+                schema: null,
+                error: 'The schema is nested too deeply. Use fewer nested levels.',
+            })
+        } finally {
+            stringify.mockRestore()
+        }
     })
 
     it.each([

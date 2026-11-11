@@ -1,0 +1,41 @@
+{% extends "admin_console/base.html" %}
+{% block title %}Confirm {{ operation.label }} · {{ target.title }} · PostHog Admin{% endblock %}
+{% block content %}
+    <nav class="text-xs text-muted-foreground" aria-label="Breadcrumb">
+        <a class="text-muted-foreground" href="{% url 'admin_console_home' %}">Home</a>
+        {% for crumb in target.breadcrumbs %}
+            ›
+            <a class="text-muted-foreground" href="{{ crumb.href }}">{{ crumb.label }}</a>
+        {% endfor %}
+    </nav>
+    <h1 class="mt-1.5 mb-1 text-[22px] font-extrabold">Confirm: {{ operation.label }}</h1>
+    <p class="m-0 mb-4 text-muted-foreground">Nothing changed yet. Check what this changes, then confirm.</p>
+    {% include "admin_console/_blocks.html" %}
+    <section class="quill-card group/card flex flex-col max-w-xl mt-4{% if operation.danger %} console-danger{% endif %}"
+             data-quill
+             data-slot="card"
+             data-size="default">
+        <form method="post" class="flex flex-col">
+            {% csrf_token %}
+            <input type="hidden" name="form_nonce" value="{{ form_nonce }}" />
+            <input type="hidden" name="confirm_token" value="{{ confirm_token }}" />
+            {% if operation.undo_hint %}
+                <div class="quill-card__content" data-slot="card-content">
+                    <p class="m-0 text-muted-foreground">{{ operation.undo_hint }}</p>
+                </div>
+            {% endif %}
+            <div class="quill-card__footer flex flex-wrap gap-2"
+                 data-slot="card-footer">
+                <button type="submit"
+                        {% if operation.pending_label %}data-pending-label="{{ operation.pending_label }}"{% endif %}
+                        class="quill-button {% if operation.danger %}quill-button--variant-destructive{% else %}quill-button--variant-primary{% endif %} quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
+                    {{ operation.label }}
+                </button>
+                <a href="{{ request.get_full_path }}"
+                   class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Start over</a>
+                <a href="{{ target.back_url }}"
+                   class="quill-button quill-button--variant-outline quill-button--size-default group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">Cancel</a>
+            </div>
+        </form>
+    </section>
+{% endblock %}

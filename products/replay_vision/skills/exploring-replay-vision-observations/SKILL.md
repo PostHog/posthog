@@ -62,6 +62,11 @@ Pick the axis that matches the question:
   counts, classifier tag rankings, scorer score summary and histogram) without paging through observations.
 - **Which recordings are worth watching?** → `vision-scanners-highlight-feed` ranks succeeded observations across
   every readable scanner over a window (default the last 7 days) and says why each made the cut.
+- **Which issues keep coming up?** → `vision-groups-list` returns groups of near-duplicate issue observations
+  (one story, such as one bug many people hit), and `vision-themes-list` returns broader named themes. Both
+  count distinct people over a window against the window before, so `order=growth` shows what is spreading.
+  They only cover issue observations and they point at where to look: read a few members with
+  `vision-scanners-observations-list` (`group` or `theme`) before you describe a cluster as a finding.
 - **Has something already summarized this?** → if the scanner has scouts attached, read their reports instead
   of re-deriving the pattern (`vision-scanners-scout-reports-list`, then `vision-scanners-scout-reports-get`).
 - **The full detail of one finding** → `vision-scanners-observations-get` (`scanner_id` + `id`) or

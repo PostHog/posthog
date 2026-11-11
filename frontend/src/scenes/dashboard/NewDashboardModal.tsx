@@ -7,13 +7,13 @@ import { DialogClose, DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/Dialo
 import { cn } from 'lib/utils/css-classes'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
-import { dashboardTemplateChooserLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplateChooserLogic'
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
-import { DashboardTemplateChooser } from './dashboards/templates/DashboardTemplateChooser'
-import { DashboardTemplateVariables } from './DashboardTemplateVariables'
-import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
+import { DashboardTemplateChooser } from 'products/dashboards/frontend/dashboards/templates/DashboardTemplateChooser'
+import { dashboardTemplateChooserLogic } from 'products/dashboards/frontend/dashboards/templates/dashboardTemplateChooserLogic'
+import { dashboardTemplatesLogic } from 'products/dashboards/frontend/dashboards/templates/dashboardTemplatesLogic'
+import { DashboardTemplateVariables } from 'products/dashboards/frontend/DashboardTemplateVariables'
+import { dashboardTemplateVariablesLogic } from 'products/dashboards/frontend/dashboardTemplateVariablesLogic'
 
 export function NewDashboardModal({ redirectAfterCreation = true }: { redirectAfterCreation?: boolean }): JSX.Element {
     const builtLogic = useMountedLogic(newDashboardLogic)

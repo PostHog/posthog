@@ -15,6 +15,7 @@ from posthog.api.capture import CaptureInternalError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_event_io import (
     GENERATION_NOT_FOUND_MAX_ATTEMPTS,
+    GENERATION_NOT_FOUND_RETRY_WINDOW,
     extract_event_io,
     hydrate_event_reference,
 )
@@ -314,6 +315,9 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
         provider_key=provider_key,
         config=config,
         capture_analytics=False,
+        # Temporal retries a rate limit after the provider's delay. SDK retries underneath would
+        # multiply the calls and can run past the activity's timeout before the last attempt ends.
+        max_retries=0,
     )
 
     try:
@@ -691,11 +695,12 @@ class RunTaggerWorkflow(PostHogWorkflow):
         # Activity 2: Execute tagger based on type
         if tagger_type == "hog":
             # Hog errors are non-retryable; the attempts only cover a referenced event that is not
-            # in ai_events yet.
+            # in ai_events yet. The deadline holds every wait between them, because Temporal does
+            # not schedule a retry whose delay runs past schedule_to_close.
             result = await temporalio.workflow.execute_activity(
                 execute_hog_tagger_activity,
                 args=[tagger, inputs.event_data],
-                schedule_to_close_timeout=timedelta(minutes=2),
+                schedule_to_close_timeout=GENERATION_NOT_FOUND_RETRY_WINDOW + timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=GENERATION_NOT_FOUND_MAX_ATTEMPTS),
             )
         else:
@@ -704,7 +709,9 @@ class RunTaggerWorkflow(PostHogWorkflow):
                 result = await temporalio.workflow.execute_activity(
                     execute_tagger_activity,
                     ExecuteTaggerInputs(tagger=tagger, event_data=inputs.event_data),
-                    schedule_to_close_timeout=timedelta(minutes=6),
+                    # The waits for a live reference that is not in ai_events yet come on top of
+                    # the time the tagger call needs, so they do not cut into the provider timeout.
+                    schedule_to_close_timeout=timedelta(minutes=6) + GENERATION_NOT_FOUND_RETRY_WINDOW,
                     retry_policy=LLM_TAGGER_RETRY_POLICY,
                 )
             except temporalio.exceptions.ActivityError as e:

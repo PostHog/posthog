@@ -331,6 +331,7 @@ def report_user_organization_membership_level_changed(
         distinct_id=user.distinct_id,
         event="membership level changed",
         properties={
+            "$update_person_last_seen_at": False,
             "new_level": new_level,
             "previous_level": previous_level,
             "$set": user.get_analytics_metadata(),
@@ -433,6 +434,7 @@ AnalyticsProps = TypedDict(
         "$session_id": NotRequired[str | None],
         "was_impersonated": NotRequired[bool],
         "access_method": NotRequired[str | None],
+        "http_request_id": NotRequired[str],
         "user_agent": NotRequired[str | None],
         "mcp_user_agent": NotRequired[str | None],
         "mcp_client_name": NotRequired[str | None],
@@ -751,7 +753,7 @@ def report_organization_deletion_completed(user_id: int, organization_id: str) -
         capture_ph_event(
             distinct_id=user.distinct_id,
             event="organization deletion completed",
-            properties={"organization_id": organization_id},
+            properties={"organization_id": organization_id, "$update_person_last_seen_at": False},
             groups={"instance": SITE_URL, "organization": organization_id},
         )
 

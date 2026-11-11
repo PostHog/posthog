@@ -5,6 +5,7 @@ import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from '~/scenes/urls'
 
+import { withoutTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { AIObservabilityReviewQueues } from '../reviewQueues/AIObservabilityReviewQueues'
 import { AIObservabilityReviews } from './AIObservabilityReviews'
 
@@ -13,6 +14,7 @@ const HUMAN_REVIEWS_TAB_PARAM = 'human_reviews_tab'
 export function AIObservabilityHumanReviews(): JSX.Element {
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
+    const tabParams = withoutTraceDrawerParams(searchParams)
 
     const activeHumanReviewsTab =
         searchParams[HUMAN_REVIEWS_TAB_PARAM] === 'reviews'
@@ -27,7 +29,7 @@ export function AIObservabilityHumanReviews(): JSX.Element {
             label: 'Queues',
             content: <AIObservabilityReviewQueues />,
             link: combineUrl(urls.aiObservabilityReviews(), {
-                ...searchParams,
+                ...tabParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: undefined,
             }).url,
             'data-attr': 'llma-review-queues-tab',
@@ -37,7 +39,7 @@ export function AIObservabilityHumanReviews(): JSX.Element {
             label: 'Reviews',
             content: <AIObservabilityReviews />,
             link: combineUrl(urls.aiObservabilityReviews(), {
-                ...searchParams,
+                ...tabParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: 'reviews',
             }).url,
             'data-attr': 'llma-trace-reviews-tab',
@@ -61,7 +63,7 @@ export function AIObservabilityHumanReviews(): JSX.Element {
                     tab === 'scorers'
                         ? urls.aiObservabilityScorers()
                         : combineUrl(urls.aiObservabilityReviews(), {
-                              ...searchParams,
+                              ...tabParams,
                               [HUMAN_REVIEWS_TAB_PARAM]: tab === 'reviews' ? 'reviews' : undefined,
                           }).url
                 )

@@ -10,6 +10,26 @@ Queries 13 to 15 use 90 days.
 
 Exclude staff when the question is about customers, for example with the project's test account filters.
 
+## Contents
+
+- [Live metrics](#live-metrics)
+- [1. Selection breakdown by source group type](#1-selection-breakdown-by-source-group-type)
+- [2. Top searches (share of top-N)](#2-top-searches-share-of-top-n)
+- [3. Top empty-result searches](#3-top-empty-result-searches)
+- [4. Selection rate and dwell distribution](#4-selection-rate-and-dwell-distribution)
+- [5. Selection-source mix](#5-selection-source-mix)
+- [6. Position distribution](#6-position-distribution)
+- [7. Input mode mix](#7-input-mode-mix)
+- [8. The category trap (open level)](#8-the-category-trap-open-level)
+- [9. Search latency by group](#9-search-latency-by-group)
+- [10. Fetch failures by group](#10-fetch-failures-by-group)
+- [11. Assistive feature funnels](#11-assistive-feature-funnels)
+- [12. Recovery after an empty result](#12-recovery-after-an-empty-result)
+- [13. Tab use, docking and empty-result rate](#13-tab-use-docking-and-empty-result-rate)
+- [14. Which tabs users open](#14-which-tabs-users-open)
+- [15. Users who return to the same tab](#15-users-who-return-to-the-same-tab)
+- [Updating the doc](#updating-the-doc)
+
 ## Live metrics
 
 Nine of these queries are saved as metrics in the PostHog data catalog for project 2.

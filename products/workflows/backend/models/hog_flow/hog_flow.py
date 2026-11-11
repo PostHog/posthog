@@ -17,7 +17,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import ActionSaved
 from products.workflows.backend.facade.enums import (
     HogFlowEmailSendingPausedBy,
     HogFlowExitCondition,
@@ -36,6 +36,8 @@ logger = structlog.get_logger(__name__)
 # A type absent here has no handler, so the run dies on reaching it with "Action type 'x' not
 # supported" - and unless that step sets on_error: continue, everything downstream never happens.
 # Ordered longest-lived first so the generated API/MCP enum reads in a sensible order.
+SANDBOX_EMAIL_ACTION_TYPE: Final = "email_sandbox"
+
 SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "trigger",
     "function",
@@ -48,6 +50,7 @@ SUPPORTED_ACTION_TYPES: Final[list[str]] = [
     "conditional_branch",
     "random_cohort_branch",
     "exit",
+    SANDBOX_EMAIL_ACTION_TYPE,
 ]
 
 # The trigger's own kinds, which live in the workflow's `trigger` field rather than on an action.
@@ -106,6 +109,7 @@ MESSAGING_ACTION_TYPES: Final[list[str]] = [
     "function_email",
     "function_sms",
     "function_push",
+    SANDBOX_EMAIL_ACTION_TYPE,
 ]
 
 # Action types that read person data and therefore cannot be used in person-less ("row-scoped")
@@ -334,10 +338,14 @@ def defer_hog_flow_reloads() -> Iterator[None]:
         yield
     finally:
         _deferred_reloads.reset(token)
-        for team_id, hog_flow_ids in pending.items():
-            ordered = sorted(hog_flow_ids)
-            for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
-                _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
+        transaction.on_commit(lambda: _reload_deferred_on_workers(pending))
+
+
+def _reload_deferred_on_workers(pending: dict[int, set[str]]) -> None:
+    for team_id, hog_flow_ids in pending.items():
+        ordered = sorted(hog_flow_ids)
+        for start in range(0, len(ordered), RELOAD_BATCH_SIZE):
+            _reload_batch_on_workers(team_id, ordered[start : start + RELOAD_BATCH_SIZE])
 
 
 def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
@@ -353,8 +361,35 @@ def _reload_batch_on_workers(team_id: int, hog_flow_ids: list[str]) -> None:
                 capture_exception(e)
 
 
+def _enqueue_workflow_created_report(
+    team_id: int, workflow_id: str, created_at: str, origin_product: str | None, actions_count: int
+) -> None:
+    from products.workflows.backend.tasks.hog_flows import report_workflow_created  # noqa: PLC0415
+
+    try:
+        report_workflow_created.delay(
+            team_id=team_id,
+            hog_flow_id=workflow_id,
+            created_at=created_at,
+            origin_product=origin_product,
+            actions_count=actions_count,
+        )
+    except Exception:
+        logger.exception("Failed to report workflow creation", team_id=team_id, workflow_id=workflow_id)
+
+
 @receiver(post_save, sender=HogFlow)
-def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwargs):
+def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, using="default", **kwargs):
+    if created:
+        team_id = instance.team_id
+        workflow_id = str(instance.id)
+        created_at = instance.created_at.isoformat()
+        origin_product = instance.origin_product
+        actions_count = len(instance.actions or [])
+        transaction.on_commit(
+            lambda: _enqueue_workflow_created_report(team_id, workflow_id, created_at, origin_product, actions_count),
+            using=using,
+        )
     # Draft columns don't affect live execution, so workers don't need a config reload for them.
     if update_fields and set(update_fields) <= {"draft", "draft_updated_at"}:
         return
@@ -362,7 +397,9 @@ def hog_flow_saved(sender, instance: HogFlow, created, update_fields=None, **kwa
     if pending is not None:
         pending.setdefault(instance.team_id, set()).add(str(instance.id))
         return
-    reload_hog_flows_on_workers(team_id=instance.team_id, hog_flow_ids=[str(instance.id)])
+    team_id = instance.team_id
+    hog_flow_id = str(instance.id)
+    transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
 @receiver(post_delete, sender=HogFlow)
@@ -371,14 +408,13 @@ def hog_flow_deleted(sender, instance: HogFlow, **kwargs):
     hog_flow_id = str(instance.id)
     # post_delete fires inside the delete transaction, so publish only after commit; otherwise a
     # worker could re-read the still-live row and cache it as active for another TTL.
-    transaction.on_commit(lambda: reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[hog_flow_id]))
+    transaction.on_commit(lambda: _reload_batch_on_workers(team_id, [hog_flow_id]))
 
 
-@receiver(post_save, sender=Action)
-def action_saved_for_hog_flows(sender, instance: Action, created, **kwargs):
+def action_saved_for_hog_flows(event: ActionSaved) -> None:
     from products.workflows.backend.tasks.hog_flows import refresh_affected_hog_flows  # noqa: PLC0415
 
-    refresh_affected_hog_flows.delay(action_id=instance.id)
+    refresh_affected_hog_flows.delay(action_id=event.action_id)
 
 
 @receiver(post_save, sender=Team)

@@ -5,12 +5,16 @@ import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameMod
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import filtersJson from './__mocks__/filters.json'
-import { legacyFiltersToSeries } from './legacyFilters'
+import { SeriesNode } from './seriesNode'
 
-const series = legacyFiltersToSeries(filtersJson as any)
+const series: SeriesNode[] = [
+    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+    { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+    { kind: NodeKind.ActionsNode, id: 9, name: 'Users signed up' },
+]
 
 describe('renameModalLogic', () => {
     let logic: ReturnType<typeof renameModalLogic.build>

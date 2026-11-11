@@ -24,7 +24,15 @@ import { ContentAutopilotPageTarget, opportunitiesNeedRefresh, pageToUpdate, pro
 export type ContentAutopilotOnboardingStep = 'site' | 'sources'
 
 export type ContentAutopilotProposalTab = 'preview' | 'draft' | 'changes' | 'brief' | 'sources'
-export type ContentAutopilotWorkspaceTab = 'opportunities' | 'drafts' | 'prompts'
+export type ContentAutopilotWorkspaceTab =
+    | 'overview'
+    | 'rankings'
+    | 'traffic'
+    | 'prompts'
+    | 'keywords'
+    | 'opportunities'
+    | 'drafts'
+    | 'settings'
 export type ContentAutopilotWorkspaceResource = 'profiles' | 'runs' | 'proposals'
 export type ContentAutopilotProfileResource = 'runs' | 'proposals'
 export type ContentAutopilotWorkspaceErrors = Partial<Record<ContentAutopilotWorkspaceResource, string>>
@@ -169,6 +177,7 @@ export interface contentAutopilotLogicValues {
     dismissingOpportunityId: string | null
     draftDisabledReason: string | undefined
     draftRows: ContentAutopilotDraftRow[]
+    draftingOpportunityIds: string[]
     exportedProposal: ContentAutopilotExportResponseApi | null
     exportedProposalLoading: boolean
     latestRunErrors: string[]
@@ -177,6 +186,7 @@ export interface contentAutopilotLogicValues {
     opportunities: ContentAutopilotOpportunityApi[] | null
     opportunitiesError: string | null
     opportunitiesLoading: boolean
+    opportunityByPromptId: Record<string, ContentAutopilotOpportunityApi>
     opportunityProposals: Record<string, ContentAutopilotProposalListApi>
     opportunitySearch: string
     pagesToUpdate: Record<string, ContentAutopilotPageTarget | null>
@@ -195,6 +205,7 @@ export interface contentAutopilotLogicValues {
     proposalsLoading: boolean
     proposedMarkdown: string
     readyDraftCount: number
+    rowDraftDisabledReason: string | undefined
     runMutation: ContentAutopilotRunApi | null
     runMutationLoading: boolean
     runs: ContentAutopilotRunApi[]
@@ -289,7 +300,7 @@ export interface contentAutopilotLogicActions {
         dismissedOpportunity: ContentAutopilotOpportunityApi
         payload?: string
     }
-    draftOpportunities: () => any
+    draftOpportunities: (opportunityIds?: string[]) => string[]
     draftOpportunitiesFailure: (
         error: string,
         errorObject?: any
@@ -299,10 +310,10 @@ export interface contentAutopilotLogicActions {
     }
     draftOpportunitiesSuccess: (
         runMutation: ContentAutopilotRunApi,
-        payload?: any
+        payload?: string[]
     ) => {
         runMutation: ContentAutopilotRunApi
-        payload?: any
+        payload?: string[]
     }
     exportProposal: (proposalId: string) => string
     exportProposalFailure: (
@@ -594,16 +605,24 @@ export interface contentAutopilotLogicMeta {
             proposalMutationLoading: boolean,
             exportedProposalLoading: boolean
         ) => ContentAutopilotProposalActionReasons
+        opportunityByPromptId: (
+            opportunities: ContentAutopilotOpportunityApi[] | null,
+            profile: ContentAutopilotSiteProfileApi | null
+        ) => Record<string, ContentAutopilotOpportunityApi>
         visibleOpportunities: (
             opportunities: ContentAutopilotOpportunityApi[] | null,
             showDismissedOpportunities: boolean,
             opportunitySearch: string
         ) => ContentAutopilotOpportunityApi[]
         dismissedOpportunityCount: (opportunities: ContentAutopilotOpportunityApi[] | null) => number
+        rowDraftDisabledReason: (
+            activeRun: ContentAutopilotRunApi | null,
+            profileDataLoaded: boolean,
+            runMutationLoading: boolean
+        ) => string | undefined
         draftDisabledReason: (
             selectedOpportunityIds: string[],
-            activeRun: ContentAutopilotRunApi | null,
-            profileDataLoaded: boolean
+            rowDraftDisabledReason: string | undefined
         ) => string | undefined
         workspaceError: (workspaceErrors: Partial<Record<ContentAutopilotWorkspaceResource, string>>) => string | null
     }
@@ -693,10 +712,18 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             },
         ],
         workspaceTab: [
-            'opportunities' as ContentAutopilotWorkspaceTab,
+            'overview' as ContentAutopilotWorkspaceTab,
             {
                 setWorkspaceTab: (_, { workspaceTab }) => workspaceTab,
-                selectProfile: () => 'opportunities',
+                deleteProfileSuccess: () => 'overview',
+            },
+        ],
+        draftingOpportunityIds: [
+            [] as string[],
+            {
+                draftOpportunities: (_, opportunityIds) => opportunityIds ?? [],
+                draftOpportunitiesSuccess: () => [],
+                draftOpportunitiesFailure: () => [],
             },
         ],
         opportunitySearch: [
@@ -960,7 +987,8 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         }
                     )
                 },
-                draftOpportunities: async () => {
+                // Without ids, drafts the opportunities selected in the table.
+                draftOpportunities: async (opportunityIds?: string[]) => {
                     if (!values.profile) {
                         throw new Error('Select a site before drafting content')
                     }
@@ -968,7 +996,7 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                         String(values.currentTeamIdStrict),
                         {
                             profile_id: values.profile.id,
-                            opportunity_ids: values.selectedOpportunityIds,
+                            opportunity_ids: opportunityIds ?? values.selectedOpportunityIds,
                         }
                     )
                 },
@@ -1219,6 +1247,21 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
                 }
             },
         ],
+        opportunityByPromptId: [
+            (selectors) => [selectors.opportunities, selectors.profile],
+            (
+                opportunities: ContentAutopilotOpportunityApi[] | null,
+                profile: ContentAutopilotSiteProfileApi | null
+            ): Record<string, ContentAutopilotOpportunityApi> =>
+                Object.fromEntries(
+                    (opportunities ?? []).flatMap((opportunity) =>
+                        // Opportunities of a deleted or unselected site must not offer drafts.
+                        opportunity.aeo_prompt_id && opportunity.profile_id === profile?.id
+                            ? [[opportunity.aeo_prompt_id, opportunity]]
+                            : []
+                    )
+                ),
+        ],
         visibleOpportunities: [
             (selectors) => [selectors.opportunities, selectors.showDismissedOpportunities, selectors.opportunitySearch],
             (
@@ -1239,18 +1282,27 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
             (opportunities: ContentAutopilotOpportunityApi[] | null): number =>
                 (opportunities ?? []).filter(({ status }) => status === 'dismissed').length,
         ],
-        draftDisabledReason: [
-            (selectors) => [selectors.selectedOpportunityIds, selectors.activeRun, selectors.profileDataLoaded],
+        rowDraftDisabledReason: [
+            (selectors) => [selectors.activeRun, selectors.profileDataLoaded, selectors.runMutationLoading],
             (
-                selectedOpportunityIds: string[],
                 activeRun: ContentAutopilotRunApi | null,
-                profileDataLoaded: boolean
+                profileDataLoaded: boolean,
+                runMutationLoading: boolean
             ): string | undefined => {
                 if (!profileDataLoaded) {
                     return 'Wait for this site to finish loading'
                 }
-                if (activeRun) {
+                if (activeRun || runMutationLoading) {
                     return 'Wait for the current run to finish'
+                }
+                return undefined
+            },
+        ],
+        draftDisabledReason: [
+            (selectors) => [selectors.selectedOpportunityIds, selectors.rowDraftDisabledReason],
+            (selectedOpportunityIds: string[], rowDraftDisabledReason: string | undefined): string | undefined => {
+                if (rowDraftDisabledReason) {
+                    return rowDraftDisabledReason
                 }
                 if (selectedOpportunityIds.length === 0) {
                     return 'Select at least one opportunity'
@@ -1359,12 +1411,21 @@ export const contentAutopilotLogic = kea<contentAutopilotLogicType>([
         dismissOpportunityFailure: ({ errorObject }) => {
             toastClientError(errorObject)
         },
-        draftOpportunitiesSuccess: ({ runMutation }) => {
+        draftOpportunitiesSuccess: ({ runMutation, payload }) => {
             if (runMutation.profile_id !== values.profile?.id) {
                 return
             }
-            actions.clearOpportunitySelection()
-            actions.setWorkspaceTab('drafts')
+            if (!payload) {
+                actions.clearOpportunitySelection()
+            }
+            if (!payload || values.workspaceTab === 'opportunities') {
+                actions.setWorkspaceTab('drafts')
+            } else {
+                // Drafting from a prompt keeps the user where they are.
+                lemonToast.success('Drafting started.', {
+                    button: { label: 'View drafts', action: () => actions.setWorkspaceTab('drafts') },
+                })
+            }
             actions.loadRuns()
             actions.loadOpportunities()
         },

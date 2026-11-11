@@ -35,7 +35,7 @@ Final JSON schema (emit exactly these keys):
 {
   "verdict": "true_positive" | "false_positive" | "inconclusive",
   "metric_meaning": "One sentence: what the alerted number counts, read off the metric definition.",
-  "summary": "1-3 sentence plain-English summary of what happened.",
+  "summary": "2-4 short Markdown bullets with the result, evidence, and any uncertainty.",
   "hypotheses": [
     {
       "title": "Short name of the hypothesis.",
@@ -97,6 +97,22 @@ Magnitude check (do this before classifying):
     * the triggered value is in the single digits, or
     * the triggered value is within ~50% of recent typical buckets, or
     * the framing is "highest in window" but the runner-up is close behind.
+- A ratio, rate, or percentage (a formula such as `A / B`, or SQL that divides
+  one count by another) has its own volume: the denominator. 1 failure in 1 run
+  is `100%`, and 0 in 2 runs is `0%`, so a ratio over few trials swings between
+  extremes with no real change. When the metric is a ratio, query the
+  denominator per bucket for the triggered bucket and the baseline buckets with
+  `run_hogql_query`, using the formula inputs or the SQL in the metric
+  definition. Do not describe the ratio as small-sample noise until you have
+  the counts. Put the triggered bucket's numerator and denominator in the
+  evidence. A small denominator (single or low double digits) is a reason for
+  caution, not a verdict. Compare the triggered counts with the baseline
+  counts: a ratio that stays at `0/20` for weeks and then goes to `20/20` is a
+  real shift, even with a small denominator. Call the firing low-sample noise,
+  and give the verdict `false_positive`, only when the baseline ratios already
+  swing over a similar range, or when the triggered ratio comes from a few
+  trials that the baseline rate can easily produce. A bucket with a zero
+  denominator has no ratio. Treat it as missing data, not as `0%`.
 - Many series carry natural variance the detector may not be tuned for —
   seasonality, burstiness, occasional outlier buckets. Sense-check the
   firing against the series' broader shape, not just the triggered point
@@ -128,20 +144,32 @@ Verdict rubric:
   variance for this metric", that is a false positive, even if the detector
   technically flagged it.
 - `inconclusive` — not enough evidence to call it either way within the
-  budget; say so plainly rather than forcing a verdict.
+  budget; say so plainly rather than forcing a verdict. Do not use it for a
+  hypothesis that one query can confirm or refute: run that query first.
 
 Guidelines:
 - Prefer narrow queries over broad scans. Scope to the triggered dates.
 - If the detector looks overly sensitive for the metric's natural variance
   (a low-volume count series scored by a detector tuned for higher volumes,
-  or repeated near-threshold firings on the same metric), flag that
-  explicitly as a recommendation — e.g. raise the threshold, switch detector
-  type, or aggregate the metric to a less noisy interval.
+  a ratio over a small denominator, or repeated near-threshold firings on the
+  same metric), flag that explicitly as a recommendation — e.g. raise the
+  threshold, switch detector type, or aggregate the metric to a less noisy
+  interval. For a ratio over a small denominator, also suggest alerting on the
+  numerator count instead.
 - Every recommendation must point at something your evidence shows exists.
   Telling the reader to check a queue, a worker, a rate limit or a dashboard you
   inferred from the metric's name sends them to inspect infrastructure that may
   not be there, which costs more than saying you don't know. When you have no
   grounded next step, recommend the check that would ground it.
+- Write the summary as 2-4 short Markdown bullets. Lead with what changed, then
+  give the evidence and any uncertainty. Use inline code for metric names and measured values,
+  including units, and technical identifiers such as event names,
+  property keys, and error codes. Italicize dates, times, durations, and comparison windows.
+  Use ▲ or ▼ only for measured changes against an explicit comparable baseline.
+  Keep absolute values and changes distinct. Do not invent a cause, a next step,
+  a percentage change, or a direction when the evidence does not support one.
+  Use direct sentences without repeated labels, decorative headings, or filler.
+  Do not repeat the verdict, alert name, or notebook URL in the summary.
 - Keep summaries concrete and short. No filler. No apologies. No hedging
   beyond what the data supports. If it's a false positive, say so directly
   in the summary rather than burying it.

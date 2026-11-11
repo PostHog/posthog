@@ -2,6 +2,8 @@ import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, redu
 import { router } from 'kea-router'
 import type { LocationChangedPayload } from 'kea-router/lib/types'
 
+import { closeTraceDialogUnderModal } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
+
 import { UniversalFiltersGroup } from '~/types'
 
 import { LogsViewerFilters, LogsViewerScope } from 'products/logs/frontend/components/LogsViewer/config/types'
@@ -140,6 +142,9 @@ export const logsViewerModalLogic = kea<logsViewerModalLogicType>([
         ],
     }),
     listeners(({ values, actions, cache }) => ({
+        openLogsViewerModal: () => {
+            closeTraceDialogUnderModal()
+        },
         locationChanged: ({ pathname }) => {
             // close the (often full-screen) modal when navigating to a new scene, e.g. via cmd+k.
             // query/hash-only changes fire locationChanged too (the viewer syncs filters to the

@@ -1,0 +1,13 @@
+{# A Notice block with a tone. `notice.tone` is a Tone value, so it matches a quill Item tone. #}
+<div role="status"
+     data-tone="{{ notice.tone }}"
+     class="quill-item quill-item--variant-outline quill-item--size-sm flex items-center gap-3 {% if notice.tone == 'success' %}quill-item--tone-success{% elif notice.tone == 'destructive' %}quill-item--tone-destructive{% elif notice.tone == 'warning' %}quill-item--tone-warning{% else %}quill-item--tone-info{% endif %}">
+    <div class="quill-item__content">
+        <div class="quill-item__title font-normal">
+            {{ notice.text }}
+            {% if notice.href %}
+                <a class="ml-1 underline underline-offset-2" href="{{ notice.href }}">{{ notice.link_text }}</a>
+            {% endif %}
+        </div>
+    </div>
+</div>

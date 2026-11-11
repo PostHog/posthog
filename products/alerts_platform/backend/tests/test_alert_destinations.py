@@ -12,6 +12,8 @@ from products.alerts_platform.backend.facade.api import (
     create_alert_destinations,
     delete_alert_destinations,
     list_alert_destinations,
+    set_subscriber_destinations,
+    subscriber_user_ids_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationData,
@@ -21,6 +23,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NewAlertDestination,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
@@ -33,9 +36,13 @@ class TestAlertDestinations(BaseTest):
         super().setUp()
         self.configuration = self._configuration()
 
-    def _configuration(self) -> PlatformAlertConfiguration:
+    def _configuration(self, destinations_owner: str = PlatformAlertOwner.PLATFORM) -> PlatformAlertConfiguration:
         return PlatformAlertConfiguration.objects.for_team(self.team.id).create(
-            team=self.team, name="API errors", source_kind=SourceKind.LOGS, check_interval_minutes=5
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=destinations_owner,
         )
 
     def _create(self, *destinations: NewAlertDestination, configuration: Any = None) -> Any:
@@ -99,6 +106,51 @@ class TestAlertDestinations(BaseTest):
 
         assert error.value.field == field
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+    def test_subscribers_replace_only_the_destinations_that_name_users(self) -> None:
+        addresses = cast(AlertDestinationData, {"type": DestinationType.EMAIL, "email_addresses": ["a@example.com"]})
+        self._create(
+            NewAlertDestination(data=WEBHOOK, event_kinds=FIRING),
+            NewAlertDestination(data=addresses, event_kinds=FIRING),
+        )
+        public_id = self.configuration.id
+
+        def subscribe(*user_ids: int) -> None:
+            assert set_subscriber_destinations(
+                team_id=self.team.id,
+                public_id=public_id,
+                user_ids=user_ids,
+                event_kinds=FIRING,
+                in_app_resource_type="insight",
+                in_app_resource_id="abc123",
+            )
+
+        subscribe(3, 1, 3)
+        subscribe(2)
+        assert subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[public_id]) == {public_id: (2,)}
+        subscribe()
+        assert subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[public_id]) == {}
+        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=public_id)] == [
+            WEBHOOK,
+            addresses,
+        ]
+        assert not set_subscriber_destinations(
+            team_id=self.team.id,
+            public_id=uuid4(),
+            user_ids=[1],
+            event_kinds=FIRING,
+            in_app_resource_type="insight",
+            in_app_resource_id="abc123",
+        )
+
+    def test_an_alert_whose_product_keeps_hog_functions_takes_rows_beside_them(self) -> None:
+        configuration = self._configuration(destinations_owner=PlatformAlertOwner.SOURCE)
+
+        self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
+
+        assert [d.data for d in list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id)] == [
+            WEBHOOK
+        ]
 
     @parameterized.expand(
         [

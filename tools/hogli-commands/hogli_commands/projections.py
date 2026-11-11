@@ -15,9 +15,10 @@ each output, keyed by its repo-relative path. It never writes files and never pa
 arguments; this module does both, so ``--check`` and the write path cannot disagree.
 
 A renderer returns valid source and leaves the style to the formatter of the workspace
-that owns the output: ruff for Python, oxfmt at the repo root, Biome under ``products/desktop``
-and ``packages/agent``. The runner formats every output before it compares or writes, so a
-generated file looks like the code around it and no formatter needs an exemption for it.
+that owns the output: ruff for Python, oxfmt at the repo root, and Biome under
+``products/desktop``, ``products/mobile`` and ``packages/agent``. The runner formats every
+output before it compares or writes, so a generated file looks like the code around it
+and no formatter needs an exemption for it.
 """
 
 from __future__ import annotations
@@ -74,6 +75,7 @@ PROJECTIONS: tuple[Projection, ...] = (
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
             "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
+            "products/mobile/src/features/chat/objectKinds.generated.ts",
         ),
     ),
     Projection(
@@ -95,6 +97,12 @@ PROJECTIONS: tuple[Projection, ...] = (
         ),
     ),
     Projection(
+        name="scope-docs",
+        renderer="posthog/scope_docs_projection.py",
+        inputs=("posthog/scope_docs.py", "posthog/scopes.py", "products/*/backend/scopes.py"),
+        outputs=("frontend/src/lib/scopeDocs.generated.ts",),
+    ),
+    Projection(
         name="commands",
         renderer="products/commands/backend/commands_projection.py",
         inputs=("products/commands/backend/logic/schema.py",),
@@ -112,6 +120,15 @@ PROJECTIONS: tuple[Projection, ...] = (
             "posthog/integrations/enums.py",
         ),
         outputs=("posthog/integrations/kinds_generated.py",),
+    ),
+    Projection(
+        name="credentials-catalogue",
+        renderer="posthog/integrations/catalogue_projection.py",
+        inputs=(
+            "services/credentials-service/src/catalogue.ts",
+            "services/credentials-service/src/providers/*",
+        ),
+        outputs=("posthog/integrations/catalogue_generated.json",),
     ),
 )
 
@@ -152,6 +169,14 @@ AGENT_BIOME = Formatter(
     lockfile="packages/agent/pnpm-lock.yaml",
     stdin_args=("format", "--stdin-file-path"),
 )
+MOBILE_BIOME = Formatter(
+    package="@biomejs/biome",
+    binary="biome",
+    workspace="products/mobile",
+    config="products/mobile/biome.json",
+    lockfile="products/mobile/pnpm-lock.yaml",
+    stdin_args=("format", "--stdin-file-path"),
+)
 # A Python package, not an npm one: the runner reads its version from uv.lock and runs it from the
 # Python environment, which the Python CI job has without node_modules.
 RUFF = Formatter(
@@ -162,13 +187,13 @@ RUFF = Formatter(
     lockfile="uv.lock",
     stdin_args=("format", "--stdin-filename"),
 )
-FORMATTERS = (OXFMT, BIOME, AGENT_BIOME, RUFF)
+FORMATTERS = (OXFMT, BIOME, AGENT_BIOME, MOBILE_BIOME, RUFF)
 
 
 def formatter_for(path: str) -> Formatter:
     if path.endswith(".py"):
         return RUFF
-    for formatter in (BIOME, AGENT_BIOME):
+    for formatter in (BIOME, AGENT_BIOME, MOBILE_BIOME):
         if path.startswith(f"{formatter.workspace}/"):
             return formatter
     return OXFMT

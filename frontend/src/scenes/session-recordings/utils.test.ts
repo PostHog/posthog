@@ -23,6 +23,26 @@ describe('session recording utils', () => {
         })
     })
 
+    it('checks emoji without Intl.Segmenter', async () => {
+        const intl = Intl as { Segmenter?: typeof Intl.Segmenter }
+        const segmenter = intl.Segmenter
+        try {
+            delete intl.Segmenter
+            jest.resetModules()
+            const { isSingleEmoji: withoutSegmenter } = await import('scenes/session-recordings/utils')
+
+            for (const emoji of [...defaultQuickEmojis, '👍🏽', '👨‍👩‍👧‍👦', '🇬🇧']) {
+                expect(withoutSegmenter(emoji)).toBe(true)
+                expect(withoutSegmenter(`${emoji}${emoji}`)).toBe(false)
+            }
+            expect(withoutSegmenter('a')).toBe(false)
+            expect(withoutSegmenter('👍a')).toBe(false)
+        } finally {
+            intl.Segmenter = segmenter
+            jest.resetModules()
+        }
+    })
+
     describe('filtersFromUniversalFilterGroups', () => {
         it.each([
             [

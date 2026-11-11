@@ -8,10 +8,6 @@ import psycopg
 
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
-from products.warehouse_sources.backend.temporal.data_imports.sources.neon.source import NeonSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_postgres.source import (
-    PlanetScalePostgresSource,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres import client_deadline
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.client_deadline import (
     ClientDeadlineExceededError,
@@ -19,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     deadline_server_cursor_factory,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.supabase.source import SupabaseSource
 
 
 def test_a_statement_that_ends_in_time_is_not_cancelled() -> None:
@@ -180,9 +175,8 @@ def test_a_silent_server_cursor_round_trip_ends_at_the_deadline(round_trip, expe
         round_trip(cursor)
 
 
-@pytest.mark.parametrize("source_class", [PostgresSource, NeonSource, SupabaseSource, PlanetScalePostgresSource])
-def test_the_deadline_error_is_retryable_for_every_postgres_source(source_class: type[PostgresSource]) -> None:
-    source = source_class()
+def test_the_deadline_error_is_retryable_for_the_postgres_source() -> None:
+    source = PostgresSource()
     message = str(ClientDeadlineExceededError(660))
 
     assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})

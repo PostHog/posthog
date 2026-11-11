@@ -13,8 +13,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { Query } from '~/queries/Query/Query'
+import {
+    containsHogQLQuery,
+    isBIVisualizationNode,
+    isDataVisualizationNode,
+    isInsightVizNode,
+} from '~/queries/schema/node-guards'
 import { Node } from '~/queries/schema/schema-general'
-import { containsHogQLQuery, isBIVisualizationNode, isDataVisualizationNode, isInsightVizNode } from '~/queries/utils'
 import { InsightShortId, ItemMode } from '~/types'
 
 import { insightDataChecksLogic } from 'products/product_analytics/frontend/insights/dataChecks/insightDataChecksLogic'

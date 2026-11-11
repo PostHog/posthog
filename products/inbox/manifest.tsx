@@ -23,9 +23,10 @@ export const manifest: ProductManifest = {
             searchTabs: [
                 { name: 'Reports', href: urls.inbox('reports') },
                 { name: 'Scouts', href: urls.inbox('scouts') },
+                { name: 'Sources', href: urls.inbox('sources') },
+                { name: 'Settings', href: urls.inbox('settings') },
             ],
             flag: FEATURE_FLAGS.PRODUCT_AUTONOMY,
-            tags: ['beta'],
             sceneKey: 'Inbox',
             sceneKeys: ['Inbox'],
         },

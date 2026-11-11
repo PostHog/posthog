@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, count_organization_access_cache_round_trips
 from unittest import mock
 from unittest.mock import patch
 
@@ -13,7 +13,6 @@ from posthog.models import Organization, OrganizationInvite
 from posthog.models.organization import BillingPeriod, OrganizationMembership
 from posthog.models.user import User
 from posthog.organization_caching import (
-    access_cache,
     get_cached_organization,
     get_cached_organization_membership,
     get_cached_organization_memberships,
@@ -297,22 +296,10 @@ class TestOrganization(BaseTest):
             if warm:
                 lookup()
 
-            # The local memory test cache implements get_many with one get per key, unlike Redis MGET.
-            unpatched_get = access_cache.get
-            missing = object()
-            with (
-                patch.object(access_cache, "get", wraps=access_cache.get) as get,
-                patch.object(
-                    access_cache,
-                    "get_many",
-                    side_effect=lambda keys: {
-                        key: value for key in keys if (value := unpatched_get(key, missing)) is not missing
-                    },
-                ) as get_many,
-            ):
+            with count_organization_access_cache_round_trips() as cache_round_trips:
                 memberships = lookup()
 
-            assert get.call_count + get_many.call_count == round_trips
+            assert cache_round_trips() == round_trips
             expected = {self.organization} if single else set(organizations)
             assert {membership.organization for membership in memberships} == expected
 
@@ -805,6 +792,11 @@ class TestOrganizationMembership(BaseTest):
         mock_capture.assert_called_once_with(
             event="membership level changed",
             distinct_id=user.distinct_id,
-            properties={"new_level": 15, "previous_level": 1, "$set": mock.ANY},
+            properties={
+                "new_level": 15,
+                "previous_level": 1,
+                "$set": mock.ANY,
+                "$update_person_last_seen_at": False,
+            },
             groups=mock.ANY,
         )

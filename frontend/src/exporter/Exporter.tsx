@@ -9,7 +9,6 @@ import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/com
 
 import { Logo } from 'lib/brand'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
@@ -20,6 +19,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
+import { useThemedHtml } from '~/layout/useThemedHtml'
 import { isMetricInsightQuery } from '~/queries/utils'
 
 import { exporterViewLogic } from './exporterViewLogic'

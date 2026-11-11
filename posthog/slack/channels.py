@@ -15,7 +15,8 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.web import SlackResponse
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationRecord
+from posthog.models.integration import SlackIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -114,7 +115,7 @@ def is_shared_channel(channel: dict) -> bool:
     return any(channel.get(flag) for flag in SHARED_CHANNEL_FLAGS)
 
 
-def fetch_channel_map(integration: Integration, *, source: str) -> dict[str, SlackChannel]:
+def fetch_channel_map(integration: IntegrationRecord, *, source: str) -> dict[str, SlackChannel]:
     """Public channel name -> channel, for one Slack integration.
 
     Private channels are skipped: listing them needs a real authed Slack user, and this runs from a

@@ -4,11 +4,15 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import OperationalError, connection
+
 from disposable_email_domains import blocklist as disposable_email_domains_list
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import EmailIntegration, Integration
+from posthog.models.integration.email import lock_sender_domain
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
@@ -23,12 +27,115 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         integration = EmailIntegration.create_native_integration(
             config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
         )
-        assert integration.team == self.team
+        assert integration.team_id == self.team.id
         assert integration.config["email"] == "user@successdomain.com"
         assert integration.config["provider"] == "ses"
         assert integration.config["domain"] == "successdomain.com"
         assert integration.config["name"] == "Test User"
         assert integration.config["verified"] is False
+
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_duplicate_sender_in_same_team_is_rejected(self, mock_create_email_domain):
+        mock_create_email_domain.return_value = {"status": "success", "domain": "successdomain.com"}
+        config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
+        first_record = EmailIntegration.create_native_integration(
+            config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+        )
+        first = Integration.objects.get(pk=first_record.id)
+        first.config["verified"] = True
+        first.save()
+
+        with pytest.raises(ValidationError, match="already exists"):
+            EmailIntegration.create_native_integration(
+                {**config, "name": "Renamed"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+
+        first.refresh_from_db()
+        assert first.config["verified"] is True
+        assert first.config["name"] == "Test User"
+
+    @parameterized.expand(
+        [
+            ("ses_value_wins", "returns", "returns"),
+            ("ses_has_none", None, "own"),
+        ]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain")
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_second_sender_on_a_domain_keeps_the_mail_from_subdomain_ses_uses(
+        self, _name, live_subdomain, expected, mock_create_email_domain, mock_get_mail_from
+    ):
+        mock_get_mail_from.return_value = live_subdomain
+        EmailIntegration.create_native_integration(
+            {"email": "first@successdomain.com", "name": "First", "provider": "ses", "mail_from_subdomain": "bounces"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+        mock_get_mail_from.assert_not_called()
+
+        second = EmailIntegration.create_native_integration(
+            {"email": "second@successdomain.com", "name": "Second", "provider": "ses", "mail_from_subdomain": "own"},
+            team_id=self.team.id,
+            organization_id=str(self.organization.id),
+            created_by=self.user,
+        )
+
+        assert second.config["mail_from_subdomain"] == expected
+        assert mock_create_email_domain.call_args.kwargs["mail_from_subdomain"] == expected
+
+    @parameterized.expand(
+        [("same_domain", "second@locked.example.com", True), ("other_domain", "second@unlocked.example.com", False)]
+    )
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_create_waits_for_a_create_in_progress_on_the_same_domain(
+        self, _name, email, waits, mock_create_email_domain, _mock_get_mail_from
+    ):
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "locked.example.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            create = lambda: EmailIntegration.create_native_integration(
+                {"email": email, "name": "Second", "provider": "ses"},
+                team_id=self.team.id,
+                organization_id=str(self.organization.id),
+                created_by=self.user,
+            )
+            if waits:
+                with pytest.raises(OperationalError, match="lock timeout"):
+                    create()
+                mock_create_email_domain.assert_not_called()
+            else:
+                assert create().integration_id == email
+        finally:
+            other.rollback()
+            other.close()
+
+    @patch("products.workflows.backend.facade.api.create_ses_email_domain")
+    def test_sender_created_during_the_provider_call_is_refused_not_upserted(self, mock_create_email_domain):
+        config = {"email": "user@successdomain.com", "name": "Test User", "provider": "ses"}
+
+        def create_competing_sender(*args, **kwargs):
+            Integration.objects.create(
+                team_id=self.team.id,
+                kind="email",
+                integration_id="user@successdomain.com",
+                config={**config, "domain": "successdomain.com", "verified": True},
+            )
+            return {"status": "success", "domain": "successdomain.com"}
+
+        mock_create_email_domain.side_effect = create_competing_sender
+
+        with pytest.raises(ValidationError, match="already exists"):
+            EmailIntegration.create_native_integration(
+                config, team_id=self.team.id, organization_id=str(self.organization.id), created_by=self.user
+            )
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
     @patch("products.workflows.backend.facade.api.verify_ses_email_domain")
@@ -51,7 +158,8 @@ class TestEmailIntegrationDomainValidation(BaseTest):
         assert "already exists in another organization" in str(exc.value)
 
     @patch("products.workflows.backend.facade.api.create_ses_email_domain")
-    def test_duplicate_domain_in_same_organization_allowed(self, mock_create_email_domain):
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_duplicate_domain_in_same_organization_allowed(self, _mock_get_mail_from, mock_create_email_domain):
         mock_create_email_domain.return_value = {"status": "success", "domain": "example.com"}
         # Create an integration with a domain in one team
         other_team = Team.objects.create(organization=self.organization, name="other team")
@@ -147,12 +255,13 @@ class TestEmailIntegrationDomainValidation(BaseTest):
 class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
     def _create_email_integration(self, email: str, team_id: int, organization_id: str) -> Integration:
         with patch("products.workflows.backend.facade.api.create_ses_email_domain"):
-            return EmailIntegration.create_native_integration(
+            record = EmailIntegration.create_native_integration(
                 {"email": email, "name": "Test"},
                 team_id=team_id,
                 organization_id=organization_id,
                 created_by=self.user,
             )
+        return Integration.objects.get(pk=record.id)
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
     def test_team_cascade_delete_cleans_up_ses_identity(self, mock_delete_identity):
@@ -165,7 +274,19 @@ class TestEmailIntegrationSESCleanupOnDelete(BaseTest):
         mock_delete_identity.assert_called_once_with("partner.com")
 
     @patch("posthog.tasks.integrations.delete_ses_identity")
-    def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(self, mock_delete_identity):
+    def test_sdk_delete_cleans_up_ses_identity_once(self, mock_delete_identity):
+        integration = self._create_email_integration("owner@partner.com", self.team.id, str(self.organization.id))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            IntegrationManager.any.delete(self.team.id, integration.id, ignore_usages=True)
+
+        mock_delete_identity.assert_called_once_with("partner.com")
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    @patch("products.workflows.backend.facade.api.get_ses_mail_from_subdomain", return_value=None)
+    def test_cascade_delete_skips_ses_cleanup_while_domain_still_in_use(
+        self, _mock_get_mail_from, mock_delete_identity
+    ):
         team = Team.objects.create(organization=self.organization, name="doomed team")
         self._create_email_integration("owner@partner.com", team.id, str(self.organization.id))
         self._create_email_integration("sibling@partner.com", self.team.id, str(self.organization.id))
@@ -198,11 +319,16 @@ class TestEmailIntegrationDefaultSender(BaseTest):
 
         assert self._default_sender_id() == first.id
 
+    @parameterized.expand([("model_delete", False), ("sdk_delete", True)])
     @patch("posthog.models.integration.email.reload_integrations_on_workers")
-    def test_deleting_the_default_sender_clears_it(self, _reload):
+    def test_deleting_the_default_sender_clears_it(self, _name, through_sdk, _reload):
         sender = self._create_sender("hello@first.example.com")
         EmailIntegration(sender).verify()
+        assert self._default_sender_id() == sender.id
 
-        sender.delete()
+        if through_sdk:
+            IntegrationManager.any.delete(self.team.id, sender.id, ignore_usages=True)
+        else:
+            sender.delete()
 
         assert self._default_sender_id() is None

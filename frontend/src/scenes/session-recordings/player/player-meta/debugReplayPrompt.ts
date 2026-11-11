@@ -1,6 +1,6 @@
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 
 const DEBUG_REPLAY_DISMISS_GROUP = 'session_recording_player'
 

@@ -5,7 +5,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sdkHealthReportRetrieve } from 'products/growth/frontend/generated/api'

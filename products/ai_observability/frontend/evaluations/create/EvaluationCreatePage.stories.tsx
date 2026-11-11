@@ -1,7 +1,6 @@
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -11,6 +10,22 @@ import { toPaginatedResponse } from '~/mocks/handlers'
 /** One aggregated count per series, the shape a bold-number trends query returns. */
 function counts(...values: number[]): { results: { aggregated_value: number }[] } {
     return { results: values.map((value) => ({ aggregated_value: value })) }
+}
+
+/** Invented runs for the preview panel, newest first. */
+const SAMPLE_TRAFFIC = {
+    results: [
+        ['How do I reset my password?', '2026-10-19T14:00:00Z'],
+        ['Summarize this invoice', '2026-10-19T09:30:00Z'],
+        ['Which plan includes SSO?', '2026-10-18T16:10:00Z'],
+    ].map(([input, timestamp], index) => ({
+        sample_id: `sample-${index}`,
+        sample_type: 'generation',
+        trace_id: `trace-${index}`,
+        timestamp,
+        input_preview: input,
+        output_preview: '',
+    })),
 }
 
 function scene(matchingGenerations: number): ReturnType<typeof mswDecorator> {
@@ -24,6 +39,8 @@ function scene(matchingGenerations: number): ReturnType<typeof mswDecorator> {
         },
         // The query client puts the query kind in the path.
         post: {
+            '/api/projects/:team_id/evaluations/sample_traffic/':
+                matchingGenerations > 0 ? SAMPLE_TRAFFIC : { results: [] },
             '/api/environments/:team_id/query/:kind/': counts(matchingGenerations, Math.round(matchingGenerations / 3)),
             '/api/environments/:team_id/query/': counts(matchingGenerations, Math.round(matchingGenerations / 3)),
         },
@@ -38,7 +55,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-10-20',
         pageUrl: urls.aiObservabilityEvaluation('new'),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: {
             waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]',
         },
@@ -79,7 +95,7 @@ export const ReportsOpen: Story = {
 }
 
 export const SentimentEvaluation: Story = {
-    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-check"]' } },
+    parameters: { testOptions: { waitForSelector: '[data-attr="llma-evaluation-create-step-body-name"]' } },
     decorators: [scene(1240)],
     play: async ({ canvasElement }) => {
         await openPart(canvasElement, 'method', 'Sentiment')
@@ -96,7 +112,7 @@ export const NothingMatches: Story = {
     },
     decorators: [scene(0)],
     play: async ({ canvasElement }) => {
-        await openPart(canvasElement, 'triggers', 'Triggers')
+        await openPart(canvasElement, 'triggers', 'Quick filters')
         await waitFor(() => {
             if (!canvasElement.querySelector('[data-attr="llma-evaluation-create-volume-none"]')) {
                 throw new Error('Waiting for the volume estimate')

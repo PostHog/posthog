@@ -1,5 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { type ColumnDef } from '@tanstack/react-table'
+import {
+    type ColumnDef,
+    type ColumnSizingState,
+    type RowSelectionState,
+    type SortingState,
+} from '@tanstack/react-table'
 import * as React from 'react'
 
 import { Badge, Checkbox, Field, Label } from '@posthog/quill-primitives'
@@ -178,6 +183,62 @@ export const ClickableRows: Story = {
 
 // Client-side pagination — pass `pageSize` to page the data and render a pager
 // below the table. `pageSizeOptions` adds a rows-per-page selector.
+// The caller owns the sort, as a paged list sorted on the server must. The table only reports the clicks.
+export const ControlledSorting: Story = {
+    render: function Render() {
+        const [sorting, setSorting] = React.useState<SortingState>([{ id: 'name', desc: true }])
+        const [sort] = sorting
+        const sorted = [...people].sort((a, b) => (sort ? a.name.localeCompare(b.name) * (sort.desc ? -1 : 1) : 0))
+        return (
+            <DataTable
+                columns={[
+                    { accessorKey: 'name', header: 'Name', sortDescFirst: true },
+                    { accessorKey: 'email', header: 'Email', enableSorting: false },
+                ]}
+                data={sorted}
+                sorting={sorting}
+                onSortingChange={setSorting}
+            />
+        )
+    },
+} satisfies Story
+
+// Hover the header to see the column edges, and a header cell to see its handle. The columns fit their content until
+// the first drag, and a drag only ever changes the dragged column. A double click on an edge resets the column.
+export const ResizableColumns: Story = {
+    render: () => (
+        <DataTable
+            columns={[
+                { accessorKey: 'name', header: 'Name', minSize: 120, meta: { expand: true } },
+                { accessorKey: 'email', header: 'Email', maxSize: 400 },
+                { accessorKey: 'role', header: 'Role' },
+                { accessorKey: 'status', header: 'Status', enableResizing: false },
+            ]}
+            data={people}
+            fullWidth
+            resizableColumns
+            className="max-w-3xl rounded-md border border-[var(--border)]"
+        />
+    ),
+} satisfies Story
+
+// `columnSizing` restores saved widths from the first paint, and `onColumnSizingChange` is where to save them.
+export const SavedColumnWidths: Story = {
+    render: function Render() {
+        const [columnSizing, setColumnSizing] = React.useState<ColumnSizingState>({ email: 320 })
+        return (
+            <DataTable
+                columns={columns}
+                data={people}
+                resizableColumns
+                columnSizing={columnSizing}
+                onColumnSizingChange={setColumnSizing}
+                className="rounded-md border border-[var(--border)]"
+            />
+        )
+    },
+} satisfies Story
+
 export const Paginated: Story = {
     render: () => (
         <DataTable
@@ -205,3 +266,30 @@ export const FullWidthPaginated: Story = {
         />
     ),
 }
+
+// Invited users can't be selected: `rowSelectionDisabledReason` disables their checkboxes and says why in a tooltip,
+// and a shift-click range skips them.
+export const SelectableRows: Story = {
+    render: function Render() {
+        const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({ 'USR-2': true, 'USR-3': true })
+        const selected = Object.keys(rowSelection).length
+        return (
+            <div className="flex max-w-3xl flex-col gap-2">
+                <p className="text-sm text-muted-foreground">{`${selected} selected`}</p>
+                <DataTable
+                    columns={columns}
+                    data={people}
+                    selectable
+                    getRowId={(person) => person.id}
+                    rowSelectionLabel={(person) => `Select ${person.name}`}
+                    rowSelectionDisabledReason={(person) =>
+                        person.status === 'Active' ? null : "Invited users can't be selected until they accept."
+                    }
+                    rowSelection={rowSelection}
+                    onRowSelectionChange={setRowSelection}
+                    className="rounded-md border border-[var(--border)]"
+                />
+            </div>
+        )
+    },
+} satisfies Story

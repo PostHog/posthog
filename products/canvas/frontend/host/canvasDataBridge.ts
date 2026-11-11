@@ -165,6 +165,7 @@ function assertVariablesApplied(
 export class CanvasDataBridge {
     private readonly cache = new CanvasReadCache()
     private readonly connectorConsent = new Map<string, boolean>()
+    private readonly pendingConnectorConsent = new Map<string, Promise<boolean>>()
     private toolRegistry: Promise<CanvasToolDefinitionApi[]> | null = null
 
     constructor(
@@ -474,7 +475,7 @@ export class CanvasDataBridge {
 
     private async requireConnectorConsent(sourceVersionId: string, input: CanvasConnectorCallInput): Promise<void> {
         const key = `${sourceVersionId}:${input.provider}:${input.tool}`
-        const known = this.connectorConsent.get(key)
+        const known = this.pendingConnectorConsent.has(key) ? undefined : this.connectorConsent.get(key)
         // A denial sticks until the viewer interacts with the canvas again, so a render
         // loop cannot reopen the dialog.
         if (known === true || (known === false && !this.prompts.hasUserActivation())) {
@@ -483,14 +484,25 @@ export class CanvasDataBridge {
             }
             throw new Error('Connector access was not granted. Click in the canvas to try again.')
         }
-        const allowed = await this.prompts.requestConnectorPermission({
-            provider: input.provider,
-            tool: input.tool,
-            reason: 'canvas',
-        })
-        this.connectorConsent.set(key, allowed)
-        if (!allowed) {
+        if (!(await this.connectorConsentPrompt(key, input))) {
             throw new Error('Connector access was not granted. Click in the canvas to try again.')
         }
+    }
+
+    // A canvas often starts several connector reads at once. Each call for the same key
+    // awaits the one open prompt, so the viewer answers once instead of once per call.
+    private connectorConsentPrompt(key: string, input: CanvasConnectorCallInput): Promise<boolean> {
+        let pending = this.pendingConnectorConsent.get(key)
+        if (!pending) {
+            pending = this.prompts
+                .requestConnectorPermission({ provider: input.provider, tool: input.tool, reason: 'canvas' })
+                .then((allowed) => {
+                    this.connectorConsent.set(key, allowed)
+                    return allowed
+                })
+                .finally(() => this.pendingConnectorConsent.delete(key))
+            this.pendingConnectorConsent.set(key, pending)
+        }
+        return pending
     }
 }

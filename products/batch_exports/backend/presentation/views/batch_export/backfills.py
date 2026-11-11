@@ -1,39 +1,29 @@
 """Batch export backfill endpoints: create, list, retrieve and cancel."""
 
-import uuid
 import dataclasses
-from typing import Any, cast
+from typing import Any
+from uuid import UUID
 
 import structlog
 import posthoganalytics
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, ValidationError
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.pagination import FacadeCursorPagination, facade_cursor_page_response
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import User
+from posthog.models.integer_field_bounds import BIG_INTEGER_FIELD_MAX, BIG_INTEGER_FIELD_MIN
 
 from products.batch_exports.backend.facade import (
     api as batch_exports_api,
     contracts,
 )
 from products.batch_exports.backend.facade.enums import BatchExportBackfillStatus
-from products.batch_exports.backend.presentation.views.batch_export.pagination import FacadeCursorPagination
-from products.batch_exports.backend.presentation.views.utils import BIG_INTEGER_MAX, BIG_INTEGER_MIN, parse_path_uuid
 
 logger = structlog.get_logger(__name__)
-
-
-# The viewset declares no queryset, so drf-spectacular cannot read the type of the ids from a model.
-BACKFILL_ID_PARAMETER = OpenApiParameter(
-    "id",
-    OpenApiTypes.UUID,
-    OpenApiParameter.PATH,
-    description="A UUID string identifying this batch export backfill.",
-)
 
 
 class BatchExportBackfillSerializer(serializers.Serializer):
@@ -58,8 +48,8 @@ class BatchExportBackfillSerializer(serializers.Serializer):
     total_records_count = serializers.IntegerField(
         required=False,
         allow_null=True,
-        min_value=BIG_INTEGER_MIN,
-        max_value=BIG_INTEGER_MAX,
+        min_value=BIG_INTEGER_FIELD_MIN,
+        max_value=BIG_INTEGER_FIELD_MAX,
         help_text="The total number of records to export. Initially estimated, updated with actual count after completion.",
     )
     adjusted_start_at = serializers.DateTimeField(
@@ -100,23 +90,19 @@ class TooManyConcurrentBackfills(APIException):
     default_detail = "Too many concurrent batch export backfills for this team."
 
 
-@extend_schema(
-    parameters=[
-        OpenApiParameter(
-            "batch_export_id",
-            {"type": "string", "format": "uuid", "description": "The BatchExport this backfill belongs to."},
-            OpenApiParameter.PATH,
-        )
-    ]
-)
-@extend_schema_view(retrieve=extend_schema(parameters=[BACKFILL_ID_PARAMETER]))
 class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet):
     """ViewSet for BatchExportBackfill models.
 
     Allows creating and reading backfills, but not updating or deleting them.
     """
 
+    path_parameters = {
+        "pk": PathParameter(type=UUID, description="A UUID string identifying this batch export backfill."),
+        "batch_export_id": PathParameter(type=UUID, description="The BatchExport this backfill belongs to."),
+    }
     scope_object = "batch_export"
+    # batch_export is not an access-control resource, so no rule names one backfill.
+    records_have_object_access_rules = False
     serializer_class = BatchExportBackfillSerializer
     pagination_class = BackfillsCursorPagination
     # The paginator reads the ordering through this filter, and the facade applies it.
@@ -124,34 +110,25 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
     ordering_fields = list(contracts.BATCH_EXPORT_BACKFILL_ORDERING_FIELDS)
     ordering = "-created_at"
 
-    def _get_export_id(self, detail: str | None = None) -> uuid.UUID:
-        return parse_path_uuid(self.kwargs["parent_lookup_batch_export_id"], detail)
+    def _get_export_id(self) -> UUID:
+        return self.kwargs["parent_lookup_batch_export_id"]
 
-    def dangerously_get_object(self) -> contracts.BatchExportBackfillDetail:
-        # The mixin's get_object() reads through a queryset, which this view no longer has, so the
-        # backfill is read through the facade instead. That skips the mixin's team filter and object
-        # permission check, so both happen here: the facade filters by team and export, and
-        # check_object_permissions runs on the contract.
+    def read_object(self) -> contracts.BatchExportBackfillDetail:
         try:
-            backfill = batch_exports_api.get_batch_export_backfill(
-                self.team_id, self._get_export_id(), parse_path_uuid(self.kwargs["pk"])
-            )
+            return batch_exports_api.get_batch_export_backfill(self.team_id, self._get_export_id(), self.kwargs["pk"])
         except contracts.BatchExportBackfillNotFoundError as e:
             raise NotFound(*e.args) from e
-        self.check_object_permissions(self.request, backfill)
-        return backfill
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         export_id = self._get_export_id()
-        return cast(FacadeCursorPagination, self.paginator).get_paginated_facade_response(
-            request,
+        return facade_cursor_page_response(
             self,
             lambda page: batch_exports_api.list_batch_export_backfills(self.team_id, export_id, page=page),
         )
 
     def create(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Create a new backfill for a BatchExport."""
-        export_id = self._get_export_id("BatchExport not found.")
+        export_id = self._get_export_id()
         start_at = request.data.get("start_at")
         end_at = request.data.get("end_at")
 
@@ -186,7 +163,6 @@ class BatchExportBackfillViewSet(TeamAndOrgViewSetMixin, mixins.RetrieveModelMix
 
         return response.Response({"backfill_id": backfill.backfill_id}, status=status.HTTP_201_CREATED)
 
-    @extend_schema(parameters=[BACKFILL_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def cancel(self, *args, **kwargs) -> response.Response:
         """Cancel a batch export backfill."""

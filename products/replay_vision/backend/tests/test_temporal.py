@@ -39,7 +39,12 @@ from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_async_client
 from posthog.session_recordings.queries.session_replay_events import SessionEventsPage, SessionReplayEvents
+from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    BumpStuckCounterInput,
+    bump_stuck_counter_activity,
+)
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.observation_progress import _ObservationState, stream_observation_progress
@@ -58,7 +63,7 @@ from products.replay_vision.backend.models.replay_observation import (
 from products.replay_vision.backend.models.replay_observation_usage import ReplayObservationUsage
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.quota import QuotaSnapshot
-from products.replay_vision.backend.temporal import ApplyScannerWorkflow
+from products.replay_vision.backend.temporal import ACTIVITIES, ApplyScannerWorkflow
 from products.replay_vision.backend.temporal.activities.call_scanner_provider import (
     _extract_segments,
     _inject_known_freeform_tags,
@@ -2621,6 +2626,19 @@ class TestFetchSessionNetworkActivity:
         assert len(mod._next_batch([block(mod._MAX_BATCH_COMPRESSED_BYTES * 4)], 0)) == 1
 
     @pytest.mark.asyncio
+    async def test_a_deleted_recording_reads_as_no_network_data(self) -> None:
+        from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
+
+        with (
+            patch.object(mod, "list_blocks_async", AsyncMock(side_effect=RecordingDeletedError("deleted"))),
+            patch.object(mod, "_collect", AsyncMock()) as collect,
+        ):
+            payload = await mod._load_payload(team_id=1, session_id="sess-1")
+
+        assert collect.await_count == 0
+        assert payload == SessionNetworkPayload()
+
+    @pytest.mark.asyncio
     async def test_a_listing_over_the_size_ceiling_is_refused(self) -> None:
         from products.replay_vision.backend.temporal.activities import fetch_session_network as mod
 
@@ -2803,7 +2821,11 @@ class _WorkflowMocks:
         self.activity_calls: list[tuple[Any, Any]] = []
         self.child_calls: list[tuple[tuple, dict]] = []
 
-    async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
+    async def execute_activity(self, activity_fn: Any, activity_input: Any, **kwargs: Any) -> Any:
+        # Without a task_queue the call lands on the Replay Vision queue, so its worker must register the activity.
+        # pytest.fail raises a BaseException, which the workflow's fail-soft `except Exception` blocks can't swallow.
+        if kwargs.get("task_queue") is None and activity_fn not in ACTIVITIES:
+            pytest.fail(f"{activity_fn.__name__} is not registered on the Replay Vision worker")
         self.activity_calls.append((activity_fn, activity_input))
         if activity_fn in self.activity_errors:
             raise self.activity_errors[activity_fn]
@@ -3023,6 +3045,28 @@ async def test_apply_scanner_workflow_splits_rasterizer_failures_by_cause(
     assert mocks.activity_calls[-1][1].error_reason.startswith(f"{expected_kind}:")
     # The video is never uploaded when the render fails, so there is nothing to bill or clean up.
     assert upload_video_to_gemini_activity not in called
+
+
+@pytest.mark.asyncio
+async def test_apply_scanner_workflow_bumps_the_stuck_counter_when_a_render_times_out() -> None:
+    mocks = _WorkflowMocks(
+        activity_results={
+            create_observation_activity: CreateObservationOutput(
+                observation_id=uuid.uuid4(), was_created=True, scanner_type=ScannerType.MONITOR
+            ),
+            ensure_session_asset_activity: EnsureSessionAssetOutput(asset_id=42),
+        },
+        child_error=_wrap_in_child_workflow_error(
+            TemporalTimeoutError("timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[])
+        ),
+    )
+
+    with pytest.raises(Exception):
+        await _run_workflow(_build_inputs(session_id="sess-raster"), mocks)
+
+    bumps = [arg for fn, arg in mocks.activity_calls if fn is bump_stuck_counter_activity]
+    assert bumps == [BumpStuckCounterInput(team_id=1, session_id="sess-raster")]
+    assert mocks.activity_calls[-1][1].error_reason.startswith("rasterization_failed:")
 
 
 @pytest.mark.asyncio

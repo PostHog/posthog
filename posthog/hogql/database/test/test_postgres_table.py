@@ -38,12 +38,21 @@ ALL_POSTGRES_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
 _SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
     name: table for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.access_scope is not None
 }
+# Tables read through a service (system.integrations) have no Postgres table, so the checks that
+# resolve a Django model from `postgres_table_name` skip them.
+_MODEL_BACKED_SYSTEM_TABLES: list[tuple[str, PostgresTable]] = [
+    (name, table) for name, table in ALL_POSTGRES_SYSTEM_TABLES if table.postgres_table_name
+]
+_MODEL_BACKED_SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
+    name: table for name, table in _MODEL_BACKED_SYSTEM_TABLES if table.access_scope is not None
+}
 
 # Facade-isolated products route data through their facade: their viewsets declare
 # `queryset = None` and DTO serializers, so the object-restrictable model can't be derived
 # from the viewset. Declared by db_table so product internals stay unimported here.
 _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
+    "posthog_action": "action",
     "customer_analytics_customertask": "customer_task",
 }
 
@@ -66,6 +75,7 @@ def _object_grant_registry() -> dict[type[Model], str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -109,6 +119,7 @@ def _object_grant_scopes() -> frozenset[str]:
 
     def all_subclasses(cls: type) -> set[type]:
         subs: set[type] = set()
+        sub: type
         for sub in cls.__subclasses__():
             subs.add(sub)
             subs |= all_subclasses(sub)
@@ -129,6 +140,7 @@ class TestPostgresTable(BaseTest):
         predicates: list[Expr] | None = None,
         extra_fields: dict[str, DatabaseField] | None = None,
         postgres_pushdown_values: dict[str, str | int | bool] | None = None,
+        push_team_guard_with_predicates: bool = False,
     ) -> None:
         self.database = Database.create_for(team=self.team)
 
@@ -152,6 +164,7 @@ class TestPostgresTable(BaseTest):
                         if postgres_pushdown_values is None
                         else {"postgres_pushdown_values": postgres_pushdown_values}
                     ),
+                    push_team_guard_with_predicates=push_team_guard_with_predicates,
                     fields=fields,
                 ),
             )
@@ -164,8 +177,12 @@ class TestPostgresTable(BaseTest):
             modifiers=create_default_modifiers_for_team(self.team),
         )
 
-    def _init_database_for_joins(self, *, predicates=None, extra_fields=None):
-        self._init_database(predicates=predicates, extra_fields=extra_fields)
+    def _init_database_for_joins(self, *, predicates=None, extra_fields=None, push_team_guard_with_predicates=False):
+        self._init_database(
+            predicates=predicates,
+            extra_fields=extra_fields,
+            push_team_guard_with_predicates=push_team_guard_with_predicates,
+        )
         self.database.tables.add_child(
             TableNode(
                 name="other_table",
@@ -255,6 +272,19 @@ class TestPostgresTable(BaseTest):
             f"WHERE team_id = {self.team.pk} AND status = %(hogql_val_5)s)",
             sql,
         )
+
+    def test_predicate_keeps_team_guard_next_to_the_read_when_opted_in(self):
+        self._init_database_for_joins(
+            predicates=[parse_expr("status != 'deleted'")],
+            extra_fields={"status": StringDatabaseField(name="status")},
+            push_team_guard_with_predicates=True,
+        )
+
+        sql = self._select(
+            "SELECT other_table.id FROM other_table LEFT JOIN postgres_table ON postgres_table.id = other_table.ref_id"
+        )
+
+        self.assertIn(f"WHERE team_id = {self.team.pk}) AS postgres_table", sql)
 
     def test_predicate_combined_with_user_where(self):
         self._init_database(
@@ -449,7 +479,7 @@ class TestPostgresTable(BaseTest):
 class TestPostgresTablePrimaryKey(BaseTest):
     """Validate primary_key auto-detection and access_scope constraints."""
 
-    @parameterized.expand(_SCOPED_SYSTEM_TABLES.items())
+    @parameterized.expand(_MODEL_BACKED_SCOPED_SYSTEM_TABLES.items())
     def test_tables_with_access_scope_have_single_column_pk(self, table_name, table):
         """Object-level access control requires a single-column PK to filter by."""
         assert table.primary_key is not None, (
@@ -495,7 +525,7 @@ class TestObjectAccessControlIdField(SimpleTestCase):
     derived from `AccessControlViewSetMixin` viewsets, so new restrictable models or child
     tables fail this test until their `access_control_id_field` is declared correctly."""
 
-    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    @parameterized.expand(_MODEL_BACKED_SYSTEM_TABLES)
     def test_access_control_id_field_targets_the_restricted_object(self, table_name, table) -> None:
         if table.access_scope is None:
             self.assertIsNone(
@@ -565,9 +595,9 @@ class TestObjectAccessControlCreatorField(SimpleTestCase):
     column. A restrictable table that has a creator but doesn't declare it silently hides rows from
     the person who created them, so require the declaration wherever REST would honor it."""
 
-    @parameterized.expand(sorted(_SCOPED_SYSTEM_TABLES))
+    @parameterized.expand(sorted(_MODEL_BACKED_SCOPED_SYSTEM_TABLES))
     def test_creator_field_is_declared_and_queryable(self, table_name: str) -> None:
-        table = _SCOPED_SYSTEM_TABLES[table_name]
+        table = _MODEL_BACKED_SCOPED_SYSTEM_TABLES[table_name]
         model = _model_by_pg_table().get(table.postgres_table_name)
         assert model is not None, f"could not resolve a Django model for system.{table_name}"
 
@@ -621,9 +651,14 @@ class TestSystemTableAccessScope(SimpleTestCase):
         access_scope = _SCOPED_SYSTEM_TABLES[table_name].access_scope
 
         # A pure umbrella is a parent in the inheritance map that is never itself a
-        # `scope_object` — so object grants can only ever live on its children, not on it.
+        # `scope_object`, while a child is — so object grants live on its children, not on it.
+        # A parent whose children store no object grants either (`task` for `inbox`) has none to miss.
         grant_scopes = _object_grant_scopes()
-        pure_umbrellas = {parent for parent in RESOURCE_INHERITANCE_MAP.values() if parent not in grant_scopes}
+        pure_umbrellas = {
+            parent
+            for child, parent in RESOURCE_INHERITANCE_MAP.items()
+            if parent not in grant_scopes and child in grant_scopes
+        }
 
         if access_scope in pure_umbrellas:
             children = sorted(child for child, parent in RESOURCE_INHERITANCE_MAP.items() if parent == access_scope)

@@ -10,8 +10,6 @@ Temporal client, so this module stays off the ``django.setup()`` path.
 
 from uuid import UUID
 
-from posthog.models.team import Team
-
 from products.warehouse_sources.backend import file_upload_sources as _service
 from products.warehouse_sources.backend.facade.contracts import (
     FileUploadSourceError,
@@ -37,11 +35,11 @@ __all__ = [
     "can_replace_file",
     "create_file_upload_source",
     "discard_unused_upload",
-    "file_upload_sources_enabled",
     "has_file_upload_source",
     "hosted_upload_in_use",
     "is_legacy_upload_url",
     "is_safe_upload_filename",
+    "object_storage_sources_enabled",
     "read_upload_in_place",
     "replace_file_upload",
     "sanitize_upload_filename",
@@ -49,9 +47,9 @@ __all__ = [
 ]
 
 
-def file_upload_sources_enabled(team_id: int) -> bool:
-    team = Team.objects.only("id", "organization_id").get(pk=team_id)
-    return _service.file_upload_sources_enabled(team)
+def object_storage_sources_enabled(team_id: int) -> bool:
+    """Every team has the managed object storage sources, which replace self-managed tables."""
+    return True
 
 
 def read_upload_in_place(team_id: int, table_name: str, upload: UploadedFileRef) -> UploadReadSettings:

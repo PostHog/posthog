@@ -19,6 +19,7 @@ from posthog.models.team import Team
 
 from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef, evidence_key_for
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import (
     KnowledgeDocument,
     KnowledgeLearningRun,
@@ -455,6 +456,9 @@ class TestLearningAnalyzer:
         ]
         assert search.call_args.kwargs["use_semantic"] is True
         assert search.call_args.kwargs["query_embedding"] == [0.1, 0.2]
+        assert search.call_args.kwargs["trace"] == RetrievalTrace(
+            surface="learning", trace_id=stable_trace_id("learning", run.id)
+        )
         publish.assert_not_called()
 
     @pytest.mark.parametrize(

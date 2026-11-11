@@ -9,7 +9,10 @@
         "resolveJsonModule": true,
         "skipLibCheck": true,
         "noEmit": true,
-        "types": ["bun"]
+        "types": ["bun"],
+        "paths": {
+            "@/*": ["./src/*"]
+        }
     },
-    "include": ["src"]
+    "include": ["src", "test", "scripts"]
 }

@@ -1,0 +1,204 @@
+"""The web setup after a Slack install. It asks only for what blocks the Slack app for everyone; the
+rest of the setup happens in Slack. Steps store no progress: each one reads its status from the
+database every time."""
+
+from collections.abc import Callable
+from functools import cached_property
+from urllib.parse import urlencode
+
+from posthog.dataclasses import frozen
+from posthog.integrations import IntegrationRecord
+from posthog.models import OrganizationMembership, User
+from posthog.models.integration import SlackIntegration
+from posthog.slack.channels import join_channel
+from posthog.user_permissions import UserPermissions
+
+from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.facade.enums import SlackSetupEntry, SlackSetupStepKey
+from products.slack_app.backend.facade.types import (
+    ChannelJoinResult,
+    ProjectOption,
+    WorkspaceSettingsError,
+    WorkspaceSetup,
+)
+from products.slack_app.backend.models import ChannelWelcomeMode
+from products.slack_app.backend.services.integration_resolver import accessible_candidates
+from products.slack_app.backend.services.public_channel_catalog import mark_channels_joined, public_channel_options
+from products.slack_app.backend.services.slack_scopes import has_scopes
+from products.slack_app.backend.services.slack_settings import (
+    resolve_channel_welcome_mode,
+    resolve_workspace_default_integration_id,
+    set_workspace_default_integration,
+)
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
+
+SLACK_APP_REDIRECT_URL = "https://slack.com/app_redirect"
+CHANNELS_JOIN_SCOPE = "channels:join"
+# pinned: analytics property value, the same events can come from other surfaces later
+EVENT_SOURCE = "web_setup"
+
+
+@frozen(slots=False)
+class SetupContext:
+    integration: WorkspaceIntegration
+    user: User
+    entry: SlackSetupEntry
+
+    @property
+    def slack_workspace_id(self) -> str:
+        return self.integration.integration_id or ""
+
+    @cached_property
+    def project_options(self) -> list[WorkspaceIntegration]:
+        """Projects connected to this Slack workspace that the person can open, oldest install first."""
+        return accessible_candidates(workspace_integrations(self.slack_workspace_id), user=self.user)
+
+
+@frozen
+class SetupStep:
+    key: SlackSetupStepKey
+    applies: Callable[[SetupContext], bool]
+    is_done: Callable[[SetupContext], bool]
+
+
+def _ai_consent_applies(ctx: SetupContext) -> bool:
+    return not ctx.integration.team.organization.is_ai_data_processing_approved
+
+
+def _default_project_applies(ctx: SetupContext) -> bool:
+    return len(ctx.project_options) >= 2
+
+
+def _default_project_is_done(ctx: SetupContext) -> bool:
+    return resolve_workspace_default_integration_id(ctx.slack_workspace_id) is not None
+
+
+def _channels_applies(ctx: SetupContext) -> bool:
+    # Only a deliberate setup asks for channels, not a connect in the middle of another task.
+    return ctx.entry == SlackSetupEntry.SLACK_PAGE and has_scopes(ctx.integration, [CHANNELS_JOIN_SCOPE])
+
+
+def _never_done(_: SetupContext) -> bool:
+    return False
+
+
+# Ordered by priority: a step that blocks every answer in Slack comes first.
+SETUP_STEPS: tuple[SetupStep, ...] = (
+    SetupStep(key=SlackSetupStepKey.AI_CONSENT, applies=_ai_consent_applies, is_done=_never_done),
+    SetupStep(
+        key=SlackSetupStepKey.DEFAULT_PROJECT, applies=_default_project_applies, is_done=_default_project_is_done
+    ),
+    SetupStep(key=SlackSetupStepKey.CHANNELS, applies=_channels_applies, is_done=_never_done),
+)
+
+
+def open_slack_url(integration: IntegrationRecord) -> str | None:
+    """A link that opens the app's direct message in the installer's Slack workspace."""
+    app_id = (integration.config or {}).get("app_id")
+    if not app_id or not integration.integration_id:
+        return None
+    return f"{SLACK_APP_REDIRECT_URL}?{urlencode({'app': app_id, 'team': integration.integration_id})}"
+
+
+def get_workspace_setup(integration: WorkspaceIntegration, user: User, entry: SlackSetupEntry) -> WorkspaceSetup:
+    ctx = SetupContext(integration=integration, user=user, entry=entry)
+    # is_done first, because it is cheaper than the project list that some applies checks load.
+    steps = tuple(step.key for step in SETUP_STEPS if not step.is_done(ctx) and step.applies(ctx))
+    return WorkspaceSetup(
+        integration_id=integration.id,
+        slack_workspace_name=((integration.config or {}).get("team") or {}).get("name"),
+        open_slack_url=open_slack_url(integration),
+        steps=steps,
+        project_options=tuple(
+            ProjectOption(
+                integration_id=option.id,
+                project_name=option.team.name,
+                organization_name=option.team.organization.name,
+            )
+            for option in ctx.project_options
+        )
+        if SlackSetupStepKey.DEFAULT_PROJECT in steps
+        else (),
+        can_post_channel_welcome=SlackSetupStepKey.CHANNELS in steps
+        and _can_post_channel_welcome(ctx.slack_workspace_id),
+    )
+
+
+def _can_post_channel_welcome(slack_workspace_id: str) -> bool:
+    # The other modes need the person who added the bot, and a join from the setup has none, so
+    # the channel join handler posts nothing.
+    return resolve_channel_welcome_mode(slack_workspace_id) == ChannelWelcomeMode.CHANNEL
+
+
+def _can_change_workspace_settings(integration: WorkspaceIntegration, user: User) -> bool:
+    # These settings change the Slack workspace for everyone in it.
+    if integration.created_by_id == user.id:
+        return True
+    level = UserPermissions(user=user).team(integration.team).effective_membership_level
+    return level is not None and level >= OrganizationMembership.Level.ADMIN
+
+
+def set_default_project(integration: WorkspaceIntegration, user: User, target_integration_id: int) -> None:
+    if not _can_change_workspace_settings(integration, user):
+        raise WorkspaceSettingsError(
+            "Only the person who installed Slack or a project admin can set the default project."
+        )
+    ctx = SetupContext(integration=integration, user=user, entry=SlackSetupEntry.OTHER)
+    target = next((option for option in ctx.project_options if option.id == target_integration_id), None)
+    if target is None:
+        raise WorkspaceSettingsError("This project is not connected to this Slack workspace, or you can't open it.")
+    set_workspace_default_integration(ctx.slack_workspace_id, target.id)
+    # pinned: analytics event and property names, renaming breaks dashboards
+    capture_slack_event(
+        integration,
+        "slack app workspace default project set",
+        posthog_user=user,
+        source=EVENT_SOURCE,
+        default_integration_id=target.id,
+        project_count=len(ctx.project_options),
+    )
+
+
+def join_channels(
+    integration: WorkspaceIntegration, user: User, channel_ids: list[str], *, post_welcome: bool
+) -> tuple[ChannelJoinResult, ...]:
+    from products.slack_app.backend.api import (  # noqa: PLC0415 — api.py imports the services this module uses
+        release_channel_welcome_skip,
+        skip_channel_welcome,
+    )
+
+    if not _can_change_workspace_settings(integration, user):
+        raise WorkspaceSettingsError(
+            "Only the person who installed Slack or a project admin can add PostHog to channels."
+        )
+    if not has_scopes(integration, [CHANNELS_JOIN_SCOPE]):
+        raise WorkspaceSettingsError("This Slack install can't join channels. Invite PostHog with /invite @PostHog.")
+
+    # The ids come from the browser, so only channels from the same list the page showed are joined.
+    allowed = {option.id for option in public_channel_options(integration)}
+    slack = SlackIntegration(integration)
+    slack_workspace_id = integration.integration_id or ""
+    post_welcome = post_welcome and _can_post_channel_welcome(slack_workspace_id)
+    results: list[ChannelJoinResult] = []
+    for channel_id in dict.fromkeys(channel_ids):
+        if channel_id not in allowed:
+            results.append(ChannelJoinResult(channel_id=channel_id, error="channel_not_available"))
+            continue
+        holds_welcome_slot = not post_welcome and skip_channel_welcome(slack_workspace_id, channel_id)
+        error = join_channel(slack, channel_id)
+        if error is not None and holds_welcome_slot:
+            release_channel_welcome_skip(slack_workspace_id, channel_id)
+        results.append(ChannelJoinResult(channel_id=channel_id, error=error))
+    mark_channels_joined(slack_workspace_id, (result.channel_id for result in results if result.error is None))
+    failed_count = sum(1 for result in results if result.error is not None)
+    # pinned: analytics event and property names, renaming breaks dashboards
+    capture_slack_event(
+        integration,
+        "slack app channels joined",
+        posthog_user=user,
+        source=EVENT_SOURCE,
+        joined_count=len(results) - failed_count,
+        failed_count=failed_count,
+        post_welcome=post_welcome,
+    )
+    return tuple(results)

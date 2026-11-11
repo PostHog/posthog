@@ -115,6 +115,7 @@ class TestBotDefinitionsDataStructure:
             ("httpx", "httpx", "http_client", "Automation"),
             ("Google-Apps-Script", "Google Apps Script", "http_client", "Automation"),
             # Headless Browsers
+            ("Lightpanda", "Lightpanda", "headless_browser", "Automation"),
             ("HeadlessChrome", "Headless Chrome", "headless_browser", "Automation"),
         ],
     )

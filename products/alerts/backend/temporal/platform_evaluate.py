@@ -16,7 +16,7 @@ from dataclasses import replace
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError
+from temporalio.exceptions import ActivityError, ApplicationError, WorkflowAlreadyStartedError
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.base import PostHogWorkflow
@@ -25,7 +25,12 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.schema_enums import AlertCalculationInterval
-    from posthog.temporal.alerts.retry_policy import alert_timeouts
+    from posthog.temporal.alerts.retry_policy import (
+        ALERT_SIGNAL_RETRY_POLICY,
+        ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+        ALERT_SIGNAL_START_TO_CLOSE,
+        alert_timeouts,
+    )
     from posthog.temporal.common.errors import (
         MAX_ERROR_MESSAGE_CHARS,
         truncate_for_temporal_payload,
@@ -34,7 +39,20 @@ with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
     from posthog.temporal.common.utils import close_db_connections
 
-    from products.alerts.backend.platform_chart_detail import RenderedChart, pending_chart_alert_id, with_chart
+    from products.alerts.backend.platform_chart_detail import (
+        LATE_CHART_WORKFLOW,
+        LateChartInputs,
+        RenderedChart,
+        pending_chart_alert_id,
+        with_chart,
+    )
+    from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
+    from products.alerts.backend.platform_investigation_detail import (
+        InvestigationClaims,
+        InvestigationStart,
+        MetricsInvestigationRun,
+        requested_investigation,
+    )
     from products.alerts_platform.backend.facade.contracts import (
         RECORD_OUTCOMES_ACTIVITY,
         AlertDeliveryRequest,
@@ -45,8 +63,17 @@ with workflow.unsafe.imports_passed_through():
         SourceOutcomeInputs,
     )
     from products.alerts_platform.backend.facade.payload import outcome_chunks
-    from products.alerts_platform.backend.facade.platform_metrics import increment_checks_unfinished, safe_record
-    from products.alerts_platform.backend.facade.temporal import source_evaluation_timeout, start_deliveries
+    from products.alerts_platform.backend.facade.platform_metrics import (
+        ChartRenderOutcome,
+        increment_chart_renders,
+        increment_checks_unfinished,
+        safe_record,
+    )
+    from products.alerts_platform.backend.facade.temporal import (
+        DELIVERY_EXECUTION_TIMEOUT,
+        source_evaluation_timeout,
+        start_deliveries,
+    )
 
 PLAN_START_TO_CLOSE = dt.timedelta(seconds=10)
 PLAN_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
@@ -57,6 +84,11 @@ CHECK_START_TO_CLOSE = alert_timeouts(None).evaluate_start_to_close
 # check below its own budget.
 CHECK_QUEUE_TOLERANCE = dt.timedelta(minutes=1)
 CHECK_SCHEDULE_TO_CLOSE = CHECK_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
+# Production's heartbeat and retries for an hourly or slower check. A worker that never runs its
+# task, such as one that gets it while it shuts down, stops heartbeating, so Temporal retries the
+# check on another worker after the heartbeat timeout instead of after the whole budget.
+CHECK_HEARTBEAT_TIMEOUT = alert_timeouts(None).heartbeat_timeout
+CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
 # Production's real-time budget: a shorter attempt, and one retry inside the same total.
 _REAL_TIME_TIMEOUTS = alert_timeouts(AlertCalculationInterval.REAL_TIME)
 REAL_TIME_CHECK_START_TO_CLOSE = _REAL_TIME_TIMEOUTS.evaluate_start_to_close
@@ -66,23 +98,57 @@ REAL_TIME_CHECK_RETRY_POLICY = _REAL_TIME_TIMEOUTS.evaluate_retry_policy
 REAL_TIME_CHECK_HEARTBEAT_TIMEOUT = _REAL_TIME_TIMEOUTS.heartbeat_timeout
 # Production's retries for an AI detector check, inside the default budget. A judge that reaches
 # no verdict raises for another attempt, and the last attempt records the failure.
-LLM_CHECK_RETRY_POLICY = alert_timeouts(None).evaluate_retry_policy
+LLM_CHECK_RETRY_POLICY = CHECK_RETRY_POLICY
 # A firing's chart renders in its own activity, after the check has released its pool slot. It
 # outlasts the export render's own 90-second limit, so the render, not the activity, gives up first.
-CHART_START_TO_CLOSE = dt.timedelta(minutes=2)
-# Room to wait for a render slot. A render that gets none in time sends its firing without a chart.
-CHART_SCHEDULE_TO_CLOSE = CHART_START_TO_CLOSE + dt.timedelta(minutes=2)
+CHART_START_TO_CLOSE = dt.timedelta(seconds=100)
 CHART_RETRY_POLICY = RetryPolicy(
     initial_interval=dt.timedelta(seconds=5),
     backoff_coefficient=2.0,
-    maximum_interval=dt.timedelta(seconds=30),
+    maximum_interval=dt.timedelta(seconds=15),
 )
+# The type a failed render raises, which the firing's own wait does not retry: a second render
+# cannot fit in its budget. The late chart's render retries it.
+CHART_RENDER_FAILED = "InsightChartRenderFailed"
+CHART_RENDER_TIMED_OUT = "ChartRenderTimedOut"
+ON_TIME_CHART_RETRY_POLICY = replace(
+    CHART_RETRY_POLICY, non_retryable_error_types=[CHART_RENDER_FAILED, CHART_RENDER_TIMED_OUT]
+)
+# A firing that went out without its chart renders again for this long, on the same pool. An export
+# stall that outlasts it costs the chart for good.
+LATE_CHART_RENDER_WINDOW = dt.timedelta(minutes=10)
+LATE_CHART_RENDER_RETRY_POLICY = RetryPolicy(
+    initial_interval=dt.timedelta(seconds=30),
+    backoff_coefficient=2.0,
+    maximum_interval=dt.timedelta(minutes=2),
+)
+# The firing's delivery can still be sending until its own deadline, so the edit waits for it as long.
+LATE_CHART_EDIT_WINDOW = DELIVERY_EXECUTION_TIMEOUT
+
+
+def late_chart_edit_window(late: LateChartInputs) -> dt.timedelta:
+    # A split delivery sends its parts in turn, so its deadline grows with the part count.
+    return LATE_CHART_EDIT_WINDOW * max((delivery.parts for delivery in late.deliveries), default=1)
+
+
+def late_chart_execution_timeout(late: LateChartInputs) -> dt.timedelta:
+    return LATE_CHART_RENDER_WINDOW + late_chart_edit_window(late) + dt.timedelta(minutes=1)
+
+
 FAIL_START_TO_CLOSE = dt.timedelta(seconds=10)
 FAIL_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
 # Stopping a query can wait on a slow ClickHouse, so it runs apart from the failed check's record
 # and never holds it back. It is best effort, so it gets what the batch budget leaves.
 STOP_QUERIES_START_TO_CLOSE = dt.timedelta(seconds=60)
 RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
+CLAIM_START_TO_CLOSE = dt.timedelta(seconds=10)
+CLAIM_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=20)
+# A metrics alert's investigation is a few bounded metric queries. One attempt, because the run
+# leases its row, so a retry would find it taken.
+METRICS_INVESTIGATION_START_TO_CLOSE = dt.timedelta(seconds=45)
+# Time a run's queries can take, so the last run starts while the activity can still finish it.
+METRICS_INVESTIGATION_MARGIN = dt.timedelta(seconds=15)
+METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE = METRICS_INVESTIGATION_START_TO_CLOSE + CHECK_QUEUE_TOLERANCE
 RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 # The pool admits once per round, so a batch that admits only once evaluates at most one pool of
 # checks per tick. Rounds refill the slots that finished checks free, the way production's
@@ -92,13 +158,17 @@ ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # What the source needs from its binding's `evaluation_timeout`. The checks run side by side, so
 # the batch costs the admission rounds plus one check's budget, not one per check. The last check
 # can end while an earlier record still runs, so the tail holds two records and their failures,
-# or one record and the stop of a failed check's queries.
+# or one record and the stop of a failed check's queries. A firing's claim follows its record, and a
+# failed check claims nothing. A firing's inbox signal is sent beside its claim, within the claim and
+# metrics investigation's share.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
     + max(CHECK_SCHEDULE_TO_CLOSE, REAL_TIME_CHECK_SCHEDULE_TO_CLOSE)
-    + max(CHART_SCHEDULE_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
+    + max(CHART_START_TO_CLOSE, FAIL_SCHEDULE_TO_CLOSE)
     + RECORD_SCHEDULE_TO_CLOSE
+    + CLAIM_SCHEDULE_TO_CLOSE
+    + METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE
     + max(FAIL_SCHEDULE_TO_CLOSE + RECORD_SCHEDULE_TO_CLOSE, STOP_QUERIES_START_TO_CLOSE)
 )
 _PATCH_READMISSION = "platform-insight-readmission-2026-10"
@@ -115,6 +185,14 @@ _PATCH_CHART_AFTER_CHECK = "platform-insight-chart-after-check-2026-10"
 _PATCH_RECORD_AS_FINISHED = "platform-insight-record-as-finished-2026-10"
 # Runs started before it returned when their first round found the pool full, and replay must not poll.
 _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
+# Runs started before it claimed investigations after a record, and replay must not schedule a claim.
+_PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
+# Runs started before it ran metrics investigations after a claim, and replay must not schedule one.
+_PATCH_METRICS_INVESTIGATIONS = "platform-insight-metrics-investigations-2026-11"
+# Runs started before it emitted inbox signals after a record, and replay must not schedule one.
+_PATCH_FIRING_SIGNALS = "platform-insight-firing-signals-2026-11"
+# Runs started before it rendered a firing's chart again once the firing went out without it.
+_PATCH_LATE_CHART = "platform-insight-late-chart-2026-11"
 
 
 @frozen
@@ -139,6 +217,7 @@ class AdmittedInsightCheck:
 class InsightChartInputs:
     team_id: int
     alert_id: str
+    raise_on_failed_render: bool = False
 
 
 @frozen
@@ -157,6 +236,22 @@ class FailedInsightCheckInputs:
     configuration_id: str
     error_message: str
     error_type: str | None = None
+
+
+@frozen
+class ClaimInsightInvestigationsInputs:
+    team_id: int
+    outcomes: tuple[PlatformAlertOutcome, ...]
+
+
+@frozen
+class FiringSignalsInputs:
+    requests: tuple[FiringSignalRequest, ...]
+
+
+@frozen
+class MetricsInvestigationsInputs:
+    runs: tuple[MetricsInvestigationRun, ...]
 
 
 @frozen
@@ -337,10 +432,69 @@ def _release_platform_llm_check(thread: "asyncio.Future[SourceBatchEvaluation | 
 
 @activity.defn
 @close_db_connections
+def claim_platform_insight_investigations_activity(inputs: ClaimInsightInvestigationsInputs) -> InvestigationClaims:
+    """Claims the investigations recorded firings asked for. A retry gets the first claim's answer."""
+    from products.alerts.backend.platform_investigation import claim_requested_investigations  # noqa: PLC0415
+
+    return claim_requested_investigations(inputs.team_id, inputs.outcomes)
+
+
+@activity.defn
+@close_db_connections
+def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsInputs) -> list[AlertDeliveryRequest]:
+    """Runs the metrics investigations a claim granted, apart from the claim, so their queries never
+    hold back an agent's start. Releases each run's held firing, and returns the deliveries to start."""
+    from products.alerts.backend.platform_investigation import (
+        fail_unstarted_metrics_investigation,  # noqa: PLC0415
+        release_metrics_firing,  # noqa: PLC0415
+        run_metrics_investigation,  # noqa: PLC0415
+    )
+    from products.alerts.backend.platform_source_cycle import ClickHouseQuerySlot  # noqa: PLC0415
+
+    # Stops starting runs before the activity's own timeout, because Temporal does not stop a sync
+    # loop that outlives it. A run already started finishes its own queries.
+    deadline = time.monotonic() + (METRICS_INVESTIGATION_START_TO_CLOSE - METRICS_INVESTIGATION_MARGIN).total_seconds()
+    released: list[AlertDeliveryRequest] = []
+    for run in inputs.runs:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            fail_unstarted_metrics_investigation(run)
+        else:
+            # The slot wait counts against the same deadline, so a full ClickHouse budget cannot use up the activity.
+            slot = ClickHouseQuerySlot(f"metrics-investigation:{run.investigation_id}", wait_seconds=remaining)
+            run_metrics_investigation(run, query_slot=slot)
+        if request := release_metrics_firing(run):
+            released.append(request)
+    return released
+
+
+@activity.defn
+async def emit_platform_insight_firing_signals_activity(inputs: FiringSignalsInputs) -> None:
+    """Sends the inbox signals that recorded firings asked for, side by side. Each send gives up on
+    its own, and a failed one never touches the recorded firing."""
+    from posthog.sync import database_sync_to_async  # noqa: PLC0415
+    from posthog.temporal.alerts.alert_firing_signal import dispatch_alert_firing_signal  # noqa: PLC0415
+
+    from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals  # noqa: PLC0415
+
+    signals = await database_sync_to_async(prepare_platform_firing_signals, thread_sensitive=False)(inputs.requests)
+    # On the event loop, not in a thread: emit_signal needs the default executor.
+    await asyncio.gather(*(dispatch_alert_firing_signal(signal) for signal in signals))
+
+
+@activity.defn
+@close_db_connections
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
-    """Sync, because the render blocks for its whole duration. Only a full render pool raises, for a
-    retry. Any other failure sends the firing without a chart, as production does."""
-    from products.alerts.backend.platform_source_cycle import ChartRenderPoolFull, render_firing_chart  # noqa: PLC0415
+    """Sync, because the render blocks for its whole duration. A full render pool raises, for a retry, and
+    so does a failed or timed-out render the caller asked about. Any other failure sends the firing
+    without a chart, as production does."""
+    from posthog.tasks.alerts.utils import InsightChartRenderFailed  # noqa: PLC0415
+
+    from products.alerts.backend.platform_source_cycle import (  # noqa: PLC0415
+        ChartRenderPoolFull,
+        ChartRenderTimedOut,
+        render_firing_chart,
+    )
 
     try:
         # A slot of its own per attempt, so a timed-out attempt cannot release its retry's slot.
@@ -349,6 +503,16 @@ def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> Render
         )
     except ChartRenderPoolFull:
         raise
+    except ChartRenderTimedOut as error:
+        # A late render retries a timed-out export, which is the stall it exists for. Without one, a second
+        # render would hold the firing past its budget, so it is not retried.
+        raise ApplicationError(
+            "The chart render timed out", type=CHART_RENDER_TIMED_OUT, non_retryable=not inputs.raise_on_failed_render
+        ) from error
+    except InsightChartRenderFailed as error:
+        if inputs.raise_on_failed_render:
+            raise ApplicationError(str(error), type=CHART_RENDER_FAILED) from error
+        return None
     except Exception:
         activity.logger.exception(
             "Could not render a platform insight firing's chart", extra={"alert_id": inputs.alert_id}
@@ -368,6 +532,9 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
+        # A record's investigation claims and inbox signals, which the batch waits for before it ends.
+        self._after_record: list[asyncio.Task[None]] = []
+        self._late_charts: dict[str, str] = {}
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
         if workflow.patched(_PATCH_READMISSION):
@@ -405,22 +572,28 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
+        await asyncio.gather(*self._after_record)
         return len(outcomes)
 
     async def _with_charts(
         self, inputs: SourceEvaluationInputs, evaluations: list[SourceBatchEvaluation]
     ) -> list[SourceBatchEvaluation]:
         """Renders each firing's chart side by side. A render that fails leaves its firing without one,
-        as production sends a firing without its chart."""
+        as production sends a firing without its chart. A render that failed or ran out of time
+        renders again once its firing is recorded, and the chart is added to its Slack messages."""
         pending = [pending_chart_alert_id(evaluation) for evaluation in evaluations]
+        late = workflow.patched(_PATCH_LATE_CHART) if any(pending) else False
         rendered = await asyncio.gather(
             *(
                 workflow.execute_activity(
                     render_platform_insight_chart_activity,
-                    InsightChartInputs(team_id=inputs.batch_key.team_id, alert_id=alert_id),
+                    InsightChartInputs(
+                        team_id=inputs.batch_key.team_id, alert_id=alert_id, raise_on_failed_render=late
+                    ),
                     start_to_close_timeout=CHART_START_TO_CLOSE,
-                    schedule_to_close_timeout=CHART_SCHEDULE_TO_CLOSE,
-                    retry_policy=CHART_RETRY_POLICY,
+                    # A firing waits for one render at most, slot wait included, then goes without its chart.
+                    schedule_to_close_timeout=CHART_START_TO_CLOSE,
+                    retry_policy=ON_TIME_CHART_RETRY_POLICY if late else CHART_RETRY_POLICY,
                 )
                 for alert_id in pending
                 if alert_id is not None
@@ -436,6 +609,10 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
             chart = next(charts)
             if isinstance(chart, BaseException) and not isinstance(chart, ActivityError):
                 raise chart
+            safe_record(increment_chart_renders, SourceKind.INSIGHT.value, _render_outcome(chart))
+            if late and isinstance(chart, ActivityError):
+                for outcome in evaluation.outcomes:
+                    self._late_charts[str(outcome.configuration_id)] = alert_id
             result.append(with_chart(evaluation, chart if isinstance(chart, RenderedChart) else None))
         return result
 
@@ -482,14 +659,15 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                 heartbeat_timeout=REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
                 retry_policy=REAL_TIME_CHECK_RETRY_POLICY,
             )
-        # One attempt each. In a run that records as checks finish, a check that does not finish is
-        # recorded as errored. In an older run it leaves no outcome and keeps its due time.
+        # In a run that records as checks finish, a check whose every attempt fails is recorded as
+        # errored. In an older run it leaves no outcome and keeps its due time.
         return await workflow.execute_activity(
             evaluate_platform_insight_check_activity,
             check_inputs,
             start_to_close_timeout=CHECK_START_TO_CLOSE,
             schedule_to_close_timeout=CHECK_SCHEDULE_TO_CLOSE,
-            retry_policy=RetryPolicy(maximum_attempts=1),
+            heartbeat_timeout=CHECK_HEARTBEAT_TIMEOUT,
+            retry_policy=CHECK_RETRY_POLICY,
         )
 
     async def _plan_round(
@@ -597,6 +775,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)
+                await asyncio.gather(*self._after_record)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -751,14 +930,122 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # Started only after the record, because a delivery reads the history row the record writes.
         recorded = {str(outcome.configuration_id) for outcome in chunk}
         await start_deliveries([delivery for delivery in deliveries if delivery.configuration_id in recorded])
+        # After the deliveries, so the late chart finds the messages it edits on their way.
+        late_charts = [
+            LateChartInputs(
+                team_id=inputs.batch_key.team_id,
+                alert_id=self._late_charts.pop(configuration_id),
+                deliveries=tuple(d for d in deliveries if d.configuration_id == configuration_id),
+            )
+            for configuration_id in sorted(recorded & self._late_charts.keys())
+        ]
+        await asyncio.gather(*(self._start_late_chart(late) for late in late_charts if late.deliveries))
+        investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
+        if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
+            # A task, so a slow claim holds back only the firings it holds, not the next record or round.
+            self._after_record.append(asyncio.create_task(self._investigate(inputs, investigated)))
+        signals = requested_firing_signals(inputs.batch_key.team_id, chunk)
+        if workflow.patched(_PATCH_FIRING_SIGNALS) and signals:
+            # Beside the claim and inside its share of the budget, so a slow send holds back nothing.
+            self._after_record.append(asyncio.create_task(self._emit_firing_signals(signals)))
+
+    async def _emit_firing_signals(self, requests: tuple[FiringSignalRequest, ...]) -> None:
+        try:
+            await workflow.execute_activity(
+                emit_platform_insight_firing_signals_activity,
+                FiringSignalsInputs(requests=requests),
+                start_to_close_timeout=ALERT_SIGNAL_START_TO_CLOSE,
+                schedule_to_close_timeout=ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+                retry_policy=ALERT_SIGNAL_RETRY_POLICY,
+            )
+        except ActivityError:
+            # The signals are best effort. Their failure must not fail a batch whose firings already went out.
+            workflow.logger.warning("Could not emit the inbox signals of recorded platform insight firings")
+
+    async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
+        claims = await self._claim_investigations(inputs, outcomes)
+        await asyncio.gather(*(self._start_investigation(start) for start in claims.starts))
+        await start_deliveries(list(claims.deliveries))
+        if workflow.patched(_PATCH_METRICS_INVESTIGATIONS) and claims.metrics:
+            try:
+                released = await workflow.execute_activity(
+                    run_platform_metrics_investigations_activity,
+                    MetricsInvestigationsInputs(runs=claims.metrics),
+                    start_to_close_timeout=METRICS_INVESTIGATION_START_TO_CLOSE,
+                    schedule_to_close_timeout=METRICS_INVESTIGATION_SCHEDULE_TO_CLOSE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                )
+            except ActivityError:
+                # The held firings go out at their hold's deadline, and the rows stay in flight until the horizon passes.
+                workflow.logger.warning("Could not run the metrics investigations of platform insight firings")
+            else:
+                await start_deliveries(released)
+
+    async def _claim_investigations(
+        self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]
+    ) -> InvestigationClaims:
+        try:
+            return await workflow.execute_activity(
+                claim_platform_insight_investigations_activity,
+                ClaimInsightInvestigationsInputs(team_id=inputs.batch_key.team_id, outcomes=outcomes),
+                start_to_close_timeout=CLAIM_START_TO_CLOSE,
+                schedule_to_close_timeout=CLAIM_SCHEDULE_TO_CLOSE,
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except ActivityError:
+            # The outcomes are recorded, so a failure here must not record them again. Each held
+            # firing goes out at its hold's deadline, uninvestigated, as a firing whose agent never ran.
+            workflow.logger.warning("Could not claim the investigations of recorded platform insight firings")
+            return InvestigationClaims()
+
+    async def _start_late_chart(self, late: LateChartInputs) -> None:
+        try:
+            await workflow.start_child_workflow(
+                LATE_CHART_WORKFLOW,
+                late,
+                id=f"{LATE_CHART_WORKFLOW}-{late.deliveries[0].configuration_id}-{late.deliveries[0].evaluation_key}",
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                execution_timeout=late_chart_execution_timeout(late),
+            )
+        except WorkflowAlreadyStartedError:
+            pass
+
+    async def _start_investigation(self, start: InvestigationStart) -> None:
+        try:
+            await workflow.start_child_workflow(
+                "anomaly-investigation",
+                start.workflow_inputs(),
+                id=start.workflow_id,
+                task_queue=settings.MAX_AI_TASK_QUEUE,
+                parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+            )
+        except WorkflowAlreadyStartedError:
+            # A retried record claims again and gets the same investigation back.
+            pass
+
+
+def _render_outcome(chart: object) -> "ChartRenderOutcome":
+    """How a firing's render ended. The firing goes out either way, so only this shows lost charts.
+
+    `timed_out` covers a render that overran and one that never got a slot; `no_chart` a render that
+    failed or had no render user.
+    """
+    if isinstance(chart, RenderedChart):
+        return "rendered"
+    if isinstance(chart, ActivityError) and not _render_failed(chart):
+        return "timed_out"
+    return "no_chart"
+
+
+def _render_failed(error: ActivityError) -> bool:
+    return isinstance(error.cause, ApplicationError) and error.cause.type == CHART_RENDER_FAILED
 
 
 def _maximum_attempts(check: AdmittedInsightCheck) -> int:
-    if check.uses_llm_detector:
-        return LLM_CHECK_RETRY_POLICY.maximum_attempts
-    if check.real_time:
+    # `_check` sends an AI detector check to its own queue under the default policy, whatever its cadence.
+    if check.real_time and not check.uses_llm_detector:
         return REAL_TIME_CHECK_RETRY_POLICY.maximum_attempts
-    return 1
+    return CHECK_RETRY_POLICY.maximum_attempts
 
 
 PLATFORM_EVALUATION_WORKFLOWS = [InsightAlertPlatformEvaluateWorkflow]
@@ -770,6 +1057,9 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     plan_platform_insight_checks_activity,
     evaluate_platform_insight_check_activity,
     render_platform_insight_chart_activity,
+    claim_platform_insight_investigations_activity,
+    run_platform_metrics_investigations_activity,
+    emit_platform_insight_firing_signals_activity,
     fail_platform_insight_check_activity,
     stop_platform_insight_queries_activity,
 ]

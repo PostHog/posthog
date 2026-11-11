@@ -2,8 +2,9 @@ import json
 import base64
 from typing import Any, cast
 
-from google.genai.types import Blob, Content, ContentListUnion, FunctionCall, FunctionResponse, Part
+from google.genai.types import Blob, Content, ContentListUnion, FileData, FunctionCall, FunctionResponse, Part
 
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.providers.formatters.anthropic_typeguards import (
     is_base64_image_param,
     is_image_block_param,
@@ -84,6 +85,12 @@ def _tool_response_payload(content: Any, *, is_error: bool = False) -> dict[str,
     return value if isinstance(value, dict) else {"result": value}
 
 
+def _gemini_attachment_part(image: AttachmentPart) -> Part:
+    if image.url is not None:
+        return Part(file_data=FileData(file_uri=image.url, mime_type=image.mime_type))
+    return Part(inline_data=Blob(data=image.data or b"", mime_type=image.mime_type))
+
+
 def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> ContentListUnion:
     contents: list[Content] = []  # Sticking to Content, as we don't support other formats yet
     # Gemini keys a function response by function name, but Anthropic-style tool_result
@@ -96,7 +103,9 @@ def convert_anthropic_messages_to_gemini(messages: list[dict[str, Any]]) -> Cont
             parts.append(Part(text=message["content"]))
         elif isinstance(message["content"], list):
             for block in message["content"]:
-                if is_text_block_param(block):
+                if isinstance(block, AttachmentPart):
+                    parts.append(_gemini_attachment_part(block))
+                elif is_text_block_param(block):
                     parts.append(Part(text=block["text"]))
                 elif is_image_block_param(block):
                     if not is_base64_image_param(block["source"]):

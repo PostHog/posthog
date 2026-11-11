@@ -55,6 +55,18 @@ function captureFileUploadFailed(format: FileUploadFormat, stage: FileUploadStag
     })
 }
 
+export const FILE_UPLOAD_TOO_LARGE_MESSAGE =
+    'This file is too large to upload. Split it into smaller files, or connect the bucket it lives in with a storage source such as Amazon S3.'
+
+// A 413 comes from the gateway in front of the API, before our size check runs, so its body has
+// no message of ours and the generic fallback would show the request path and status instead.
+export function fileUploadErrorMessage(error: any, fallback: string): string {
+    if (error?.status === 413) {
+        return FILE_UPLOAD_TOO_LARGE_MESSAGE
+    }
+    return error?.data?.message ?? error?.detail ?? error?.message ?? fallback
+}
+
 function fileExtension(filename: string): string {
     const match = /\.([^.]+)$/.exec(filename.toLowerCase())
     return match ? match[1] : ''
@@ -113,7 +125,7 @@ export function fileUploadFormErrors({
         files: !file
             ? 'Please choose a file to upload.'
             : file.size > MAX_FILE_UPLOAD_SIZE_BYTES
-              ? 'This file is larger than 50MB. For bigger files, connect the bucket they live in as a self-managed source instead.'
+              ? 'This file is larger than 50MB. For bigger files, connect the bucket they live in with the Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2 source instead.'
               : file_format
                 ? fileFormatMismatchError(file.name, file_format)
                 : undefined,
@@ -263,7 +275,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 table_name: '',
                 file_format: parseFileUploadFormat(router.values.searchParams.format) ?? 'csv',
             } as FileUploadForm,
-            errors: fileUploadFormErrors,
+            errors: (form) => fileUploadFormErrors(form),
             submit: async ({ files, table_name, file_format }) => {
                 const file = files[0]
                 // The form's `errors` already block submission, but a stale/oversized file can only
@@ -293,7 +305,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                     })
                 } catch (e: any) {
                     captureFileUploadFailed(file_format, 'upload', e)
-                    lemonToast.error(e.data?.message ?? e.message ?? 'Could not upload the file.')
+                    lemonToast.error(fileUploadErrorMessage(e, 'Could not upload the file.'))
                     return
                 }
 

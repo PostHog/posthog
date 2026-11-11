@@ -1,5 +1,5 @@
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { useNotebookJupyterCommands, useNotebookJupyterStoreValue } from 'lib/components/MarkdownNotebook/jupyterMode'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { HotKeyOrModifier } from '~/types'

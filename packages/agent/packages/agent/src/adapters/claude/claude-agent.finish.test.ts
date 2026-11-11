@@ -33,6 +33,7 @@ const API_CONFIG: PostHogAPIConfig = {
 type RequestFinish = (
   status: "completed" | "failed",
   message?: string,
+  report?: string,
 ) => Promise<void>;
 
 function buildRequestFinish(
@@ -90,6 +91,16 @@ describe("ClaudeAcpAgent.buildRequestFinish", () => {
     expect(mocks.constructedConfigs).toEqual([API_CONFIG]);
     expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
       status: "completed",
+    });
+  });
+
+  it("saves the report as the run's final message", async () => {
+    const requestFinish = buildRequestFinish(API_CONFIG, "task-1", "run-1");
+    await requestFinish?.("completed", undefined, "Opened 2 draft PRs");
+
+    expect(mocks.updateTaskRun).toHaveBeenCalledWith("task-1", "run-1", {
+      status: "completed",
+      output: { final_message: "Opened 2 draft PRs" },
     });
   });
 

@@ -28,6 +28,15 @@ Remaining named harnesses use brand colors or stable palette colors.
 PostHog assigns each call a harness from the client identity captured with it: the vendor header, the User-Agent, and the client name.
 [How the harness label is resolved](/docs/mcp-analytics/events#how-the-harness-label-is-resolved) lists the order PostHog checks them in, and what to check if most calls land in **Other harnesses**.
 
+## Name your own harnesses
+
+To name an in-house harness, go to **Settings > Environment > MCP analytics > Custom harnesses**. Add a name and the text to look for in the client name or User-Agent product that the harness reports. Matching ignores case and finds the text anywhere in the name. Your custom names are checked before the built-in ones. When the text of two custom harnesses matches, the longer text wins, so `acme-agent` takes priority over `acme`. Each project can have up to 20.
+
+The custom name shows wherever harness names show, including the harness share card, the activity views, and `properties.$virt_mcp_harness` in SQL. Harness names are cached, so a change can take a few minutes to appear.
+A SQL query or insight that already has cached results keeps the old name until those results refresh.
+
+You can also give a custom harness an icon. Paste a PNG, GIF or WebP image with a transparent background as a data URI, up to 16 KB and 256 by 256 pixels. The icon shows in one color, like the built-in harness logos, so it stays visible in light and dark themes. An image without a transparent background can't be saved, because it would show as a solid square.
+
 ## Harness labels in SQL
 
 `properties.$virt_mcp_harness` returns the resolved harness label as a string on MCP events, and `NULL` on other events.

@@ -6,6 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.models import Team
 
@@ -42,7 +43,7 @@ def fetch_session_group_keys(*, team: Team, session_id: str, start: dt.datetime,
             "end": ast.Constant(value=end + _TIMESTAMP_SLACK),
         },
     )
-    response = execute_hogql_query(query=query, team=team)
+    response = execute_hogql_query(query=query, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     if not response.results:
         return {}
     row = response.results[0]
@@ -68,7 +69,7 @@ def fetch_group_display_names(*, team: Team, group_keys: dict[int, str]) -> dict
         "SELECT index, key, properties.name AS name FROM groups WHERE (index, key) IN {pairs}",
         placeholders={"pairs": pairs},
     )
-    response = execute_hogql_query(query=query, team=team)
+    response = execute_hogql_query(query=query, team=team, ch_user=ClickHouseUser.REPLAY_VISION)
     names: dict[int, str] = {}
     for index, _key, name in response.results or []:
         cleaned = clean_identity_value(name)

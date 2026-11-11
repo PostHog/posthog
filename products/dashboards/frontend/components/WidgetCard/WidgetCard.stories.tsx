@@ -107,6 +107,7 @@ export const Loading: Story = {
         loading: true,
         body: <WidgetLoadingState />,
     },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const Locked: Story = {

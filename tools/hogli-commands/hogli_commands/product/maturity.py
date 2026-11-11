@@ -623,9 +623,8 @@ def score_boundaries(
             score += 5
             parts.append("tach (no interfaces)")
             next_steps.append(
-                f'Add `interfaces = ["products.{name}.backend.facade.*", '
-                f'"products.{name}.backend.presentation.*"]` to the [[modules]] entry in '
-                f"tach.toml so tach enforces what's public."
+                f"Add {name} to the `from` regex of the shared [[interfaces]] block in tach.toml that "
+                f"exposes `backend.facade.*` and `backend.presentation.views.*`, so tach enforces what's public."
             )
 
         # Cross-product depends_on: each one is an explicit coupling
@@ -645,8 +644,9 @@ def score_boundaries(
     else:
         parts.append("not in tach.toml")
         next_steps.append(
-            f"Add a [[modules]] entry for products.{name} to tach.toml with explicit "
-            f"`depends_on` and `interfaces`. Without it, tach won't catch boundary regressions."
+            f"Add a [[modules]] entry for products.{name} to tach.toml with an explicit "
+            f"`depends_on`, and name it in an [[interfaces]] block. Without them, tach won't catch "
+            f"boundary regressions."
         )
 
     # Outbound: this product importing other products' internals

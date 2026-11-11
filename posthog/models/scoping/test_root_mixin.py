@@ -9,16 +9,24 @@ save() rewrite from the parent — and that the CI introspection (which is
 an isinstance check on the manager named `objects` in `_meta.managers_map`)
 recognises all three adoption styles: the two mixins and an ad-hoc
 `objects = TeamScopedManager()`.
+
+`TestRootTeamMixinSave` covers when `RootTeamMixin.save()` rewrites a child team to its parent.
 """
 
 from types import SimpleNamespace
 
+from posthog.test.base import BaseTest
+
 from django.db import models
 from django.test import SimpleTestCase
+
+from parameterized import parameterized
 
 from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.scoping.product_mixin import ProductTeamModel
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.team import Team
+from posthog.models.user_home_settings import UserHomeSettings
 from posthog.models.utils import RootTeamManager, RootTeamMixin
 
 
@@ -85,3 +93,40 @@ class TestFailClosedIntrospection(SimpleTestCase):
             )
         )
         self.assertFalse(self._objects_is_team_scoped(stub))  # type: ignore[arg-type]
+
+
+class TestRootTeamMixinSave(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Environment")
+
+    def test_insert_on_a_child_team_stores_the_parent(self) -> None:
+        home = UserHomeSettings.objects.create(team=self.child, user=self.user)
+
+        assert home.team_id == self.team.id
+
+    @parameterized.expand(
+        [
+            ("full_save", None),
+            ("team_in_update_fields", ["team"]),
+            ("team_id_in_update_fields", ["team_id"]),
+        ]
+    )
+    def test_save_that_writes_the_team_stores_the_parent(self, _name: str, update_fields: list[str] | None) -> None:
+        home = UserHomeSettings.objects.create(team=self.team, user=self.user)
+        home.team = self.child
+
+        home.save(update_fields=update_fields)
+
+        assert UserHomeSettings.objects.get(pk=home.pk).team_id == self.team.id
+
+    @parameterized.expand([("list", lambda: ["tabs"]), ("iterator", lambda: iter(["tabs"]))])
+    def test_partial_update_without_the_team_does_not_load_it(self, _name: str, update_fields) -> None:
+        created = UserHomeSettings.objects.create(team=self.team, user=self.user)
+        home = UserHomeSettings.objects.get(pk=created.pk)
+        home.tabs = [{"id": "home"}]
+
+        home.save(update_fields=update_fields())
+
+        assert not UserHomeSettings.team.is_cached(home)
+        assert UserHomeSettings.objects.get(pk=home.pk).tabs == [{"id": "home"}]

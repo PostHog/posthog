@@ -11,6 +11,7 @@ from rest_framework.request import Request
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX, INTEGER_FIELD_MIN
 from posthog.permissions import get_authenticator_scopes
 
 from products.autoresearch.backend.facade import api
@@ -26,6 +27,7 @@ from products.autoresearch.backend.facade.contracts import (
     Pipeline,
     PipelineWrite,
     PredictionCoverage,
+    ProjectLimits,
     RealizedAucPoint,
     Run,
     Suggestion,
@@ -44,6 +46,7 @@ MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
 BASE_RATE_SOURCE_CHOICES = api.BASE_RATE_SOURCE_CHOICES
+LIMIT_SOURCE_CHOICES = api.LIMIT_SOURCE_CHOICES
 TRAINING_RUN_STATUS_CHOICES = api.TRAINING_RUN_STATUS_CHOICES
 KICKOFF_REASON_CHOICES = api.KICKOFF_REASON_CHOICES
 RESEARCH_INTERVAL_DAYS_CHOICES = api.RESEARCH_INTERVAL_DAYS_CHOICES
@@ -641,14 +644,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         help_text='Resolved target definition: {"type": "event"} or {"type": "action", "action_id": N}.'
     )
     horizon_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Prediction horizon in days. The model predicts whether the target event occurs within this window.",
     )
     training_lookback_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="How far back to look for training examples. Larger windows give more data but may include stale behavior.",
     )
@@ -659,14 +662,14 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
         help_text="Population scored daily. Typically broader than the training population."
     )
     cadence_days = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Re-score the inference population every N days.",
     )
     iteration_budget = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Deprecated: scheduled training no longer reads it. Use iterations_per_run.",
     )
@@ -728,14 +731,22 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "Null when research_interval_days is null."
         ),
     )
+    not_promoted_reason = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Why the best model of the newest completed training run did not go live, for example a failed fit "
+            "or a failed scorability check. Set only while the pipeline is bootstrapping with no champion."
+        ),
+    )
     success_auc = serializers.FloatField(
         required=False,
         allow_null=True,
         help_text="Target AUC threshold. Training stops early if this score is reached.",
     )
     plateau_iterations = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Stop training if no AUC improvement is seen in this many consecutive iterations.",
     )
@@ -864,6 +875,7 @@ class AutoresearchPipelineSerializer(DataclassSerializer):
             "effective_agent_reasoning_effort",
             "training_phase",
             "next_research_at",
+            "not_promoted_reason",
             "success_auc",
             "plateau_iterations",
             "output_person_property",
@@ -997,7 +1009,7 @@ class AutoresearchPipelineCreateSerializer(DataclassSerializer):
     plateau_iterations = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text="Stop training if no improvement in this many consecutive iterations (at least 1). Default: 10.",
     )
     output_person_property = serializers.CharField(
@@ -1338,7 +1350,9 @@ class IterationTrailSerializer(DataclassSerializer):
     """Compact, read-only view of one iteration for the cross-run history feed and the Training tab."""
 
     iteration_number = serializers.IntegerField(
-        min_value=-2147483648, max_value=2147483647, help_text="Order of this attempt within its run (0-based)."
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
+        help_text="Order of this attempt within its run (0-based).",
     )
     status = serializers.ChoiceField(
         choices=ITERATION_STATUS_CHOICES,
@@ -1447,8 +1461,8 @@ class AutoresearchTrainingRunSerializer(DataclassSerializer):
         help_text="Reasoning effort the training agent ran at. Null for older runs, runs with no task, and models with no effort setting.",
     )
     iteration_budget = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         help_text="Maximum iterations allowed for this run.",
     )
@@ -1529,8 +1543,8 @@ class AutoresearchIterationSerializer(DataclassSerializer):
     pipeline = serializers.UUIDField()
     training_run = serializers.UUIDField()
     iteration_number = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
     )
     recipe_hash = serializers.CharField(max_length=64)
     recipe_snapshot = IterationRecipeField(
@@ -1861,8 +1875,8 @@ class AutoresearchRunSerializer(DataclassSerializer):
         help_text="Run status: pending, running, completed, or failed.",
     )
     rows_scored = serializers.IntegerField(
-        min_value=-2147483648,
-        max_value=2147483647,
+        min_value=INTEGER_FIELD_MIN,
+        max_value=INTEGER_FIELD_MAX,
         required=False,
         allow_null=True,
         help_text="Number of users scored in this inference run.",
@@ -2017,9 +2031,80 @@ class StartTrainingRequestSerializer(serializers.Serializer):
     iteration_budget = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=500,
-        help_text="Iterations for this training run. Defaults to the pipeline's iterations_per_run.",
+        max_value=50,
+        help_text=(
+            "Iterations for this training run. Defaults to the pipeline's iterations_per_run. "
+            "The project's iteration limit per run can lower it."
+        ),
     )
+
+
+class TrainingRunCapReachedSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Why the run did not start.")
+    used = serializers.IntegerField(
+        help_text="Sandbox training runs the project started that count against its daily limit, across all its pipelines."
+    )
+    limit = serializers.IntegerField(help_text="The project's daily limit of sandbox training runs.")
+    next_slot_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text="When the next training run can start. Null when training runs are turned off for the project.",
+    )
+
+
+def _limit_source_field(limit: str) -> serializers.ChoiceField:
+    return serializers.ChoiceField(
+        choices=LIMIT_SOURCE_CHOICES,
+        help_text=(
+            f"Where {limit} comes from. project: an override for this project. default: the fleet-wide default. "
+            "code: the built-in default, because no override is set or no override was readable."
+        ),
+    )
+
+
+class ProjectLimitsSerializer(DataclassSerializer):
+    max_training_runs_per_day = serializers.IntegerField(
+        help_text="The project's daily limit of sandbox training runs, across all its pipelines. 0 means training is turned off."
+    )
+    training_runs_used = serializers.IntegerField(
+        help_text="Sandbox training runs the project started that count against its daily limit, across all its pipelines."
+    )
+    next_slot_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When the next training run can start, while the project is at its daily limit. "
+            "Null while a run can start now, and when training is turned off."
+        ),
+    )
+    max_iterations_per_run = serializers.IntegerField(
+        help_text="Most experiments any one training run gets. A pipeline's iterations_per_run above this is lowered to it."
+    )
+    max_live_pipelines = serializers.IntegerField(
+        help_text=(
+            "Most pipelines the project may have live (bootstrapping, running or converged, or a draft with an open "
+            "training run, which goes live when the run promotes). Starting a draft's first training run or "
+            "resuming a paused pipeline is refused at this limit."
+        )
+    )
+    live_pipelines = serializers.IntegerField(
+        help_text=("Pipelines that count against max_live_pipelines now. Can exceed it if the limit was lowered.")
+    )
+    max_training_runs_per_day_source = _limit_source_field("max_training_runs_per_day")
+    max_iterations_per_run_source = _limit_source_field("max_iterations_per_run")
+    max_live_pipelines_source = _limit_source_field("max_live_pipelines")
+
+    class Meta:
+        dataclass = ProjectLimits
+        fields = [
+            "max_training_runs_per_day",
+            "training_runs_used",
+            "next_slot_at",
+            "max_iterations_per_run",
+            "max_live_pipelines",
+            "live_pipelines",
+            "max_training_runs_per_day_source",
+            "max_iterations_per_run_source",
+            "max_live_pipelines_source",
+        ]
 
 
 # ── Agent-recorded training serializers ────────────────────────────────────
@@ -2041,7 +2126,7 @@ class RecordIterationSerializer(serializers.Serializer):
 
     iteration_number = serializers.IntegerField(
         min_value=0,
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text="Zero-based index of this iteration within the run. Re-sending the same number updates that iteration (idempotent).",
     )
     recipe_snapshot = IterationRecipeField(

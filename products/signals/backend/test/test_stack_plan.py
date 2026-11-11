@@ -11,6 +11,8 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import (
     PullRequestLink,
+    ReviewerProposal,
+    ReviewerState,
     SafetyJudgment,
     SuggestedReviewerEntry,
     SuggestedReviewers,
@@ -202,20 +204,27 @@ class TestStackPlan(BaseTest):
 
     @parameterized.expand(
         [
-            ("pipeline_list_is_inherited", False, 3),
-            ("user_edited_list_is_not_inherited", True, 0),
+            ("pipeline_list_is_inherited", False, False, 3),
+            ("pipeline_list_is_inherited_by_the_writer", False, True, 3),
+            ("user_edited_list_is_not_inherited", True, False, 0),
         ]
     )
-    def test_layers_inherit_only_a_pipeline_reviewer_list(self, _name: str, edited_by_user: bool, expected: int):
-        SignalReportArtefact.append_status(
-            team_id=self.team.id,
-            report_id=str(self.parent.id),
-            content=SuggestedReviewers(root=[SuggestedReviewerEntry(github_login="octocat")]),
-            attribution=ArtefactAttribution.from_user(self.user.id) if edited_by_user else ArtefactAttribution.system(),
-            reevaluate_autostart=False,
-        )
+    def test_layers_inherit_only_a_pipeline_reviewer_list(
+        self, _name: str, edited_by_user: bool, writer_enabled: bool, expected: int
+    ):
+        with patch("products.signals.backend.reviewer_rules.assignment_writer_enabled", return_value=writer_enabled):
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=str(self.parent.id),
+                content=SuggestedReviewers(root=[SuggestedReviewerEntry(user_uuid=str(self.user.uuid))]),
+                attribution=ArtefactAttribution.from_user(self.user.id)
+                if edited_by_user
+                else ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+                reviewer_proposal=ReviewerProposal(expected_state=ReviewerState()),
+            )
 
-        child_ids = self._create_layers()
+            child_ids = self._create_layers()
 
         inherited = SignalReportArtefact.objects.filter(
             report_id__in=child_ids, type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS

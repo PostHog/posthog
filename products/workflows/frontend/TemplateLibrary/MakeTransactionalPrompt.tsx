@@ -5,19 +5,24 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { messageTemplateLogic } from './messageTemplateLogic'
 import { MessageTemplateSceneLogicProps } from './messageTemplateSceneLogic'
 
-export function MakeTransactionalPrompt(props: MessageTemplateSceneLogicProps): JSX.Element {
+export function MakeTransactionalPrompt({
+    editDisabledReason,
+    ...props
+}: MessageTemplateSceneLogicProps & { editDisabledReason?: string }): JSX.Element {
     const logic = messageTemplateLogic(props)
     const { template, templateChanged, isMakingTransactional } = useValues(logic)
     const { makeTransactional } = useActions(logic)
 
     const email = template.content.email
-    const disabledReason = templateChanged
-        ? 'Save your changes first'
-        : !email?.subject
-          ? 'Add a subject first'
-          : !(email.html || email.text)
-            ? 'Add a body first'
-            : undefined
+    const disabledReason =
+        editDisabledReason ??
+        (templateChanged
+            ? 'Save your changes first'
+            : !email?.subject
+              ? 'Add a subject first'
+              : !(email.html || email.text)
+                ? 'Add a body first'
+                : undefined)
 
     return (
         <div className="flex flex-col gap-4 max-w-200" data-attr="make-transactional-prompt">

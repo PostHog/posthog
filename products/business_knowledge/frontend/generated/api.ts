@@ -12,6 +12,7 @@ import type {
     BusinessKnowledgeDocumentsSearchListParams,
     BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeGapSuggestionsListParams,
+    BusinessKnowledgePlaygroundChatsListParams,
     BusinessKnowledgeRepositoriesFileRetrieveParams,
     BusinessKnowledgeRepositoriesSearchParams,
     BusinessKnowledgeSettingsApi,
@@ -22,6 +23,7 @@ import type {
     GapActionApi,
     GapTopicActionApi,
     GapTopicActionResultApi,
+    KnowledgeAvailabilityApi,
     KnowledgeDocumentWindowApi,
     KnowledgeGapSuggestionApi,
     KnowledgeLibraryApi,
@@ -31,11 +33,11 @@ import type {
     PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
+    PaginatedPlaygroundChatListListApi,
     PatchedBusinessKnowledgeSettingsUpdateApi,
     PatchedKnowledgeLibraryUpdateApi,
     PatchedUpdateTextSourceApi,
     PlaygroundChatApi,
-    PlaygroundChatListApi,
     RepositoryConnectApi,
     RepositoryConnectionApi,
     RepositoryFileApi,
@@ -265,6 +267,24 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     })
 }
 
+export const getBusinessKnowledgeLearningBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/learning_backfill/`
+}
+
+/**
+ * Start learning from resolved support tickets of the last 90 days. Tickets that were already analyzed are skipped. The work runs in the background in small batches and can take a few hours.
+ * @summary Learn from past support tickets
+ */
+export const businessKnowledgeLearningBackfillCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BusinessKnowledgeSettingsApi> => {
+    return apiMutator<BusinessKnowledgeSettingsApi>(getBusinessKnowledgeLearningBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getBusinessKnowledgeLibrariesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/business_knowledge/libraries/`
 }
@@ -362,8 +382,23 @@ export const businessKnowledgeLibrariesDestroy = async (
     })
 }
 
-export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/business_knowledge/playground/chats/`
+export const getBusinessKnowledgePlaygroundChatsListUrl = (
+    projectId: string,
+    params?: BusinessKnowledgePlaygroundChatsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/playground/chats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/playground/chats/`
 }
 
 /**
@@ -372,12 +407,16 @@ export const getBusinessKnowledgePlaygroundChatsListUrl = (projectId: string) =>
  */
 export const businessKnowledgePlaygroundChatsList = async (
     projectId: string,
+    params?: BusinessKnowledgePlaygroundChatsListParams,
     options?: RequestInit
-): Promise<PlaygroundChatListApi[]> => {
-    return apiMutator<PlaygroundChatListApi[]>(getBusinessKnowledgePlaygroundChatsListUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedPlaygroundChatListListApi> => {
+    return apiMutator<PaginatedPlaygroundChatListListApi>(
+        getBusinessKnowledgePlaygroundChatsListUrl(projectId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getBusinessKnowledgePlaygroundChatsCreateUrl = (projectId: string) => {
@@ -844,4 +883,22 @@ export const businessKnowledgeSourcesTextRetrieve = async (
             method: 'GET',
         }
     )
+}
+
+export const getBusinessKnowledgeSourcesAvailabilityRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/sources/availability/`
+}
+
+/**
+ * Whether the project has any source and whether this environment has any selected GitHub repository.
+ * @summary Check whether business knowledge has content
+ */
+export const businessKnowledgeSourcesAvailabilityRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<KnowledgeAvailabilityApi> => {
+    return apiMutator<KnowledgeAvailabilityApi>(getBusinessKnowledgeSourcesAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
 }

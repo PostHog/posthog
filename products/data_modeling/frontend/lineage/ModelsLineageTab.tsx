@@ -1,29 +1,21 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
-import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect'
 import { pluralize } from 'lib/utils/strings'
-
-import { DataModelingNodeType } from '~/types'
 
 import { LineageGraph } from './LineageGraph'
 import { lineageNodeUrl } from './lineageNodeUrl'
 import { LineageSearchResults } from './LineageSearchResults'
-import { LINEAGE_FILTER_TYPES, modelsLineageLogic } from './modelsLineageLogic'
-import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
+import { LineageTypeFilter } from './LineageTypeFilter'
+import { modelsLineageLogic } from './modelsLineageLogic'
 import { NodeTypeLegend } from './NodeTypeLegend'
 import { SEARCH_SYNTAX_HELP } from './SearchSyntaxHelp'
-
-const TYPE_OPTIONS = LINEAGE_FILTER_TYPES.map((type) => ({
-    key: type,
-    label: NODE_TYPE_TAG_SETTINGS[type].label,
-}))
+import { useLineageSearchInput } from './useLineageSearchInput'
 
 export function ModelsLineageTab(): JSX.Element {
-    const searchInputRef = useRef<HTMLInputElement>(null)
+    const { searchInputRef, onSearchKeyDown, onSelectResult, onPreviousResult, onNextResult } = useLineageSearchInput()
     const {
         nodes,
         nodesLoading,
@@ -41,31 +33,13 @@ export function ModelsLineageTab(): JSX.Element {
         searchFocusRequest,
         focusNodeIds,
         visibleNodes,
+        graphNodes,
         visibleEdges,
         isFiltered,
         nodePositions,
     } = useValues(modelsLineageLogic)
-    const {
-        setSearchTerm,
-        setDebouncedSearchTerm,
-        setTypeFilter,
-        moveSearchResult,
-        focusSearchResult,
-        toggleLegendCollapsed,
-        resetFilters,
-        nodeDragStopped,
-        resetNodePositions,
-    } = useActions(modelsLineageLogic)
-
-    const focusSearchInput = (): void => {
-        const input = searchInputRef.current
-        input?.focus()
-        const trimmedSearchTerm = searchTerm.trimEnd()
-        if (input && trimmedSearchTerm.length > 1 && trimmedSearchTerm.endsWith('+')) {
-            const trailingSelectorPosition = trimmedSearchTerm.length - 1
-            input.setSelectionRange(trailingSelectorPosition, trailingSelectorPosition)
-        }
-    }
+    const { setSearchTerm, setTypeFilter, toggleLegendCollapsed, resetFilters, nodeDragStopped, resetNodePositions } =
+        useActions(modelsLineageLogic)
 
     return (
         <div className="flex flex-col gap-2">
@@ -78,45 +52,14 @@ export function ModelsLineageTab(): JSX.Element {
                     inputRef={searchInputRef}
                     value={searchTerm}
                     onChange={setSearchTerm}
-                    onKeyDown={(event) => {
-                        if (
-                            showSearchResults &&
-                            searchResults.length > 0 &&
-                            (event.key === 'ArrowUp' || event.key === 'ArrowDown')
-                        ) {
-                            event.preventDefault()
-                            // Focus stays in the input here, so there is nothing to restore. Calling
-                            // focusSearchInput would move the caret away from where the user put it.
-                            moveSearchResult(event.key === 'ArrowUp' ? 'previous' : 'next', false)
-                        } else if (event.key === 'Enter' && selectedSearchResult) {
-                            event.preventDefault()
-                            focusSearchResult(selectedSearchResult.id, 'keyboard')
-                            focusSearchInput()
-                        } else if (event.key === 'Escape' && searchTerm) {
-                            event.preventDefault()
-                            setSearchTerm('')
-                            setDebouncedSearchTerm('')
-                        }
-                    }}
+                    onKeyDown={onSearchKeyDown}
                     className="w-72"
                     data-attr="models-lineage-search"
                 />
                 <Tooltip title={SEARCH_SYNTAX_HELP}>
                     <IconInfo className="text-base text-secondary" />
                 </Tooltip>
-                <div className="w-44">
-                    <LemonInputSelect
-                        mode="multiple"
-                        size="small"
-                        placeholder="All types"
-                        options={TYPE_OPTIONS}
-                        value={typeFilter}
-                        onChange={(value) => setTypeFilter(value as DataModelingNodeType[])}
-                        displayMode="count"
-                        bulkActions="select-and-clear-all"
-                        data-attr="models-lineage-type-filter"
-                    />
-                </div>
+                <LineageTypeFilter value={typeFilter} onChange={setTypeFilter} dataAttr="models-lineage-type-filter" />
                 {isFiltered && (
                     <>
                         <span className="text-xs text-secondary">
@@ -138,22 +81,13 @@ export function ModelsLineageTab(): JSX.Element {
                         selectedResultId={selectedSearchResult?.id}
                         anchorResultId={lineageSearchAnchor?.id}
                         mode={parsedSearchTerm.mode}
-                        onSelect={(nodeId) => {
-                            focusSearchResult(nodeId, 'click')
-                            focusSearchInput()
-                        }}
-                        onPrevious={() => {
-                            moveSearchResult('previous', true)
-                            focusSearchInput()
-                        }}
-                        onNext={() => {
-                            moveSearchResult('next', true)
-                            focusSearchInput()
-                        }}
+                        onSelect={onSelectResult}
+                        onPrevious={onPreviousResult}
+                        onNext={onNextResult}
                     />
                 )}
                 <LineageGraph
-                    nodes={visibleNodes}
+                    nodes={graphNodes}
                     edges={visibleEdges}
                     focusNodeIds={focusNodeIds}
                     searchFocusRequest={searchFocusRequest}
