@@ -903,7 +903,7 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
     @parameterized.expand([("personal_api_key",), ("sandbox",)])
     def test_token_callers_of_a_view_only_member_cannot_publish(self, caller: str) -> None:
         self._make_view_only()
-        headers: dict[str, str] = {}
+        headers: dict[str, Any] = {}
         if caller == "sandbox":
             task = Task.objects.create(
                 team=self.team,
@@ -930,6 +930,39 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
 
         assert self.client.get(f"{self.base}/").json()["user_access_level"] == "editor"
         assert self._publish(self.canvas_id).status_code == status.HTTP_200_OK
+
+    def test_project_wide_editor_rule_does_not_override_a_view_only_canvas(self):
+        self.organization.uses_most_specific_access_resolution = True
+        self.organization.save(update_fields=["uses_most_specific_access_resolution"])
+        AccessControl.objects.create(team=self.team, resource="canvas", access_level="editor")
+        self._make_view_only()
+        self.client.force_login(self.member)
+
+        assert self.client.get(f"{self.base}/").json()["user_access_level"] == "viewer"
+        assert self._publish(self.canvas_id).status_code == status.HTTP_403_FORBIDDEN
+
+    def test_project_access_settings_only_reach_canvases_the_requester_can_open(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save(update_fields=["level"])
+        with team_scope(self.team.id):
+            personal = Channel.objects.create(
+                team=self.team, name="me", channel_type=Channel.ChannelType.PERSONAL, created_by=self.member
+            )
+            private = Canvas.objects.create(
+                team_id=self.team.id, channel=personal, name="Private", created_by=self.member
+            )
+        settings = f"/api/projects/{self.team.id}"
+
+        search = self.client.get(f"{settings}/access_control_object_search?resource=canvas")
+        assert search.status_code == status.HTTP_200_OK, search.json()
+        assert [row["name"] for row in search.json()["results"]] == ["Team board"]
+        for canvas_id, expected in ((private.id, status.HTTP_404_NOT_FOUND), (self.canvas_id, status.HTTP_200_OK)):
+            rule = self.client.put(
+                f"{settings}/access_control_object_rules",
+                {"resource": "canvas", "resource_id": str(canvas_id), "access_level": "viewer"},
+                format="json",
+            )
+            assert rule.status_code == expected, rule.json()
 
 
 class TestCanvasSourceAndPublish(CanvasAPIBaseTest):

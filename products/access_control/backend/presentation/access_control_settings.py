@@ -27,6 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.documentation import OpenApiParameter, extend_schema
 from posthog.models.organization import OrganizationMembership
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scoped_team_ids
@@ -40,6 +41,7 @@ from products.access_control.backend.facade.contracts import (
 )
 from products.access_control.backend.facade.object_names import (
     display_model,
+    filter_visible_objects,
     model_has_field,
     resolve_object_names,
     resources_with_object_access_controls,
@@ -709,9 +711,12 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
 
         search = request.query_params.get("search") or ""
         lookup = request.query_params.get("id") or ""
-        qs = display.model._default_manager.filter(team_id=team.id)
+        manager = display.model._default_manager
+        # A team-scoped manager refuses a query outside a team scope, and this root project route sets none
+        qs = manager.for_team(team.id) if isinstance(manager, TeamScopedManager) else manager.filter(team_id=team.id)
+        qs = filter_visible_objects(resource, qs, request)
         # Objects the requester cannot see are not theirs to find or configure. Org admins see
-        # everything, matching how they can already configure access anywhere
+        # everything the product lets them open, matching how they can already configure access anywhere
         qs = user_access_control.filter_queryset_by_access_level(
             qs, include_all_if_admin=True, resource=cast(APIScopeObject, resource)
         )
@@ -801,7 +806,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
         # _base_manager, not the default one: a rule on a soft-deleted object is hidden from the
         # rules list, and the write with access_level None is the only way to clear it
         visible = user_access_control.filter_queryset_by_access_level(
-            display.model._base_manager.filter(team_id=team.id),
+            filter_visible_objects(resource, display.model._base_manager.filter(team_id=team.id), self.request),
             include_all_if_admin=True,
             resource=cast(APIScopeObject, resource),
         )

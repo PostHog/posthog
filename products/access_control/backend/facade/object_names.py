@@ -6,13 +6,14 @@ drift from the code: a viewset opts in by mixing in AccessControlViewSetMixin, w
 the settings UI and the resolution preview show for object rules.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import cache
-from typing import cast
+from typing import Any, cast
 
 from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
-from django.db.models import BooleanField, F, Model, Value
+from django.db.models import BooleanField, F, Model, QuerySet, Value
 from django.db.models.functions import Coalesce
 from django.urls import URLResolver, get_resolver
 
@@ -49,6 +50,23 @@ _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
     ),
     "ticket": _ResourceDisplayModel(app_label="conversations", model_name="ticket", name_field="ticket_number"),
 }
+
+
+# (objects, request): a product whose objects have visibility rules of their own (a canvas follows
+# its space) narrows the objects the settings endpoints may find or put rules on. The request
+# carries the user and the credential, since a product's rules may depend on both.
+ObjectVisibilityFilter = Callable[[QuerySet, Any], QuerySet]
+
+_OBJECT_VISIBILITY_FILTERS: dict[str, ObjectVisibilityFilter] = {}
+
+
+def register_object_visibility_filter(resource: str, filter_fn: ObjectVisibilityFilter) -> None:
+    _OBJECT_VISIBILITY_FILTERS[resource] = filter_fn
+
+
+def filter_visible_objects(resource: str, objects: QuerySet, request: Any) -> QuerySet:
+    filter_fn = _OBJECT_VISIBILITY_FILTERS.get(resource)
+    return filter_fn(objects, request) if filter_fn else objects
 
 
 @dataclass(frozen=True, kw_only=True)

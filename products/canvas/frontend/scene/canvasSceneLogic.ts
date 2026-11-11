@@ -192,10 +192,10 @@ export interface canvasSceneLogicValues {
     sidePanelContext: SidePanelSceneContext
     space: CanvasSpace | null
     spaceLoading: boolean
+    userAccessLevel: AccessControlLevel | null
     view: CanvasViewResponseApi | null
     viewLoading: boolean
     viewMissing: boolean
-    userAccessLevel: AccessControlLevel | null
     viewUnavailable: boolean
     visibility: CanvasVisibility | null
     visibilityChanging: boolean
