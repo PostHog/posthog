@@ -2,6 +2,7 @@
 
 import io
 from contextlib import contextmanager
+from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -424,14 +425,15 @@ class TestProcessRunDiffs:
             other_pngs={"overlay_hash": _make_png_with_single_changed_pixel()} if overlay_storage == "readable" else {},
         )
         if overlay_storage == "read_fails":
-            read_stored = ArtifactStorage.read.side_effect
+            read_mock = cast(MagicMock, ArtifactStorage.read)
+            read_stored = read_mock.side_effect
 
             def read(storage, content_hash):
                 if content_hash == "overlay_hash":
                     raise OSError("object storage unavailable")
                 return read_stored(storage, content_hash)
 
-            ArtifactStorage.read.side_effect = read
+            read_mock.side_effect = read
         artifact_store.get_or_create_artifact(repo.id, "overlay_hash", "visual_review/overlay_hash")
         record = BaselineRecord(
             mode=mode,
