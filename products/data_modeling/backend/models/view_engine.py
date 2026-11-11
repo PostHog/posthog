@@ -1,10 +1,11 @@
 from typing import Any
 
-from django.db import models
 from django.db.models import Expression, JSONField, Value
 from django.db.models.fields.json import KeyTransform
 
 from posthog.dataclasses import frozen
+
+from products.data_modeling.backend.facade.enums import ViewColumnSource, ViewEngineDialect, ViewEngineTarget
 
 RAW_TRINO_MATERIALIZE_REASON = "Views that run raw Trino SQL cannot be materialized yet."
 RAW_TRINO_LINEAGE_REASON = "Views that run raw Trino SQL have no lineage, because only hosted Trino can parse them."
@@ -22,22 +23,6 @@ _ANNOTATED_QUERY_KEYS = {
     "sendRawQuery": "engine_send_raw_query",
     "connectionId": "engine_connection_id",
 }
-
-
-class ViewEngineTarget(models.TextChoices):
-    CLICKHOUSE = "clickhouse", "ClickHouse"
-    MANAGED_TRINO = "managed_trino", "Hosted Trino"
-    CONNECTION = "connection", "Direct connection"
-
-
-class ViewEngineDialect(models.TextChoices):
-    HOGQL = "hogql", "HogQL"
-    RAW = "raw", "Raw SQL"
-
-
-class ViewColumnSource(models.TextChoices):
-    CLICKHOUSE_PROBE = "clickhouse_probe", "ClickHouse probe"
-    CLIENT_TYPES = "client_types", "Column types sent by the client"
 
 
 @frozen
