@@ -340,18 +340,17 @@ def _plan_requests(kept: Sequence[OwnerCandidate], *, fork: bool, labels_by_team
 
 
 def _owner_outcome(
-    candidate: OwnerCandidate,
+    owner: str,
     reason: RoutingOwnerReason,
     *,
-    pinned_only: bool,
+    held_back: set[str],
     request_owners: set[str],
     labeled_teams: set[str],
 ) -> RoutingOwnerOutcome:
     """What the run does with one owner. GitHub can still refuse a request, which the run log adds."""
-    owner = candidate.owner
     if reason == RoutingOwnerReason.MODEL_CUT:
         return RoutingOwnerOutcome.CUT
-    if pinned_only and not candidate.is_pinned:
+    if owner in held_back:
         # Full routing would have asked this owner. The approval held the request back.
         return RoutingOwnerOutcome.NOT_REQUESTED
     if owner not in request_owners:
@@ -366,13 +365,13 @@ def _candidate_record(
     candidate: OwnerCandidate,
     decision: RoutingDecision,
     *,
-    pinned_only: bool,
+    held_back: set[str],
     request_owners: set[str],
     labeled_teams: set[str],
 ) -> dict[str, Any]:
     reason = decision.reasons[candidate.owner]
     outcome = _owner_outcome(
-        candidate, reason, pinned_only=pinned_only, request_owners=request_owners, labeled_teams=labeled_teams
+        candidate.owner, reason, held_back=held_back, request_owners=request_owners, labeled_teams=labeled_teams
     )
     return {
         "owner": candidate.owner,
@@ -397,12 +396,9 @@ def _candidate_record(
     }
 
 
-def _comment_body(
-    decision: RoutingDecision, candidates: Sequence[OwnerCandidate], *, pinned_only: bool, repository: str
-) -> str | None:
+def _comment_body(decision: RoutingDecision, repository: str, *, pinned_only: bool, has_pins: bool) -> str | None:
     if pinned_only:
         # The approval, not the model, decided who was asked, so the comment names no cuts. The run log keeps them.
-        has_pins = any(candidate.is_pinned for candidate in candidates)
         body = render_approved_routing_comment() if has_pins else None
     else:
         body = render_routing_comment(decision=decision, org=repository.split("/", 1)[0])
@@ -507,6 +503,9 @@ def _plan(
         call_model=model,
         files_truncated=files_truncated,
     )
+    has_pins = any(candidate.is_pinned for candidate in candidates)
+    # Owners that full routing would ask and an approval does not.
+    held_back = {candidate.owner for candidate in candidates if pinned_only and not candidate.is_pinned}
     if pinned_only:
         already = set(claim.get(REQUESTED_OWNERS) or [])
         # An approval of a later head requests only the pinned owners that no routing requested yet.
@@ -522,7 +521,7 @@ def _plan(
             _candidate_record(
                 candidate,
                 decision,
-                pinned_only=pinned_only,
+                held_back=held_back,
                 request_owners={owner.owner for owner in to_request},
                 labeled_teams=set(requests.labeled_teams),
             )
@@ -541,7 +540,7 @@ def _plan(
         "requested_users": requests.users,
         "labeled_teams": requests.labeled_teams,
         "labels": requests.labels,
-        "pending_comment": _comment_body(decision, candidates, pinned_only=pinned_only, repository=repository),
+        "pending_comment": _comment_body(decision, repository, pinned_only=pinned_only, has_pins=has_pins),
         "input_tokens": model.usage.input_tokens if model.usage else 0,
         "output_tokens": model.usage.output_tokens if model.usage else 0,
         "latency_ms": int((time.monotonic() - started) * 1000),

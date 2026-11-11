@@ -24,6 +24,7 @@ from products.stamphog.backend.tasks.tasks import (
     ROUTING_BUSY_RETRY_SECONDS,
     ROUTING_SAFETY_NET_SECONDS,
     queue_routing_after_verdict,
+    route_reviewers_after_external_review,
     route_reviewers_after_verdict,
     route_reviewers_safety_net,
 )
@@ -536,7 +537,8 @@ def test_fallback_approval_requests_only_pinned_owners(
     "name,before_call,expect_routed",
     [
         ("routes_the_waiting_head_in_full", None, True),
-        # ReviewHog reports from the same delivery as the opening event, so its report can come first.
+        # ReviewHog reports from the same delivery as the opening event, so its report can come first. It
+        # retries until the event saved the waiting record.
         ("report_before_the_waiting_record", "report_first", True),
         # A silent review started after all, and its verdict routes the head.
         ("stamphog_reviews_the_head", "review_run", False),
@@ -558,15 +560,16 @@ def test_the_clean_review_switch_waits_for_reviewhog(
         )
     routing_chain.cut_model.answer = _CUT_BETA
 
-    def report() -> None:
-        queue_routing_after_external_review(team_id=team.id, repository=REPO, pr_number=PR_NUMBER, head_sha=HEAD_SHA)
+    report = {"team_id": team.id, "repository": REPO, "pr_number": PR_NUMBER, "head_sha": HEAD_SHA}
 
     if before_call == "report_first":
-        report()
+        with pytest.raises(Retry) as retry:
+            route_reviewers_after_external_review.apply(kwargs=report, throw=True)
+        assert isinstance(retry.value.exc, RoutingBusy)
+        assert retry.value.when == ROUTING_BUSY_RETRY_SECONDS
     _route()
-    if before_call != "report_first":
-        assert routing_chain.recorder.github_writes == []
-        assert _stored(team.id)["status"] == "waiting"
+    assert routing_chain.recorder.github_writes == []
+    assert _stored(team.id)["status"] == "waiting"
 
     with team_scope(team.id):
         if before_call == "review_run":
@@ -584,8 +587,8 @@ def test_the_clean_review_switch_waits_for_reviewhog(
             StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(
                 review_on_clean_external_review=False
             )
-    if before_call != "report_first":
-        report()
+    # For the early report, this is its retry.
+    queue_routing_after_external_review(**report)
 
     record = _stored(team.id)
     if expect_routed:
