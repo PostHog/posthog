@@ -6,12 +6,12 @@ import { Meta, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { PageToolbarMode } from '../../messaging/pageToolbarBridge'
+import type { PageToolbarHeatmapState, PageToolbarMode } from '../../messaging/pageToolbarBridge'
 import { configureFakeExtensionBrowser } from './__mocks__/fakeExtensionBrowser'
 import { STORY_PAGE_URL, pageToolbarState } from './__mocks__/pageToolbarState'
 import { ExtensionPanel } from './ExtensionPanel'
 
-type StoryArgs = { mode: PageToolbarMode; tabUrl?: string }
+type StoryArgs = { mode: PageToolbarMode; tabUrl?: string; heatmap?: Partial<PageToolbarHeatmapState> }
 
 const meta: Meta<StoryArgs> = {
     title: 'Scenes-Other/Toolbar extension',
@@ -36,11 +36,12 @@ const meta: Meta<StoryArgs> = {
             },
         }),
     ],
-    render: ({ mode, tabUrl }) => {
+    render: ({ mode, tabUrl, heatmap }) => {
         const uiHost = window.location.origin
+        const pageState = pageToolbarState(mode)
         configureFakeExtensionBrowser({
             tabUrl: tabUrl ?? STORY_PAGE_URL,
-            pageState: pageToolbarState(mode),
+            pageState: { ...pageState, heatmap: { ...pageState.heatmap, ...heatmap } },
             storage: {
                 posthogUiHost: uiHost,
                 posthogToolbarTokens: {
@@ -73,6 +74,18 @@ export const Inspect: Story = {
 export const Heatmap: Story = {
     args: { mode: 'heatmap' },
     parameters: { testOptions: { waitForSelector: 'text=Compare plans' } },
+}
+
+export const HeatmapSavedVariantFilter: Story = {
+    args: {
+        mode: 'heatmap',
+        heatmap: {
+            variantFilter: { flagKey: 'pricing-page-redesign', variant: 'test' },
+            variantFlags: [],
+            variantFilterGate: false,
+        },
+    },
+    parameters: { testOptions: { waitForSelector: 'text=pricing-page-redesign: test' } },
 }
 
 export const Actions: Story = {

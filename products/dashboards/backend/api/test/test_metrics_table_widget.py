@@ -96,6 +96,9 @@ class TestMetricsTableWidgetConfig(SimpleTestCase):
             ),
             ("order_column_out_of_range", {"columns": [QUEUE_COLUMN], "orderByColumn": 1}),
             ("limit_above_max", {"limit": 101}),
+            ("too_many_group_by_labels", {"groupBy": ["a", "b", "c", "d"]}),
+            ("repeated_group_by_label", {"groupBy": ["route", "route"]}),
+            ("empty_group_by_list", {"groupBy": []}),
             ("date_range_wider_than_metrics_queries_allow", {"dateRange": {"date_from": "-90d"}}),
             # A tile runs without the source access checks, so derived series cannot fill a column.
             ("derived_metric_column", {"columns": [{**QUEUE_COLUMN, "metricName": "posthog.derived.spans.requests"}]}),
@@ -130,6 +133,13 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
                 metric_name="request_errors",
                 points=[(cls.now - dt.timedelta(minutes=m), count) for m in minutes],
                 labels={"route": "/api/b", "status": status_value},
+            )
+        for route, method, depth in (("/api/a", "GET", 2.0), ("/api/a", "POST", 7.0), ("/api/b", "GET", 4.0)):
+            seed_metric(
+                team_id=cls.team.id,
+                metric_name="handler_queue_depth",
+                points=[(cls.now - dt.timedelta(minutes=m), depth) for m in minutes],
+                labels={"route": route, "method": method},
             )
 
     def setUp(self) -> None:
@@ -183,6 +193,18 @@ class TestMetricsTableWidgetRun(ClickhouseTestMixin, APIBaseTest):
         sparkline = result["rows"][0]["sparklines"][0]
         assert len(sparkline) > 1
         assert all(value == 10.0 for value in sparkline if value)
+
+    def test_several_group_by_labels_make_one_row_per_combination(self) -> None:
+        column = {**QUEUE_COLUMN, "metricName": "handler_queue_depth"}
+
+        result = self._run({"groupBy": ["method", "route"], "columns": [column]})
+
+        assert result["groupBy"] == ["method", "route"]
+        assert [(row["key"], row["labels"], row["values"][0]) for row in result["rows"]] == [
+            ('["POST", "/api/a"]', ["POST", "/api/a"], 7.0),
+            ('["GET", "/api/b"]', ["GET", "/api/b"], 4.0),
+            ('["GET", "/api/a"]', ["GET", "/api/a"], 2.0),
+        ]
 
     def test_limit_and_ascending_order_keep_the_lowest_rows(self) -> None:
         result = self._run({"groupBy": "route", "columns": [QUEUE_COLUMN], "orderDirection": "ASC", "limit": 2})

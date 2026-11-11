@@ -806,6 +806,7 @@ export type InboxReportActionType =
   | "reingest"
   | "implement"
   | "create_pr"
+  | "claim_dialog"
   | "refund"
   | "open_pr"
   | "open_task"
@@ -992,6 +993,12 @@ export interface InboxReportActionProperties {
   has_question?: boolean;
   // True when the user submitted Create PR with extra feedback via the popover.
   has_feedback?: boolean;
+  // What the claim asked of Create PR: start straight away, take over a teammate's claim, or confirm a run
+  // next to the user's own agent.
+  claim_step?: "start" | "take_over" | "confirm_own_agent";
+  // For `claim_dialog`: whether confirming starts a run, and whether the user confirmed.
+  starts_run?: boolean;
+  confirmed?: boolean;
 }
 
 export interface InboxReportActionResultProperties {
