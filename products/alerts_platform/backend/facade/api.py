@@ -30,7 +30,9 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertConfigurationEdit,
     PlatformAlertConfigurationPage,
     PlatformAlertConfigurationView,
+    PlatformAlertEvents,
     PlatformAlertHistory,
+    PlatformAlertListHistory,
     PlatformAlertOutcome,
     PlatformAlertRuntime,
     PlatformAlertSnapshot,
@@ -428,7 +430,7 @@ def control_changes_by_public_id(
 
 def alert_list_history(
     *, team_id: int, configuration_ids: Collection[UUID], since: datetime, until: datetime
-) -> tuple[dict[UUID, PlatformLastCheck], dict[UUID, PlatformAlertHistory], dict[UUID, PlatformControlHistory]]:
+) -> PlatformAlertListHistory:
     """Each configuration's newest check, its state changes across every group, and its control-plane
     changes in `[since, until)`, keyed by configuration id.
 
@@ -439,9 +441,7 @@ def alert_list_history(
     )
 
 
-def alert_events(
-    *, team_id: int, configuration_id: UUID, since: datetime, limit: int
-) -> tuple[PlatformCheckEventPage, PlatformControlChangePage]:
+def alert_events(*, team_id: int, configuration_id: UUID, since: datetime, limit: int) -> PlatformAlertEvents:
     """A configuration's notable checks across every group and its control-plane changes since `since`,
     each newest first. Raises when ClickHouse fails."""
     return platform_reads.alert_events(team_id=team_id, configuration_id=configuration_id, since=since, limit=limit)
