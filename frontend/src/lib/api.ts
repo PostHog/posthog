@@ -2429,14 +2429,8 @@ const api = {
 
             return (response as FileSystemDeleteResponse) ?? null
         },
-        async move(
-            id: NonNullable<FileSystemEntry['id']>,
-            newPath: string,
-            options?: Pick<ApiMethodOptions, 'signal'>
-        ): Promise<FileSystemEntry> {
-            return await new ApiRequest()
-                .fileSystemMove(id)
-                .create({ data: { new_path: newPath }, signal: options?.signal })
+        async move(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
+            return await new ApiRequest().fileSystemMove(id).create({ data: { new_path: newPath } })
         },
         async link(id: NonNullable<FileSystemEntry['id']>, newPath: string): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLink(id).create({ data: { new_path: newPath } })
@@ -6974,13 +6968,12 @@ const api = {
         return await getJSONFromSuccessResponse(response, 'POST', url)
     },
 
-    async delete(url: string, options?: Pick<ApiMethodOptions, 'signal'>): Promise<any> {
+    async delete(url: string): Promise<any> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
         return await handleFetch(url, 'DELETE', async () =>
             fetch(url, {
                 method: 'DELETE',
-                signal: options?.signal,
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
