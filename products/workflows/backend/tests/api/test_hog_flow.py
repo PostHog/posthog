@@ -4013,6 +4013,49 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("missing_value_on_create", {"key": "email", "type": "person", "operator": "exact"}, False),
+            (
+                "emptied_multi_select_on_create",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                False,
+            ),
+            ("missing_value_on_activate", {"key": "email", "type": "person", "operator": "exact"}, True),
+            (
+                "emptied_multi_select_on_activate",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                True,
+            ),
+        ]
+    )
+    def test_hog_flow_batch_trigger_rejects_unfinished_audience_condition(self, _name, condition, save_as_draft_first):
+        hog_flow = {
+            "name": "Test Batch Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": "batch", "filters": {"properties": [condition]}},
+                }
+            ],
+        }
+
+        if save_as_draft_first:
+            draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json")
+            assert draft.status_code == 201, draft.json()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}, format="json"
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"}, format="json"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert "An audience filter is incomplete. Finish it or remove it." in response.json()["detail"]
+
+    @parameterized.expand(
+        [
             ("data-warehouse-table", "postgres.table_1"),
             ("data-warehouse-view", "daily_revenue"),
         ]
