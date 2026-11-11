@@ -3010,48 +3010,15 @@ describe('Cyclotron V2', () => {
             }
         })
 
-        it('never starts a run while the previous one is still going', async () => {
-            const applicationName = `janitor-overlap-${uuidv7()}`
-            const janitorQueriesRunning = async (): Promise<number> => {
-                const { rows } = await assertPool.query<{ n: number }>(
-                    `SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1 AND state = 'active'`,
-                    [applicationName]
-                )
-                return rows[0].n
-            }
-            const blocker = await assertPool.connect()
-            await blocker.query('BEGIN')
-            await blocker.query('LOCK TABLE conversion_watchers IN ACCESS EXCLUSIVE MODE')
-            const skippedBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
-            const janitor = createJanitor({
-                pool: { dbUrl: `${DB_URL}?application_name=${applicationName}` },
-                cleanupIntervalMs: 10,
-            })
-            const started = janitor.start()
-            try {
-                await waitForExpect(
-                    async () =>
-                        expect(
-                            await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
-                        ).toBeGreaterThanOrEqual(skippedBefore + 5),
-                    2000,
-                    10
-                )
-                expect(await janitorQueriesRunning()).toBe(1)
-            } finally {
-                await blocker.query('COMMIT')
-                blocker.release()
-                await started
-                await janitor.stop()
-            }
-        })
-
-        it('resets a stalled job in a new run while the previous run is stuck past its limit', async () => {
-            const stuckTeam = 434343
+        const holdJanitorRunsOnATerminalRow = async (): Promise<{
+            stalledId: string
+            release: () => Promise<void>
+        }> => {
+            const heldTeam = 434343
             const holdKey = 434343
             await insertRawJob({
                 id: uuidv7(),
-                team_id: stuckTeam,
+                team_id: heldTeam,
                 status: 'completed',
                 last_transition: new Date(Date.now() - 60_000),
             })
@@ -3063,9 +3030,9 @@ describe('Cyclotron V2', () => {
                 last_heartbeat: new Date(Date.now() - 60_000),
             })
             await assertPool.query(`
-                CREATE OR REPLACE FUNCTION hold_janitor_stuck_test_delete() RETURNS trigger AS $$
+                CREATE OR REPLACE FUNCTION hold_janitor_run_test_delete() RETURNS trigger AS $$
                 BEGIN
-                    IF OLD.team_id = ${stuckTeam} THEN
+                    IF OLD.team_id = ${heldTeam} THEN
                         PERFORM pg_advisory_lock(${holdKey});
                         PERFORM pg_advisory_unlock(${holdKey});
                     END IF;
@@ -3073,10 +3040,55 @@ describe('Cyclotron V2', () => {
                 END
                 $$ LANGUAGE plpgsql`)
             await assertPool.query(`
-                CREATE OR REPLACE TRIGGER hold_janitor_stuck_test_delete BEFORE DELETE ON cyclotron_jobs
-                FOR EACH ROW EXECUTE FUNCTION hold_janitor_stuck_test_delete()`)
+                CREATE OR REPLACE TRIGGER hold_janitor_run_test_delete BEFORE DELETE ON cyclotron_jobs
+                FOR EACH ROW EXECUTE FUNCTION hold_janitor_run_test_delete()`)
             const holder = await assertPool.connect()
             await holder.query('SELECT pg_advisory_lock($1)', [holdKey])
+            let released = false
+            return {
+                stalledId,
+                release: async () => {
+                    if (released) {
+                        return
+                    }
+                    released = true
+                    await holder.query('SELECT pg_advisory_unlock($1)', [holdKey])
+                    holder.release()
+                },
+            }
+        }
+        const dropJanitorRunHold = async (): Promise<void> => {
+            await assertPool.query('DROP TRIGGER IF EXISTS hold_janitor_run_test_delete ON cyclotron_jobs')
+            await assertPool.query('DROP FUNCTION IF EXISTS hold_janitor_run_test_delete()')
+        }
+
+        it('resets no stalled job while the previous run is still going, and resets it once that run ends', async () => {
+            const { stalledId, release } = await holdJanitorRunsOnATerminalRow()
+            const skippedBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
+            const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 10 })
+            const started = janitor.start()
+            try {
+                await waitForExpect(
+                    async () =>
+                        expect(
+                            await counterValue('cdp_cyclotron_v2_janitor_runs_skipped_total')
+                        ).toBeGreaterThanOrEqual(skippedBefore + 5),
+                    2000,
+                    10
+                )
+                expect((await queryJob(stalledId)).status).toBe('running')
+                await release()
+                await waitForExpect(async () => expect((await queryJob(stalledId)).status).toBe('available'), 3000)
+            } finally {
+                await release()
+                await started
+                await janitor.stop()
+                await dropJanitorRunHold()
+            }
+        })
+
+        it('resets a stalled job in a new run while the previous run is stuck past its limit', async () => {
+            const { stalledId, release } = await holdJanitorRunsOnATerminalRow()
             const stuckBefore = await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')
             const janitor = createJanitor({ stallTimeoutMs: 1_000, cleanupIntervalMs: 10, stuckRunAfterMs: 200 })
             const started = janitor.start()
@@ -3084,12 +3096,10 @@ describe('Cyclotron V2', () => {
                 await waitForExpect(async () => expect((await queryJob(stalledId)).status).toBe('available'), 3000)
                 expect(await counterValue('cdp_cyclotron_v2_janitor_runs_stuck_total')).toBeGreaterThan(stuckBefore)
             } finally {
-                await holder.query('SELECT pg_advisory_unlock($1)', [holdKey])
-                holder.release()
+                await release()
                 await started
                 await janitor.stop()
-                await assertPool.query('DROP TRIGGER hold_janitor_stuck_test_delete ON cyclotron_jobs')
-                await assertPool.query('DROP FUNCTION hold_janitor_stuck_test_delete()')
+                await dropJanitorRunHold()
             }
         })
 
