@@ -499,7 +499,10 @@ function SyncMethodSection({ sourceId, schema }: { sourceId: string; schema: Ext
                         : (incrementalFieldType as IncrementalFieldTypeEnumApi | null),
                     incremental_field_lookback_seconds:
                         syncType === 'incremental' ? (incrementalFieldLookbackSeconds ?? null) : null,
-                    primary_key_columns: syncType === 'incremental' ? (primaryKeyColumns ?? null) : null,
+                    primary_key_columns:
+                        syncType === 'incremental' || syncType === 'cdc' || syncType === 'xmin'
+                            ? (primaryKeyColumns ?? null)
+                            : null,
                     ...((syncType === 'cdc' || syncType === 'incremental') && cdcTableMode
                         ? { cdc_table_mode: cdcTableMode }
                         : {}),

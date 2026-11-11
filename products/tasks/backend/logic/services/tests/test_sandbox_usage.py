@@ -217,6 +217,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_close_captures_analytics_once(self, mock_capture):
         run = self._run()
+        run.task.created_by = self.user
+        run.task.save(update_fields=["created_by"])
         open_sandbox_session(run_id=run.id, sandbox_id="sb-analytics", config=_config())
         record_task_run_user_activity(run.id, self.team.id)
 
@@ -226,6 +228,8 @@ class TestSandboxSessionWrites(SandboxUsageBase):
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "sandbox_session_closed"]
         assert len(captured) == 1
         props = captured[0].kwargs["properties"]
+        assert props["$update_person_last_seen_at"] is False
+        assert captured[0].kwargs["distinct_id"] == str(self.user.distinct_id)
         assert props["ended_reason"] == SandboxSession.EndedReason.CLEANUP
         assert props["runtime_seconds"] >= 0
         assert props["idle_seconds"] >= 0
