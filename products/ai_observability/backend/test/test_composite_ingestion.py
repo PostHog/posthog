@@ -237,8 +237,8 @@ class TestCompositeIngestion(TestCase):
         denied_ingestion = OfflineEvaluationIngestionService(
             team_id=self.team.id, user_access_control=denied_access, can_read_results=True
         )
-        retry = denied_ingestion.upload(self.experiment.id, UploadSubmission(results=[self.request]))
-        self.assertFalse(retry.results[0].created)
+        with self.assertRaises(OfflineEvaluationValidationError):
+            denied_ingestion.upload(self.experiment.id, UploadSubmission(results=[self.request]))
         with self.assertRaises(OfflineEvaluationValidationError):
             denied_ingestion.upload(
                 self.experiment.id, UploadSubmission(results=[replace(self.request, item_id=other_item.id)])

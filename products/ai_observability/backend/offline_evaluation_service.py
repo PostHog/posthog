@@ -576,12 +576,16 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     items[item.id].submission_fingerprint, item_hashes[item.id], field=f"items.{index}.id"
                 )
         new_results: list[tuple[int, ResultSubmission]] = []
+        results_to_validate: list[tuple[int, ResultSubmission]] = []
         for index, result in enumerate(submission.results):
             existing = results.get(ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id))
             if existing is not None:
                 _check_fingerprint(existing.submission_fingerprint, result_hashes[index], field=f"results.{index}")
             else:
                 new_results.append((index, result))
+            # Composite retries disclose stored outcomes, so they require current scorer and input access.
+            if existing is None or result.calculate:
+                results_to_validate.append((index, result))
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
@@ -601,7 +605,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         versions = {
             version.id: version
             for version in self._scorer_versions()
-            .filter(id__in={result.scorer_version_id for _, result in new_results})
+            .filter(id__in={result.scorer_version_id for _, result in results_to_validate})
             .select_related("definition")
         }
         input_ids = {
@@ -619,7 +623,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             version.id: version.composition for version in versions.values() if version.composition is not None
         }
         declared_item_ids = {item.id for item in submission.items}
-        for index, result in new_results:
+        for index, result in results_to_validate:
             if result.item_id not in items and result.item_id not in declared_item_ids:
                 errors[f"results.{index}.item_id"] = "Declare the item or select an existing item in this experiment."
             version = versions.get(result.scorer_version_id)

@@ -135,10 +135,26 @@ class TestOfflineExperimentsAPI(APIBaseTest):
             ("personal_key", "replayed", [], True),
             ("project_key", "replayed", [], True),
             ("personal_key", "partial", [], False),
+            *[
+                (auth_kind, input_delivery, ["evaluation:read", "llm_analytics:read"], True, revoked_access)
+                for auth_kind, input_delivery, revoked_access in [
+                    ("session", "stored", "all"),
+                    ("personal_key", "same_upload", "all"),
+                    ("session", "same_upload", "input"),
+                    ("personal_key", "stored", "input"),
+                    ("session", "stored", "composite"),
+                    ("personal_key", "same_upload", "composite"),
+                ]
+            ],
         ]
     )
     def test_composite_calculation_upload_and_read_back(
-        self, auth_kind: str, input_delivery: str, read_scopes: list[str], allowed: bool
+        self,
+        auth_kind: str,
+        input_delivery: str,
+        read_scopes: list[str],
+        allowed: bool,
+        revoked_access: str | None = None,
     ) -> None:
         inputs = []
         source_configs: list[tuple[str, str, dict[str, object]]] = [
@@ -260,6 +276,41 @@ class TestOfflineExperimentsAPI(APIBaseTest):
         summaries = self.client.get(self._endpoint(str(experiment["id"]), "scorer_summaries"))
         self.assertEqual(summaries.status_code, status.HTTP_200_OK, summaries.data)
         self.assertEqual(len(summaries.data["results"]), 7)
+
+        if revoked_access is not None:
+            membership = self._evaluation_member()
+            access = AccessControl.objects.create(
+                team=self.team,
+                resource="llm_analytics",
+                access_level="viewer",
+                organization_member=membership,
+            )
+            self._authenticate(auth_kind, ["offline_evaluation_ingestion:write", *read_scopes], user=membership.user)
+            permitted_retry = self.client.post(upload_url, body, format="json")
+            self.assertEqual(permitted_retry.status_code, status.HTTP_200_OK, permitted_retry.data)
+            self.assertEqual(permitted_retry.data, replay.data)
+
+            if revoked_access == "all":
+                access.access_level = "none"
+                access.save()
+            else:
+                version_id = inputs[0]["scorer_version_id"] if revoked_access == "input" else composites[0]
+                definition = ScoreDefinition.objects.get(team=self.team, current_version_id=version_id)
+                AccessControl.objects.create(
+                    team=self.team,
+                    resource="llm_analytics",
+                    resource_id=str(definition.id),
+                    access_level="none",
+                    organization_member=membership,
+                )
+
+            denied_retry = self.client.post(upload_url, body, format="json")
+            self.assertEqual(denied_retry.status_code, status.HTTP_400_BAD_REQUEST, denied_retry.data)
+            self.assertEqual(
+                denied_retry.data["attr"],
+                "results.0.calculate" if revoked_access == "input" else "results.0.scorer_version_id",
+            )
+            self.assertNotIn("results", denied_retry.data)
 
     @parameterized.expand([("session", False), ("personal_key", False), ("project_key", False), ("session", True)])
     @patch("products.ai_observability.backend.api.offline_experiments.report_user_action")

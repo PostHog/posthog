@@ -442,7 +442,8 @@ An input error uses `composite_input_error`. Arithmetic errors or results outsid
 Each result acknowledgment includes its stored `status` and nullable `error_code`, on both initial uploads and retries. HTTP success means the upload was accepted; check each result's status to identify calculation failures without needing result-read permission.
 
 The server computes once during ingestion and saves the result with `input_result_ids` in composition input order.
-Exact retries return the stored acknowledgment, including after closure or reference-access changes. New requests require access to every input and an uploading experiment.
+Exact retries return the stored acknowledgment, including after closure. Composite requests and retries require current access to the composite scorer and every pinned input scorer, even when all input results are included in the upload.
+Reported-score retries remain available after reference-access changes. New requests require an uploading experiment.
 Results and formulas are never recalculated on read. Formula/input changes create a new composite version; old results keep their original configuration.
 Reading a computed result or summary requires access to its composite and all pinned source scorers.
 
