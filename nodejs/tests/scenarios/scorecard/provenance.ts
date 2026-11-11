@@ -19,42 +19,43 @@ export type Provenance = {
 
 type GitProvenance = Pick<Provenance, 'headSha' | 'headDirty' | 'runnerVersion' | 'generatorVersion' | 'valvesVersion'>
 
-const NO_GIT: GitProvenance = {
-    headSha: null,
-    headDirty: null,
-    runnerVersion: null,
-    generatorVersion: null,
-    valvesVersion: null,
-}
-
 function git(cwd: string, args: string[], input = ''): string {
     return execFileSync('git', args, { cwd, input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] })
 }
 
-function gitProvenanceOf(scenariosDir: string): GitProvenance {
+function known<T>(read: () => T): T | null {
     try {
-        const entries = git(scenariosDir, ['ls-tree', '-z', '--full-tree', 'HEAD:./'])
+        return read()
+    } catch {
+        return null
+    }
+}
+
+function gitProvenanceOf(scenariosDir: string): GitProvenance {
+    const entries = known(() =>
+        git(scenariosDir, ['ls-tree', '-z', '--full-tree', 'HEAD:./'])
             .split('\0')
             .filter((line) => line !== '')
             .map((line) => {
                 const [meta, name] = line.split('\t')
                 return { line, name, sha: meta.split(' ')[2] }
             })
-        const versionOf = (dir: string): string => entries.find(({ name }) => name === dir)?.sha ?? EMPTY_TREE
-        const runnerEntries = entries.filter(({ name }) => name !== GENERATOR_DIR && name !== VALVES_DIR)
-        return {
-            headSha: git(scenariosDir, ['rev-parse', 'HEAD']).trim(),
-            headDirty: git(scenariosDir, ['status', '--porcelain', '--', path.join(scenariosDir, '..', '..')]) !== '',
-            runnerVersion: git(
-                scenariosDir,
-                ['mktree', '-z'],
-                runnerEntries.map(({ line }) => `${line}\0`).join('')
-            ).trim(),
-            generatorVersion: versionOf(GENERATOR_DIR),
-            valvesVersion: versionOf(VALVES_DIR),
-        }
-    } catch {
-        return NO_GIT
+    )
+    const versionOf = (dir: string): string | null =>
+        entries && (entries.find(({ name }) => name === dir)?.sha ?? EMPTY_TREE)
+    const runnerEntries = entries && entries.filter(({ name }) => name !== GENERATOR_DIR && name !== VALVES_DIR)
+    return {
+        headSha: known(() => git(scenariosDir, ['rev-parse', 'HEAD']).trim()),
+        headDirty: known(
+            () => git(scenariosDir, ['status', '--porcelain', '--', path.join(scenariosDir, '..', '..')]) !== ''
+        ),
+        runnerVersion:
+            runnerEntries &&
+            known(() =>
+                git(scenariosDir, ['mktree', '-z'], runnerEntries.map(({ line }) => `${line}\0`).join('')).trim()
+            ),
+        generatorVersion: versionOf(GENERATOR_DIR),
+        valvesVersion: versionOf(VALVES_DIR),
     }
 }
 

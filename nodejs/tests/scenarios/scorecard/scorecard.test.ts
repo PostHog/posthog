@@ -274,6 +274,18 @@ describe('scorecard', () => {
             })
         })
 
+        it('keeps the head when git cannot build the runner version', () => {
+            const main = git(repo, 'rev-parse', 'HEAD:nodejs/tests/scenarios/main.ts')
+            rmSync(path.join(repo, '.git', 'objects', main.slice(0, 2), main.slice(2)))
+
+            expect(provenanceOf(scenarios)).toMatchObject({
+                headSha: git(repo, 'rev-parse', 'HEAD'),
+                headDirty: false,
+                runnerVersion: null,
+                generatorVersion: git(repo, 'rev-parse', 'HEAD:nodejs/tests/scenarios/generator'),
+            })
+        })
+
         it.each([
             ['an edit to the generator', 'nodejs/tests/scenarios/generator/traffic.ts', true],
             ['a new file in the package', 'nodejs/src/added.ts', true],
