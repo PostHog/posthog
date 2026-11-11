@@ -58,8 +58,10 @@ from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.persons import create_group_type_mapping, update_group_type_mapping
 
 from products.ai_gateway.backend.facade.contracts import TeamCreditAdded, TeamCreditRefused
+from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.billing.quota_limiting import QuotaResource
+from ee.hogai.django_checkpoint.compaction import CompactionResult
 
 TEMPLATE_DIR = Path(settings.BASE_DIR) / "posthog" / "templates" / "admin_console"
 PROJECT_PANEL_TITLES = ("Overview", "Deletion")
@@ -682,6 +684,56 @@ class TestAdminConsoleViews(BaseTest):
             assert text in content
         organization_page = self.client.get(f"/admin/console/organizations/{self.organization.pk}/").content.decode()
         assert tool_url in organization_page
+
+    @parameterized.expand(
+        [
+            ("compacted", CompactionResult(compacted=True, checkpoints_deleted=3, blobs_deleted=5)),
+            ("nothing_to_compact", CompactionResult(compacted=False)),
+        ]
+    )
+    @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
+    def test_compacting_conversations_previews_then_runs_on_confirm(
+        self, _name: str, result: CompactionResult, compact: MagicMock
+    ) -> None:
+        compact.return_value = result
+        ids = [str(Conversation.objects.create(team=self.team, user=self.user).id) for _ in range(2)]
+        url = "/admin/console/tools/ai-conversation-checkpoints/compact/"
+
+        preview = self.client.post(url, {"conversations": "\n".join(ids), "reason": "Threads too large to load"})
+
+        assert preview.status_code == 200
+        assert compact.call_count == 0
+        preview_content = preview.content.decode()
+        assert all(conversation_id in preview_content for conversation_id in ids)
+        assert "Deletes up to 0 checkpoints" in preview_content
+
+        confirmed = self.client.post(url, {"confirm_token": preview.context["confirm_token"]})
+
+        assert confirmed.status_code == 302
+        assert compact.call_count == 2
+
+    @patch("posthog.admin.console.conversation_checkpoints_tool.compact_conversation")
+    def test_compaction_preview_refuses_an_unknown_conversation(self, compact: MagicMock) -> None:
+        known = str(Conversation.objects.create(team=self.team, user=self.user).id)
+        unknown = "01920000-0000-0000-0000-000000000000"
+
+        response = self.client.post(
+            "/admin/console/tools/ai-conversation-checkpoints/compact/",
+            {"conversations": f"{known}\n{unknown}", "reason": "Threads too large to load"},
+        )
+
+        assert response.status_code == 400
+        assert unknown in response.content.decode()
+        compact.assert_not_called()
+
+    def test_the_old_compact_url_opens_the_console_form_for_the_conversation(self) -> None:
+        conversation = Conversation.objects.create(team=self.team, user=self.user)
+
+        response = self.client.post(f"/admin/posthog_ai/conversation/{conversation.id}/compact/", follow=True)
+
+        tool_url = f"/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={conversation.id}"
+        assert response.redirect_chain == [(tool_url, 302)]
+        assert str(conversation.id) in response.content.decode()
 
     @parameterized.expand([("billing_staff", True, 302), ("other_staff", False, 403)])
     @patch("posthog.admin.console.usage_reports_tool.call_command")
