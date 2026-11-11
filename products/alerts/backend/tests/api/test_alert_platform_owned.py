@@ -375,6 +375,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         )
         assert (row["state"], row["last_value"], row["checks_total"]) == ("Firing", 160.0, 2)
         assert (row["schedule_start_time"], row["threshold"]["created_at"] is not None) == ("09:30", True)
+        assert row["threshold"]["id"] == str(self.copy_id)
         assert [check["notification_suppressed_by_agent"] for check in row["checks"]] == [False, True]
         assert not AlertConfiguration.objects.filter(team=self.team).exists()
         # An alert with no insight row passes the same insight access gate as one with a row.
