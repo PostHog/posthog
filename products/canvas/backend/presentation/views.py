@@ -1110,6 +1110,10 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 response=CanvasSourceInvalidSerializer,
                 description="The source project failed validation.",
             ),
+            403: OpenApiResponse(
+                response=CanvasCreatorRequiredSerializer,
+                description="The draft adds capabilities and the caller is not the canvas creator.",
+            ),
             429: OpenApiResponse(description="The team's build capacity is exhausted; retry shortly."),
         },
     )
@@ -1122,6 +1126,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
         changes for viewers. Promote the version with `promote` to make it live.
         The response reports how the draft's declared capabilities widen the
         current head's, so growth in access can be reviewed before it ships.
+        Only the canvas creator can stage a draft that adds capabilities, because
+        a draft preview runs with the draft's capabilities.
         No version guard applies: a draft conflicts with nothing.
         """
         canvas = self._canvas()
@@ -1145,6 +1151,8 @@ class CanvasViewSet(CanvasAccessMixin, viewsets.GenericViewSet):
                 user_id=self._request_user_id(),
                 was_impersonated=is_impersonated(request),
             )
+        except CanvasCapabilityWideningDenied as denied:
+            return _widening_denied_response(denied)
         except CanvasBuildCapacityExceeded:
             return _capacity_response()
         except ObjectStorageError:

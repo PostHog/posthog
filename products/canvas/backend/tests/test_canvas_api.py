@@ -1113,6 +1113,7 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             for action in (
                 "publish",
                 "edit",
+                "draft",
                 "promote",
                 "revert",
                 "revert_without_snapshot",
@@ -1142,6 +1143,14 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
             CanvasSourceVersion.objects.unscoped().filter(id=old_wide_id).update(capabilities=None)
         if action == "revert_without_snapshot_or_source":
             self.storage.objects.pop(CanvasSourceVersion.objects.unscoped().get(id=old_wide_id).source_object_key)
+        if action == "promote":
+            # The creator stages the widening draft, so promotion is what the other member is refused.
+            draft = self.client.post(
+                f"{base}/{canvas_id}/draft/",
+                {"project": self._project(capabilities=WIDE_CAPABILITIES)},
+                format="json",
+            )
+            assert draft.status_code == status.HTTP_200_OK, draft.json()
         self._act_as_other_member(sandbox)
 
         if action == "publish":
@@ -1160,13 +1169,13 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
                 },
                 format="json",
             )
-        elif action == "promote":
-            draft = self.client.post(
+        elif action == "draft":
+            response = self.client.post(
                 f"{base}/{canvas_id}/draft/",
                 {"project": self._project(capabilities=WIDE_CAPABILITIES)},
                 format="json",
             )
-            assert draft.status_code == status.HTTP_200_OK, draft.json()
+        elif action == "promote":
             response = self.client.post(
                 f"{base}/{canvas_id}/promote/",
                 {"version_id": draft.json()["version_id"], "expected_current_version_id": head_id},
@@ -1186,6 +1195,8 @@ class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
         expected_insights = [] if action == "revert_without_snapshot_or_source" else ["abc123"]
         assert body["capability_widening"]["insights_added"] == expected_insights
         assert str(Canvas.objects.unscoped().get(id=canvas_id).current_source_version_id) == head_id
+        if action == "draft":
+            assert not CanvasSourceVersion.objects.unscoped().filter(canvas_id=canvas_id, draft=True).exists()
 
     def test_non_creator_can_narrow_or_keep_capabilities_and_creator_can_widen(self) -> None:
         base = f"/api/projects/{self.team.id}/canvases"

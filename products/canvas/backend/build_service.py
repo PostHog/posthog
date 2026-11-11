@@ -989,18 +989,34 @@ def create_draft_version(
     live pointer to its build. Promote it with `promote_draft_version`. No version
     guard applies: a draft conflicts with nothing because it publishes nothing.
     Returns the widening of the draft's declared capabilities over the current
-    head's, so callers can surface manifest growth before anything ships. Raises
-    CanvasBuildCapacityExceeded or ObjectStorageError.
+    head's, so callers can surface manifest growth before anything ships. Only the
+    creator may stage a draft that widens the head, because a draft preview runs the
+    draft build with the draft's own capabilities for every viewer who opens it.
+    Raises CanvasCapabilityWideningDenied, CanvasBuildCapacityExceeded or
+    ObjectStorageError.
     """
     # Lock-free fail-fast, mirroring publish: reject a doomed draft before
     # paying for the upload. The commit transaction re-checks authoritatively
     # under the locks in _claim_canvas_head.
+    capabilities = project.get("capabilities") or {}
     with team_scope(canvas.team_id):
+        head_id = (
+            Canvas.objects.for_team(canvas.team_id)
+            .values_list("current_source_version_id", flat=True)
+            .get(pk=canvas.pk)
+        )
+        assert_may_set_capabilities(canvas, created_by, _version_capabilities(canvas.team_id, head_id), capabilities)
         _assert_build_capacity(canvas.team_id)
 
     source_upload = upload_source_project(canvas.team_id, canvas.id, project)
     with transaction.atomic(), team_scope(canvas.team_id):
         canvas = _claim_canvas_head(canvas, has_expected_version=False, expected_version_id=None)
+        assert_may_set_capabilities(
+            canvas,
+            created_by,
+            _version_capabilities(canvas.team_id, canvas.current_source_version_id),
+            capabilities,
+        )
         version = CanvasSourceVersion.objects.create(
             team_id=canvas.team_id,
             canvas=canvas,
@@ -1012,7 +1028,7 @@ def create_draft_version(
             task_id=task_id,
             prompt=prompt or None,
             created_by=created_by,
-            capabilities=project.get("capabilities") or {},
+            capabilities=capabilities,
             component_meta=project.get("component"),
         )
         build = _queue_build(version)
