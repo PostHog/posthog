@@ -6,7 +6,6 @@ export type DeliveryWebhookCreateBody = NonNullable<Parameters<typeof hogFunctio
 
 export const DELIVERY_WEBHOOK_TEMPLATE_ID = 'template-webhook'
 
-// pinned: event names the email delivery pipeline captures. Renaming one stops its webhooks.
 export const DELIVERY_WEBHOOK_EVENTS = [
     { event: '$workflows_email_sent', label: 'Sent' },
     { event: '$workflows_email_delivered', label: 'Delivered' },
@@ -19,20 +18,16 @@ export const DELIVERY_WEBHOOK_EVENTS = [
 
 export type DeliveryWebhookEventName = (typeof DELIVERY_WEBHOOK_EVENTS)[number]['event']
 
-// Only a transactional send carries this property, so it tells its events apart from workflow emails.
 const TRANSACTIONAL_EMAIL_PROPERTY: EventPropertyFilter = {
     key: '$email_transactional',
     type: PropertyFilterType.Event,
     operator: PropertyOperator.IsSet,
 }
 
-// The list matches any destination whose filters contain this group, including one a user built by hand.
 export const DELIVERY_WEBHOOK_LIST_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { properties: [TRANSACTIONAL_EMAIL_PROPERTY] },
 ]
 
-// Resend's event names, fields and bounce types, so a Resend receiver reads it. It has no `from`, because these
-// events do not carry the sender. Resend names a spam complaint "complained" and a link click "clicked".
 const DELIVERY_WEBHOOK_BODY = {
     type: "{event.event == '$workflows_email_blocked' ? 'email.complained' : event.event == '$workflows_email_link_clicked' ? 'email.clicked' : replaceOne(event.event, '$workflows_email_', 'email.')}",
     created_at: '{event.timestamp}',
@@ -50,7 +45,6 @@ const DELIVERY_WEBHOOK_BODY = {
     },
 }
 
-/** A Standard Webhooks secret: `whsec_` and 32 random bytes in base64. */
 export function generateSigningSecret(): string {
     const bytes = crypto.getRandomValues(new Uint8Array(32))
     return `whsec_${btoa(String.fromCharCode(...bytes))}`
@@ -108,7 +102,5 @@ export function buildDeliveryWebhookPayload({
         },
         enabled: true,
     }
-    // The generated write body marks server-set input fields (bytecode, order, transpiled) as required,
-    // so the payload reaches it only through `unknown`.
     return payload as unknown as DeliveryWebhookCreateBody
 }
