@@ -349,7 +349,7 @@ from products.signals.backend.task_attribution import (
     resolve_external_agent_name,
     resolve_request_attribution,
 )
-from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
+from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded, implementation_in_flight_report_ids
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -1577,7 +1577,8 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Comma-separated list of statuses to include. "
-            "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
+            "Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, "
+            "suppressed. "
             "Defaults to all statuses except suppressed."
         ),
     ),
@@ -1693,8 +1694,9 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
-            "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
-            "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
+            "closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+            "actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being "
+            "verified after implementation. for_you holds the open, actionable reports that "
             "wait for the requesting user's input, that they claimed, or that name them as a suggested "
             "reviewer. needs_decision also includes failed reports without a judgment. "
             "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
@@ -2741,7 +2743,9 @@ class SignalReportViewSet(
                 )
             )
         if inbox_view == "monitoring":
-            return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+            if not self._report_monitoring_enabled:
+                return queryset.none()
+            return queryset.filter(status=SignalReport.Status.MONITORING)
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
         if inbox_view == "closed":
@@ -3163,6 +3167,9 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
+            "implementation_in_flight_ids": implementation_in_flight_report_ids(
+                team_id=self.team_id, report_ids=report_ids
+            ),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
@@ -3622,6 +3629,9 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
+            "implementation_in_flight_ids": implementation_in_flight_report_ids(
+                team_id=self.team_id, report_ids=report_ids
+            ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
             "inbox_ranker": self._base_inbox_ranker,
             "personal_order": self._personal_order,
