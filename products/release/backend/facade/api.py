@@ -73,9 +73,15 @@ def update(
         linked = list(logic.get_release(team_id, release_id).feature_flag_ids)
         linked_set = set(linked)
         submitted = set(changes["feature_flag_ids"])
-        _check_flags(sorted(submitted - linked_set), flag_visibility)
-        hidden = flag_visibility(linked).hidden
-        kept = [flag_id for flag_id in linked if flag_id in hidden and flag_id not in submitted]
+        visibility = flag_visibility(sorted(submitted | linked_set))
+        unknown = sorted(
+            flag_id
+            for flag_id in submitted
+            if flag_id in visibility.hidden or (flag_id not in visibility.linkable and flag_id not in linked_set)
+        )
+        if unknown:
+            raise contracts.UnknownFeatureFlagsError(unknown)
+        kept = [flag_id for flag_id in linked if flag_id in visibility.hidden]
         changes = {**changes, "feature_flag_ids": [*changes["feature_flag_ids"], *kept]}
     return _visible_dto(logic.update_release(team_id, release_id, changes), flag_visibility)
 
