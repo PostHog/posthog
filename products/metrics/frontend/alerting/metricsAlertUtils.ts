@@ -129,7 +129,9 @@ export function validateForm(form: MetricsAlertFormType): MetricsAlertFormErrors
             : 'Enter a number of checks from 1 to 10.',
         datapointsToAlarm: datapointsToAlarmError(form.datapointsToAlarm, form.evaluationPeriods),
         cooldownMinutes:
-            form.cooldownMinutes !== null && form.cooldownMinutes >= 0 ? undefined : 'Enter 0 or more minutes.',
+            form.cooldownMinutes !== null && Number.isInteger(form.cooldownMinutes) && form.cooldownMinutes >= 0
+                ? undefined
+                : 'Enter a whole number of minutes, 0 or more.',
     }
 }
 

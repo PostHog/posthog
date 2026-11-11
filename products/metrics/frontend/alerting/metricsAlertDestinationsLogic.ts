@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -27,7 +28,7 @@ import {
     PlatformAlertDestinationTypeEnumApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { urlInputFor } from './metricsAlertDestinations'
+import { describePendingDestination, urlInputFor } from './metricsAlertDestinations'
 
 export interface MetricsAlertDestinationsLogicProps {
     // Left out while the alert is being created: destinations then wait until it is saved.
@@ -41,6 +42,7 @@ export interface metricsAlertDestinationsLogicValues {
     currentTeamId: number | null // teamLogic
     addDisabledReason: string | undefined
     deletingDestinationIds: Set<string>
+    destinationErrors: string[]
     destinations: PlatformAlertDestinationApi[]
     destinationsLoadFailed: boolean
     destinationsLoading: boolean
@@ -111,6 +113,9 @@ export interface metricsAlertDestinationsLogicActions {
     ) => {
         deleting: boolean
         id: string
+    }
+    setDestinationErrors: (errors: string[]) => {
+        errors: string[]
     }
     setPagerDutyRegion: (pagerDutyRegion: AlertPagerDutyRegion) => {
         pagerDutyRegion: AlertPagerDutyRegion
@@ -194,6 +199,7 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
         setDeletingDestinationId: (id: string, deleting: boolean) => ({ id, deleting }),
         setSelectedSlackIntegrationId: (integrationId: number | null) => ({ integrationId }),
         setSavingDestinations: (saving: boolean) => ({ saving }),
+        setDestinationErrors: (errors: string[]) => ({ errors }),
     }),
 
     loaders(({ props, values }) => ({
@@ -253,6 +259,8 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
             { setSelectedSlackIntegrationId: (_, { integrationId }) => integrationId },
         ],
         savingDestinations: [false, { setSavingDestinations: (_, { saving }) => saving }],
+        // Why each destination in the last save was refused, such as a webhook URL that is not https.
+        destinationErrors: [[] as string[], { setDestinationErrors: (_, { errors }) => errors }],
         // The list stays empty on a failed load, so the editor needs this to tell it apart from no destinations.
         destinationsLoadFailed: [
             false,
@@ -316,7 +324,10 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
                     }
                     return slackChannelValue ? undefined : 'Select a Slack channel'
                 }
-                return webhookUrl.trim() ? undefined : 'Enter a webhook URL'
+                if (!webhookUrl.trim()) {
+                    return 'Enter a webhook URL'
+                }
+                return webhookUrl.trim().startsWith('https://') ? undefined : 'The URL must start with https://'
             },
         ],
     }),
@@ -367,19 +378,23 @@ export const metricsAlertDestinationsLogic = kea<metricsAlertDestinationsLogicTy
             const projectId = String(values.currentTeamId)
             const batch = values.pendingDestinations
             const failed: PlatformAlertCreateDestinationApi[] = []
+            const errors: string[] = []
             for (const destination of batch) {
                 try {
                     await platformAlertsDestinationsCreate(projectId, alertId, destination)
                     posthog.capture('metrics alert destination added', { destination_type: destination.type })
-                } catch {
+                } catch (error) {
                     failed.push(destination)
+                    const detail = (error as ApiError | undefined)?.detail
+                    errors.push(`${describePendingDestination(destination).title}: ${detail ?? 'the request failed'}`)
                 }
             }
             actions.setPendingDestinations([...failed, ...values.pendingDestinations.slice(batch.length)])
+            actions.setDestinationErrors(errors)
             actions.setSavingDestinations(false)
             if (props.alertId) {
-                if (failed.length > 0) {
-                    lemonToast.error('Could not add every notification destination. Check them and try again.')
+                if (errors.length > 0) {
+                    lemonToast.error(`Could not add a destination. ${errors.join(' ')}`)
                 }
                 actions.loadDestinations()
             }

@@ -15,7 +15,6 @@ import {
     PlatformAlertConfigurationApi,
 } from 'products/alerts_platform/frontend/generated/api.schemas'
 
-import { describePendingDestination } from './metricsAlertDestinations'
 import { metricsAlertDestinationsLogic } from './metricsAlertDestinationsLogic'
 import { metricsAlertingLogic } from './metricsAlertingLogic'
 import { MetricsAlertFormType, buildFormDefaults, toWritePayload, validateForm } from './metricsAlertUtils'
@@ -152,21 +151,19 @@ export const metricsAlertFormLogic = kea<metricsAlertFormLogicType>([
                         lemonToast.error(saveErrorMessage(error))
                         throw error
                     }
-                    let failedTypes: string[] = []
+                    let destinationErrors: string[] = []
                     if (created) {
                         // The create modal holds the destinations picked before the alert existed.
                         const destinationsLogic = metricsAlertDestinationsLogic({})
                         await destinationsLogic.asyncActions.createPendingDestinations(created.id)
-                        failedTypes = destinationsLogic.values.pendingDestinations.map(
-                            (destination) => describePendingDestination(destination).title
-                        )
+                        destinationErrors = destinationsLogic.values.destinationErrors
                     }
                     actions.loadAlerts()
                     props.onSubmitSuccess?.()
                     // The alert exists now, so a retry belongs in its edit modal, not in a second create.
-                    if (created && failedTypes.length > 0) {
+                    if (created && destinationErrors.length > 0) {
                         lemonToast.error(
-                            `Alert created, but these destinations could not be added: ${failedTypes.join(', ')}. Add them again here.`
+                            `Alert created, but some destinations could not be added. ${destinationErrors.join(' ')} Add them again here.`
                         )
                         actions.openEditAlertModal(created)
                     }
