@@ -5,7 +5,7 @@ from uuid import UUID
 
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import router
-from django.db.models import Count, Max, OuterRef, QuerySet, Subquery, TextField, Value
+from django.db.models import Count, Max, OuterRef, Q, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
@@ -52,6 +52,18 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
         .values_list("id", flat=True)
         .first()
         is not None
+    )
+
+
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    needs_metadata = Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True)
+    return (
+        Insight.objects_including_soft_deleted.filter(needs_metadata, id=insight_id, query=query_at_read).update(
+            query_metadata=query_metadata
+        )
+        > 0
     )
 
 
