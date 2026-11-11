@@ -201,6 +201,8 @@ async def _run_summary_workflow(
     report_id: str | None = None,
     emit_ready: Callable[[EmitInboxReportReadyInput], Awaitable[None]] | None = None,
 ) -> None:
+    workflow_report_id = report_id or str(uuid.uuid4())
+
     @activity.defn(name="check_report_quota_gate_activity")
     async def fake_quota(input: CheckReportQuotaGateInput) -> bool:
         # Simulate the limit being crossed during the first pass. Any further stage or
@@ -220,7 +222,7 @@ async def _run_summary_workflow(
     @activity.defn(name="mark_report_in_progress_activity")
     async def fake_mark_in_progress(input: MarkReportInProgressInput) -> None:
         if recorder.real_ready_transition:
-            await SignalReport.objects.filter(id=report_id, status=SignalReport.Status.CANDIDATE).aupdate(
+            await SignalReport.objects.filter(id=workflow_report_id, status=SignalReport.Status.CANDIDATE).aupdate(
                 status=SignalReport.Status.IN_PROGRESS
             )
 
@@ -274,7 +276,7 @@ async def _run_summary_workflow(
     @activity.defn(name="implementation_buffer_seconds_activity")
     async def fake_buffer(input: ImplementationBufferInput) -> int:
         if recorder.real_ready_transition and recorder.candidate_on_first_check and recorder.researches == 1:
-            await SignalReport.objects.filter(id=report_id).aupdate(status=SignalReport.Status.CANDIDATE)
+            await SignalReport.objects.filter(id=workflow_report_id).aupdate(status=SignalReport.Status.CANDIDATE)
         return recorder.buffer_seconds
 
     @activity.defn(name="report_is_candidate_activity")
@@ -296,8 +298,6 @@ async def _run_summary_workflow(
     @activity.defn(name="record_notification_check_activity")
     async def fake_notification_check(input: InboxNotificationInput) -> None:
         recorder.autostarts_at_notification.append(recorder.autostarts)
-
-    report_id = report_id or str(uuid.uuid4())
 
     async with await WorkflowEnvironment.start_time_skipping(data_converter=pydantic_data_converter) as env:
         async with Worker(
@@ -330,7 +330,7 @@ async def _run_summary_workflow(
                     SignalReportSummaryWorkflow.run,
                     SignalReportSummaryWorkflowInputs(
                         team_id=team_id,
-                        report_id=report_id,
+                        report_id=workflow_report_id,
                         requested_implementation_user_id=requested_user_id,
                         requested_after_run_count=requested_after_run_count,
                     ),
@@ -344,7 +344,7 @@ async def _run_summary_workflow(
             if recorder.ready_result is not None:
                 await asyncio.wait_for(
                     env.client.get_workflow_handle(
-                        SignalReportInboxNotificationWorkflow.workflow_id_for(team_id, report_id)
+                        SignalReportInboxNotificationWorkflow.workflow_id_for(team_id, workflow_report_id)
                     ).result(),
                     timeout=30,
                 )
