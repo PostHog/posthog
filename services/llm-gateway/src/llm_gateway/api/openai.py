@@ -52,13 +52,22 @@ def _reject_invalid_user_content_parts(messages: list[dict[str, Any]]) -> None:
                 )
 
 
+def _allow_reasoning_effort_for_unmapped_reasoning_models(data: dict[str, Any]) -> dict[str, Any]:
+    model = data["model"]
+    if "reasoning_effort" not in data or not litellm.supports_reasoning(model=model):
+        return data
+    if "reasoning_effort" in (litellm.get_supported_openai_params(model=model) or []):
+        return data
+    return {**data, "allowed_openai_params": [*data.get("allowed_openai_params", []), "reasoning_effort"]}
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
     product: str,
 ) -> dict[str, Any] | StreamingResponse:
     _reject_invalid_user_content_parts(body.messages)
-    data = body.model_dump(exclude_none=True)
+    data = _allow_reasoning_effort_for_unmapped_reasoning_models(body.model_dump(exclude_none=True))
 
     if is_inference_routed_model(body.model):
         return await send_inference_chat_completions(data, user, body.stream or False, product)

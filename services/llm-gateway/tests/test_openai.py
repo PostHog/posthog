@@ -1,6 +1,7 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import litellm
 import pytest
 from fastapi.testclient import TestClient
 
@@ -415,6 +416,23 @@ class TestChatCompletionsEndpoint:
         assert expected_message in response.json()["error"]["message"]
         mock_acompletion.assert_not_called()
         mock_modal.assert_not_called()
+
+    @pytest.mark.parametrize("model", ["gpt-6-luna", "gpt-5-mini"])
+    def test_reasoning_effort_accepted_by_litellm(self, authenticated_client: TestClient, model: str) -> None:
+        real_acompletion = litellm.acompletion
+
+        async def mocked_provider_acompletion(**kwargs: Any) -> Any:
+            return await real_acompletion(**kwargs, mock_response="Hi")
+
+        with patch("llm_gateway.api.openai.litellm.acompletion", side_effect=mocked_provider_acompletion):
+            response = authenticated_client.post(
+                "/django/v1/chat/completions",
+                json={"model": model, "messages": [{"role": "user", "content": "Hello"}], "reasoning_effort": "low"},
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["choices"][0]["message"]["content"] == "Hi"
 
 
 # CF-served models (@cf/...) on the Responses endpoint must route through the CF responses adapter,
