@@ -87,7 +87,8 @@ export function TodayNavSwitchDialog(): JSX.Element {
                             Switch back
                         </Button>
                         {tourCompleted ? (
-                            // Closes through the logic, not as a dismissal: the tour already showed where the switch is.
+                            // Shows when someone who finished the tour switches on again. Closes through the logic, not as
+                            // a dismissal: the tour already showed where the switch is.
                             <Button variant="primary" onClick={tryItOut} data-attr="today-nav-switch-dialog-try-it">
                                 I'll try it out
                             </Button>

@@ -139,8 +139,9 @@ export type todayTourLogicType = MakeLogicType<
 
 /**
  * Walks through the main rail panes and the switch back in the "More" menu, then returns to the view the tour
- * started from. `TodayTourCursor` moves between the steps: it calls `clickTourTarget` when it clicks, and
- * `revealTourStep` with the point it stopped at, which is where the card shows.
+ * started from. A tour that ends early opens the "PostHog is changing" dialog again. `TodayTourCursor` moves between
+ * the steps: it calls `clickTourTarget` when it clicks, and `revealTourStep` with the point it stopped at, which is
+ * where the card shows.
  */
 export const todayTourLogic = kea<todayTourLogicType>([
     path(['layout', 'today', 'todayTourLogic']),
@@ -234,7 +235,10 @@ export const todayTourLogic = kea<todayTourLogicType>([
             // Only the last step opens the "More" menu. Closing a closed menu changes nothing.
             actions.setHelpMenuOpen(false)
             actions.restoreView(tour.returnTo)
-            actions.setNewNavDialogOpen(true)
+            // The last step already showed the switch back, so only a tour that ended early brings the dialog back.
+            if (!completed) {
+                actions.setNewNavDialogOpen(true)
+            }
         },
         // A local development shortcut that forgets what the switch flow saved in this browser, then reloads, so the
         // flow runs again from the start. The reload also drops logics that a hot reload left on an older version.
