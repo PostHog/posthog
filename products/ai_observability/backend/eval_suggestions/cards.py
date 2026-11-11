@@ -165,6 +165,11 @@ class _GapWords:
     checks: str
 
 
+def is_urgent(gap: StructuredGap) -> bool:
+    """Whether every over-used value is the top of an urgency scale, which the card calls "urgent"."""
+    return gap.meaning == "urgency" and all(URGENT_VALUE.match(value) for value in gap.values)
+
+
 def _gap_words(gap: StructuredGap) -> _GapWords:
     items = f"{_plain(gap.segment_value)} {gap.items}"
     values = _either(gap.values)
@@ -172,7 +177,7 @@ def _gap_words(gap: StructuredGap) -> _GapWords:
         return _GapWords(
             marked=f"labeled {values}", checks=f"Checks whether {items} labeled {values} are labeled correctly"
         )
-    if gap.meaning == "urgency" and all(URGENT_VALUE.match(value) for value in gap.values):
+    if is_urgent(gap):
         return _GapWords(marked="marked urgent", checks=f"Checks whether {items} marked urgent deserve it")
     return _GapWords(marked=f"marked {values}", checks=f"Checks whether {items} marked {values} are marked correctly")
 

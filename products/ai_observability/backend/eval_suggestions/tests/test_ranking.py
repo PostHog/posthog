@@ -227,6 +227,26 @@ def test_a_screened_judge_counts_runs_in_its_own_unit(target: str, weekly_units:
     assert proposal is not None and proposal.estimated_weekly_runs == weekly_units
 
 
+def test_a_screened_rate_holds_only_for_traces_with_an_answer() -> None:
+    result = ranking.ScreeningResult(template_key="user_correction", screened=10, flagged=[("t1", "flagged")] * 5)
+
+    def score(main: list[SampledTrace]) -> float:
+        proposal = ranking.screened_proposal(
+            result,
+            PROFILE,
+            TraceSample(main=main, held_out=[]),
+            target="trace",
+            judge_model=ranking.DEFAULT_JUDGE_MODEL,
+            similar_evaluation_id=None,
+        )
+        assert proposal is not None
+        return proposal.score
+
+    answered = [_sampled(f"a{i}", "chat") for i in range(10)]
+    silent = [replace(_sampled(f"s{i}", "chat"), final_text="") for i in range(10)]
+    assert score(answered[:5] + silent[:5]) < score(answered)
+
+
 @parameterized.expand(
     [
         ("generation_reads_its_own_input", "generation", [5000.0], 1200.0),
@@ -260,12 +280,20 @@ def test_every_provider_default_model_has_a_price() -> None:
     assert set(DEFAULT_MODEL_BY_PROVIDER.values()) <= set(ranking.MODEL_PRICES)
 
 
-@parameterized.expand([("urgency", "deserves that level"), ("status", "in that state"), ("label", "fits that label")])
-def test_a_gap_judge_checks_what_the_field_means(meaning: FieldMeaning, phrase: str) -> None:
+@parameterized.expand(
+    [
+        ("urgency", ("P0",), "deserves that level"),
+        ("status", ("P0",), "in that state"),
+        ("label", ("P0",), "fits that label"),
+        # Overusing the bottom of a scale is not an overstated level.
+        ("urgency", ("low",), "fits that label"),
+    ]
+)
+def test_a_gap_judge_checks_what_the_field_means(meaning: FieldMeaning, values: tuple[str, ...], phrase: str) -> None:
     gap = StructuredGap(
         field="findings[].priority",
         meaning=meaning,
-        values=("P0",),
+        values=values,
         segment_key="ai_product",
         segment_value="chat",
         segment_rate=0.5,

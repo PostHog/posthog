@@ -32,7 +32,6 @@ CONTENT = ContentProfile(
     traces=100,
     text_share=0.9,
     multi_turn_share=0.4,
-    tool_result_share=0.5,
     spanning_days_share=0.0,
     dispatcher_tools=(),
 )

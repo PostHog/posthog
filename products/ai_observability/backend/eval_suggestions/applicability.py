@@ -33,7 +33,6 @@ class ContentProfile:
     traces: int
     text_share: float
     multi_turn_share: float
-    tool_result_share: float
     spanning_days_share: float
     dispatcher_tools: tuple[str, ...]
 
@@ -85,7 +84,6 @@ def content_profile(sample: TraceSample) -> ContentProfile:
         traces=count,
         text_share=share([bool(t.final_text.strip()) for t in traces]),
         multi_turn_share=share([t.user_messages >= 2 for t in traces]),
-        tool_result_share=share([t.has_tool_results for t in traces]),
         spanning_days_share=share([t.spans_days for t in traces]),
         dispatcher_tools=trace_dispatcher_tools(traces),
     )

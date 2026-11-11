@@ -363,7 +363,10 @@ def gap_proposal(
     items, field = gap.items, gap.field_name
     values_text = " or ".join(gap.values)
     eval_text = cards.gap_eval_text(gap)
-    prompt = GAP_PROMPTS[gap.meaning].format(items=items, field=field, values=values_text)
+    # The urgency prompt asks whether a level is overstated, which only fits the top of a scale. A segment that
+    # overuses "low" gets the label prompt instead.
+    meaning = gap.meaning if gap.meaning != "urgency" or cards.is_urgent(gap) else "label"
+    prompt = GAP_PROMPTS[meaning].format(items=items, field=field, values=values_text)
     filters = [segment_filter(gap.segment_key, gap.segment_value, sample.traces)]
     weekly_units = profile.traces * _scope_share(filters, sample.traces)
     unit_tokens = mean_unit_tokens("trace", profile, sample)
@@ -436,7 +439,9 @@ def screened_proposal(
     weekly_units = {"generation": profile.generations, "session": profile.sessions}.get(unit_target, profile.traces)
     unit_tokens = mean_unit_tokens(unit_target, profile, sample)
     cost = judge_cost(weekly_units, unit_tokens, judge_model)
-    credible = len(result.flagged) / result.screened * profile.traces * SCREENING_PRECISION
+    # Screening reads only traces with a final answer, so its rate holds for that share of traffic.
+    readable = sum(1 for s in sample.main if s.final_text.strip()) / len(sample.main) if sample.main else 1.0
+    credible = len(result.flagged) / result.screened * profile.traces * readable * SCREENING_PRECISION
     is_judge = template.evaluation_type == "llm_judge"
     text = cards.judge_text(template, unit_target, cards.cost_clause(cost.weekly_cost_usd, free=not is_judge))
     return Proposal(
