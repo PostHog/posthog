@@ -16,6 +16,7 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult, HealthCheckResultError } from '../../../types'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import type { PoisonQuarantine } from '../poison-quarantine/poison-quarantine'
 import { JobQueue } from './job-queue.interface'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb, createInvocationSanitizer, observeConsumedBatch } from './shared'
 
@@ -50,7 +51,8 @@ export class CyclotronJobQueueKafka implements JobQueue {
 
     public async startAsConsumer(
         queue: CyclotronJobQueueKind,
-        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
+        consumeBatch: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>,
+        poisonQuarantine?: PoisonQuarantine
     ) {
         this.queue = queue
         this.consumeBatch = consumeBatch
@@ -62,10 +64,12 @@ export class CyclotronJobQueueKafka implements JobQueue {
         this.kafkaConsumer = createKafkaConsumer({ groupId, topic, callEachBatchWhenEmpty: true })
 
         logger.info('🔄', 'Connecting kafka consumer', { groupId, topic })
-        await this.kafkaConsumer.connect(async (messages) => {
-            const { backgroundTask } = await this.consumeKafkaBatch(messages)
-            return { backgroundTask }
-        })
+        const consumeKafkaBatch = (messages: Message[]) => this.consumeKafkaBatch(messages)
+        await this.kafkaConsumer.connect(
+            poisonQuarantine
+                ? poisonQuarantine.wrap(consumeKafkaBatch, { consumerGroup: groupId, mayHaveSideEffects: true })
+                : consumeKafkaBatch
+        )
     }
 
     public async stopConsumer() {

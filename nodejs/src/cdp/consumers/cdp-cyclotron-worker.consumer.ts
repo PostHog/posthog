@@ -6,6 +6,7 @@ import { captureException } from '~/common/utils/posthog'
 
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
+import { PoisonQuarantine } from '../services/poison-quarantine/poison-quarantine'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CyclotronJobInvocation,
@@ -283,7 +284,8 @@ export class CdpCyclotronWorker<
     public override async start() {
         await super.start()
         await this.cyclotronJobQueue.startAsProducer()
-        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch))
+        const poisonQuarantine = new PoisonQuarantine(this.config, this.outputs)
+        await this.cyclotronJobQueue.startAsConsumer(this.queue, (batch) => this.processBatch(batch), poisonQuarantine)
     }
 
     public override async stop() {

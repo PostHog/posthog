@@ -65,6 +65,15 @@ export class IngestionOutputs<O extends string> {
         }
         return failures
     }
+
+    async isTopicReachable(output: O, timeoutMs = 10000): Promise<boolean> {
+        try {
+            await this.outputs[output].checkTopicExists(timeoutMs)
+            return true
+        } catch {
+            return false
+        }
+    }
 }
 
 /**

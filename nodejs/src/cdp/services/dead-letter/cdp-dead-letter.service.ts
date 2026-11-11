@@ -62,7 +62,7 @@ const counterDeadLetterBatchFailures = new Counter({
 })
 
 /** An error message can quote a template value, so it is truncated and never indexed. */
-const MAX_REASON_BYTES = 1024
+export const MAX_REASON_BYTES = 1024
 
 /** A ratio says nothing on a small batch: one bad event in a batch of one is 100% of it. */
 const MIN_UNEXPECTED_TO_BREAK = 3
@@ -140,8 +140,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
         if (!this.config.CDP_DLQ_ENABLED) {
             return
         }
-        const failures = await this.options.outputs.checkTopics()
-        if (failures.includes(this.options.output)) {
+        if (!(await this.options.outputs.isTopicReachable(this.options.output))) {
             throw new Error(
                 `CDP_DLQ_ENABLED is on but the dead-letter topic for ${this.options.output} is not reachable — ` +
                     'refusing to start, because events would be dropped the moment one needed parking'
@@ -309,7 +308,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
                 // Diagnostics. Nothing branches on these. They are what a person has to work with
                 // when they open the topic and need to know what failed, for whom, and where it
                 // came from, without deserializing the bodies.
-                dlq_reason: truncate(group[0].error, MAX_REASON_BYTES),
+                dlq_reason: truncateUtf8(group[0].error, MAX_REASON_BYTES),
                 dlq_class: group[0].errorClass ?? '',
                 dlq_timestamp: new Date().toISOString(),
                 dlq_team_id: teamId === null ? '' : String(teamId),
@@ -324,7 +323,7 @@ export class CdpDeadLetterService implements InvocationFailureSink {
     }
 }
 
-function copyHeaders(message: Message): Record<string, string> {
+export function copyHeaders(message: Message): Record<string, string> {
     const copied: Record<string, string> = {}
     for (const header of message.headers ?? []) {
         for (const [key, value] of Object.entries(header)) {
@@ -337,7 +336,7 @@ function copyHeaders(message: Message): Record<string, string> {
     return copied
 }
 
-function truncate(value: string, maxBytes: number): string {
+export function truncateUtf8(value: string, maxBytes: number): string {
     const buffer = Buffer.from(value, 'utf8')
     return buffer.byteLength <= maxBytes ? value : buffer.subarray(0, maxBytes).toString('utf8')
 }

@@ -14,7 +14,12 @@ import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/interna
 import type { CommonConfig } from '../common/config'
 import { InternalCaptureService } from '../common/services/internal-capture'
 import type { CdpConfig } from './config'
-import { CdpEventsDlqOutput, SesWebhooksOutput, WarehouseSourceWebhooksOutput } from './outputs/outputs'
+import {
+    CdpEventsDlqOutput,
+    CdpQuarantineOutput,
+    SesWebhooksOutput,
+    WarehouseSourceWebhooksOutput,
+} from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
@@ -71,6 +76,7 @@ export type CdpOutput =
     | HogInvocationResultsOutput
     | WarehouseSourceWebhooksOutput
     | CdpEventsDlqOutput
+    | CdpQuarantineOutput
     | SesWebhooksOutput
 
 export type CdpOutputs = IngestionOutputs<CdpOutput>
@@ -222,6 +228,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_DLQ_BATCH_FAIL_RATIO'
         | 'CDP_EVENTS_DLQ_TOPIC'
         | 'CDP_EVENTS_DLQ_PRODUCER'
+        | 'CDP_QUARANTINE_TOPIC'
+        | 'CDP_QUARANTINE_PRODUCER'
         | 'CDP_SES_WEBHOOKS_TOPIC'
         | 'CDP_SES_WEBHOOKS_PRODUCER'
         | 'CDP_SES_WEBHOOKS_QUEUE_ENABLED'

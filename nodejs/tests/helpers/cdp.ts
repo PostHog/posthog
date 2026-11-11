@@ -23,7 +23,7 @@ import { Hub } from '../../src/types'
  * Defaults to the in-memory mock for unit tests; e2e tests should pass a real
  * producer so messages actually flow through Kafka.
  */
-function buildTestCdpProducerRegistry(
+export function buildTestCdpProducerRegistry(
     kafkaProducer: KafkaProducerWrapper = mockProducer
 ): KafkaProducerRegistry<CdpProducerName> {
     return new KafkaProducerRegistry<CdpProducerName>({

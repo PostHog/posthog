@@ -13,6 +13,9 @@ export type WarehouseSourceWebhooksOutput = typeof WAREHOUSE_SOURCE_WEBHOOKS_OUT
 export const CDP_EVENTS_DLQ_OUTPUT = 'cdp_events_dlq' as const
 export type CdpEventsDlqOutput = typeof CDP_EVENTS_DLQ_OUTPUT
 
+export const CDP_QUARANTINE_OUTPUT = 'cdp_quarantine' as const
+export type CdpQuarantineOutput = typeof CDP_QUARANTINE_OUTPUT
+
 export const SES_WEBHOOKS_OUTPUT = 'ses_webhooks' as const
 export type SesWebhooksOutput = typeof SES_WEBHOOKS_OUTPUT
 

@@ -1,5 +1,6 @@
 import { HealthCheckResult } from '../../../types'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
+import type { PoisonQuarantine } from '../poison-quarantine/poison-quarantine'
 
 export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
@@ -9,7 +10,11 @@ export type ConsumeBatchFn = (invocations: CyclotronJobInvocation[]) => Promise<
  */
 export interface JobQueue {
     startAsProducer(): Promise<void>
-    startAsConsumer(queue: CyclotronJobQueueKind, consumeBatch: ConsumeBatchFn): Promise<void>
+    startAsConsumer(
+        queue: CyclotronJobQueueKind,
+        consumeBatch: ConsumeBatchFn,
+        poisonQuarantine?: PoisonQuarantine
+    ): Promise<void>
     stopConsumer(): Promise<void>
     stopProducer(): Promise<void>
     isHealthy(): HealthCheckResult

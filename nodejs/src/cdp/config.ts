@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_QUARANTINE,
     KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
@@ -169,6 +170,10 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
+    // Off until the quarantine topic exists: a record that cannot be written there fails its batch as before.
+    CDP_POISON_QUARANTINE_ENABLED: boolean
+    CDP_QUARANTINE_TOPIC: string
+    CDP_QUARANTINE_PRODUCER: CdpProducerName
 
     CDP_EMAIL_TRACKING_URL: string
 
@@ -438,6 +443,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_SES_WEBHOOKS_QUEUE_ENABLED: false,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
+        CDP_POISON_QUARANTINE_ENABLED: false,
+        CDP_QUARANTINE_TOPIC: KAFKA_CDP_QUARANTINE,
+        CDP_QUARANTINE_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',
 
