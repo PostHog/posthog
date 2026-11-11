@@ -36,51 +36,96 @@ import {
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
 /**
- * Atomically bump the per-team email counter and return the formatted
- * `dequeue_seq` string for one new email job. Exported because the worker's
- * `reschedule()` path also needs to assign `dequeue_seq` when a hog/hogflow
- * job is re-routed into the email queue — without this, those rows land with
- * `NULL dequeue_seq` and bypass the per-team interleave (`NULLS FIRST` would
- * drain them ahead of any fair-ordered rows).
+ * Compute the `dequeue_seq` of each email job in a batch, given each job's
+ * team in input order. One UPSERT covers the whole batch, so a team's counter
+ * row is locked once per batch, not once per job.
  *
- * A team's *first ever* email starts at `MAX(counter) + 1` across the table
- * (Hatchet's `p_max_assigned` pattern), so a brand-new tenant can't enqueue a
- * burst that gets free priority over established tenants' in-flight emails.
- * Continuing tenants just increment their own counter as before. `COALESCE`
- * handles the empty-table cold-start (`MAX = NULL` → starting point of 0).
+ * A team's first-ever email starts at `MAX(counter) + 1` across the table
+ * (Hatchet's `p_max_assigned` pattern), so a new tenant can't enqueue a burst
+ * that gets free priority over established tenants' in-flight emails.
  *
- * The plain UPDATE runs first because Postgres evaluates the `MAX` subquery in
- * the INSERT's VALUES before it checks for a conflict, which means a full scan
- * of the table for every job even though only a team's first email uses the
- * result. Do not add an index on `counter` to make `MAX` cheap: every call
- * changes `counter`, so the index would block HOT updates on this hot row.
- * When two first emails for one team race, both UPDATEs find no row and the
- * INSERT's `ON CONFLICT` branch gives the second one the next counter value.
- *
- * For bulk inserts of multiple email jobs at once, `bulkCreateJobs` uses its
- * own batched UPSERT for efficiency rather than calling this in a loop.
+ * Do not add an index on `counter` to make `MAX` cheap: every call changes
+ * `counter`, so the index would block HOT updates on this hot row.
  */
-export async function assignEmailDequeueSeq(pool: Pool, teamId: number): Promise<string> {
-    let result = await pool.query<{ counter: string }>(
-        `UPDATE cyclotron_email_team_seq
-         SET counter = counter + 1
-         WHERE team_id = $1
-         RETURNING counter`,
-        [teamId]
-    )
-    if (result.rows.length === 0) {
-        result = await pool.query<{ counter: string }>(
-            `INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             VALUES ($1, COALESCE((SELECT MAX(counter) FROM cyclotron_email_team_seq), 0) + 1)
-             ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter + 1
-             RETURNING counter`,
-            [teamId]
-        )
+export async function allocateEmailDequeueSeqs(pool: Pool, jobTeamIds: number[]): Promise<string[]> {
+    const indicesByTeam = new Map<number, number[]>()
+    jobTeamIds.forEach((teamId, i) => {
+        const indices = indicesByTeam.get(teamId)
+        if (indices) {
+            indices.push(i)
+        } else {
+            indicesByTeam.set(teamId, [i])
+        }
+    })
+    if (indicesByTeam.size === 0) {
+        return []
     }
-    const counter = BigInt(result.rows[0].counter)
-    // pg accepts BIGINT as string to avoid JS number precision loss
-    return (counter * EMAIL_DEQUEUE_BLOCK_SIZE + BigInt(teamId)).toString()
+
+    const teamIds = [...indicesByTeam.keys()]
+    const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
+
+    // New-team rows insert at `MAX + increment`. The ON CONFLICT branch
+    // subtracts the MAX shift back out, so existing rows add just `increment`.
+    const upsertResult = await pool.query<{ team_id: number; counter: string }>(
+        `WITH max_counter AS (
+             SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
+         )
+         INSERT INTO cyclotron_email_team_seq (team_id, counter)
+         SELECT team_id, increment + (SELECT m FROM max_counter)
+         FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
+         ON CONFLICT (team_id) DO UPDATE
+            SET counter = cyclotron_email_team_seq.counter
+                        + (EXCLUDED.counter - (SELECT m FROM max_counter))
+         RETURNING team_id, counter`,
+        [teamIds, increments]
+    )
+
+    const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
+    const dequeueSeqs: string[] = new Array(jobTeamIds.length)
+    for (const [teamId, indices] of indicesByTeam) {
+        const newCounter = newCounters.get(teamId)
+        if (newCounter === undefined) {
+            throw new Error(`No email counter for team ${teamId} after the UPSERT`)
+        }
+        const startCounter = newCounter - BigInt(indices.length) + 1n
+        const teamIdBigInt = BigInt(teamId)
+        for (let k = 0; k < indices.length; k++) {
+            // pg accepts BIGINT as string to avoid JS number precision loss
+            dequeueSeqs[indices[k]] = ((startCounter + BigInt(k)) * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
+        }
+    }
+    return dequeueSeqs
+}
+
+/**
+ * Returns an allocator for callers that assign one email job at a time, such
+ * as the worker's reroute of a hog or hogflow job into the email queue. The
+ * callers of one result batch reach it in the same event-loop turn, so it
+ * holds their jobs until the next turn and allocates them together with
+ * `allocateEmailDequeueSeqs`.
+ */
+export function batchEmailDequeueSeqs(pool: Pool): (teamId: number) => Promise<string> {
+    let pending: { teamId: number; resolve: (dequeueSeq: string) => void; reject: (error: unknown) => void }[] = []
+    const flush = async (): Promise<void> => {
+        const batch = pending
+        pending = []
+        try {
+            const dequeueSeqs = await allocateEmailDequeueSeqs(
+                pool,
+                batch.map(({ teamId }) => teamId)
+            )
+            batch.forEach(({ resolve }, i) => resolve(dequeueSeqs[i]))
+        } catch (error) {
+            batch.forEach(({ reject }) => reject(error))
+        }
+    }
+    return (teamId) =>
+        new Promise((resolve, reject) => {
+            if (pending.length === 0) {
+                setImmediate(() => void flush())
+            }
+            pending.push({ teamId, resolve, reject })
+        })
 }
 
 // Counts Postgres write failures from createJob / bulkCreateJobs *after* input
@@ -379,90 +424,16 @@ export class CyclotronV2Manager {
         return ids
     }
 
-    /**
-     * Compute the per-job `dequeue_seq` array for a batch of jobs.
-     *
-     * Email-queue jobs get `counter * BLOCK_SIZE + team_id` where `counter`
-     * is the team's monotonic per-team sequence number. Sorting ascending by
-     * dequeue_seq interleaves teams: each team's first job sorts together,
-     * then each team's second job, etc.
-     *
-     * Non-email jobs get NULL (leaves the existing FIFO ordering untouched).
-     *
-     * One UPSERT for the whole batch regardless of job count — per-team
-     * counters bump by the count of email jobs from that team in this batch,
-     * and we derive each job's individual counter value in memory.
-     *
-     * A team's first-ever email starts at `MAX(counter) + 1` across the table
-     * (Hatchet's `p_max_assigned` pattern), so a new tenant joining the
-     * system can't enqueue a burst that gets free priority over established
-     * tenants — established tenants are already at `MAX`, so a new tenant's
-     * batch slots in at the same level and the round-robin interleaves them
-     * by team_id from there. Continuing teams just keep incrementing.
-     */
     private async computeEmailDequeueSeqs(jobs: CyclotronV2JobInit[]): Promise<(string | null)[]> {
-        const indicesByTeam = new Map<number, number[]>()
-        for (let i = 0; i < jobs.length; i++) {
-            if (jobs[i].queueName !== 'email') {
-                continue
-            }
-            const indices = indicesByTeam.get(jobs[i].teamId)
-            if (indices) {
-                indices.push(i)
-            } else {
-                indicesByTeam.set(jobs[i].teamId, [i])
-            }
-        }
-
+        const emailIndices = jobs.flatMap((job, i) => (job.queueName === 'email' ? [i] : []))
         const dequeueSeqs: (string | null)[] = new Array(jobs.length).fill(null)
-        if (indicesByTeam.size === 0) {
-            return dequeueSeqs
-        }
-
-        const teamIds = [...indicesByTeam.keys()]
-        const increments = teamIds.map((id) => indicesByTeam.get(id)!.length)
-
-        // Atomic per-team UPSERT. Concurrent inserts for different teams don't
-        // contend; same-team inserts serialize briefly on the row. Returns the
-        // new counter value per team — we then derive individual job counters
-        // by subtracting back through the batch.
-        //
-        // Hatchet `p_max_assigned`: new-team rows insert at `MAX + increment`
-        // so they slot in next to established teams. Existing-team rows still
-        // add just `increment` (we subtract the MAX shift back out in the ON
-        // CONFLICT branch). MAX is computed once per batch via the CTE.
-        const upsertResult = await this.pool.query<{ team_id: number; counter: string }>(
-            `WITH max_counter AS (
-                 SELECT COALESCE(MAX(counter), 0) AS m FROM cyclotron_email_team_seq
-             )
-             INSERT INTO cyclotron_email_team_seq (team_id, counter)
-             SELECT team_id, increment + (SELECT m FROM max_counter)
-             FROM unnest($1::int[], $2::bigint[]) AS t(team_id, increment)
-             ON CONFLICT (team_id) DO UPDATE
-                SET counter = cyclotron_email_team_seq.counter
-                            + (EXCLUDED.counter - (SELECT m FROM max_counter))
-             RETURNING team_id, counter`,
-            [teamIds, increments]
+        const emailSeqs = await allocateEmailDequeueSeqs(
+            this.pool,
+            emailIndices.map((i) => jobs[i].teamId)
         )
-
-        const newCounters = new Map<number, bigint>(upsertResult.rows.map((r) => [r.team_id, BigInt(r.counter)]))
-
-        for (const [teamId, indices] of indicesByTeam) {
-            const newCounter = newCounters.get(teamId)
-            if (newCounter === undefined) {
-                // Should never happen — every team in indicesByTeam was UPSERTed.
-                logger.error('Missing counter after UPSERT in computeEmailDequeueSeqs', { teamId })
-                continue
-            }
-            const startCounter = newCounter - BigInt(indices.length) + 1n
-            const teamIdBigInt = BigInt(teamId)
-            for (let k = 0; k < indices.length; k++) {
-                const counterForThisJob = startCounter + BigInt(k)
-                // pg accepts BIGINT as string to avoid JS number precision loss
-                dequeueSeqs[indices[k]] = (counterForThisJob * EMAIL_DEQUEUE_BLOCK_SIZE + teamIdBigInt).toString()
-            }
-        }
-
+        emailIndices.forEach((jobIndex, k) => {
+            dequeueSeqs[jobIndex] = emailSeqs[k]
+        })
         return dequeueSeqs
     }
 
