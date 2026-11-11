@@ -363,6 +363,34 @@ async fn verification_judges_each_person_by_version() {
     let _missing = insert(&pool, table, team, Some(4), false, "{}").await;
     let newer = insert(&pool, table, team, Some(4), false, "{}").await;
     let _stub = insert(&pool, table, team, Some(0), false, "{}").await;
+    // The leader's bytes as Postgres stored them, which prints these floats as integers.
+    let printed = insert(
+        &pool,
+        table,
+        team,
+        Some(4),
+        false,
+        r#"{"n":1.7e18,"m":1.2345678901234568e18}"#,
+    )
+    .await;
+    let big = insert(
+        &pool,
+        table,
+        team,
+        Some(4),
+        false,
+        r#"{"n":9007199254740993}"#,
+    )
+    .await;
+    let huge = insert(
+        &pool,
+        table,
+        team,
+        Some(4),
+        false,
+        r#"{"n":12345678901234567890123}"#,
+    )
+    .await;
     let (_dir, store) = local_store();
     let config = PropertyStoreConfig {
         reader_poll_ms: 20,
@@ -391,6 +419,9 @@ async fn verification_judges_each_person_by_version() {
                 record(differs, 4, r#"{"plan":"free"}"#),
                 record(behind, 3, "{}"),
                 record(newer, 5, "{}"),
+                record(printed, 4, r#"{"n":1.7e18,"m":1.2345678901234568e18}"#),
+                record(big, 4, r#"{"n":9007199254740992}"#),
+                record(huge, 4, r#"{"n":1.2345678901234568e22}"#),
             ],
         )
         .await
@@ -425,7 +456,7 @@ async fn verification_judges_each_person_by_version() {
             counts.missing,
             counts.newer_in_slatedb,
         ),
-        (6, 2, 1, 1, 1, 1)
+        (9, 4, 2, 1, 1, 1)
     );
     assert_eq!(
         verifier.run_worker(&run, 0, 1, 1000, 1).await.unwrap(),

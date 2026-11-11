@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use metrics::counter;
+use personhog_common::properties::parse_stored_properties;
 use personhog_property_store::object_store::path::Path as ObjectPath;
 use personhog_property_store::object_store::{ObjectStore, ObjectStoreExt, PutPayload};
 use personhog_property_store::{
@@ -92,26 +93,37 @@ fn same_json(a: &[u8], b: &[u8]) -> bool {
         serde_json::from_slice::<serde_json::Value>(a),
         serde_json::from_slice::<serde_json::Value>(b),
     ) {
-        (Ok(a), Ok(b)) => same_value(&a, &b),
+        (Ok(a), Ok(b)) => a == b,
         _ => a == b,
     }
 }
 
-/// Postgres prints a large float such as `1.7e18` as an integer, so numbers compare by value.
-fn same_value(a: &serde_json::Value, b: &serde_json::Value) -> bool {
-    use serde_json::Value;
-    match (a, b) {
-        (Value::Number(a), Value::Number(b)) => a == b || a.as_f64() == b.as_f64(),
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len() && a.iter().zip(b).all(|(a, b)| same_value(a, b))
+/// The snapshot went through Postgres `jsonb`, which prints a float such as `1.7e18` as an integer,
+/// so SlateDB's document takes the same path before it is compared again.
+async fn same_through_postgres(
+    pool: &PgPool,
+    snapshot: &[u8],
+    slatedb: &[u8],
+) -> Result<bool, BackfillError> {
+    let Ok(slatedb) = std::str::from_utf8(slatedb) else {
+        return Ok(false);
+    };
+    let printed: String = match sqlx::query_scalar("SELECT $1::jsonb::text")
+        .bind(slatedb)
+        .fetch_one(pool)
+        .await
+    {
+        Ok(printed) => printed,
+        Err(sqlx::Error::Database(e)) if e.code().is_some_and(|code| code.starts_with("22")) => {
+            return Ok(false);
         }
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter()
-                    .all(|(key, a)| b.get(key).is_some_and(|b| same_value(a, b)))
-        }
-        _ => a == b,
-    }
+        Err(e) => return Err(e.into()),
+    };
+    let Ok(printed) = parse_stored_properties(&printed) else {
+        return Ok(false);
+    };
+    Ok(serde_json::from_slice::<serde_json::Value>(snapshot)
+        .is_ok_and(|snapshot| snapshot == printed.value))
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -314,10 +326,21 @@ where
 /// The outcome for one snapshot row, with the row and record the verdict rests on.
 async fn check(
     reader: &PropertyReader,
+    pool: &PgPool,
     row: PropertyRecord,
 ) -> Result<(&'static str, PropertyRecord, Option<StoredProperties>), BackfillError> {
     let stored = read(reader, row.team_id, row.person_id).await?;
-    Ok((judge(&row, stored.as_ref()).label(), row, stored))
+    let verdict = match (judge(&row, stored.as_ref()), &stored) {
+        (Verdict::Differs, Some(record)) if !row.deleted && !record.deleted => {
+            if same_through_postgres(pool, &row.properties, &record.properties).await? {
+                Verdict::Match
+            } else {
+                Verdict::Differs
+            }
+        }
+        (verdict, _) => verdict,
+    };
+    Ok((verdict.label(), row, stored))
 }
 
 /// The stores a verification reads, and where it records what it finds.
@@ -351,7 +374,9 @@ impl Verifier<'_> {
             };
             for scanned in page.into_iter().step_by(step) {
                 let (outcome, row, stored) = match scanned {
-                    Scanned::Record(row) | Scanned::Trimmed(row) => check(self.reader, row).await?,
+                    Scanned::Record(row) | Scanned::Trimmed(row) => {
+                        check(self.reader, self.pool, row).await?
+                    }
                     Scanned::Reject {
                         team_id,
                         person_id,
@@ -452,18 +477,6 @@ mod tests {
                 row(4, false, r#"{"a":1,"b":2}"#),
                 Some(stored(4, false, r#"{"b":2,"a":1}"#)),
                 Verdict::Match,
-            ),
-            (
-                "a large float Postgres prints as an integer",
-                row(4, false, r#"{"n":1700000000000000000,"l":[1e16]}"#),
-                Some(stored(4, false, r#"{"n":1.7e18,"l":[1e16]}"#)),
-                Verdict::Match,
-            ),
-            (
-                "same version, different number",
-                row(4, false, r#"{"n":1700000000000000000}"#),
-                Some(stored(4, false, r#"{"n":1.8e18}"#)),
-                Verdict::Differs,
             ),
             (
                 "same version, different document",
