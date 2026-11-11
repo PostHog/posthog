@@ -694,8 +694,8 @@ FLAKINESS_EXPIRY_SOON_DAYS = 7
 # none. A quarantine without an expiry never lifts itself, and no agent comes back to lift it.
 AGENT_QUARANTINE_MAX_DAYS = 30
 
-# Short, so a story does not stay hidden for long. The weekly debt digest reminds the owning team
-# in the week before the expiry.
+# Short, so a story does not stay hidden for long. Automatic release lifts a story that renders
+# clean again, and the weekly debt digest reminds the owning team in the week before the expiry.
 AUTO_QUARANTINE_DAYS = 14
 
 # The runs of a flake proof must be close in time, because the further apart two trees are, the more
