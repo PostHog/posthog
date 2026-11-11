@@ -251,6 +251,8 @@ export type CyclotronV2JanitorConfig = {
     stallResetBatchSize?: number
     // How long a run may go on before the next tick treats it as stuck and starts a new run beside it.
     stuckRunAfterMs?: number
+    // How long stop() waits for a run in flight before it closes the pool.
+    stopDrainMs?: number
 }
 
 export type CyclotronV2CleanupResult = {

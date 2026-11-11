@@ -3183,6 +3183,35 @@ describe('Cyclotron V2', () => {
             }
         })
 
+        it('stops within its drain limit while a poison-pill write hangs, and records no further poison pill', async () => {
+            for (let i = 0; i < 3; i++) {
+                await insertRawJob({
+                    id: uuidv7(),
+                    function_id: uuidv7(),
+                    status: 'running',
+                    lock_id: uuidv7(),
+                    last_heartbeat: new Date(Date.now() - 60_000),
+                    janitor_touch_count: 3,
+                })
+            }
+            let finishWrite = (): void => {}
+            const recordTerminalFailureDurably = jest.fn(
+                () => new Promise<boolean>((resolve) => (finishWrite = () => resolve(true)))
+            )
+            const janitor = createJanitor(
+                { stallTimeoutMs: 1_000, maxTouchCount: 2, cleanupIntervalMs: 60_000, stopDrainMs: 100 },
+                { recordTerminalFailureDurably } as unknown as HogInvocationResultsService
+            )
+            const started = janitor.start()
+            await waitForExpect(() => expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1), 2000, 10)
+
+            await janitor.stop()
+            finishWrite()
+            await started
+
+            expect(recordTerminalFailureDurably).toHaveBeenCalledTimes(1)
+        })
+
         // Backoff on the reset job's next scheduled time, keyed on
         // janitor_touch_count. The FIRST stall retries within the small jittered
         // spread (~5s), not the full base — the exponential term is shifted

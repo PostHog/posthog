@@ -130,6 +130,8 @@ export class CyclotronV2Janitor {
     private runInFlight: Promise<unknown> | null = null
     private runStartedAt = 0
     private readonly stuckRunAfterMs: number
+    private readonly stopDrainMs: number
+    private stopping = false
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -171,6 +173,7 @@ export class CyclotronV2Janitor {
         this.stallBackoffMaxMs = backoffMaxMs > 0 ? backoffMaxMs : 600000
         this.stallResetBatchSize = Math.max(0, config.stallResetBatchSize ?? 0)
         this.stuckRunAfterMs = config.stuckRunAfterMs ?? 300_000
+        this.stopDrainMs = config.stopDrainMs ?? 10_000
 
         if (!this.poisonRecoveryEnabled) {
             logger.warn(
@@ -374,6 +377,9 @@ export class CyclotronV2Janitor {
         const recordedIds: string[] = []
         let skipped = 0
         for (const row of result.rows) {
+            if (this.stopping) {
+                break
+            }
             const invocation = this.poisonRowToInvocation(row)
             const ok = await this.invocationResults.recordTerminalFailureDurably(invocation, {
                 error: `poison pill: stalled and reset ${row.janitor_touch_count} times without completing`,
@@ -608,11 +614,17 @@ export class CyclotronV2Janitor {
     }
 
     async stop(): Promise<void> {
+        this.stopping = true
         if (this.intervalHandle) {
             clearInterval(this.intervalHandle)
             this.intervalHandle = null
         }
-        await this.runInFlight
+        let drainTimer: ReturnType<typeof setTimeout> | undefined
+        await Promise.race([
+            this.runInFlight,
+            new Promise<void>((resolve) => (drainTimer = setTimeout(resolve, this.stopDrainMs))),
+        ])
+        clearTimeout(drainTimer)
         await this.pool.end()
     }
 }
