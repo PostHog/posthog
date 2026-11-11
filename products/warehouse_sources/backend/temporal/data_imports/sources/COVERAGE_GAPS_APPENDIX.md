@@ -12223,10 +12223,10 @@ Today (7): `AmdDetailRecords`, `ConferenceDetailRecords`, `ConferenceParticipant
 
 Diffed against: <https://raw.githubusercontent.com/team-telnyx/openapi/master/openapi/spec3.json>
 
-- [ ] `/phone_numbers` — lookup resolving the numbers that appear on every messaging, voice and verify detail record (high)
-- [ ] `/messaging_profiles` — lookup resolving the messaging_profile_id carried by MessagingDetailRecords (high)
-- [ ] `/connections (also /credential_connections, /ip_connections)` — lookup resolving the connection_id on voice/conference detail records (high)
-- [ ] `/conferences` — conference metadata lookup for ConferenceDetailRecords and ConferenceParticipantDetailRecords (high)
+- [x] `/phone_numbers` — lookup resolving the numbers that appear on every messaging, voice and verify detail record (high)
+- [x] `/messaging_profiles` — lookup resolving the messaging_profile_id carried by MessagingDetailRecords (high)
+- [x] `/connections (also /credential_connections, /ip_connections)` — lookup resolving the connection_id on voice/conference detail records (high)
+- [x] `/conferences` — conference metadata lookup for ConferenceDetailRecords and ConferenceParticipantDetailRecords (high)
 - [ ] `/messaging_profile_metrics` — Telnyx's headline delivery/throughput metric per profile (high)
 - [ ] `/charges_summary and /charges_breakdown` — account spend by product — turns usage records into cost analysis (high)
 - [ ] `/verify_profiles` — lookup resolving the verify profile on VerifyDetailRecords (medium)
