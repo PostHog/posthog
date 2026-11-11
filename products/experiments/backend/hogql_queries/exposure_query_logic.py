@@ -129,8 +129,10 @@ DEFAULT_FILTER_TEST_ACCOUNTS = True
 def apply_exposure_criteria_defaults(exposure_criteria: Union[dict, None]) -> dict:
     """Fill in what a new experiment gets when its criteria leave a field out.
 
-    Experiment creation, an update of the criteria and the reads that estimate a baseline for a
-    not-yet-created experiment go through here, so they cannot describe different populations.
+    Experiment creation and the reads that estimate a baseline for a not-yet-created experiment go
+    through here, so they cannot describe different populations. An update goes through here only for
+    a warehouse-native exposure, because a filled-in default moves the calculation key of an existing
+    experiment.
     """
     result = dict(exposure_criteria or {})
     if warehouse_native_exposure_config(result) is not None:

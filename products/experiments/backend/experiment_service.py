@@ -3593,7 +3593,10 @@ class ExperimentService:
             team=self.team,
             user=self.user,
         )
-        if update_data.get("exposure_criteria") is not None:
+        # An update keeps the criteria as the client sent them. A filled-in default would move the legacy
+        # calculation key, which hashes the stored criteria, and so reset the results. The warehouse-native
+        # rule is the exception, because the runner refuses the experiment until the setting is stored off.
+        if warehouse_native_exposure_config(update_data.get("exposure_criteria")) is not None:
             update_data = {
                 **update_data,
                 "exposure_criteria": self._apply_exposure_criteria_defaults(update_data["exposure_criteria"]),
