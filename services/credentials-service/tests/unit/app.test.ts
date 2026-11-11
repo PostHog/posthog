@@ -43,7 +43,7 @@ function build(
         verifier: new JwtVerifier({
             entries: () => Object.entries(KEYS),
             allowedSecrets: () => null,
-        } as SigningKeyLoader),
+        } as unknown as SigningKeyLoader),
         lifecycle,
         secrets: overrides.secrets ?? ((): MountedSecrets | null => MOUNTED),
     })
