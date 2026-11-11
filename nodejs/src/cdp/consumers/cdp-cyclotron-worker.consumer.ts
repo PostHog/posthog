@@ -75,9 +75,9 @@ export class CdpCyclotronWorker<
     }
 
     private hogFunctionsToPreload(invocations: CyclotronJobInvocationHogFunction[]): HogFunctionType[] {
-        return invocations
-            .filter((item) => this.preloadsIntegrationsForTeam(item.teamId))
-            .map((item) => item.hogFunction)
+        return invocations.some((item) => this.preloadsIntegrationsForTeam(item.teamId))
+            ? invocations.map((item) => item.hogFunction)
+            : []
     }
 
     @instrumented({ key: 'cdpConsumer.handleEachBatch.loadHogFunctions', timeoutMs: 10_000, sendException: false })

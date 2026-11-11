@@ -2,7 +2,9 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { AddressInfo, Socket, connect, createServer as createTcpServer } from 'net'
 
+import { DependencyUnavailableError } from '~/common/utils/db/error'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { configureEventLoopYield, getEventLoopYieldThresholdMs } from '~/common/utils/event-loop-yield'
 import { UUIDT } from '~/common/utils/utils'
@@ -24,6 +26,32 @@ import { destinationE2eLagMsSummary } from '../utils'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
 jest.setTimeout(1000)
+
+const startPostgresProxy = async (databaseUrl: string): Promise<{ url: string; cut: () => Promise<void> }> => {
+    const upstream = new URL(databaseUrl)
+    const sockets = new Set<Socket>()
+    const server = createTcpServer((client) => {
+        const target = connect(Number(upstream.port || 5432), upstream.hostname)
+        client.pipe(target).pipe(client)
+        for (const socket of [client, target]) {
+            sockets.add(socket)
+            socket.on('error', () => {})
+            socket.on('close', () => sockets.delete(socket))
+        }
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    const proxied = new URL(databaseUrl)
+    proxied.hostname = '127.0.0.1'
+    proxied.port = String((server.address() as AddressInfo).port)
+    return {
+        url: proxied.toString(),
+        cut: () =>
+            new Promise<void>((resolve) => {
+                server.close(() => resolve())
+                sockets.forEach((socket) => socket.destroy())
+            }),
+    }
+}
 
 /**
  * NOTE: The internal and normal events consumers are very similar so we can test them together
@@ -248,43 +276,57 @@ describe('CdpCyclotronWorker', () => {
         })
 
         it.each([
-            ['while it builds the inputs', undefined],
-            ['when it fetches with built inputs', { url: 'https://example.com/posthog-webhook' }],
-        ])('sends nothing from a batch whose integration lookup fails %s', async (_, inputs) => {
-            hub.CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS = '*'
-            processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
-
-            const integration = await insertIntegration(hub.postgres, team.id, { kind: 'oauth' })
-            const fnWithIntegration = await insertHogFunction(
-                hub.postgres,
-                team.id,
-                createHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    inputs_schema: [
-                        ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema!,
-                        { key: 'oauth', type: 'integration', label: 'OAuth', integration: 'oauth' },
-                    ],
-                    inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, oauth: { value: integration.id } },
-                    ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+            ['every team', 'while it builds the inputs', undefined],
+            ['every team', 'when it fetches with built inputs', { url: 'https://example.com/posthog-webhook' }],
+            ['only the team of a sibling destination', 'while it builds the inputs', undefined],
+        ])(
+            'sends nothing when %s preloads and Postgres is down %s',
+            async (allowlisted, _, inputs) => {
+                const otherTeam = (await createTestTeamFixture(hub.postgres)).team
+                const integration = await insertIntegration(hub.postgres, otherTeam.id, { kind: 'oauth' })
+                const fnWithIntegration = await insertHogFunction(
+                    hub.postgres,
+                    otherTeam.id,
+                    createHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        inputs_schema: [
+                            ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs_schema!,
+                            { key: 'oauth', type: 'integration', label: 'OAuth', integration: 'oauth' },
+                        ],
+                        inputs: { ...HOG_INPUTS_EXAMPLES.simple_fetch.inputs, oauth: { value: integration.id } },
+                        ...HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter,
+                    })
+                )
+                const invocationWithIntegration = createExampleInvocation(fnWithIntegration, {
+                    ...createHogExecutionGlobals(),
+                    inputs,
                 })
-            )
-            const invocationWithIntegration = createExampleInvocation(fnWithIntegration, {
-                ...createHogExecutionGlobals(),
-                inputs,
-            })
 
-            const query = hub.postgres.query.bind(hub.postgres)
-            jest.spyOn(hub.postgres, 'query').mockImplementation((use, text, values, tag, ...rest) =>
-                tag === 'fetchIntegrations'
-                    ? Promise.reject(new Error('connection refused'))
-                    : query(use, text, values, tag, ...rest)
-            )
+                const postgres = await startPostgresProxy(hub.DATABASE_URL)
+                const outageHub = await createHub({
+                    DATABASE_URL: postgres.url,
+                    CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS: allowlisted === 'every team' ? '*' : String(team.id),
+                })
+                try {
+                    const worker = new CdpCyclotronWorker(
+                        outageHub,
+                        createCdpConsumerDeps(outageHub),
+                        createMockJobQueue()
+                    )
+                    await worker.hogFunctionManager.getHogFunctions([fn.id, fnWithIntegration.id])
+                    await postgres.cut()
 
-            await expect(processor.processInvocations([invocation, invocationWithIntegration])).rejects.toThrow(
-                'connection refused'
-            )
-            expect(mockFetch).not.toHaveBeenCalled()
-        })
+                    await expect(worker.processInvocations([invocation, invocationWithIntegration])).rejects.toThrow(
+                        DependencyUnavailableError
+                    )
+                    expect(mockFetch).not.toHaveBeenCalled()
+                } finally {
+                    await postgres.cut()
+                    await closeHub(outageHub)
+                }
+            },
+            30_000
+        )
 
         it('should dequeue an invocation if the hog function cannot be found', async () => {
             const dequeueInvocationsSpy = jest

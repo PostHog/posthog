@@ -65,7 +65,6 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_BATCH_DELAY_MS: number
     CDP_CYCLOTRON_BOUNDED_POLLS: boolean
     CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS: number
-    // Comma-separated team ids, or `*`, whose hog function batches load their integrations before any destination runs.
     CDP_CYCLOTRON_PRELOAD_INTEGRATIONS_TEAMS: string
     CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE: number
     CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES: boolean
