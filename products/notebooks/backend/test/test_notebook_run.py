@@ -108,16 +108,13 @@ class TestNotebookRunEndpoints(APIBaseTest):
         assert [cell["node_id"] for cell in notebook_run.cell_plan] == ["s1", "p1"]
         assert mock_start.call_args.args[0].node_ids == ["s1", "p1"]
 
-    @parameterized.expand([(False, 404), (True, 200)])
-    def test_prepared_insights_require_explicit_opt_in_and_widget_flag(
+    @parameterized.expand([(False, 400), (True, 200)])
+    def test_prepared_insights_require_explicit_opt_in(
         self, mock_start: MagicMock, _flag: MagicMock, enabled: bool, expected_status: int
     ) -> None:
         self.notebook.content = markdown_content('<Query nodeId="insight" dataframeQuery="select 1" />')
         self.notebook.save(update_fields=["content"])
-        with patch(
-            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=enabled
-        ):
-            response = self.client.post(self.runs_url, data={"include_prepared_insights": True}, format="json")
+        response = self.client.post(self.runs_url, data={"include_prepared_insights": enabled}, format="json")
         assert response.status_code == expected_status
         if enabled:
             assert response.json()["cell_count"] == 1
@@ -179,17 +176,14 @@ class TestNotebookRunEndpoints(APIBaseTest):
             )
         )
         self.notebook.save(update_fields=["content"])
-        with patch(
-            "products.notebooks.backend.presentation.views.notebook.is_notebook_widget_enabled", return_value=True
-        ):
-            response = self.client.post(
-                self.runs_url,
-                data={
-                    "include_prepared_insights": True,
-                    "variables": [{"name": "country", "type": "string", "value": "US"}],
-                },
-                format="json",
-            )
+        response = self.client.post(
+            self.runs_url,
+            data={
+                "include_prepared_insights": True,
+                "variables": [{"name": "country", "type": "string", "value": "US"}],
+            },
+            format="json",
+        )
         assert response.status_code == status, response.json()
         if status == 200:
             assert response.json()["cell_count"] == count
@@ -441,7 +435,8 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
         mock_dispatch.assert_not_called()
 
-    def test_interrupt_stops_the_run_and_is_idempotent(self, _start, _flag) -> None:
+    @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")
+    def test_interrupt_stops_the_run_and_is_idempotent(self, mock_report, _start, _flag) -> None:
         run_id = self.client.post(self.runs_url, data={}, format="json").json()["run_id"]
 
         first = self.client.post(f"{self.runs_url}{run_id}/interrupt/")
@@ -449,6 +444,12 @@ class TestNotebookRunEndpoints(APIBaseTest):
 
         assert first.json() == {"interrupted": True, "status": "interrupted"}
         assert second.json() == {"interrupted": False, "status": "interrupted"}
+        mock_report.assert_called_once()
+        event, properties = mock_report.call_args.args
+        assert event == "notebook run completed"
+        assert properties["$update_person_last_seen_at"] is False
+        assert properties["outcome"] == "interrupted"
+        assert mock_report.call_args.kwargs["user"] == self.user
 
     @parameterized.expand(
         [

@@ -191,7 +191,9 @@ def diagnose(record: ProxyRecord) -> DiagnosticReport:
     predate the Cloudflare path (where a Cloudflare lookup always comes back empty and would
     otherwise read as a false "we don't have a record of this proxy").
     """
-    log = LOGGER.bind(
+    # The configured logger context is thread-local; binding diagnostic fields
+    # directly would attach them to unrelated logs after this request returns.
+    log = structlog.threadlocal.as_immutable(LOGGER).bind(
         proxy_record_id=str(record.id),
         organization_id=str(record.organization_id),
         domain=record.domain,

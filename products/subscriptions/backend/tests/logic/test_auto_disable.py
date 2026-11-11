@@ -8,7 +8,6 @@ from parameterized import parameterized
 
 from posthog.models import User
 
-from products.exports.backend.models.subscription import Subscription
 from products.subscriptions.backend.logic.auto_disable import (
     AI_PROMPT_INVALID_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
@@ -21,6 +20,7 @@ from products.subscriptions.backend.logic.failure_notifications import (
     create_subscription_delivery_failure_notification,
     send_subscription_delivery_failure_email,
 )
+from products.subscriptions.backend.models.subscription import Subscription
 
 
 class TestValidateReEnable:

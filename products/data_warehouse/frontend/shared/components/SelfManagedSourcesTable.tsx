@@ -9,7 +9,8 @@ import { sourceManagementLogic } from '../logics/sourceManagementLogic'
 import { SourceIcon, mapUrlToProvider } from './SourceIcon'
 
 export function SelfManagedSourcesTable(): JSX.Element {
-    const { filteredSelfManagedTables, searchTerm, databaseLoading } = useValues(sourceManagementLogic)
+    const { filteredSelfManagedTables, searchTerm, databaseLoading, pendingSelfManagedTableIdsLoading } =
+        useValues(sourceManagementLogic)
     const { deleteSelfManagedTable, refreshSelfManagedTableSchema, setSearchTerm } = useActions(sourceManagementLogic)
 
     return (
@@ -19,8 +20,8 @@ export function SelfManagedSourcesTable(): JSX.Element {
             </div>
             <LemonTable
                 id="self-managed-sources"
-                dataSource={filteredSelfManagedTables}
-                loading={databaseLoading}
+                dataSource={pendingSelfManagedTableIdsLoading ? [] : filteredSelfManagedTables}
+                loading={databaseLoading || pendingSelfManagedTableIdsLoading}
                 pagination={{ pageSize: 10 }}
                 scrollToTopOnPageChange={false}
                 columns={[

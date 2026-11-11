@@ -4,10 +4,8 @@ import { type ReactNode, useEffect } from 'react'
 import { LemonBanner, LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { useComponentPanelState } from 'lib/components/MarkdownNotebook/componentPanelContext'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import { notebookNodeLogic } from 'scenes/notebooks/Nodes/notebookNodeLogic'
 import { UnsupportedNodePlaceholder } from 'scenes/notebooks/Nodes/sharedNodeSupport'
@@ -71,7 +69,6 @@ function ExpandedWidget({
     const { isEditable, notebookLogic } = useValues(nodeLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { user } = useValues(userLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const notebookShortId = notebookLogic.props.shortId
     // Markdown props are cast without runtime validation, so a hand-written or legacy
     // tag can supply a non-string prompt or an unsupported model. Coerce both here, the
@@ -149,12 +146,7 @@ function ExpandedWidget({
     const selectedArtifactUrl =
         selectedVersionId === status?.current_version_id ? status?.artifact_url : selectedVersion?.artifact_url
     const canAddToDashboard =
-        isEditable &&
-        selectedVersionId &&
-        selectedArtifactUrl &&
-        currentTeamId &&
-        !artifactUnavailable &&
-        featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
+        isEditable && selectedVersionId && selectedArtifactUrl && currentTeamId && !artifactUnavailable
     const selectedBuildHash =
         selectedVersionId === status?.current_version_id
             ? (status?.build_hash ?? null)

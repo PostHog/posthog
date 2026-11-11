@@ -30,6 +30,7 @@ from products.slack_app.backend.api import (
     _extract_alert_snooze_hints,
     _handle_insight_alert_snooze,
     _handle_insight_alert_snooze_modal_submit,
+    _replace_message_stripping_actions,
 )
 from products.slack_app.backend.tests.helpers import sign_slack_request
 
@@ -1166,3 +1167,37 @@ class TestInsightAlertSnoozeModal(TestCase):
         assert self.alert.state == AlertState.FIRING
         assert self.alert.snoozed_until is None
         mock_slack.return_value.client.chat_postMessage.assert_not_called()
+
+
+class TestMessageActionReplacement(SimpleTestCase):
+    @parameterized.expand([(False,), (True,)])
+    @patch("products.slack_app.backend.api.inbox_interactivity.post_response_url")
+    def test_attachment_controls_require_explicit_opt_in(
+        self, process_attachments: bool, post_response: MagicMock
+    ) -> None:
+        link = {"type": "button", "url": "https://example.com", "text": {"type": "plain_text", "text": "View"}}
+        control = {"type": "button", "action_id": "sample_action", "text": {"type": "plain_text", "text": "Act"}}
+        image = {"type": "image", "image_url": "https://example.com/chart.png", "alt_text": "Sample chart"}
+        payload: dict[str, Any] = {
+            "response_url": "https://example.com/response",
+            "message": {
+                "blocks": [{"type": "actions", "elements": [link, control]}],
+                "attachments": [
+                    {"color": "#D97706", "blocks": [image, {"type": "actions", "elements": [link, control]}]}
+                ],
+            },
+        }
+
+        options = {"process_attachments": True} if process_attachments else {}
+        _replace_message_stripping_actions(payload, "Action complete", **options)
+
+        response = post_response.call_args.args[1]
+        assert response["blocks"][0]["elements"] == [link]
+        assert response["blocks"][-1]["elements"][0]["text"] == "Action complete"
+        if process_attachments:
+            assert response["attachments"] == [
+                {"color": "#D97706", "blocks": [image, {"type": "actions", "elements": [link]}]}
+            ]
+        else:
+            assert "attachments" not in response
+        assert payload["message"]["attachments"][0]["blocks"][1]["elements"] == [link, control]

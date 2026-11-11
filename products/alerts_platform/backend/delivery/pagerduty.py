@@ -46,13 +46,26 @@ _MAX_SUMMARY_LENGTH: Final = 1024
 _MAX_DEDUP_KEY_LENGTH: Final = 255
 
 
+def source_incident_key(destination_alert_id: str) -> str:
+    """The key the stock PagerDuty HogFunction opens an alert's incidents under.
+
+    pinned: the `dedup_key` input of the PagerDuty destination in
+    products/alerts/backend/logic/destination_configs.py, which every alert source shares.
+    """
+    return f"posthog-alert-{destination_alert_id}"
+
+
 def dedup_key(message: AlertMessage) -> str:
     """One firing episode of one group, so its trigger and its resolve address the same incident.
 
-    A firing that began before the platform recorded starts has no known start. Its resolve then
-    addresses an incident the platform never opened, which PagerDuty ignores.
+    A firing that began before the platform recorded starts has no known start. When the platform
+    took that firing over from its source, the incident is the source's own, so its resolve uses
+    the source's key. Otherwise the resolve addresses an incident nobody opened, which PagerDuty
+    ignores.
     """
     transition = message.transition
+    if transition.episode_started_at is None and message.source_incident_key is not None:
+        return message.source_incident_key
     episode = rfc3339(transition.episode_started_at) if transition.episode_started_at else "unknown"
     key = f"{message.configuration_id}:{transition.grouping_key}:{episode}"
     if len(key) <= _MAX_DEDUP_KEY_LENGTH:
@@ -89,6 +102,11 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
     return body
 
 
+# Every destination posts to the same endpoint, which answers a bad routing key and a malformed
+# event both with 400. Only the routing key is the owner's to fix.
+_OWNER_REFUSALS: Final = {400: b"invalid routing key"}
+
+
 class PagerDutyTransport:
     provider = PROVIDER
 
@@ -112,6 +130,13 @@ class PagerDutyTransport:
         except ValueError:
             raise DeliveryError("This PagerDuty destination has an unknown region or severity.") from None
         body = pagerduty_body(message, routing_key=routing_key, severity=severity)
-        post_json(ENDPOINTS[region], body, display_name="PagerDuty")
+        post_json(
+            ENDPOINTS[region],
+            body,
+            display_name="PagerDuty",
+            # An uncompressed answer, so the refusal check can read its error text.
+            headers={"Accept-Encoding": "identity"},
+            owner_refusals=_OWNER_REFUSALS,
+        )
         # PagerDuty answers with the dedup key, which this transport derives again for the resolve.
         return None

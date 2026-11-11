@@ -22,10 +22,15 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.hogql_source import parse_hogql_select_for_batch_export
 from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
     AwsS3BatchExportInputs,
     BackfillDetails,
-    BatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportHogQLModel,
+    BatchExportPersonsModel,
     BatchExportSchema,
+    BatchExportSessionsModel,
     S3CompatibleBatchExportInputs,
     S3FamilyBaseInputs,
 )
@@ -62,9 +67,8 @@ _INPUTS_BY_DESTINATION_TYPE: dict[str, type[S3FamilyBaseInputs]] = {
 
 COMPRESSION_OPTIONS = [*COMPRESSION_EXTENSIONS.keys(), None]
 
-TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="events",
+TEST_S3_MODELS: list[AnyBatchExportModel | BatchExportSchema | None] = [
+    BatchExportEventsCustomModel(
         schema={
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -76,17 +80,15 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
             "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
         },
     ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(
-        name="events",
-        schema=None,
+    BatchExportEventsModel(),
+    BatchExportEventsModel(
         filters=[
             {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
             {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
         ],
     ),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
+    BatchExportPersonsModel(),
+    BatchExportSessionsModel(),
     {
         "fields": [
             {"expression": "uuid", "alias": "uuid"},
@@ -100,10 +102,10 @@ TEST_S3_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
     None,
 ]
 
-TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS: list[BatchExportModel | BatchExportSchema | None] = [
+TEST_S3_MODELS_AFFECTED_BY_EXCLUDE_EVENTS: list[AnyBatchExportModel | BatchExportSchema | None] = [
     model
     for model in TEST_S3_MODELS
-    if not (isinstance(model, BatchExportModel) and model.name in ("persons", "sessions"))
+    if not (isinstance(model, AnyBatchExportModel) and model.name in ("persons", "sessions"))
 ]
 
 SUPPORTED_FILE_FORMAT_COMPRESSIONS: list[tuple[str, str | None]] = [
@@ -168,7 +170,7 @@ async def assert_metrics_in_clickhouse(
             SELECT metric_kind, metric_name, count
             FROM sharded_app_metrics2
             WHERE app_source = 'batch_export'
-            AND app_source_id = {{batch_export_id:String}}
+            AND app_source_id = {batch_export_id:String}
             FORMAT JSONEachRow \
             """
 
@@ -234,7 +236,7 @@ async def assert_clickhouse_records_in_s3(
     data_interval_end: dt.datetime,
     exclude_events: list[str] | None = None,
     include_events: list[str] | None = None,
-    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None = None,
     compression: str | None = None,
     file_format: str = "JSONLines",
     backfill_details: BackfillDetails | None = None,
@@ -275,13 +277,16 @@ async def assert_clickhouse_records_in_s3(
     )
 
     if batch_export_model is not None:
-        if isinstance(batch_export_model, BatchExportModel):
+        if isinstance(batch_export_model, AnyBatchExportModel):
             model_name = batch_export_model.name
-            fields = batch_export_model.schema["fields"] if batch_export_model.schema is not None else None
-            filters = batch_export_model.filters
-            extra_query_parameters = (
-                batch_export_model.schema["values"] if batch_export_model.schema is not None else None
+            schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
+            fields = schema["fields"] if schema is not None else None
+            filters = (
+                batch_export_model.filters
+                if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+                else None
             )
+            extra_query_parameters = schema["values"] if schema is not None else None
         else:
             model_name = "events"
             fields = batch_export_model["fields"]
@@ -295,7 +300,7 @@ async def assert_clickhouse_records_in_s3(
 
     if fields is not None:
         schema_column_names = [field["alias"] for field in fields]
-    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "persons":
+    elif isinstance(batch_export_model, BatchExportPersonsModel):
         schema_column_names = [
             "team_id",
             "distinct_id",
@@ -307,10 +312,10 @@ async def assert_clickhouse_records_in_s3(
             "created_at",
             "is_deleted",
         ]
-    elif isinstance(batch_export_model, BatchExportModel) and batch_export_model.name == "hogql":
+    elif isinstance(batch_export_model, BatchExportHogQLModel):
         # A HogQL model exports whichever columns the query selects, so the query is the schema:
         # the team_id check and the sort below must key off the query's own columns.
-        schema_column_names = _hogql_model_column_names(batch_export_model.hogql_query)
+        schema_column_names = _hogql_model_column_names(batch_export_model.query)
     else:
         schema_column_names = [field["alias"] for field in s3_default_fields()]
 
@@ -322,16 +327,12 @@ async def assert_clickhouse_records_in_s3(
     queue = RecordBatchQueue()
     if model_name == "sessions":
         producer = ClickHouseTestProducer(model=SessionsRecordBatchModel(team_id))
-    elif (
-        model_name == "hogql"
-        and isinstance(batch_export_model, BatchExportModel)
-        and batch_export_model.hogql_query is not None
-    ):
+    elif isinstance(batch_export_model, BatchExportHogQLModel):
         # Re-running the query itself yields the expected rows, with the same interval bounds
         # substituted as the run exported with.
         producer = ClickHouseTestProducer(
             model=HogQLQueryRecordBatchModel(
-                team_id=team_id, hogql_query=batch_export_model.hogql_query, user_id=batch_export_model.user_id
+                team_id=team_id, hogql_query=batch_export_model.query, user_id=batch_export_model.user_id
             )
         )
     else:
@@ -379,7 +380,7 @@ async def assert_clickhouse_records_in_s3(
         s3_data = sorted(s3_data, key=operator.itemgetter(sort_key))
         expected_records = sorted(expected_records, key=operator.itemgetter(sort_key))
 
-    if isinstance(batch_export_model, BatchExportModel) and batch_export_model.name in ["events", "persons"]:
+    if isinstance(batch_export_model, AnyBatchExportModel) and batch_export_model.name in ["events", "persons"]:
         assert set(s3_data[0].keys()) == set(schema_column_names)
 
     if allow_duplicates:
@@ -393,7 +394,7 @@ async def assert_clickhouse_records_in_s3(
 
 
 async def run_s3_batch_export_workflow(
-    model: BatchExportModel | BatchExportSchema | None,
+    model: AnyBatchExportModel | BatchExportSchema | None,
     ateam,
     batch_export_id,
     s3_destination_config,
@@ -414,11 +415,11 @@ async def run_s3_batch_export_workflow(
     `destination_type` selects which input dataclass is constructed and passed to the workflow,
     so the test exercises the same per-destination inputs that production dispatches with.
     """
-    batch_export_model: BatchExportModel | None = None
-    if isinstance(model, BatchExportModel):
+    batch_export_model: AnyBatchExportModel | None = None
+    if isinstance(model, AnyBatchExportModel):
         batch_export_model = model
     elif model is not None:
-        batch_export_model = BatchExportModel(name="events", schema=model)
+        batch_export_model = BatchExportEventsCustomModel(schema=model)
 
     exclude_events = s3_destination_config.get("exclude_events", None)
     file_format = s3_destination_config.get("file_format", "JSONLines")
@@ -482,7 +483,7 @@ async def run_s3_batch_export_workflow(
 
     if expect_no_data:
         assert run.records_completed == 0 or (
-            isinstance(model, BatchExportModel)
+            isinstance(model, AnyBatchExportModel)
             and model.name == "sessions"
             and run.records_completed is not None
             and run.records_completed <= 1
@@ -495,9 +496,9 @@ async def run_s3_batch_export_workflow(
     assert run.bytes_exported > 0
 
     sort_key = "uuid"
-    if isinstance(model, BatchExportModel) and model.name == "persons":
+    if isinstance(model, BatchExportPersonsModel):
         sort_key = "person_id"
-    elif isinstance(model, BatchExportModel) and model.name == "sessions":
+    elif isinstance(model, BatchExportSessionsModel):
         sort_key = "session_id"
 
     await assert_metrics_in_clickhouse(

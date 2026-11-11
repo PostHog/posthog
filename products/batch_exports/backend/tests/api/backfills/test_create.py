@@ -359,19 +359,24 @@ def test_cannot_trigger_backfill_for_another_organization(
     assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
 
-def test_backfill_is_partitioned_by_team_id(client: HttpClient, temporal, organization, team, user, aws_s3_integration):
-    from posthog.api.test.test_team import create_team
-
-    other_team = create_team(organization)
-
+@pytest.mark.parametrize("scope", ["other_team", "deleted"])
+def test_backfill_is_partitioned_by_team_id(
+    client: HttpClient, temporal, organization, team, user, aws_s3_integration, scope
+):
     client.force_login(user)
 
     batch_export = _create_batch_export_ok(client, team, aws_s3_integration.id, "events")
     batch_export_id = batch_export["id"]
 
+    if scope == "other_team":
+        team_id = create_team(organization).pk
+    else:
+        team_id = team.pk
+        BatchExport.objects.filter(id=batch_export_id).update(deleted=True)
+
     response = backfill_batch_export(
         client,
-        other_team.pk,
+        team_id,
         batch_export_id,
         "2021-01-01T00:00:00+00:00",
         "2021-01-01T01:00:00+00:00",
@@ -424,7 +429,7 @@ def test_batch_export_earliest_backfill_rejected_without_feature_flag(
     batch_export_id = batch_export["id"]
 
     with patch(
-        "products.batch_exports.backend.presentation.views.batch_export.backfills.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.logic.backfills.posthoganalytics.feature_enabled",
         return_value=False,
     ):
         response = backfill_batch_export(
@@ -570,7 +575,7 @@ def test_batch_export_earliest_backfill_allowed_with_feature_flag(
     batch_export_id = batch_export["id"]
 
     with patch(
-        "products.batch_exports.backend.presentation.views.batch_export.backfills.posthoganalytics.feature_enabled",
+        "products.batch_exports.backend.logic.backfills.posthoganalytics.feature_enabled",
         return_value=True,
     ):
         response = backfill_batch_export(
@@ -660,11 +665,11 @@ def test_batch_export_backfill_hogql_interval_validation(
 
     with (
         patch(
-            "products.batch_exports.backend.presentation.views.batch_export.backfills.posthoganalytics.feature_enabled",
+            "products.batch_exports.backend.logic.backfills.posthoganalytics.feature_enabled",
             return_value=True,
         ),
-        patch("products.batch_exports.backend.presentation.views.batch_export.backfills.sync_connect") as connect,
-        patch("products.batch_exports.backend.presentation.views.batch_export.backfills.backfill_export") as backfill,
+        patch("products.batch_exports.backend.logic.backfills.sync_connect") as connect,
+        patch("products.batch_exports.backend.logic.backfills.backfill_export") as backfill,
     ):
         response = backfill_batch_export(client, team.pk, str(batch_export.pk), start_at, "2021-01-01T01:00:00+00:00")
 

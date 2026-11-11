@@ -5,16 +5,17 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 
-from . import common, model
+from . import common, row_writes
 
 logger = structlog.get_logger(__name__)
 
 
 class LinkedInAdsIntegration:
-    integration: model.Integration
+    integration: IntegrationRecord
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "linkedin-ads":
             raise Exception("LinkedInAdsIntegration init called with Integration with wrong 'kind'")
 
@@ -31,8 +32,9 @@ class LinkedInAdsIntegration:
                 status_code=response.status_code,
                 integration_id=self.integration.id,
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-            self.integration.save(update_fields=["errors"])
+            self.integration = row_writes.update_row(
+                self.integration, IntegrationPatch(errors=common.ERROR_TOKEN_REFRESH_FAILED)
+            )
             raise ValidationError(
                 "This integration's authentication is no longer valid. "
                 "Please reconnect or disconnect this integration and connect a different account."

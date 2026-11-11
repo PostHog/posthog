@@ -26,7 +26,7 @@ import React, {
 
 import { IconEllipsis, IconUpload } from '@posthog/icons'
 
-import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'

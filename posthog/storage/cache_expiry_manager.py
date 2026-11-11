@@ -9,15 +9,27 @@ from __future__ import annotations
 
 import time
 import random
+from itertools import batched
 from typing import Literal
 
+from django.conf import settings
+
+import redis
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
+from posthog.models.utils import mask_key_value
 from posthog.redis import get_client
-from posthog.storage.hypercache_manager import HyperCacheManagementConfig, push_hypercache_teams_processed_metrics
+from posthog.storage import object_storage
+from posthog.storage.hypercache import HyperCache
+from posthog.storage.hypercache_manager import (
+    HyperCacheManagementConfig,
+    existing_team_identifiers,
+    push_hypercache_teams_processed_metrics,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -82,13 +94,8 @@ def select_expiring_teams(
             logger.info(f"No {config.log_prefix} expiring soon")
             return ExpiringTeamSelection(teams=[], limit_reached=False)
 
-        # Decode bytes to strings and convert to appropriate type based on token_based
-        query_field = "api_token" if hypercache.token_based else "id"
-        identifier_type = str if hypercache.token_based else int
-        decoded_identifiers = [
-            identifier_type(identifier.decode("utf-8") if isinstance(identifier, bytes) else identifier)
-            for identifier in expiring_identifiers
-        ]
+        query_field = _query_field(hypercache)
+        decoded_identifiers = [_decode_identifier(hypercache, identifier) for identifier in expiring_identifiers]
 
         # Build query filter dynamically based on token_based setting
         filter_kwargs = {f"{query_field}__in": decoded_identifiers}
@@ -111,6 +118,15 @@ def select_expiring_teams(
         return ExpiringTeamSelection(teams=[], limit_reached=None)
 
 
+def _query_field(hypercache: HyperCache) -> Literal["api_token", "id"]:
+    return "api_token" if hypercache.token_based else "id"
+
+
+def _decode_identifier(hypercache: HyperCache, member: bytes | str) -> str | int:
+    text = member.decode("utf-8") if isinstance(member, bytes) else member
+    return text if hypercache.token_based else int(text)
+
+
 def get_teams_with_expiring_caches(
     config: HyperCacheManagementConfig, ttl_threshold_hours: int = 24, limit: int = 5000
 ) -> list[Team]:
@@ -131,8 +147,9 @@ class ExpiryBacklogSample:
     for: is anything about to expire before the sweep reaches it. Unlike the count it is
     not inflated by refreshes already in flight. It is not immune to members left behind
     for deleted teams, though: such a member is never re-scored, so it holds the set's
-    minimum and pins this reading until `cleanup_stale_expiry_tracking` removes it, and
-    that cleanup is a daily task where it is scheduled at all.
+    minimum and pins this reading until `cleanup_stale_expiry_tracking` removes it. That
+    cleanup is a daily task where it is scheduled at all. A member whose delete fails moves to
+    a retry score past the refresh window and stops pinning the reading.
 
     Both are None when Redis does not answer, which pushes no series rather than a zero
     that reads as a drained queue.
@@ -440,68 +457,129 @@ def _refresh_one_team(config: HyperCacheManagementConfig, team: Team) -> Refresh
         return "failed"
 
 
+# Every writer scores a member with a whole number of seconds, so a score ending in .5 marks a
+# member that only the cleanup wrote. The delay keeps the member out of the 24-hour window that
+# select_expiring_teams reads, so an entry whose delete keeps failing never uses up one of the
+# `limit` members that the selection returns.
+_DELETE_RETRY_DELAY_SECONDS = 2 * 24 * 3600 + 0.5
+
+
+def _retrack_if_still_stored(
+    hypercache: HyperCache, identifier: str | int, redis_client: redis.Redis, sorted_set_key: str, retry_score: float
+) -> bool:
+    """Re-add the member at the retry score when any tier holds the entry after its member left the set.
+
+    A read between the Redis delete and the object-storage delete copies the object back into Redis
+    without adding the member. So does a rewrite whose own add failed. A failed check re-adds the
+    member and raises, so the next cleanup retries the entry.
+    """
+    cache_key = hypercache.get_cache_key(identifier)
+    secondary = hypercache.secondary_cache_client
+
+    def retrack() -> None:
+        redis_client.zadd(sorted_set_key, {str(identifier): retry_score}, nx=True)
+
+    try:
+        still_stored = (
+            hypercache.cache_client.has_key(cache_key)
+            or (secondary is not None and secondary.has_key(cache_key))
+            # Without object storage the client is a stub whose existence check always raises.
+            or (
+                hypercache.s3_enabled
+                and settings.OBJECT_STORAGE_ENABLED
+                and object_storage.head_object_strict(cache_key) is not None
+            )
+        )
+    except Exception:
+        retrack()
+        raise
+    if still_stored:
+        retrack()
+    return still_stored
+
+
 def cleanup_stale_expiry_tracking(config: HyperCacheManagementConfig) -> int:
     """
-    Remove stale entries from the expiry tracking sorted set.
+    Delete the cache entries of deleted teams and remove them from the expiry tracking sorted set.
 
-    Over time, the sorted set can accumulate entries for deleted teams or teams
-    that no longer have caches. This cleanup job removes those stale entries.
+    An identifier is stale only when the Postgres primary has no team with it. A refresh run
+    that loaded a team before the team was deleted can write the entry again after the delete
+    path cleared it. The object-storage copy has no TTL. This cleanup deletes it.
+
+    Before the deletes, the cleanup moves the member to a retry score outside the refresh window.
+    The member leaves the sorted set only after every delete succeeds and only while it still holds
+    that score. A tier that still holds the entry afterward gets the member back. Any failure leaves
+    the member at the retry score, and the next cleanup retries it.
 
     Args:
         config: HyperCache management config specifying which cache to clean up
 
     Returns:
-        Number of stale entries removed
+        Number of stale entries deleted
     """
     hypercache = config.hypercache
+    sorted_set_key = hypercache.expiry_sorted_set_key
 
-    if not hypercache.expiry_sorted_set_key:
+    if not sorted_set_key:
         logger.warning(f"No expiry sorted set configured for {config.log_prefix}")
         return 0
 
     try:
         redis_client = get_client(hypercache.redis_url)
 
-        # Get all entries from the sorted set
-        all_identifiers = redis_client.zrange(hypercache.expiry_sorted_set_key, 0, -1)
+        members = redis_client.zrange(sorted_set_key, 0, -1)
 
-        if not all_identifiers:
+        if not members:
             logger.info(f"No {config.log_prefix} expiry entries to check")
             return 0
 
-        # Decode to appropriate type based on token_based setting
-        query_field = "api_token" if hypercache.token_based else "id"
-        identifier_type = str if hypercache.token_based else int
-        decoded_identifiers = [
-            identifier_type(identifier.decode("utf-8") if isinstance(identifier, bytes) else identifier)
-            for identifier in all_identifiers
-        ]
+        query_field = _query_field(hypercache)
+        identifiers = [_decode_identifier(hypercache, member) for member in members]
 
-        # Query for valid teams
-        filter_kwargs = {f"{query_field}__in": decoded_identifiers}
-        valid_identifiers = set(Team.objects.filter(**filter_kwargs).values_list(query_field, flat=True))
+        valid_identifiers: set[str | int] = set()
+        for batch in batched(identifiers, 1000, strict=False):
+            valid_identifiers |= existing_team_identifiers(query_field, batch)
+        stale = [identifier for identifier in identifiers if identifier not in valid_identifiers]
 
-        # Find stale entries (in sorted set but not in database)
-        stale_identifiers = [identifier for identifier in decoded_identifiers if identifier not in valid_identifiers]
-
-        if not stale_identifiers:
+        if not stale:
             logger.info(f"No stale {config.log_prefix} expiry entries found")
             return 0
 
-        # Convert back to strings for Redis (sorted sets store members as strings/bytes)
-        stale_identifiers_str = [str(identifier) for identifier in stale_identifiers]
-
-        # Remove stale entries
-        removed = redis_client.zrem(hypercache.expiry_sorted_set_key, *stale_identifiers_str)
+        retry_score = int(time.time()) + _DELETE_RETRY_DELAY_SECONDS
+        removed = 0
+        kept = 0
+        for identifier in stale:
+            member = str(identifier)
+            try:
+                redis_client.zadd(sorted_set_key, {member: retry_score}, xx=True)
+                hypercache.delete_cache_entry(identifier, strict_mirror=True, tracked_expiry_score=retry_score)
+                if redis_client.zscore(sorted_set_key, member) is not None or _retrack_if_still_stored(
+                    hypercache, identifier, redis_client, sorted_set_key, retry_score
+                ):
+                    kept += 1
+                else:
+                    removed += 1
+            except SoftTimeLimitExceeded:
+                raise
+            except Exception as e:
+                logger.exception(
+                    f"Failed to delete stale {config.log_prefix[:-1]}",
+                    identifier=mask_key_value(identifier) if isinstance(identifier, str) else identifier,
+                )
+                capture_exception(e)
 
         logger.info(
             f"Cleaned up stale {config.log_prefix} expiry entries",
             removed=removed,
-            total_checked=len(decoded_identifiers),
+            kept=kept,
+            failed=len(stale) - removed - kept,
+            total_checked=len(identifiers),
         )
 
         return removed
 
+    except SoftTimeLimitExceeded:
+        raise
     except Exception as e:
         logger.exception(f"Error cleaning up {config.log_prefix} expiry tracking", error=str(e))
         capture_exception(e)

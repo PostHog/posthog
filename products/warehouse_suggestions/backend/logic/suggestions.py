@@ -87,6 +87,8 @@ def _clear_review(suggestion: WarehouseSuggestion) -> None:
     suggestion.dismissal_reason = None
     suggestion.dismissal_note = None
     suggestion.dismissed_at_score = None
+    suggestion.realized_seconds_saved_per_month = None
+    suggestion.realized_bytes_saved_per_month = None
 
 
 def _record_review(suggestion: WarehouseSuggestion, user_id: int | None) -> None:

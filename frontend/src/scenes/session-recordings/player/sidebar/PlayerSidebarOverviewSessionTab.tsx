@@ -22,7 +22,7 @@ export function PlayerSidebarOverviewSessionTab(): JSX.Element {
     return (
         <>
             {statItems.length > 0 && (
-                <div className="rounded border bg-surface-primary flex flex-row justify-between px-2 py-1.5 gap-2">
+                <div className="rounded border bg-surface-primary flex flex-row justify-between items-center px-2 py-1.5 gap-2">
                     {loading
                         ? statItems.map((item) => <LemonSkeleton key={item.label} className="h-8 flex-1" />)
                         : statItems.map((item) => {

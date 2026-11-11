@@ -1,5 +1,6 @@
 import json
 import uuid
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import time_machine
@@ -9,8 +10,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import Database, _compute_system_table_access_decision, system_table_denials
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.errors import QueryError
@@ -18,6 +20,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.auth import ProjectSecretAPIKeyUser
+from posthog.constants import AvailableFeature
 from posthog.models import (
     DataDeletionRequest,
     Group,
@@ -32,14 +36,18 @@ from posthog.models import (
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.data_deletion_request import ExecutionMode, RequestStatus, RequestType
 from posthog.models.project import Project
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
 from posthog.persons_db import persons_db_connection
 from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
-from products.actions.backend.models.action import Action
-from products.aeo.backend.facade.testing import create_citation_check
+from products.actions.backend.facade.testing import create_action
+from products.aeo.backend.facade.testing import create_brand, create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -47,7 +55,7 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue, 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.annotations.backend.models.annotation import Annotation
+from products.annotations.backend.facade import testing as annotations_testing
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
 from products.batch_exports.backend.facade.enums import (
@@ -94,7 +102,8 @@ from products.error_tracking.backend.facade.testing import (
     create_suppression_rule,
     create_symbol_set,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.event_definitions.backend.models import EventDefinition, PropertyDefinition
+from products.experiments.backend.facade.testing import create_experiment
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.logs.backend.models import LogsAlertConfiguration, LogsView
@@ -116,6 +125,7 @@ from products.signals.backend.models import (
     SignalScoutConfig,
     SignalScoutEmission,
     SignalScoutRun,
+    SignalSpend,
 )
 from products.surveys.backend.models import Survey, SurveyResponseArchive
 from products.tasks.backend.facade import testing as tasks_testing
@@ -132,7 +142,14 @@ from products.workflows.backend.facade.testing import create_workflow_for_test
 # Only directly-queryable tables are team-scoped via a WHERE clause. Namespace nodes such as
 # `information_schema` carry no `table` of their own (just child catalog tables computed per-query),
 # so they have no team_id filter and can't be `SELECT *`-ed directly — skip them here.
-ALL_SYSTEM_TABLE_NAMES = sorted(name for name, node in SystemTables().children.items() if node.table is not None)
+# `integrations` is read through the integrations SDK and inlined as constant rows, so it prints no
+# team_id guard. test_system_integrations.py covers its team scoping.
+SDK_BACKED_SYSTEM_TABLE_NAMES = frozenset({"integrations"})
+ALL_SYSTEM_TABLE_NAMES = sorted(
+    name
+    for name, node in SystemTables().children.items()
+    if node.table is not None and name not in SDK_BACKED_SYSTEM_TABLE_NAMES
+)
 
 # {table_name: "sql_alias.column_name"} for team_id filter assertion
 TEAM_ID_FILTER_PATTERNS = {
@@ -148,6 +165,8 @@ TEAM_ID_FILTER_PATTERNS = {
     "batch_export_runs": "system__batch_exports.team_id",
     # Same shape, scoped through system.support_tickets instead
     "_ticket_tagged_items": "system__support_tickets.team_id",
+    "_event_definition_tagged_items": "system___event_definition_tagged_items.team_id",
+    "_property_definition_tagged_items": "system___property_definition_tagged_items.team_id",
     "_ticket_assignments": "system__support_tickets.team_id",
     # Roles scope one level deeper, through the assignments that reference them
     "_ticket_assignee_roles": "system__support_tickets.team_id",
@@ -158,7 +177,7 @@ class TestSystemTablesTeamScoping(BaseTest):
     """Verify every system table's generated SQL includes a team_id WHERE clause."""
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
-    def test_system_table_has_team_id_filter(self, table_name):
+    def test_system_table_filters_on_team_id_without_selecting_it(self, table_name):
         if table_name == "data_deletion_requests":
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -170,10 +189,14 @@ class TestSystemTablesTeamScoping(BaseTest):
             database=db,
         )
         sql = f"SELECT * FROM system.{table_name}"
-        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, prepared = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
         pattern = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
         assert f"equals({pattern}, {self.team.pk})" in query
+
+        assert isinstance(prepared, ast.SelectQuery) and prepared.type is not None
+        assert prepared.type.columns
+        assert "team_id" not in prepared.type.columns
 
     def test_all_system_tables_have_isolation_tests(self):
         """Fails when a new system table is added without a corresponding isolation test."""
@@ -191,6 +214,9 @@ class TestSystemTablesTeamScoping(BaseTest):
             "_account_custom_property_values_history",
             # Hidden junction backing system.support_tickets.tags; covered by TestSystemTicketTagsLazyJoin.
             "_ticket_tagged_items",
+            # Hidden junctions backing the definition tables' tags; covered by TestSystemDefinitionTables.
+            "_event_definition_tagged_items",
+            "_property_definition_tagged_items",
             # Hidden table backing system.support_tickets.assignee; covered by TestSystemTicketAssignmentLazyJoin.
             "_ticket_assignments",
             # Hidden table backing the assignee role_name resolution; covered by TestSystemTicketAssignmentLazyJoin.
@@ -225,6 +251,8 @@ class TestSystemTablesTeamScoping(BaseTest):
             ("inbox_report_checks", "config"),
             ("inbox_report_artefacts", "content"),
             ("inbox_report_actions", "metadata"),
+            ("activity_logs", "credential_id"),
+            ("activity_logs", "impersonated_by_id"),
         ]
     )
     def test_viewer_restricted_fields_are_not_queryable(self, table_name, field_name):
@@ -381,16 +409,16 @@ def _create_feature_request_history(team: Team, label: str):
     return create_feature_request_history(team_id=team.pk, feature_request=feature_request, changed_at=timezone.now())
 
 
-def _create_action(team: Team, label: str) -> Action:
-    return Action.objects.create(team=team, name=f"action_{label}")
+def _create_action(team: Team, label: str) -> int:
+    return create_action(team=team, name=f"action_{label}").id
 
 
 def _create_cohort(team: Team, label: str) -> Cohort:
     return Cohort.objects.create(team=team, name=f"cohort_{label}")
 
 
-def _create_annotation(team: Team, label: str) -> Annotation:
-    return Annotation.objects.create(team=team, content=f"annotation_{label}")
+def _create_annotation(team: Team, label: str) -> SimpleNamespace:
+    return SimpleNamespace(pk=annotations_testing.create_annotation(team_id=team.pk, content=f"annotation_{label}"))
 
 
 def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:
@@ -615,9 +643,9 @@ def _create_hog_function(team: Team, label: str) -> HogFunction:
     )
 
 
-def _create_experiment(team: Team, label: str) -> Experiment:
+def _create_experiment(team: Team, label: str) -> int:
     flag = FeatureFlag.objects.create(team=team, key=f"flag_for_exp_{label}")
-    return Experiment.objects.create(team=team, name=f"experiment_{label}", feature_flag=flag)
+    return create_experiment(team_id=team.id, name=f"experiment_{label}", feature_flag_id=flag.id)
 
 
 def _create_export(team: Team, label: str) -> ExportedAsset:
@@ -932,6 +960,14 @@ def _create_sandbox_environment(team: Team, label: str) -> SandboxEnvironment:
     return SandboxEnvironment.objects.create(team=team, name=f"env_{label}", private=False)
 
 
+def _create_event_definition(team: Team, label: str) -> EventDefinition:
+    return EventDefinition.objects.create(team=team, project_id=team.project_id, name=f"event_{label}")
+
+
+def _create_property_definition(team: Team, label: str) -> PropertyDefinition:
+    return PropertyDefinition.objects.create(team=team, project_id=team.project_id, name=f"property_{label}")
+
+
 def _create_tag(team: Team, label: str) -> Tag:
     return Tag.objects.create(team=team, name=f"tag_{label}")
 
@@ -1020,6 +1056,12 @@ def _create_scout_run_emission(team: Team, label: str) -> SignalScoutEmission:
     )
 
 
+def _create_signal_spend(team: Team, label: str) -> SignalSpend:
+    return SignalSpend.objects.for_team(team.pk).create(
+        team=team, kind=SignalSpend.Kind.AD_HOC, signal_id=uuid.uuid4(), spend="1.2345", finalized_at=timezone.now()
+    )
+
+
 def _create_task_artifact(team: Team, label: str) -> uuid.UUID:
     run = _create_task_run(team, label)
     return tasks_testing.create_task_artifact(
@@ -1077,6 +1119,7 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
+    ("aeo_brands", create_brand),
     ("aeo_citation_checks", create_citation_check),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
@@ -1131,6 +1174,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("error_tracking_symbol_sets", _create_error_tracking_symbol_set),
     ("error_tracking_suppression_rules", _create_error_tracking_suppression_rule),
     ("evaluation_directories", _create_evaluation_directory),
+    ("event_definitions", _create_event_definition),
     ("evaluations", _create_evaluation),
     ("experiments", _create_experiment),
     ("exports", _create_export),
@@ -1158,6 +1202,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("inbox_reports", _create_inbox_report),
     ("integration_repository_cache", _create_integration_repository_cache_entry),
     ("logs_alerts", _create_logs_alert),
+    ("property_definitions", _create_property_definition),
     ("replay_scanners", _create_replay_scanner),
     ("revenue_analytics_config", _create_revenue_analytics_config),
     ("logs_views", _create_logs_view),
@@ -1171,6 +1216,8 @@ SYSTEM_TABLE_FACTORIES = [
     ("scout_configs", _create_scout_config),
     ("scout_run_emissions", _create_scout_run_emission),
     ("scout_runs", _create_scout_run),
+    ("signal_spend", _create_signal_spend),
+    ("_signal_spend_scout_runs", _create_scout_run),
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
@@ -1484,6 +1531,54 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
         assert str(internal_task.pk) not in ids
 
 
+class TestSystemTablesInboxAccess(BaseTest):
+    @parameterized.expand([("signal_usage:read", True), ("signal_scout:read", False)])
+    def test_spend_tables_require_usage_scope(self, scope: str, expected_visible: bool) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="spend-tables", secure_value="sha256$" + "e" * 64, scopes=[scope]
+        )
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+        assert ("signal_spend" not in denied) is expected_visible
+        assert ("_signal_spend_scout_runs" not in denied) is expected_visible
+
+    @parameterized.expand(
+        [
+            ("inbox_read", ["inbox:read"], True),
+            ("legacy_task_read", ["task:read"], True),
+            ("unrelated", ["insight:read"], False),
+        ]
+    )
+    def test_project_secret_api_key_inbox_system_table_visibility(
+        self, _name: str, scopes: list[str], expected_visible: bool
+    ) -> None:
+        psak = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="inbox-tables", secure_value="sha256$" + "e" * 64, scopes=scopes
+        )
+
+        _, denied = _compute_system_table_access_decision(self.team, ProjectSecretAPIKeyUser(psak))
+
+        assert ("inbox_reports" not in denied) is expected_visible
+        assert ("tasks" not in denied) is (scopes == ["task:read"])
+
+    @parameterized.expand([("default_access", None, False), ("task_access_none", "none", True)])
+    def test_member_reads_inbox_system_tables_like_task_tables(
+        self, _name: str, task_access_level: str | None, expected_denied: bool
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        if task_access_level is not None:
+            AccessControl.objects.create(team=self.team, resource="task", access_level=task_access_level)
+
+        denied = system_table_denials(self.team, self.user)
+
+        assert ("tasks" in denied) is expected_denied
+        assert ("inbox_reports" in denied) is expected_denied
+
+
 class TestSystemTablesInboxDeletedExclusionIsolation(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
@@ -1537,15 +1632,34 @@ class TestSystemTablesScoutTrialExclusionIsolation(NonAtomicBaseTest):
         SignalScoutRun.objects.for_team(self.team.pk).filter(id=trial.scout_run_id).update(
             metadata={"scout_trial": {"version": 1}}
         )
+        for emission in (visible, trial):
+            run = SignalScoutRun.objects.for_team(self.team.pk).get(id=emission.scout_run_id)
+            SignalSpend.objects.for_team(self.team.pk).create(
+                team=self.team,
+                kind=SignalSpend.Kind.SCOUT_RUN,
+                scout_run=run,
+                task_run_id=run.task_run_id,
+                spend="12.3456",
+                finalized_at=timezone.now(),
+            )
+            SignalScoutRun.objects.for_team(self.team.pk).filter(id=run.id).update(total_spend="12.3456")
         runs = execute_hogql_query("SELECT id FROM system.scout_runs", team=self.team, user=self.user)
         emissions = execute_hogql_query(
             "SELECT id, run_id FROM system.scout_run_emissions", team=self.team, user=self.user
+        )
+        spend = execute_hogql_query(
+            "SELECT scout_run_id, credits FROM system.signal_spend", team=self.team, user=self.user
+        )
+        run_spend = execute_hogql_query(
+            "SELECT id, spend_credits FROM system.scout_runs", team=self.team, user=self.user
         )
 
         assert {str(row[0]) for row in runs.results} == {str(visible.scout_run_id)}
         assert {(str(row[0]), str(row[1])) for row in emissions.results} == {
             (str(visible.pk), str(visible.scout_run_id))
         }
+        assert [(str(row[0]), str(row[1])) for row in spend.results] == [(str(visible.scout_run_id), "12.3456")]
+        assert [(str(row[0]), str(row[1])) for row in run_spend.results] == [(str(visible.scout_run_id), "12.3456")]
 
 
 class TestSystemTablesTaskSpaceVisibilityIsolation(NonAtomicBaseTest):
@@ -1663,6 +1777,68 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
         rows = {row[0]: row[1] for row in response.results}
 
         assert rows == {"mdnote": markdown_source, "legacy": None, "empty": None}
+
+
+class TestSystemEndpointCurrentVersion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    @parameterized.expand([(1,), (2,), (99,), (1, True, True), (1, True, False)])
+    def test_current_version_fields(self, current_version, access_denied=False, reader_is_creator=True):
+        endpoint = _create_endpoint(self.team, "current")
+        if access_denied:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            endpoint.created_by = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+            endpoint.save(update_fields=["created_by"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="endpoint",
+                resource_id=str(endpoint.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+        endpoint.current_version = current_version
+        endpoint.save(update_fields=["current_version"])
+        for version in (1, 2):
+            EndpointVersion.objects.create(
+                endpoint=endpoint,
+                team=self.team,
+                version=version,
+                description=f"Version {version}",
+                query={"kind": "HogQLQuery", "query": f"SELECT {version}"},
+                cache_ttl_seconds=version * 60,
+                columns=[{"name": "result", "type": "integer"}],
+                created_by=self.user,
+            )
+        _create_endpoint_version(self.team, "other")
+
+        response = execute_hogql_query(
+            """
+            SELECT name, current_version, description, query.query, data_freshness_seconds,
+                   columns, version.version, version.description
+            FROM system.data_modeling_endpoints
+            WHERE name = 'ep_current'
+            """,
+            team=self.team,
+            user=self.user,
+        )
+
+        if access_denied and not reader_is_creator:
+            assert response.results == []
+            return
+        assert len(response.results) == 1
+        row = response.results[0]
+        assert row[:2] == ("ep_current", current_version)
+        if current_version == 99:
+            assert row[2] == ""
+        else:
+            assert row[2:5] == (f"Version {current_version}", f"SELECT {current_version}", current_version * 60)
+            assert json.loads(row[5]) == [{"name": "result", "type": "integer"}]
+            assert row[6:] == (current_version, f"Version {current_version}")
 
 
 class TestSystemTicketTagsLazyJoin(NonAtomicBaseTest):
@@ -1823,6 +1999,112 @@ class TestSystemTicketAssignmentLazyJoin(NonAtomicBaseTest):
             user=self.user,
         )
         assert response.results == []
+
+
+class TestSystemDefinitionTables(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def setUp(self):
+        super().setUp()
+        other_org = Organization.objects.create(name="other_org")
+        other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
+        self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)
+
+    def test_event_definition_columns(self):
+        EventDefinition.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            name="signed_up",
+            created_at=datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC),
+            last_seen_at=datetime(2026, 2, 3, 4, 5, 6, tzinfo=UTC),
+        )
+
+        response = execute_hogql_query(
+            "SELECT name, created_at, last_seen_at FROM system.event_definitions", team=self.team, user=self.user
+        )
+
+        assert response.results == [
+            ("signed_up", datetime(2026, 1, 2, 3, 4, 5, tzinfo=UTC), datetime(2026, 2, 3, 4, 5, 6, tzinfo=UTC))
+        ]
+
+    def test_property_definition_columns(self):
+        for name, prop_type, group_type_index, property_type, is_numerical in [
+            ("amount", PropertyDefinition.Type.EVENT, None, "Numeric", True),
+            ("email", PropertyDefinition.Type.PERSON, None, "String", False),
+            ("tier", PropertyDefinition.Type.GROUP, 1, None, False),
+            ("$session_duration", PropertyDefinition.Type.SESSION, None, "Duration", True),
+        ]:
+            PropertyDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=name,
+                type=prop_type,
+                group_type_index=group_type_index,
+                property_type=property_type,
+                is_numerical=is_numerical,
+            )
+
+        response = execute_hogql_query(
+            "SELECT name, type, group_type_index, property_type, is_numerical FROM system.property_definitions",
+            team=self.team,
+            user=self.user,
+        )
+
+        assert sorted(response.results) == [
+            ("$session_duration", "session", None, "Duration", 1),
+            ("amount", "event", None, "Numeric", 1),
+            ("email", "person", None, "String", 0),
+            ("tier", "group", 1, None, 0),
+        ]
+
+    @parameterized.expand(
+        [("event_definitions", _create_event_definition), ("property_definitions", _create_property_definition)]
+    )
+    def test_tags_lazy_join_returns_own_tag_names(self, table_name, factory):
+        tagged = factory(self.team, "tagged")
+        tagged.tagged_items.create(tag=Tag.objects.create(name="pii", team=self.team))
+        tagged.tagged_items.create(tag=Tag.objects.create(name="billing", team=self.team))
+        untagged = factory(self.team, "untagged")
+        theirs = factory(self.other_team, "theirs")
+        theirs.tagged_items.create(tag=Tag.objects.create(name="pii", team=self.other_team))
+
+        response = execute_hogql_query(
+            f"SELECT id, tags.names FROM system.{table_name}", team=self.team, user=self.user
+        )
+
+        assert {str(row[0]): row[1] for row in response.results} == {
+            str(tagged.pk): ["billing", "pii"],
+            str(untagged.pk): [],
+        }
+
+    def test_property_definitions_hide_restricted_properties(self):
+        self.organization.available_product_features = [
+            {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        for name, prop_type, group_type_index, restricted in [
+            ("plan", PropertyDefinition.Type.EVENT, None, True),
+            ("plan", PropertyDefinition.Type.PERSON, None, False),
+            ("tier", PropertyDefinition.Type.GROUP, 1, True),
+            ("tier", PropertyDefinition.Type.GROUP, 0, False),
+        ]:
+            definition = PropertyDefinition.objects.create(
+                team=self.team,
+                project_id=self.team.project_id,
+                name=name,
+                type=prop_type,
+                group_type_index=group_type_index,
+            )
+            if restricted:
+                PropertyAccessControl.objects.create(
+                    team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+                )
+
+        response = execute_hogql_query(
+            "SELECT name, type, group_type_index FROM system.property_definitions", team=self.team, user=self.user
+        )
+
+        assert sorted(response.results, key=str) == [("plan", "person", None), ("tier", "group", 0)]
 
 
 class TestSystemAccountsLazyJoins(NonAtomicBaseTest):

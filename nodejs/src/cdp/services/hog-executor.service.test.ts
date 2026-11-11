@@ -39,6 +39,7 @@ import {
 } from '../_tests/fixtures'
 import { isConnectionLevelError } from '../utils/cdp-fetch'
 import { EncryptedFields } from '../utils/encryption-utils'
+import { signIntegrationRef } from '../utils/integration-input-refs'
 import { EXTEND_OBJECT_KEY } from './hog-inputs.service'
 import { SELF_LOOP_DEPTH_PROPERTY, selfLoopGuardCounter } from './self-loop-guard'
 
@@ -88,7 +89,9 @@ describe('Hog Executor', () => {
             hub.SITE_URL,
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
-            new RecipientsManagerService(hub.postgres)
+            new RecipientsManagerService(hub.postgres),
+            null,
+            { report: jest.fn() }
         )
         const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         return new HogExecutorAsyncService(
@@ -407,6 +410,73 @@ describe('Hog Executor', () => {
             expect(result.metrics).toEqual(previousResult.metrics)
             expect(result.capturedPostHogEvents).toEqual(previousResult.capturedPostHogEvents)
             expect(result.execResult).toEqual({ foo: 'bar' })
+        })
+    })
+
+    describe('persisted integration references', () => {
+        // return inputs.twilio.auth_token
+        const RETURN_TWILIO_AUTH_TOKEN = ['_h', 32, 'auth_token', 32, 'twilio', 32, 'inputs', 1, 3, 38]
+
+        it.each([
+            [
+                'resolves a reference from the job queue before the function runs',
+                (teamId: number, integrationId: number) => ({
+                    $integration_ref: integrationId,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, teamId, 'twilio', integrationId),
+                }),
+                'fake-auth-token-value',
+            ],
+            [
+                'runs a job queued with the resolved values before references existed',
+                (_teamId: number, integrationId: number) => ({
+                    $integration_id: integrationId,
+                    auth_token: 'fake-old-job-token',
+                }),
+                'fake-old-job-token',
+            ],
+        ])('%s', async (_name, persistedValue, expected) => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const integration = await insertIntegration(hub.postgres, team.id, {
+                kind: 'oauth',
+                config: { account_sid: 'AC-fake' },
+                sensitive_config: { auth_token: hub.encryptedFields.encrypt('fake-auth-token-value') },
+            })
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: integration.id } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = { twilio: persistedValue(team.id, integration.id) }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.error).toBeUndefined()
+            expect(result.execResult).toBe(expected)
+            // The resolved secret must not go back into the state that the queue persists.
+            expect(result.invocation.state.globals.inputs.twilio).toEqual(persistedValue(team.id, integration.id))
+        })
+
+        it('fails the invocation when a reference does not resolve', async () => {
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const invocation = createExampleInvocation({
+                team_id: team.id,
+                bytecode: RETURN_TWILIO_AUTH_TOKEN,
+                inputs: { twilio: { value: 999999999 } },
+                inputs_schema: [{ key: 'twilio', type: 'integration', required: true }],
+            })
+            invocation.state.globals.inputs = {
+                twilio: {
+                    $integration_ref: 999999999,
+                    $integration_ref_sig: signIntegrationRef(hub.encryptedFields, team.id, 'twilio', 999999999),
+                },
+            }
+
+            const result = await executor.hogExecutor.execute(invocation)
+
+            expect(result.finished).toBe(true)
+            expect(result.execResult).toBeUndefined()
+            expect(result.error).toContain("The integration for input 'twilio' could not be loaded.")
         })
     })
 
@@ -2089,6 +2159,51 @@ describe('Hog Executor', () => {
                 { Authorization: 'Bearer crm_secret_token', 'X-Chat': 'chat_secret_token' },
                 { token: 'crm_secret_token', title: lookAlike },
             ])
+        })
+
+        it('does not substitute the access token of a warehouse source row', async () => {
+            jest.mocked(fetch).mockImplementation(() =>
+                Promise.resolve({
+                    status: 200,
+                    body: 'Hello, world!',
+                    headers: {},
+                    json: () => Promise.resolve({}),
+                    text: () => Promise.resolve(''),
+                    dump: () => Promise.resolve(),
+                })
+            )
+
+            const team = (await createTestTeamFixture(hub.postgres)).team
+            const warehouse = await insertIntegration(hub.postgres, team.id, {
+                kind: 'postgresql' as any,
+                config: { warehouse_source_type: 'Postgres' },
+                sensitive_config: { access_token: hub.encryptedFields.encrypt('warehouse_secret_token') },
+            })
+            const placeholder = (
+                new HogInputsService(
+                    hub.integrationManager,
+                    new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL),
+                    hub.encryptedFields
+                ) as any
+            ).accessTokenPlaceholder(warehouse.id)
+
+            const invocation = createExampleInvocation({ ...hogFunction, team_id: team.id })
+            invocation.hogFunction.inputs = { connection: { value: warehouse.id } }
+            invocation.hogFunction.inputs_schema = [{ key: 'connection', type: 'integration', required: true }]
+            invocation.state.vmState = { stack: [] } as any
+            invocation.queueParameters = {
+                type: 'fetch',
+                url: 'https://example.com/test',
+                method: 'POST',
+                headers: { Authorization: `Bearer ${placeholder}` },
+                body: JSON.stringify({ token: placeholder }),
+            } as any
+
+            await createExecutor(hub.encryptedFields).executeFetch(invocation)
+
+            const [, options] = jest.mocked(fetch).mock.calls[0] as any
+            expect(options.headers).toEqual({ Authorization: `Bearer ${placeholder}` })
+            expect(options.body).not.toContain('warehouse_secret_token')
         })
 
         describe('with non_failure_status_codes', () => {

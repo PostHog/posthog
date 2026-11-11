@@ -3,9 +3,8 @@ import clsx from 'clsx'
 import { ProportionBar } from '@posthog/quill-charts'
 import type { ProportionBarConfig } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig } from 'lib/charts/hooks'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { SqlChartProps } from './SqlChart'
 import { useSqlPartOfWholeChart } from './useSqlPartOfWholeChart'
@@ -19,6 +18,7 @@ export const SqlProportionBar = ({
     presetChartHeight,
     className,
     labelFormatter,
+    onSliceClick,
 }: SqlChartProps): JSX.Element => {
     const { theme, series, legendConfig, total, showTotal, valueFormatter } = useSqlPartOfWholeChart(
         { xData, yData, chartSettings, labelFormatter },
@@ -48,6 +48,7 @@ export const SqlProportionBar = ({
                 valueFormatter={valueFormatter}
                 dataAttr="sql-proportion-bar"
                 onError={handleChartError}
+                onSliceClick={onSliceClick}
             />
             {showTotal && (
                 <div className="pt-4 text-center shrink-0">

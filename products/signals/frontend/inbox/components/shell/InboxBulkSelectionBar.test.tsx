@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { teammateClaim } from '../../__mocks__/inboxMocks'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, type SignalReport, SignalReportStatus } from '../../types'
@@ -101,11 +102,39 @@ describe('InboxBulkSelectionBar', () => {
             />
         )
 
+        // The button opens the reasons; picking one is what sends the requests.
+        fireEvent.click(screen.getByText('Unassign me'))
         await expectLogic(logic, () => {
-            fireEvent.click(screen.getByText('Unassign me'))
+            fireEvent.click(screen.getByText('Without a reason'))
         })
             .toDispatchActions([logic.actionCreators.unassignedMe(unassigned), 'bulkUnassignMeSuccess'])
             .toMatchValues({ selectedReportIds: [] })
         expect(deleted.sort()).toEqual(sent)
+    })
+
+    // A report a person holds must not reach the server, and the whole selection must go in one request.
+    it('claims only the claimable reports, in one request', async () => {
+        const bodies: unknown[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/signals/reports/bulk_claim/': async ({ request }) => {
+                    bodies.push(await request.json())
+                    return [200, { results: [], claimed_count: 2, conflict_count: 0, not_found_count: 0 }]
+                },
+            },
+        })
+        logic.actions.setSelectedReportIds(['a', 'b', 'c'])
+        render(
+            <InboxBulkSelectionBar
+                reports={[makeReport('a'), makeReport('b', { assignee: teammateClaim }), makeReport('c')]}
+            />
+        )
+
+        await expectLogic(logic, () => {
+            fireEvent.click(screen.getByText('Claim'))
+        })
+            .toDispatchActions(['bulkClaimSuccess'])
+            .toMatchValues({ selectedReportIds: [], isClaiming: false })
+        expect(bodies).toEqual([{ ids: ['a', 'c'], takeover_agent_claims: true }])
     })
 })

@@ -26,19 +26,51 @@ import {
 } from '~/taxonomy/marketingAnalytics'
 import { ExternalDataSource, HogQLMathType, ManualLinkSourceType, PropertyMathType } from '~/types'
 
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
-
 import { NativeSource } from './marketingAnalyticsLogic'
 
-export type NonNativeMarketingSource = Extract<ExternalDataSourceTypeEnumApi, 'BigQuery'>
+type WarehouseMarketingSource = 'BigQuery'
+// Managed sources that import spend data from files: a storage bucket or an uploaded file.
+type FileMarketingSource = 'AmazonS3' | 'GoogleCloudStorage' | 'AzureBlob' | 'CloudflareR2' | 'FileUpload'
 
-export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
-export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
-    'aws',
-    'google-cloud',
-    'cloudflare-r2',
-    'azure',
+// Together these mirror the backend VALID_NON_NATIVE_MARKETING_SOURCES (constants.py).
+export const VALID_WAREHOUSE_MARKETING_SOURCES: WarehouseMarketingSource[] = ['BigQuery']
+export const VALID_FILE_MARKETING_SOURCES: FileMarketingSource[] = [
+    'AmazonS3',
+    'GoogleCloudStorage',
+    'AzureBlob',
+    'CloudflareR2',
+    'FileUpload',
 ]
+const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = ['aws', 'google-cloud', 'cloudflare-r2', 'azure']
+
+export type ExternalTableTypeLabel = 'Data warehouse' | 'Files' | 'Self-managed'
+
+/** The type a mapped table shows in the settings list, or null when marketing analytics can't use the table. */
+export function externalTableTypeLabel(sourceType: string): ExternalTableTypeLabel | null {
+    if (VALID_WAREHOUSE_MARKETING_SOURCES.includes(sourceType as WarehouseMarketingSource)) {
+        return 'Data warehouse'
+    }
+    if (VALID_FILE_MARKETING_SOURCES.includes(sourceType as FileMarketingSource)) {
+        return 'Files'
+    }
+    if (VALID_SELF_MANAGED_MARKETING_SOURCES.includes(sourceType as ManualLinkSourceType)) {
+        return 'Self-managed'
+    }
+    return null
+}
+
+/**
+ * The sources_map key of a warehouse table. A self-managed table keeps its id when a managed source
+ * adopts it, so its mapping stays under the table id. Use the key that holds the mapping, in the order
+ * the backend reads them. With no mapping, use the key for a new mapping.
+ */
+export function getSourceMapId(
+    table: { id: string; schema?: { id: string } | null; source?: { id: string } | null },
+    sourcesMap: Record<string, unknown> | null | undefined
+): string {
+    const savedKey = [table.schema?.id, table.id].find((key) => !!key && sourcesMap?.[key] != null)
+    return savedKey || table.schema?.id || table.source?.id || table.id
+}
 
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
     AmazonAds: FEATURE_FLAGS.MARKETING_ANALYTICS_AMAZON_ADS,
@@ -117,6 +149,36 @@ const NATIVE_SOURCE_DISPLAY_LABELS: Record<NativeMarketingSource, string> = {
 }
 export function nativeSourceDisplayLabel(sourceType: string): string {
     return NATIVE_SOURCE_DISPLAY_LABELS[sourceType as NativeMarketingSource] ?? sourceType
+}
+
+const FILE_SOURCE_DISPLAY_LABELS: Record<FileMarketingSource, string> = {
+    AmazonS3: 'Amazon S3',
+    GoogleCloudStorage: 'Google Cloud Storage',
+    AzureBlob: 'Azure Blob Storage',
+    CloudflareR2: 'Cloudflare R2',
+    FileUpload: 'File upload',
+}
+
+export function marketingSourceDisplayLabel(sourceType: string): string {
+    return FILE_SOURCE_DISPLAY_LABELS[sourceType as FileMarketingSource] ?? nativeSourceDisplayLabel(sourceType)
+}
+
+// The id suffix tells apart two accounts of one platform that have no prefix.
+export function marketingSourceName(source: Pick<ExternalDataSource, 'id' | 'prefix' | 'source_type'>): string {
+    return source.prefix || `${nativeSourceDisplayLabel(source.source_type)} (${source.id.slice(0, 8)})`
+}
+
+export function formatMarketingMoney(amount: number, currency: string | null | undefined, compact = false): string {
+    try {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency || 'USD',
+            maximumFractionDigits: compact ? 1 : 0,
+            notation: compact ? 'compact' : 'standard',
+        }).format(amount)
+    } catch {
+        return `${Math.round(amount).toLocaleString('en-US')} ${currency ?? ''}`.trim()
+    }
 }
 
 // Mirrors the backend `NATIVE_SOURCE_HIERARCHY_SCHEMA_NAMES` derivation (constants.py).
@@ -420,9 +482,11 @@ export type validColumnsForTiles =
       >
     | 'roas'
     | 'cost_per_reported_conversion'
+    | 'cpc'
+    | 'ctr'
 
 // Raw column types that have actual column mappings (excludes calculated fields like ROAS)
-export type rawColumnsForTiles = Exclude<validColumnsForTiles, 'roas' | 'cost_per_reported_conversion'>
+export type rawColumnsForTiles = Exclude<validColumnsForTiles, 'roas' | 'cost_per_reported_conversion' | 'cpc' | 'ctr'>
 
 interface ColumnConfig {
     name: string
@@ -976,7 +1040,8 @@ export function createMarketingTile(
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
-            tileColumnSelection === 'cost_per_reported_conversion'
+            tileColumnSelection === 'cost_per_reported_conversion' ||
+            tileColumnSelection === 'cpc'
         if (monetaryColumn && !('currency_code' in table.fields)) {
             return null
         }
@@ -994,7 +1059,8 @@ export function createMarketingTile(
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost ||
             tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue ||
             tileColumnSelection === 'roas' ||
-            tileColumnSelection === 'cost_per_reported_conversion'
+            tileColumnSelection === 'cost_per_reported_conversion' ||
+            tileColumnSelection === 'cpc'
         const currencyColumn = sourceType === 'AmazonAds' ? 'campaign_budget_currency_code' : 'currency'
         if (monetaryColumn && !(currencyColumn in table.fields)) {
             return null
@@ -1005,7 +1071,10 @@ export function createMarketingTile(
         if (!['campaign_id', 'start_time', 'impressions', 'clicks', 'spend'].every((field) => field in table.fields)) {
             return null
         }
-        if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost && !('currency_code' in table.fields)) {
+        if (
+            (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.Cost || tileColumnSelection === 'cpc') &&
+            !('currency_code' in table.fields)
+        ) {
             return null
         }
     }
@@ -1019,6 +1088,15 @@ export function createMarketingTile(
           }
         : tileConfig.columnMappings
 
+    if (tileColumnSelection === 'cpc' || tileColumnSelection === 'ctr') {
+        const clicks = sumSafeFloat(tileConfig.columnMappings.clicks)
+        const expression =
+            tileColumnSelection === 'cpc'
+                ? `${wrapWithCurrencyConversion(buildNativeCostExpr(tileConfig.columnMappings), tileConfig.columnMappings, table, baseCurrency)} / nullIf(${clicks}, 0)`
+                : `${clicks} / nullIf(${sumSafeFloat(tileConfig.columnMappings.impressions)}, 0) * 100`
+        return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, expression)
+    }
+
     // Handle ROAS (Return on Ad Spend) - calculated as conversion_value / cost
     if (tileColumnSelection === 'roas') {
         const costExpr = buildNativeCostExpr(tileConfig.columnMappings)
@@ -1030,7 +1108,7 @@ export function createMarketingTile(
         )
         let totalValueExpr = conversionValueExpr
         let totalCostExpr = `SUM(${costExpr})`
-        if (tileConfig.columnMappings.currencyTimestampColumn && conversionValueExpr !== '0') {
+        if (conversionValueExpr !== '0') {
             const perRowValue =
                 tileConfig.specialConversionLogic?.(table, MarketingAnalyticsColumnsSchemaNames.ReportedConversionValue)
                     ?.perRowValueExpr ?? safeFloat(tileConfig.columnMappings.reportedConversionValue)
@@ -1050,9 +1128,7 @@ export function createMarketingTile(
             MarketingAnalyticsColumnsSchemaNames.ReportedConversion,
             tileConfig.columnMappings.reportedConversion
         )
-        const totalCostExpr = tileConfig.columnMappings.currencyTimestampColumn
-            ? wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
-            : `SUM(${costExpr})`
+        const totalCostExpr = wrapWithCurrencyConversion(costExpr, tileConfig.columnMappings, table, baseCurrency)
         const mathHogql = conversionExpr === '0' ? '0' : `${totalCostExpr} / nullIf(${conversionExpr}, 0)`
         return buildNativeTileNode(table, integrationConfig, tileConfig, tileColumnSelection, mathHogql)
     }

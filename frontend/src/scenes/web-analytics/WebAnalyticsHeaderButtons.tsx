@@ -3,9 +3,11 @@ import posthog from 'posthog-js'
 import { useState } from 'react'
 
 import { IconBolt, IconPerson } from '@posthog/icons'
+import { Button, Switch } from '@posthog/quill'
 
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -23,6 +25,7 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
     const { shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
     const { setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
     const [showPopover, setShowPopover] = useState(false)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const hasFeatureFlag = featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]
     const isUsingNewEngine = currentTeam?.modifiers?.useWebAnalyticsPreAggregatedTables
@@ -53,30 +56,64 @@ export function WebAnalyticsHeaderButtons(): JSX.Element {
                     dataAttr="web-analytics-live-user-count"
                 />
             )}
-            {showShareButton && (
+            {showShareButton &&
+                (todayRailNav ? (
+                    <Button
+                        variant="outline"
+                        size="icon"
+                        aria-label="Share"
+                        tooltip="Share"
+                        onClick={handleShare}
+                        data-attr="web-analytics-share-button"
+                    >
+                        <IconLink />
+                    </Button>
+                ) : (
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconLink fontSize="16" />}
+                        tooltip="Share"
+                        tooltipPlacement="top"
+                        onClick={handleShare}
+                        data-attr="web-analytics-share-button"
+                    />
+                ))}
+            {todayRailNav ? (
+                <Button
+                    variant="outline"
+                    tooltip="Filter out internal and test users"
+                    onClick={() => setShouldFilterTestAccounts(!shouldFilterTestAccounts)}
+                    data-attr="web-analytics-filter-test-accounts"
+                    aria-label="Filter test accounts"
+                    aria-pressed={shouldFilterTestAccounts}
+                >
+                    <IconPerson />
+                    <span className="hidden @min-[30rem]/main-content:inline">Filter test accounts</span>
+                    {/* Decorative: the button owns the toggle, so the switch must not take clicks or focus. */}
+                    <Switch
+                        checked={shouldFilterTestAccounts}
+                        size="sm"
+                        tabIndex={-1}
+                        aria-hidden
+                        className="pointer-events-none ml-1"
+                    />
+                </Button>
+            ) : (
                 <LemonButton
                     type="secondary"
                     size="small"
-                    icon={<IconLink fontSize="16" />}
-                    tooltip="Share"
+                    icon={<IconPerson />}
+                    tooltip="Filter out internal and test users"
                     tooltipPlacement="top"
-                    onClick={handleShare}
-                    data-attr="web-analytics-share-button"
-                />
+                    onClick={() => setShouldFilterTestAccounts(!shouldFilterTestAccounts)}
+                    data-attr="web-analytics-filter-test-accounts"
+                    aria-label="Filter test accounts"
+                >
+                    <span className="hidden @min-[30rem]/main-content:inline">Filter test accounts</span>
+                    <LemonSwitch checked={shouldFilterTestAccounts} className="ml-1" />
+                </LemonButton>
             )}
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconPerson />}
-                tooltip="Filter out internal and test users"
-                tooltipPlacement="top"
-                onClick={() => setShouldFilterTestAccounts(!shouldFilterTestAccounts)}
-                data-attr="web-analytics-filter-test-accounts"
-                aria-label="Filter test accounts"
-            >
-                <span className="hidden @min-[30rem]/main-content:inline">Filter test accounts</span>
-                <LemonSwitch checked={shouldFilterTestAccounts} className="ml-1" />
-            </LemonButton>
             {hasFeatureFlag && (
                 <Popover
                     visible={showPopover}

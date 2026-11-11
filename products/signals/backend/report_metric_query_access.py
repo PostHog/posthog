@@ -2,8 +2,56 @@
 
 from collections.abc import Callable, Mapping
 
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+
 ORDINARY_PROPERTY_FILTER_TYPES = frozenset({"element", "event", "group", "person", "person_metadata", "session"})
 MAX_PROPERTY_FILTER_DEPTH = 20
+HOGQL_FILTER_EVENT_FIELDS = frozenset({"event", "timestamp", "distinct_id", "uuid", "elements_chain"})
+
+
+def _hogql_filter_allows_read(expression: object) -> bool:
+    if not isinstance(expression, str) or not expression.strip():
+        return False
+
+    from posthog.hogql.parser import parse_expr  # noqa: PLC0415 — keeps the query parser off startup
+
+    try:
+        pending = [(parse_expr(expression), 0)]
+    except (BaseHogQLError, SyntaxError, ValueError, RecursionError):
+        return False
+
+    # Shared snapshots cannot carry access to resources hidden behind subqueries or function calls.
+    while pending:
+        node, depth = pending.pop()
+        if depth > MAX_PROPERTY_FILTER_DEPTH:
+            return False
+        if isinstance(node, ast.And | ast.Or | ast.Tuple | ast.Array):
+            pending.extend((child, depth + 1) for child in node.exprs)
+        elif isinstance(node, ast.CompareOperation | ast.ArithmeticOperation):
+            if isinstance(node, ast.CompareOperation) and node.op in {
+                ast.CompareOperationOp.InCohort,
+                ast.CompareOperationOp.NotInCohort,
+            }:
+                return False
+            pending.extend(((node.left, depth + 1), (node.right, depth + 1)))
+        elif isinstance(node, ast.Not):
+            pending.append((node.expr, depth + 1))
+        elif isinstance(node, ast.Call) and node.name.lower() in {"and", "or", "not"}:
+            if node.params or node.distinct or node.order_by or node.within_group or node.filter_expr:
+                return False
+            pending.extend((child, depth + 1) for child in node.args)
+        elif isinstance(node, ast.Field):
+            if not (
+                len(node.chain) == 1
+                and node.chain[0] in HOGQL_FILTER_EVENT_FIELDS
+                or len(node.chain) > 1
+                and node.chain[0] == "properties"
+            ):
+                return False
+        elif not isinstance(node, ast.Constant):
+            return False
+    return True
 
 
 def property_filters_allow_read(filters: object, *, may_read_cohort: Callable[[int], bool] | None = None) -> bool:
@@ -36,6 +84,9 @@ def property_filters_allow_read(filters: object, *, may_read_cohort: Callable[[i
                 or cohort_id <= 0
                 or (may_read_cohort is not None and not may_read_cohort(cohort_id))
             ):
+                return False
+        elif filter_type == "hogql":
+            if not _hogql_filter_allows_read(item.get("key")):
                 return False
         elif not isinstance(filter_type, str) or filter_type not in ORDINARY_PROPERTY_FILTER_TYPES:
             return False

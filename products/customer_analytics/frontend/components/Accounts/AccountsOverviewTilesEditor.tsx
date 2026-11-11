@@ -12,6 +12,7 @@ import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { AccountColumnOption } from './accountsColumnConfigLogic'
+import { AccountsDefinitionStatus } from './AccountsDefinitionStatus'
 import {
     accountsOverviewTilesLogic,
     AccountsOverviewTile,
@@ -136,6 +137,7 @@ export function AccountsOverviewTilesEditor({
                 </>
             }
         >
+            <AccountsDefinitionStatus />
             <div className="flex flex-col gap-3">
                 {tiles.length === 0 ? (
                     <div className="text-secondary text-sm">No tiles configured yet — add one to get started.</div>
@@ -263,8 +265,10 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
         emit({ label: labelAfterMetricChange(nextMetric), metric: nextMetric })
     }
 
+    // A cleared input stores a blank caption, which hides the subtitle. Text equal to the derived
+    // caption stays unset, so the subtitle keeps following later metric edits.
     const onCaptionChange = (value: string): void => {
-        emit({ caption: value.trim() ? value : undefined })
+        emit({ caption: value === autoCaption(tile) ? undefined : value })
     }
 
     const onFormatChange = (format: TileValueFormat): void => {
@@ -302,9 +306,9 @@ function TileEditorRow({ tile, numericColumns, onChange, onRemove }: TileEditorR
                 </div>
                 <div className="pl-6">
                     <LemonInput
-                        value={tile.caption ?? ''}
+                        value={tile.caption ?? autoCaption(tile) ?? ''}
                         onChange={onCaptionChange}
-                        placeholder={autoCaption(tile) ?? 'Subtitle (optional)'}
+                        placeholder="Subtitle (optional)"
                         size="small"
                         fullWidth
                         data-attr={`accounts-overview-tile-caption-${tile.id}`}

@@ -15,7 +15,14 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
+from products.batch_exports.backend.service import (
+    AnyBatchExportModel,
+    BatchExportEventsCustomModel,
+    BatchExportEventsModel,
+    BatchExportPersonsModel,
+    BatchExportSchema,
+    BatchExportSessionsModel,
+)
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.azure_blob_batch_export import (
     SUPPORTED_COMPRESSIONS,
@@ -125,18 +132,20 @@ async def read_manifest(container: ContainerClient, prefix: str) -> dict | None:
 
 
 def extract_model_configuration(
-    batch_export_model: BatchExportModel | BatchExportSchema | None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None,
 ):
     """Extract (model_name, fields, filters, extra_query_parameters) from model config."""
     if batch_export_model is None:
         return "events", None, None, None
 
-    if isinstance(batch_export_model, BatchExportModel):
-        schema = batch_export_model.schema
+    if isinstance(batch_export_model, AnyBatchExportModel):
+        schema = batch_export_model.schema if isinstance(batch_export_model, BatchExportEventsCustomModel) else None
         return (
             batch_export_model.name,
             schema["fields"] if schema else None,
-            batch_export_model.filters,
+            batch_export_model.filters
+            if isinstance(batch_export_model, BatchExportEventsModel | BatchExportEventsCustomModel)
+            else None,
             schema["values"] if schema else None,
         )
 
@@ -149,7 +158,7 @@ async def assert_clickhouse_records_in_azure_blob(
     team_id: int,
     data_interval_start: dt.datetime,
     data_interval_end: dt.datetime,
-    batch_export_model: BatchExportModel | BatchExportSchema | None = None,
+    batch_export_model: AnyBatchExportModel | BatchExportSchema | None = None,
     compression: str | None = None,
     file_format: str = "JSONLines",
     exclude_events: list[str] | None = None,
@@ -234,9 +243,8 @@ async def assert_clickhouse_records_in_azure_blob(
     assert exported_records == expected_records
 
 
-TEST_AZURE_BLOB_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
-    BatchExportModel(
-        name="events",
+TEST_AZURE_BLOB_MODELS: list[AnyBatchExportModel | BatchExportSchema | None] = [
+    BatchExportEventsCustomModel(
         schema={
             "fields": [
                 {"expression": "uuid", "alias": "uuid"},
@@ -248,17 +256,15 @@ TEST_AZURE_BLOB_MODELS: list[BatchExportModel | BatchExportSchema | None] = [
             "values": {"hogql_val_0": "$browser", "hogql_val_1": "$os"},
         },
     ),
-    BatchExportModel(name="events", schema=None),
-    BatchExportModel(
-        name="events",
-        schema=None,
+    BatchExportEventsModel(),
+    BatchExportEventsModel(
         filters=[
             {"key": "$browser", "operator": "exact", "type": "event", "value": ["Chrome"]},
             {"key": "$os", "operator": "exact", "type": "event", "value": ["Mac OS X"]},
         ],
     ),
-    BatchExportModel(name="persons", schema=None),
-    BatchExportModel(name="sessions", schema=None),
+    BatchExportPersonsModel(),
+    BatchExportSessionsModel(),
     {
         "fields": [
             {"expression": "uuid", "alias": "uuid"},
@@ -289,7 +295,7 @@ async def run_azure_blob_batch_export_workflow(
     integration_id: int,
     file_format: str = "JSONLines",
     compression: str | None = None,
-    batch_export_model: BatchExportModel | None = None,
+    batch_export_model: AnyBatchExportModel | None = None,
     legacy_parquet_extension: bool = True,
 ):
     """Run the Azure Blob batch export workflow and return the run result."""

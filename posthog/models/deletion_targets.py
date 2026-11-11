@@ -40,6 +40,8 @@ from posthog.models.flag_evaluations.sql import (
 
 COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
 
+FLAG_EVALUATIONS_HOGQL_TABLE = "posthog.flag_evaluations"
+
 # ClickHouse's CLUSTER_DOESNT_EXIST, which clickhouse_driver does not name.
 _CLUSTER_DOESNT_EXIST = 701
 
@@ -96,10 +98,10 @@ class DeletionTarget:
     # Guarded on system.tables: the table sits behind a migration that may not have run everywhere.
     optional: bool = False
     # Which events-schema variant compile_hogql_predicate emits for this table, None where no
-    # variant is known to run against its physical columns. Every predicate resolves against the
-    # events HogQL table, and the only choice is legacy versus native-JSON. A fragment names
-    # physical columns (mat_*, the property-group maps, or JSON subcolumns), so it only runs
-    # against the schema it was compiled for.
+    # variant is known to run against its physical columns. A predicate that applies to every row
+    # here resolves against the events HogQL table, and the only choice is legacy versus native-JSON.
+    # A fragment names physical columns (mat_*, the property-group maps, or JSON subcolumns), so it
+    # only runs against the schema it was compiled for.
     hogql_schema: HogQLSchema | None = None
     # True where the property-removal job sweeps the table. Its verification fails while any copy of
     # a named property that the table keeps survives the rewrite. A property removal refuses while a
@@ -120,6 +122,11 @@ class DeletionTarget:
     # shard as the row, because the check for rows without a copy reads both tables shard-locally.
     # A deferred event removal with a HogQL predicate deletes rows here through the uuids of their copies.
     copied_from: str | None = None
+    # The HogQL table that a request's predicate compiles against for the rows here that have no copy
+    # in copied_from. None where those rows cannot take a predicate. A row with a copy never takes it.
+    # The drain deletes a queued uuid from every target, so a predicate that matched a row here and
+    # not its copy would delete the copy too.
+    uncopied_rows_hogql_table: str | None = None
     # The event names this table can hold, None meaning unconstrained. Lets a request naming other
     # events skip this table without querying it.
     stored_events: frozenset[str] | None = None
@@ -214,11 +221,12 @@ EVENTS_JSON = DeletionTarget(
 # Flag-evaluation telemetry carries the same person_id and group payload as events, so team and
 # queued-uuid sweeps must reach it, and a person sweep matches on person_id like every other
 # events-shaped table. Property removal rewrites its event properties and its person properties. A
-# HogQL predicate does not compile against the table, so a request that carries one never runs it
-# there. Immediate event removal with a predicate leaves the matching rows to the TTL. Deferred event
-# removal with a predicate deletes the rows through the uuids of their events copies, and refuses
-# while the table holds a matching row with no copy. Property removal with a predicate refuses while
-# the table holds matching rows. docs/internal/clickhouse-deletion-coverage.md explains these limits.
+# HogQL predicate runs here only on rows with no events copy, compiled against the table's own HogQL
+# table. Deferred event removal with a predicate deletes the rows with a copy through the uuids of
+# their events copies, and queues the rows without one that the compiled predicate matches.
+# Immediate event removal with a predicate leaves the rows with a copy to the TTL, and refuses while
+# a row without one matches. Property removal with a predicate refuses while the table holds
+# matching rows. docs/internal/clickhouse-deletion-coverage.md explains these limits.
 FLAG_EVALUATIONS = DeletionTarget(
     data_table=FLAG_EVALUATIONS_DATA_TABLE,
     read_table=FLAG_EVALUATIONS_TABLE,
@@ -227,6 +235,7 @@ FLAG_EVALUATIONS = DeletionTarget(
     accepts_person_id_rewrite=True,
     # Both tables shard on sipHash64(distinct_id), so a flag call and its event share a shard.
     copied_from=EVENTS_DATA_TABLE(),
+    uncopied_rows_hogql_table=FLAG_EVALUATIONS_HOGQL_TABLE,
     stored_events=frozenset({FLAG_EVALUATIONS_SOURCE_EVENT}),
     ttl_days=FLAG_EVALUATIONS_TTL_DAYS,
 )

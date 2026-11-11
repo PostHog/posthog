@@ -2,7 +2,7 @@ from django.conf import settings
 
 
 def retry_budget_seconds() -> float:
-    """The longest time one request may spend on retries, from its first failure."""
+    """The longest time one request may take, from the start of its first try, with all retries and waits."""
     return settings.DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS
 
 

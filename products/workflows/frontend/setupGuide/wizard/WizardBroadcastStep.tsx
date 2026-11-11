@@ -10,10 +10,19 @@ const NEXT_STEPS = [
     },
 ]
 
+const SEND_ON_CALENDAR = {
+    icon: <IconCalendar />,
+    title: 'Send',
+    description:
+        'Send it now, or pick a day on a calendar of your other sends. It suggests a day that keeps people within your frequency cap.',
+}
+
 export function WizardBroadcastStep(): JSX.Element {
+    const steps = [...NEXT_STEPS.slice(0, -1), SEND_ON_CALENDAR]
+
     return (
         <ol className="m-0 flex list-none flex-col gap-4 p-0">
-            {NEXT_STEPS.map((step) => (
+            {steps.map((step) => (
                 <li key={step.title} className="flex items-start gap-3">
                     <span className="flex size-8 shrink-0 items-center justify-center rounded bg-surface-secondary text-lg">
                         {step.icon}

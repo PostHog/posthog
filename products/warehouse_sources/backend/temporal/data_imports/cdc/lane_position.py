@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import Counter, defaultdict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from functools import partial
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import unquote
@@ -29,8 +29,9 @@ from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import (
     CDC_SEQ_COLUMN,
-    SCD2_VALID_FROM_COLUMN,
-    SCD2_VALID_TO_COLUMN,
+    HISTORY_NAMING,
+    LEGACY_HISTORY_NAMING,
+    history_naming_of,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 
@@ -91,6 +92,7 @@ class LanePosition:
     # False above the position-row cap: `applied` then carries keys only, and a batch row is
     # matched on key and operation alone.
     content_matched: bool = True
+    non_content_columns: frozenset[str] = LEGACY_HISTORY_NAMING.validity_columns
     # Reads the rows at the position into a resolved copy of this. Deferred so a tick whose
     # buffer holds nothing at the position — every idle tick — never reads them at all.
     load_applied: Callable[[], LanePosition] | None = None
@@ -98,13 +100,21 @@ class LanePosition:
 
 EMPTY_POSITION = LanePosition(position=None, applied={}, key_columns=())
 
-# Columns that never take part in a content comparison: the position and operation are the key,
-# the SCD2 pair is stamped after replay, and the TOAST marker names columns to leave out per row.
-NON_CONTENT_COLUMNS = frozenset({SCD2_VALID_FROM_COLUMN, SCD2_VALID_TO_COLUMN})
+
+def non_content_columns(table_columns: Iterable[str]) -> frozenset[str]:
+    """Columns that never take part in a content comparison, beyond every `_ph_` column.
+
+    The position and operation are the key, the SCD2 pair is stamped after replay, and the TOAST marker
+    names columns to leave out per row. A legacy history table stamps `valid_from` / `valid_to`. A new
+    one stamps `_ph_` names, so its `valid_from` and `valid_to` are the source's own and count.
+    """
+    if history_naming_of(table_columns) == HISTORY_NAMING:
+        return frozenset()
+    return LEGACY_HISTORY_NAMING.validity_columns
 
 
-def content_columns(names: list[str]) -> list[str]:
-    return [n for n in names if not n.startswith("_ph_") and n not in NON_CONTENT_COLUMNS]
+def content_columns(names: list[str], non_content: frozenset[str]) -> list[str]:
+    return [n for n in names if not n.startswith("_ph_") and n not in non_content]
 
 
 def _has_position_column(delta_table: deltalake.DeltaTable) -> bool:
@@ -153,11 +163,13 @@ async def read_lane_position(
     present = {field.name for field in delta_table.schema().fields}
     columns = [name for name in key_columns if name in present]
     candidates = _files_at_position(add_actions, highest)
+    non_content = non_content_columns(present)
     return LanePosition(
         position=highest,
         applied={},
         key_columns=tuple(columns),
-        load_applied=partial(_load_applied, delta_table, add_actions, highest, candidates, columns),
+        non_content_columns=non_content,
+        load_applied=partial(_load_applied, delta_table, add_actions, highest, candidates, columns, non_content),
     )
 
 
@@ -167,6 +179,7 @@ def _load_applied(
     highest: int,
     candidates: dict[str, int],
     columns: list[str],
+    non_content: frozenset[str],
 ) -> LanePosition:
     """The rows the table holds at `highest`, read from the candidate files a batch at a time.
 
@@ -210,13 +223,15 @@ def _load_applied(
             applied={key: [placeholder] * count for key, count in counts.items()},
             key_columns=tuple(columns),
             content_matched=False,
+            non_content_columns=non_content,
         )
     at_position = pa.Table.from_batches(batches, schema=schema)
     return LanePosition(
         position=highest,
-        applied=_group_by_identity(at_position, columns),
+        applied=_group_by_identity(at_position, columns, non_content),
         key_columns=tuple(columns),
-        content_schema=at_position.select(content_columns(at_position.column_names)).schema,
+        content_schema=at_position.select(content_columns(at_position.column_names, non_content)).schema,
+        non_content_columns=non_content,
     )
 
 
@@ -306,11 +321,13 @@ def _all_null(add_actions: pa.Table) -> set[str]:
     }
 
 
-def _group_by_identity(rows: pa.Table, key_columns: list[str]) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
+def _group_by_identity(
+    rows: pa.Table, key_columns: list[str], non_content: frozenset[str]
+) -> dict[tuple[Any, ...], list[dict[str, Any]]]:
     if not key_columns or not rows.num_rows:
         return {}
     keys = _identities(rows, key_columns)
-    contents = rows.select(content_columns(rows.column_names)).to_pylist()
+    contents = rows.select(content_columns(rows.column_names, non_content)).to_pylist()
     grouped: defaultdict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for key, content in zip(keys, contents):
         grouped[key].append(content)

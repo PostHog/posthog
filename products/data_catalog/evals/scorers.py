@@ -16,6 +16,7 @@ from products.data_catalog.evals.constants import (
     APPROVED_BADGE_CODE_POINT,
     DEPRECATION_CANONICAL_SOURCE_NAME,
     DEPRECATION_STALE_SOURCE_NAME,
+    DRIFTED_BADGE_CODE_POINT,
     EVAL_DESCRIPTION_CHAR_LIMIT,
     METRIC_CREATE_TOOL,
     METRIC_UPDATE_TOOL,
@@ -32,6 +33,8 @@ from products.posthog_ai.eval_harness.scorers import (
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 
 __all__ = [
+    "AnswerTableQueried",
+    "AnswerValueStated",
     "CanonicalMetricRun",
     "DeprecationProposed",
     "SemanticMetadataQueried",
@@ -45,7 +48,7 @@ __all__ = [
     "GovernedBehaviorCorrectness",
     "ClarificationAsked",
     "MetricDescribeBeforeAdaptedSql",
-    "ProposedBadgeShown",
+    "NoncanonicalBadgeShown",
     "TrustBadgeShown",
 ]
 
@@ -620,8 +623,10 @@ data-catalog-metric-run.
 If lookup or execution fails, disclose the failure and label any raw-query fallback noncanonical. \
 The word itself belongs in the query context. In the final answer, a plain statement that the number \
 is a one-off calculation rather than a saved definition counts as that label.
-- A 'proposed' or drifted metric must never be presented as canonical or official; the agent \
-must derive the number itself (it may note the unapproved definition exists).
+- A 'proposed' or drifted metric is never canonical or official, and an approved match outranks it. \
+The agent may run it when its stored definition measures what the user asked, and must derive the \
+number itself when it does not. Either way, the answer must warn the user that the metric is \
+proposed or drifted.
 - An empty catalog is normal: the agent must derive the number itself without stalling or \
 asking the user to define/approve a metric first.
 - The catalog is read-only: the agent must not create, edit, or propose metrics to answer. \
@@ -747,6 +752,13 @@ class GovernedBehaviorCorrectness(JudgedScorer):
         }
 
 
+def _selects_star_from(query: str, surface: str) -> bool:
+    # A star projection read directly from the surface returns every column, so it reads the required columns
+    # without naming them. A star over a subquery or another table exposes only what that input selects.
+    pattern = rf"\bselect\s+(?:distinct\s+)?(?:[\w.]+\.)?\*\s+from\s+(?:[\w.]+\.)?{re.escape(surface)}\b"
+    return re.search(pattern, query) is not None
+
+
 class SemanticMetadataQueried(Scorer):
     def _name(self) -> str:
         return "semantic_metadata_queried"
@@ -775,7 +787,7 @@ class SemanticMetadataQueried(Scorer):
             query
             for call in _successful_sql(parser)
             if normalized_surface in (query := _query_text(call))
-            and all(column in query for column in normalized_columns)
+            and (_selects_star_from(query, normalized_surface) or all(column in query for column in normalized_columns))
         ]
         return Score(
             name=self._name(),
@@ -784,6 +796,87 @@ class SemanticMetadataQueried(Scorer):
                 "surface": normalized_surface,
                 "required_columns": normalized_columns,
                 "matching_queries": matching_queries,
+            },
+        )
+
+
+def _is_negated(text: str, start: int) -> bool:
+    # A minus sign directly before the number flips its meaning, so "-437.50" does not state 437.50. A digit before
+    # the sign makes it a range such as "400-437.50", which still states the value.
+    if start == 0 or text[start - 1] not in "-\u2212":
+        return False
+    return start < 2 or not text[start - 2].isdigit()
+
+
+class AnswerValueStated(Scorer):
+    """Binary: does the final answer state the seeded value? Commas and currency signs are ignored."""
+
+    def _name(self) -> str:
+        return "answer_value_stated"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        value = spec.get("value")
+        if not isinstance(value, str) or not value:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+
+        answer = (output or {}).get("last_message") or ""
+        if not answer:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "no final answer"})
+
+        normalized = answer.replace(",", "").replace("$", "")
+        # Trailing decimal zeros are optional so that "437.5" matches "437.50". The digit guards stop "1437.50"
+        # or "437.55" from matching. The zeros may only follow the decimal point, so "800.00" does not match "8000".
+        # The trailing guard also rejects a decimal point followed by a digit, so "18050.88" does not state 18050.00.
+        whole, _, fraction = value.partition(".")
+        fraction = fraction.rstrip("0")
+        decimals = rf"\.{re.escape(fraction)}0*" if fraction else r"(?:\.0*)?"
+        pattern = rf"(?<![\d.]){re.escape(whole)}{decimals}(?!\.?\d)"
+        found = any(not _is_negated(normalized, match.start()) for match in re.finditer(pattern, normalized))
+        return Score(name=self._name(), score=1.0 if found else 0.0, metadata={"value": value})
+
+
+# A table name inside a string literal is a catalog filter such as `WHERE table_name = '...'`, not a read.
+_STRING_LITERAL = re.compile(r"'(?:[^'\\]|\\.)*'")
+
+
+def _reads_table(query: str, names: list[str]) -> bool:
+    # The guards stop "postgres_contracts_acv" from matching "postgres_contracts_acv_v2" or a longer dotted name.
+    code = _STRING_LITERAL.sub("''", query)
+    return any(re.search(rf"(?<![\w.]){re.escape(name.lower())}(?![\w])", code) for name in names)
+
+
+class AnswerTableQueried(Scorer):
+    """Binary: did a successful query read the expected table without reading any decoy?
+
+    Every decoy holds different rows, so paired with ``AnswerValueStated`` this shows that the answer came from the
+    expected table. A synced table answers to two names, so ``tables`` lists both.
+    """
+
+    def _name(self) -> str:
+        return "answer_table_queried"
+
+    def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
+        spec = expected.get(self._name()) if isinstance(expected, dict) else None
+        if not isinstance(spec, dict):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        tables, decoys = spec.get("tables"), spec.get("decoys")
+        if not isinstance(tables, list) or not tables or not isinstance(decoys, list):
+            return Score(name=self._name(), score=0.0, metadata={"reason": "invalid expected metadata"})
+        parser = _parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No raw log"})
+
+        queries = [_query_text(call) for call in _successful_sql(parser)]
+        matching = [query for query in queries if _reads_table(query, tables) and not _reads_table(query, decoys)]
+        return Score(
+            name=self._name(),
+            score=1.0 if matching else 0.0,
+            metadata={
+                "matching_queries": matching,
+                "candidate_queries": [query for query in queries if _reads_table(query, [*tables, *decoys])],
             },
         )
 
@@ -899,14 +992,19 @@ class TrustBadgeShown(Scorer):
         )
 
 
-class ProposedBadgeShown(Scorer):
-    """Binary: when the agent runs the named proposed metric, does the answer badge it and link to it?
+_NONCANONICAL_BADGES = {"proposed": PROPOSED_BADGE_ICON, "drifted": DRIFTED_BADGE_CODE_POINT}
 
-    Using a proposed metric is the agent's call, so a case where it never runs the metric is skipped
-    (``score=None``) and left to the behavior judge.
+
+class NoncanonicalBadgeShown(Scorer):
+    """Binary: when the agent runs the named proposed or drifted metric, does the answer badge it and link to it?
+
+    ``expected["proposed_badge"]["badge"]`` picks the badge (``proposed`` by default, or ``drifted``). Using
+    such a metric is the agent's call, so a case where it never runs the metric is skipped (``score=None``)
+    and left to the behavior judge.
     """
 
     def _name(self) -> str:
+        # Both badges report under one name because PostHog upload accepts only registered scorer versions.
         return "proposed_badge"
 
     def _run_eval_sync(self, output: dict | None, expected: dict | None = None, **kwargs) -> Score:
@@ -916,6 +1014,9 @@ class ProposedBadgeShown(Scorer):
         metric_name = spec.get("metric_name") if isinstance(spec, dict) else None
         if not isinstance(metric_name, str) or not metric_name:
             return Score(name=self._name(), score=0.0, metadata={"reason": "metric_name is required"})
+        badge = _NONCANONICAL_BADGES.get(spec.get("badge", "proposed"))
+        if badge is None:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "unknown badge"})
         parser = _parser_for(output)
         if parser is None:
             return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
@@ -924,14 +1025,14 @@ class ProposedBadgeShown(Scorer):
             for call in parser.get_tool_calls(METRIC_RUN_TOOL)
         )
         if not ran:
-            return Score(name=self._name(), score=None, metadata={"reason": "proposed metric not used"})
+            return Score(name=self._name(), score=None, metadata={"reason": "metric not used"})
 
         answer = (output or {}).get("last_message") or ""
         opening = _first_line(answer)
         # A markdown link whose target ends at this metric's page, so a bare path or a metric whose
         # name only starts the same way does not count.
         link = re.compile(rf"\]\([^)\s]*/data-catalog/metrics/{re.escape(metric_name)}(?:[?#][^)\s]*)?\)")
-        has_badge = PROPOSED_BADGE_ICON in opening
+        has_badge = badge in opening
         has_link = bool(link.search(opening))
         return Score(
             name=self._name(),

@@ -12,8 +12,7 @@ base, reporting, and trace emission never see an engine-specific type.
 from __future__ import annotations
 
 import json
-from collections.abc import Awaitable, Callable, Iterator, Sequence
-from contextlib import AbstractContextManager, contextmanager
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
@@ -30,26 +29,15 @@ class CaseSpec:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-SpanKind = Literal["llm", "function", "task", "score"]
-
-
-class SpanHandle(Protocol):
-    """A single span the task logs onto; the engine renders it into its own trace."""
-
-    def log(self, *, input: Any = None, output: Any = None, metadata: dict[str, Any] | None = None) -> None: ...
-
-
 class CaseHooks(Protocol):
     """The per-case handle the engine passes to the task.
 
     ``metadata`` is a mutable dict the engine must persist onto
-    ``CaseResult.metadata``; ``start_span`` opens a child span the task logs onto.
+    ``CaseResult.metadata``.
     """
 
     @property
     def metadata(self) -> dict[str, Any]: ...
-
-    def start_span(self, name: str, kind: SpanKind) -> AbstractContextManager[SpanHandle]: ...
 
 
 EvalTaskFn = Callable[[dict[str, Any], CaseHooks], Awaitable[dict[str, Any] | None]]
@@ -57,17 +45,8 @@ EvalTaskFn = Callable[[dict[str, Any], CaseHooks], Awaitable[dict[str, Any] | No
 neutral ``CaseHooks`` and returns the scorer ``output`` dict (or ``None``)."""
 
 
-class _NullSpanHandle:
-    def log(self, *, input: Any = None, output: Any = None, metadata: dict[str, Any] | None = None) -> None:
-        return None
-
-
 class NullCaseHooks:
-    """A concrete no-op ``CaseHooks`` for tests and span-less engines.
-
-    Replaces the old ``hooks=None`` sentinel: ``metadata`` is a real (discarded)
-    dict and ``start_span`` yields a span that swallows every ``log``.
-    """
+    """A metadata-only ``CaseHooks`` for tests and local engines."""
 
     def __init__(self) -> None:
         self._metadata: dict[str, Any] = {}
@@ -75,10 +54,6 @@ class NullCaseHooks:
     @property
     def metadata(self) -> dict[str, Any]:
         return self._metadata
-
-    @contextmanager
-    def start_span(self, name: str, kind: SpanKind) -> Iterator[SpanHandle]:
-        yield _NullSpanHandle()
 
 
 @dataclass(frozen=True)
@@ -91,8 +66,6 @@ class ExperimentSpec:
     task: EvalTaskFn
     scorers: Sequence[Any]  # duck-typed: eval_async(output, expected, **kwargs) + _name()
     trial_count: int
-    is_public: bool
-    no_send_logs: bool
     metadata: dict[str, Any]
     on_results: Callable[[ExperimentResult], Awaitable[None]] | None = None
     record_scorer_results: bool = False

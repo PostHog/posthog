@@ -1,7 +1,8 @@
 import pytest
 from unittest.mock import patch
 
-from posthog.temporal.experiments.workflows import _record_publish_outcome
+from posthog.temporal.experiments.models import ExperimentRegularMetricResult
+from posthog.temporal.experiments.workflows import _MetricOutcomes, _record_publish_outcome
 
 
 @pytest.mark.parametrize(
@@ -28,3 +29,16 @@ def test_publish_outcome_counter_separates_published_from_missing(
         {"workflow_type": "experiment-saved-metrics-workflow", "status": expected_status}
     )
     with_attributes.return_value.create_counter.return_value.add.assert_called_once_with(1)
+
+
+def test_metric_outcomes_count_skipped_metrics_apart_from_failures() -> None:
+    def result(*, success: bool, skipped: bool = False) -> ExperimentRegularMetricResult:
+        return ExperimentRegularMetricResult(
+            experiment_id=1, metric_uuid="m", fingerprint="k", success=success, skipped=skipped
+        )
+
+    outcomes = _MetricOutcomes.count(
+        [result(success=True), result(success=False), result(success=False, skipped=True), RuntimeError("lost")]
+    )
+
+    assert outcomes == _MetricOutcomes(succeeded=1, failed=2, skipped=1)

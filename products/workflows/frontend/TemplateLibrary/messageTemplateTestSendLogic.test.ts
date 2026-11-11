@@ -44,6 +44,12 @@ describe('messageTemplateTestSendLogic', () => {
                             config: { verified: true },
                         },
                         { id: 6, kind: 'slack', display_name: 'Slack' },
+                        {
+                            id: 7,
+                            kind: 'email',
+                            display_name: 'Security <security@example.com>',
+                            config: { verified: true },
+                        },
                     ],
                 },
             },
@@ -82,11 +88,16 @@ describe('messageTemplateTestSendLogic', () => {
     it('defaults the sender to the first verified email integration, excluding unverified and non-email kinds', async () => {
         await expectLogic(logic).toMatchValues({
             senderIntegrationId: 5,
-            emailIntegrations: [expect.objectContaining({ id: 5 })],
+            emailIntegrations: [expect.objectContaining({ id: 5 }), expect.objectContaining({ id: 7 })],
         })
     })
 
     it('sends a one-step synthetic workflow carrying the typed recipient and template content, stripping any cc/bcc', async () => {
+        templateLogic.actions.setTemplateValue('content.email.from', {
+            integrationId: 7,
+            name: 'Security team',
+            email: 'alerts@example.com',
+        })
         templateLogic.actions.setTemplateValue('content.email.cc', 'observer@example.com')
         templateLogic.actions.setTemplateValue('content.email.bcc', 'archive@example.com')
         logic.actions.setRecipientEmail('recipient@example.com')
@@ -103,7 +114,8 @@ describe('messageTemplateTestSendLogic', () => {
         expect(emailAction.config.inputs.email.value).toMatchObject({
             subject: 'Welcome',
             to: { email: 'recipient@example.com', name: '' },
-            from: { integrationId: 5 },
+            // The test defaults to the template's own sender and keeps its custom name and address.
+            from: { integrationId: 7, name: 'Security team', email: 'alerts@example.com' },
             cc: '',
             bcc: '',
         })
@@ -112,27 +124,42 @@ describe('messageTemplateTestSendLogic', () => {
         expect(logic.values.isModalOpen).toBe(false)
     })
 
-    it('treats a skipped send as a distinct outcome from a failure', async () => {
+    it.each([
+        [
+            'the worker declines the recipient',
+            {
+                status: 'success',
+                emailSendResult: {
+                    status: 'skipped',
+                    reason: 'Skipping send: the domain "example.com" has no reachable mail servers, so this message would hard bounce.',
+                },
+            },
+            'Skipping send: the domain "example.com" has no reachable mail servers, so this message would hard bounce.',
+        ],
+        [
+            'the workflow skips the step',
+            { status: 'skipped', logs: [{ message: 'Recipient has opted out.' }] },
+            'Recipient has opted out.',
+        ],
+    ])('reports a skipped send as skipped when %s', async (_name, response, expectedReason) => {
         useMocks({
             post: {
-                '/api/environments/:team_id/hog_flows/:id/invocations/': () => [
-                    200,
-                    { status: 'skipped', logs: [{ message: 'Recipient has opted out.' }] },
-                ],
+                '/api/environments/:team_id/hog_flows/:id/invocations/': () => [200, response],
             },
         })
 
         logic.actions.setModalOpen(true)
-        logic.actions.setRecipientEmail('recipient@example.com')
+        logic.actions.setRecipientEmail('someone@example.com')
 
         await expectLogic(logic, () => {
             logic.actions.sendTestEmail()
         }).toDispatchActions(['sendTestEmailSuccess'])
 
         expect(mockToast.warning).toHaveBeenCalledWith('Test email skipped, see details below')
+        expect(mockToast.success).not.toHaveBeenCalled()
         expect(mockToast.error).not.toHaveBeenCalled()
         expect(logic.values.isModalOpen).toBe(true)
-        expect(logic.values.testSendResult?.status).toBe('skipped')
+        expect(logic.values.testSendSkipReason).toBe(expectedReason)
     })
 
     it('keeps the modal open and surfaces the error when the send fails', async () => {

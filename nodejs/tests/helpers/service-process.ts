@@ -26,6 +26,27 @@ export async function getFreePort(): Promise<number> {
     })
 }
 
+// A worker needs two adjacent free ports: HTTP, and HTTP + grpcPortOffset for the stream.
+export async function getFreeWorkerPort(grpcPortOffset: number): Promise<number> {
+    for (let attempt = 0; attempt < 20; attempt++) {
+        // Below the ephemeral range (Linux 32768+, macOS 49152+), so outbound connections
+        // cannot take either port between this check and the worker's bind.
+        const port = 20_000 + Math.floor(Math.random() * 12_000)
+        if ((await isPortFree(port)) && (await isPortFree(port + grpcPortOffset))) {
+            return port
+        }
+    }
+    throw new Error('could not find adjacent free ports for a worker')
+}
+
+export function isPortFree(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+        const server = net.createServer()
+        server.once('error', () => resolve(false))
+        server.listen(port, '127.0.0.1', () => server.close(() => resolve(true)))
+    })
+}
+
 export class ServiceProcess {
     private readonly child: ChildProcessWithoutNullStreams
     private readonly exited: Promise<ProcessExit>

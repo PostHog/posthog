@@ -13,7 +13,7 @@ from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend import flag_evaluations_mode
 from products.feature_flags.backend.api.staff_team_config import (
     MAX_IDS_PER_MODE_WRITE,
@@ -416,10 +416,10 @@ class TestFeatureFlagsStaffTeamConfigAPI(APIBaseTest):
         above_organization = Organization.objects.create(name="Above")
         above_team = Team.objects.create(organization=above_organization, name="Above team")
         self._store_mode(above_organization, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY)
-        Experiment.objects.create(
-            team=sibling,
+        create_experiment(
+            team_id=sibling.id,
+            feature_flag_id=FeatureFlag.objects.create(team=sibling, key="experiment-flag", created_by=self.user).id,
             name="Started before the cutoff",
-            feature_flag=FeatureFlag.objects.create(team=sibling, key="experiment-flag", created_by=self.user),
             start_date=datetime(2026, 8, 1, tzinfo=UTC),
         )
 

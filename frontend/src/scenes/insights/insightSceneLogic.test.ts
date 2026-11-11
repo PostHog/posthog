@@ -15,13 +15,17 @@ import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { examples } from '~/queries/examples'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { DashboardFilter, HogQLVariable, InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
-import { ActivityScope, CohortType, InsightShortId, InsightType, ItemMode } from '~/types'
+import { ActivityScope, CohortType, DashboardType, InsightShortId, InsightType, ItemMode } from '~/types'
+
+// The logic preloads the chart renderers on mount. No test here draws one, and loading them takes seconds.
+jest.mock('~/queries/Query/queryNodeRenderers')
 
 const Insight12 = '12' as InsightShortId
 const Insight42 = '42' as InsightShortId
@@ -135,6 +139,17 @@ describe('insightSceneLogic', () => {
         expect(logic.values.breadcrumbs.at(-1)?.name).not.toContain('ID 987')
     })
 
+    it('names the breadcrumb after the dashboard the insight opens from', async () => {
+        dashboardsModel.mount()
+        dashboardsModel.actions.addDashboardSuccess({ id: 7, name: 'Weekly review' } as DashboardType)
+        router.actions.push(urls.insightNew(), { dashboard: 7 })
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dashboardName).toEqual('Weekly review')
+    })
+
     it('reports a view only for the scene insight when another unsaved insight mounts', async () => {
         const capture = jest.spyOn(posthog, 'capture')
         router.actions.push(urls.insightNew())
@@ -246,6 +261,48 @@ describe('insightSceneLogic', () => {
         logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+    })
+
+    const sqlChart = {
+        kind: NodeKind.DataVisualizationNode,
+        source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+        display: 'ActionsTable',
+    }
+    const sqlWithFilters = {
+        kind: NodeKind.HogQLQuery,
+        query: 'SELECT 1',
+        filters: { dateRange: { date_from: '-7d' } },
+    }
+    it.each([
+        ['a SQL chart', sqlChart, sqlChart],
+        [
+            'a bare SQL query with filters',
+            sqlWithFilters,
+            { kind: NodeKind.DataVisualizationNode, source: sqlWithFilters },
+        ],
+        [
+            'a SQL table with column settings',
+            {
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                columns: ['a', 'b'],
+                hiddenColumns: ['b'],
+            },
+            {
+                kind: NodeKind.DataVisualizationNode,
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                display: 'ActionsTable',
+                tableSettings: { columns: [{ column: 'a' }] },
+            },
+        ],
+    ])('sends a hand-built /insights/new link holding %s to the SQL editor', async (_, query, expectedOpenQuery) => {
+        router.actions.push(combineUrl('/insights/new', { dashboard: 5 }, { q: JSON.stringify(query) }).url)
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toEqual(addProjectIdIfMissing('/sql', MOCK_TEAM_ID))
+        expect(router.values.searchParams).toEqual({ dashboard: 5, open_query: expectedOpenQuery })
     })
 
     it('retains the #q= query hash after navigating to /insights/new (persons modal drill-down)', async () => {

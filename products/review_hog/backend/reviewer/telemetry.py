@@ -8,6 +8,7 @@ from uuid import NAMESPACE_URL, uuid5
 from pydantic import BaseModel, ValidationError
 
 from products.review_hog.backend.reviewer.constants import (
+    CONTROL_ARM_SET,
     RESOLUTION_MODEL,
     RESOLUTION_REASONING_EFFORT,
     REVIEW_MODE_FLASH,
@@ -54,6 +55,7 @@ def review_routing_properties(
     review_mode: str | None = None,
     flash_reasoning_effort: str = ReasoningEffort.MEDIUM.value,
     review_design: str = REVIEW_DESIGN_PIPELINE,
+    arm_set: str = CONTROL_ARM_SET,
 ) -> dict[str, str | bool | None]:
     """The tier, the reviewer arm, and the validator and resolver pins of a report's reviews.
 
@@ -84,7 +86,7 @@ def review_routing_properties(
     )
     mode = review_mode if review_mode is not None else REVIEW_MODE_FULL
     arm = review_arm_for_mode(
-        mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design
+        mode, stored_arm, flash_reasoning_effort=flash_reasoning_effort, review_design=review_design, arm_set=arm_set
     )
     validator = (
         None

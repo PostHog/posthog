@@ -96,10 +96,18 @@ function ReportSkeleton({ header }: { header: JSX.Element | null }): JSX.Element
 }
 
 export function TodayReportPage({ reportId }: { reportId: string }): JSX.Element {
-    const { currentReport, page, reportFailed, isSample } = useValues(todayReportLogic({ reportId }))
+    const logic = todayReportLogic({ reportId })
+    const { currentReport, page, reportFailed, isSample } = useValues(logic)
+    const { reportVisited } = useActions(logic)
     const { setTodayReportTitle } = useActions(projectHomepageLogic)
     const title = currentReport ? reportTitle(currentReport) : null
     const rootRef = useRef<HTMLDivElement>(null)
+
+    // The page mounts once per visit (`TodayHome` keys it by report). Prefetched neighbors mount the logic but not
+    // the page, so they send no open.
+    useEffect(() => {
+        reportVisited()
+    }, [reportVisited])
 
     useLayoutEffect(() => {
         rootRef.current?.closest('main')?.scrollTo({ top: 0 })

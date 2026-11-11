@@ -1,3 +1,5 @@
+import type { ReachChannel } from './wizard/onboardingWizardSteps'
+
 // pinned: analytics property values for the setup guide events - renaming breaks dashboards
 export const SETUP_GUIDE_STEP_KEYS = ['channel', 'domain', 'opt-outs', 'email-template', 'first-journey'] as const
 export type SetupGuideStepKey = (typeof SETUP_GUIDE_STEP_KEYS)[number]
@@ -10,9 +12,25 @@ export interface SetupGuideStep {
 /** What the guide reads to decide which steps are done. `null` means the value has not loaded yet. */
 export interface SetupGuideInputs {
     emailChannels: { verified: boolean }[] | null
+    pushChannelCount: number | null
+    reachChannels: readonly ReachChannel[] | null
     optOutCategoryCount: number | null
     emailTemplateCount: number | null
     hasMessagingWorkflow: boolean | null
+}
+
+function emailInScope(
+    emailChannelCount: number,
+    pushChannelCount: number,
+    reachChannels: readonly ReachChannel[] | null
+): boolean {
+    if (emailChannelCount > 0) {
+        return true
+    }
+    if (reachChannels) {
+        return reachChannels.includes('email')
+    }
+    return pushChannelCount === 0
 }
 
 /**
@@ -20,9 +38,17 @@ export interface SetupGuideInputs {
  * shows a step as open only because its data is still on the way.
  */
 export function deriveSetupGuideSteps(inputs: SetupGuideInputs): SetupGuideStep[] | null {
-    const { emailChannels, optOutCategoryCount, emailTemplateCount, hasMessagingWorkflow } = inputs
+    const {
+        emailChannels,
+        pushChannelCount,
+        reachChannels,
+        optOutCategoryCount,
+        emailTemplateCount,
+        hasMessagingWorkflow,
+    } = inputs
     if (
         emailChannels === null ||
+        pushChannelCount === null ||
         optOutCategoryCount === null ||
         emailTemplateCount === null ||
         hasMessagingWorkflow === null
@@ -30,17 +56,23 @@ export function deriveSetupGuideSteps(inputs: SetupGuideInputs): SetupGuideStep[
         return null
     }
     const done: Record<SetupGuideStepKey, boolean> = {
-        channel: emailChannels.length > 0,
+        channel: emailChannels.length > 0 || pushChannelCount > 0,
         domain: emailChannels.some((channel) => channel.verified),
         'opt-outs': optOutCategoryCount > 0,
         'email-template': emailTemplateCount > 0,
         'first-journey': hasMessagingWorkflow,
     }
-    return SETUP_GUIDE_STEP_KEYS.map((key) => ({ key, done: done[key] }))
+    const withEmail = emailInScope(emailChannels.length, pushChannelCount, reachChannels)
+    return SETUP_GUIDE_STEP_KEYS.filter((key) => withEmail || !EMAIL_ONLY_STEPS.includes(key)).map((key) => ({
+        key,
+        done: done[key],
+    }))
 }
 
+const EMAIL_ONLY_STEPS: SetupGuideStepKey[] = ['domain', 'email-template']
+
 export const SETUP_GUIDE_STEP_LABELS: Record<SetupGuideStepKey, string> = {
-    channel: 'Connect an email channel',
+    channel: 'Connect a channel',
     domain: 'Verify your sending domain',
     'opt-outs': 'Add opt-out categories',
     'email-template': 'Design your first email',

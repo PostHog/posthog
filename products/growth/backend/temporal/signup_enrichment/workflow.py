@@ -101,6 +101,11 @@ async def enrich_signup_organization_activity(
         if not org_exists:
             logger.info("signup_enrichment_recheck_skipped_org_deleted")
             return {"matched": False, "fields_filled": 0, "org_deleted": True}
+        # The personal email domain list can grow while a recheck waits, so a domain the trigger
+        # accepted can be a personal email provider by now.
+        if not gates.is_work_domain(inputs.domain):
+            logger.info("signup_enrichment_recheck_skipped_not_work_email")
+            return {"matched": False, "fields_filled": 0, "not_work_email": True}
 
     # Region-local on purpose: EU enrichment lands in the EU internal project, US in US — the
     # same split the usage report uses. Never fall back to a cross-region client here.
@@ -157,6 +162,7 @@ async def enrich_signup_organization_activity(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_RECHECK_EVENT,
                     properties={
+                        "$update_person_last_seen_at": False,
                         "upgraded": matched and not first_attempt_matched,
                         "fields_filled": len(filled),
                         "organization_id": inputs.organization_id,
@@ -172,6 +178,7 @@ async def enrich_signup_organization_activity(
                     distinct_id=inputs.distinct_id,
                     event=ENRICHMENT_SIGNAL_EVENT,
                     properties={
+                        "$update_person_last_seen_at": False,
                         "success": True,
                         "matched": matched,
                         "fields_filled": sorted(filled.keys()),
@@ -191,7 +198,7 @@ async def enrich_signup_organization_activity(
             pha_client.capture(
                 distinct_id=inputs.distinct_id,
                 event=ENRICHMENT_SIGNAL_EVENT,
-                properties={"success": False, "error": type(e).__name__},
+                properties={"$update_person_last_seen_at": False, "success": False, "error": type(e).__name__},
                 groups={"organization": inputs.organization_id},
             )
         raise

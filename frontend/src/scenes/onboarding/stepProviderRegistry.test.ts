@@ -27,7 +27,7 @@ describe('onboardingProviderRegistry', () => {
         expect(Object.keys(onboardingProviderRegistry).sort()).toEqual(Object.keys(availableOnboardingProducts).sort())
     })
 
-    it('sends metrics through an install step and lands on the metrics scene', () => {
+    it('sends metrics through a single install step', () => {
         const provider = onboardingProviderRegistry[ProductKey.METRICS]
 
         const steps = provider!.steps(context(ProductKey.METRICS))
@@ -35,7 +35,6 @@ describe('onboardingProviderRegistry', () => {
         expect(steps).toHaveLength(1)
         expect(steps[0].productKey).toBe(ProductKey.METRICS)
         expect(steps[0].stepKey).toBe(OnboardingStepKey.INSTALL)
-        expect(provider!.completeRedirectUrl?.()).toBe('/metrics')
     })
 
     // Metrics and Logs both arrive over OTel, but their install experiences differ:

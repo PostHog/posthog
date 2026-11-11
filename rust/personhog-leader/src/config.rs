@@ -1,7 +1,9 @@
 use std::fs;
 use std::net::SocketAddr;
+use std::num::NonZeroU32;
 use std::time::Duration;
 
+use common_ingestion_warnings::RowWarningsSettings;
 use common_kafka::config::KafkaConfig;
 use envconfig::Envconfig;
 use personhog_common::h2_window::{Http2Windows, WindowSize};
@@ -140,9 +142,6 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
 
-    #[envconfig(default = "personhog_updates")]
-    pub kafka_person_state_topic: String,
-
     // ── Warming ──────────────────────────────────────────────────
     /// Consumer group name used by the writer pod. The leader queries this
     /// group's committed offsets during warming: any Kafka message at or
@@ -151,14 +150,6 @@ pub struct Config {
     /// reads.
     #[envconfig(default = "personhog-writer")]
     pub writer_consumer_group: String,
-
-    /// How many offsets to rewind past the writer's committed offset when
-    /// warming. Pure safety margin — any non-negative value is correct, but
-    /// a larger value is more forgiving of momentary races between the
-    /// writer's commit and our observation of it. Bounded above by Kafka's
-    /// earliest available offset.
-    #[envconfig(default = "1000")]
-    pub warm_lookback_offsets: i64,
 
     /// Timeout for the OffsetFetch round-trip that asks the writer's
     /// consumer group for its committed offset.
@@ -208,10 +199,48 @@ pub struct Config {
     #[envconfig(default = "524288")]
     pub properties_trim_target: usize,
 
-    /// Topic for in-product ingestion warnings emitted when admission
-    /// trims or rejects an update.
+    #[envconfig(default = "false")]
+    pub ingestion_warnings_enabled: bool,
+
+    #[envconfig(default = "")]
+    pub ingestion_warnings_kafka_hosts: String,
+
+    #[envconfig(default = "false")]
+    pub ingestion_warnings_kafka_tls: bool,
+
     #[envconfig(default = "clickhouse_ingestion_warnings")]
     pub ingestion_warnings_topic: String,
+
+    #[envconfig(default = "16")]
+    pub ingestion_warnings_kafka_queue_mib: u32,
+
+    #[envconfig(default = "1048576")]
+    pub ingestion_warnings_kafka_message_max_bytes: u32,
+
+    /// The defaults below are fire-and-forget: a warning is worth less than
+    /// the cost of retrying it, and a slow warnings topic must not hold an update.
+    #[envconfig(default = "1")]
+    pub ingestion_warnings_kafka_acks: String,
+
+    #[envconfig(default = "0")]
+    pub ingestion_warnings_kafka_retries: u32,
+
+    #[envconfig(default = "100")]
+    pub ingestion_warnings_kafka_linger_ms: u32,
+
+    #[envconfig(default = "10000")]
+    pub ingestion_warnings_kafka_queue_messages: u32,
+
+    #[envconfig(default = "5000")]
+    pub ingestion_warnings_kafka_message_timeout_ms: u32,
+
+    /// Warnings of one type a minute that one pod sends, shared by every team
+    /// on it; the rest are dropped as `type_budget_exhausted`.
+    #[envconfig(default = "60")]
+    pub ingestion_warnings_type_budget_per_minute: NonZeroU32,
+
+    #[envconfig(default = "1000000")]
+    pub ingestion_warnings_max_tracked_scopes: usize,
 
     // ── Dirty index / changelog recovery ─────────────────────────
     /// How often to poll the writer's committed offsets and prune dirty
@@ -452,54 +481,6 @@ impl Config {
             return Duration::from_millis(self.fencing_txn_timeout_ms);
         }
         (self.fencing_budget() / (FENCING_TXN_CALLS + 1)).max(MIN_TXN_TIMEOUT)
-    }
-
-    /// The producer queue each fenced producer gets, in MiB.
-    ///
-    /// The shared producer's queue is sized for one client; the fenced
-    /// path creates one producer *per owned partition*, so inheriting
-    /// that figure multiplies it by the partition count. A lone survivor
-    /// owning every partition would be entitled to the whole product,
-    /// which for the deployed shape is several gigabytes against a pod
-    /// sized for one — a client spreading large property updates across
-    /// partitions while Kafka is slow could fill the independent queues
-    /// and exhaust the leader.
-    ///
-    /// So the budget is the aggregate, divided. The floor keeps a
-    /// high-partition-count deployment from starving any single producer
-    /// below a workable depth; it trades the guarantee for a bound that
-    /// is still far under the un-divided figure. Each share must still
-    /// hold one window of records; raise the aggregate if it cannot.
-    pub fn fencing_queue_mib(&self, partitions: u32) -> u32 {
-        // The floor cannot be unconditional: above roughly fifty
-        // partitions it would start multiplying again, and the aggregate
-        // this exists to bound would scale with partition count exactly
-        // as it did before. So it applies only while it stays inside the
-        // aggregate, and past that point the division wins and each
-        // producer gets a shallow queue — which is the honest answer for
-        // a deployment with more partitions than a producer's worth of
-        // memory to give them.
-        // No floor. One was tried and was dead code: inside a guard that
-        // only admits it when `MIN * partitions <= aggregate`, the
-        // division already yields at least `MIN`, so the `max` never
-        // fired. Applying it *outside* such a guard is worse — it
-        // multiplies back up, which is the defect this division exists to
-        // remove. The honest bound is the aggregate, and one MiB is the
-        // smallest queue librdkafka will take.
-        (self.kafka.kafka_producer_queue_mib / self.fenced_producers(partitions)).max(1)
-    }
-
-    /// The same division for the message-count limit, which bounds the
-    /// queue independently of record size.
-    pub fn fencing_queue_messages(&self, partitions: u32) -> u32 {
-        (self.kafka.kafka_producer_queue_messages / self.fenced_producers(partitions)).max(1)
-    }
-
-    /// Producers the aggregate queue budget is divided among: one per
-    /// lane per partition.
-    fn fenced_producers(&self, partitions: u32) -> u32 {
-        let lanes = u32::try_from(self.fencing_lanes.max(1)).unwrap_or(u32::MAX);
-        partitions.max(1).saturating_mul(lanes)
     }
 
     /// How long fence acquisition may take.
@@ -816,6 +797,24 @@ impl Config {
         Duration::from_secs(self.heartbeat_interval_secs)
     }
 
+    pub fn ingestion_warnings_settings(&self) -> RowWarningsSettings {
+        RowWarningsSettings {
+            enabled: self.ingestion_warnings_enabled,
+            kafka_hosts: self.ingestion_warnings_kafka_hosts.clone(),
+            kafka_tls: self.ingestion_warnings_kafka_tls,
+            topic: self.ingestion_warnings_topic.clone(),
+            kafka_queue_mib: self.ingestion_warnings_kafka_queue_mib,
+            kafka_message_max_bytes: self.ingestion_warnings_kafka_message_max_bytes,
+            kafka_acks: self.ingestion_warnings_kafka_acks.clone(),
+            kafka_retries: self.ingestion_warnings_kafka_retries,
+            kafka_linger_ms: self.ingestion_warnings_kafka_linger_ms,
+            kafka_queue_messages: self.ingestion_warnings_kafka_queue_messages,
+            kafka_message_timeout_ms: self.ingestion_warnings_kafka_message_timeout_ms,
+            type_budget_per_minute: self.ingestion_warnings_type_budget_per_minute,
+            max_tracked_scopes: self.ingestion_warnings_max_tracked_scopes,
+        }
+    }
+
     /// Resolve the K8s namespace from config or the service account mount.
     pub fn resolve_k8s_namespace(&self) -> Result<String, String> {
         if !self.k8s_namespace.is_empty() {
@@ -1107,8 +1106,8 @@ mod fencing_timescale_tests {
         let shared_messages = config.kafka.kafka_producer_queue_messages;
 
         for partitions in [1, 8, 16, 50, 64, 256, 1024, 4096] {
-            let per_partition_mib = config.fencing_queue_mib(partitions);
-            let per_partition_messages = config.fencing_queue_messages(partitions);
+            let per_partition_mib = queue_mib(&config, partitions);
+            let per_partition_messages = queue_messages(&config, partitions);
             assert!(
                 per_partition_mib <= shared_mib,
                 "partitions={partitions}: a single fenced producer must never be entitled \
@@ -1220,18 +1219,28 @@ mod fencing_timescale_tests {
         }
     }
 
+    fn queue_mib(config: &Config, partitions: u32) -> u32 {
+        let producers = crate::fencing::fenced_producer_count(partitions, config.fencing_lanes);
+        crate::fencing::queue_share(config.kafka.kafka_producer_queue_mib, producers)
+    }
+
+    fn queue_messages(config: &Config, partitions: u32) -> u32 {
+        let producers = crate::fencing::fenced_producer_count(partitions, config.fencing_lanes);
+        crate::fencing::queue_share(config.kafka.kafka_producer_queue_messages, producers)
+    }
+
     #[test]
     fn a_high_partition_count_still_leaves_a_workable_queue() {
         let config = fenced(30);
         // The budget is divided among every fenced producer, four lanes
         // per partition at the default, and never rounds to a value
         // librdkafka would reject.
-        assert_eq!(config.fencing_queue_mib(16), 6);
-        assert_eq!(config.fencing_queue_messages(16), 156_250);
-        assert!(config.fencing_queue_mib(1024) >= 1);
-        assert!(config.fencing_queue_messages(1024) >= 1);
+        assert_eq!(queue_mib(&config, 16), 6);
+        assert_eq!(queue_messages(&config, 16), 156_250);
+        assert!(queue_mib(&config, 1024) >= 1);
+        assert!(queue_messages(&config, 1024) >= 1);
         assert!(
-            config.fencing_queue_mib(0) >= 1,
+            queue_mib(&config, 0) >= 1,
             "partitions=0 must not divide by zero"
         );
     }

@@ -30,7 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 from products.cdp.backend.facade.api import create_hog_functions
-from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.facade.models import HogFunction, HogFunctionType
 from products.cdp.backend.internal_events import (
     InternalEventEvent,
     flush_internal_events_producer,
@@ -156,6 +156,26 @@ def owned_alert_destinations_qs(
         deleted=False,
     )
     return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The named HogFunctions that are not deleted, whatever their filters say."""
+    return frozenset(
+        HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids), deleted=False).values_list(
+            "id", flat=True
+        )
+    )
+
+
+def owned_alert_destination_ids(
+    *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> frozenset[UUID]:
+    """The named HogFunctions that are destinations of this alert, without reading their inputs."""
+    return frozenset(
+        owned_alert_destinations_qs(team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids)
+        .filter(pk__in=list(hog_function_ids))
+        .values_list("id", flat=True)
+    )
 
 
 def list_owned_alert_destinations(
@@ -341,6 +361,20 @@ def soft_delete_alert_destinations(
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=unique_ids)
 
 
+def retire_alert_hog_functions(*, team_id: int, alert_id: str) -> None:
+    """Switches off and soft-deletes every HogFunction destination of a deleted alert, whatever its events."""
+    for hog_function in HogFunction.objects.filter(
+        team_id=team_id,
+        type=HogFunctionType.INTERNAL_DESTINATION,
+        deleted=False,
+        filters__contains={"properties": [{"key": "alert_id", "value": alert_id}]},
+    ):
+        # nosemgrep: insight-alert-state-direct-mutation (writes HogFunction.enabled, not the alert's state)
+        hog_function.enabled = False
+        hog_function.deleted = True
+        hog_function.save()
+
+
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:
     return soft_delete_alert_destinations_for_alerts(
         team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
@@ -447,7 +481,9 @@ def produce_alert_internal_event(
     properties: dict[str, Any],
     timestamp: datetime | None = None,
     uuid: str | None = None,
+    alert_id: str | None = None,
 ) -> ProduceResult | None:
+    """`alert_id` names the alert in a failure report, for an event that carries it under another property."""
     try:
         return produce_internal_event(
             team_id=team_id,
@@ -461,7 +497,7 @@ def produce_alert_internal_event(
         )
     except Exception as error:
         context = {
-            "alert_id": properties.get("alert_id"),
+            "alert_id": alert_id or properties.get("alert_id"),
             "event_name": event_name,
             "feature": "alerts",
             "team_id": team_id,
@@ -517,6 +553,7 @@ def emit_alert_internal_events(
                 properties=event.properties,
                 timestamp=event.timestamp,
                 uuid=event.uuid,
+                alert_id=alert_id,
             ),
         )
         for event in events

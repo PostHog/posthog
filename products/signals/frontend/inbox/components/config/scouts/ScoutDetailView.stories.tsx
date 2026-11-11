@@ -12,14 +12,13 @@ import { userLogic } from 'scenes/userLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { mockDailyQuietRuns, mockScoutConfigs, mockScoutCosts, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
+import { mockDailyQuietRuns, mockScoutConfigs, mockScoutRuns } from '../../../__mocks__/scoutConfigs'
 import { inboxSceneLogic } from '../../../inboxSceneLogic'
 import { ScoutDetailView } from './ScoutDetailView'
 import { trialFixtureConfig } from './trials/scoutTrialsFixtures'
 import { createScoutTrialsStoryMocks } from './trials/scoutTrialsStoryMocks'
 
-// One scout's page. Use this to check the health strip, including the staff-only cost segment, and
-// the Reports / Runs / Signals tabs below it.
+// One scout's page. Use this to check the health strip and the Reports / Runs / Signals tabs below it.
 
 const SKILL_NAME = mockScoutConfigs[0].skill_name
 
@@ -31,7 +30,7 @@ const meta: Meta<typeof ScoutDetailView> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
@@ -39,7 +38,6 @@ const meta: Meta<typeof ScoutDetailView> = {
             get: {
                 '/api/projects/:id/signals/scout/configs/': () => [200, mockScoutConfigs],
                 '/api/projects/:id/signals/scout/runs/recent-per-scout/': () => [200, mockScoutRuns(mockScoutConfigs)],
-                '/api/projects/:id/signals/scout/runs/costs/': () => [200, mockScoutCosts(mockScoutConfigs)],
                 '/api/projects/:id/signals/scout/runs/findings/summary/': () => [200, null],
                 '/api/projects/:id/signals/scout/metadata/current/': () => [200, null],
                 '/api/projects/:id/signals/scout/scratchpad/': () => [200, []],
@@ -54,16 +52,7 @@ type Story = StoryObj<typeof ScoutDetailView>
 
 export const ScoutPage: Story = {}
 
-// The same scout for a non-staff reader: no cost segment, and no request for one.
-export const ScoutPageNonStaff: Story = {
-    decorators: [
-        mswDecorator({
-            get: { '/api/users/@me/': () => [200, { ...MOCK_DEFAULT_USER, is_staff: false }] },
-        }),
-    ],
-}
-
-// A scout that spent but filed nothing: no reports segment, and Runs leads the tabs.
+// A scout that filed nothing: no reports segment, and Runs leads the tabs.
 export const ScoutPageNoReports: Story = {
     args: { skillName: mockScoutConfigs[1].skill_name },
 }
@@ -102,14 +91,13 @@ const trialsDecorators: Decorator[] = [
             ...trialsMocks.mocks.get,
             '/api/projects/:id/signals/scout/configs/': () => [200, [trialFixtureConfig]],
             '/api/projects/:id/signals/scout/runs/recent-per-scout/': () => [200, []],
-            '/api/projects/:id/signals/scout/runs/costs/': () => [200, mockScoutCosts([trialFixtureConfig])],
         },
     }),
 ]
 
 export const ScoutPageTrials: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SCOUT_TRIALS],
+        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.SCOUT_TRIALS],
     },
     args: { skillName: trialFixtureConfig.skill_name },
     decorators: [
@@ -124,7 +112,7 @@ export const ScoutPageTrials: Story = {
 
 export const ScoutPageTrialsNarrow: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.INBOX_REDESIGN, FEATURE_FLAGS.SCOUT_TRIALS],
+        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.SCOUT_TRIALS],
     },
     args: { skillName: trialFixtureConfig.skill_name },
     decorators: [

@@ -3,7 +3,7 @@ import { useState } from 'react'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
@@ -11,36 +11,46 @@ import { SignalReport } from '../../types'
 import { asReportMetricSeriesQuery, formatReportMetricValue } from '../../utils/reportMetrics'
 import { ReportCheckMetricChart } from './ReportCheckMetricChart'
 import { ReportCheckMetricSuggestionModal } from './ReportCheckMetricSuggestionModal'
-import { buildReportCheckRows, latestCheckExplanations, monitoringPeriodLabel } from './reportCheckPresentation'
+import {
+    buildReportCheckRows,
+    latestCheckExplanations,
+    monitoringPeriodLabel,
+    reportCheckMetric,
+} from './reportCheckPresentation'
+import { ReportCheckTiming } from './ReportCheckTiming'
 import { ReportMonitoringDetails } from './ReportMonitoringDetails'
 
 const MAX_VISIBLE_MEASUREMENTS = 6
 
-export function ReportExpectedImpact({ report, reportUrl }: { report: SignalReport; reportUrl: string }): JSX.Element {
+export function ReportExpectedImpact({
+    report,
+    reportUrl,
+}: {
+    report: SignalReport
+    reportUrl: string
+}): JSX.Element | null {
+    const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const [modalOpen, setModalOpen] = useState(false)
     const logic = inboxReportDetailLogic({ reportId: report.id, report })
     const { reportChecks, reportChecksLoading, reportChecksError, reportArtefacts, approvingCheckIds } =
         useValues(logic)
     const { approveReportCheck, loadReportChecks } = useActions(logic)
-    const { currentProjectId, metricCheckReplacementDisabledReason } = useValues(inboxTaskKickoffLogic)
-    const measurements = buildReportCheckRows(reportChecks ?? [], latestCheckExplanations(reportArtefacts ?? []))
-        .filter(({ check }) => check.kind === 'metric_threshold' && check.status !== 'cancelled')
+    const { currentProjectId } = useValues(inboxTaskKickoffLogic)
+    if (!monitoringEnabled) {
+        return null
+    }
+    const measurements = buildReportCheckRows(
+        reportChecks ?? [],
+        latestCheckExplanations(reportArtefacts ?? []),
+        report.status
+    )
+        .filter(({ check }) => check.status !== 'cancelled')
         .flatMap((row) => {
-            const { check } = row
-            if (!('comparison' in check.config)) {
+            const checkMetric = reportCheckMetric(row.check)
+            if (!checkMetric) {
                 return []
             }
-            const config = check.config
-            const metric: ReportMetricApi = {
-                metric_id: config.metric_id ?? check.id,
-                title: check.title,
-                kind: config.metric_kind ?? 'custom',
-                query: config.query,
-                value_format: config.value_format ?? 'number',
-                unit: config.unit,
-                goal_value: config.comparison.operator === 'between' ? null : config.comparison.value,
-                goal_direction: config.comparison.operator === 'lte' ? 'at_most' : 'at_least',
-            }
+            const { config, metric } = checkMetric
             const formatValue = (value: number | null | undefined): string =>
                 value == null ? 'unavailable' : (formatReportMetricValue(metric, value) ?? String(value))
             const goal =
@@ -74,8 +84,12 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                 </div>
             )}
             {measurements.length ? (
-                measurements.map(({ check, config, metric, goal, detail, tag, cancellable }) => {
+                measurements.map(({ check, reportStatus, config, metric, goal, detail, tag, cancellable }) => {
                     const query = asReportMetricSeriesQuery(metric)
+                    const showApprovalLabel =
+                        cancellable &&
+                        !check.monitoring_timing &&
+                        !['resolved', 'suppressed', 'deleted'].includes(reportStatus)
                     return (
                         <div key={check.id} className="flex flex-col gap-2">
                             <p className="m-0 font-semibold">
@@ -84,8 +98,8 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     <span>{` per ${monitoringPeriodLabel(config.monitoring.reference_period_minutes)}`}</span>
                                 )}
                             </p>
-                            <p className="m-0 text-secondary text-sm">
-                                {cancellable ? (
+                            <div className="m-0 flex flex-wrap items-center gap-x-1 text-secondary text-sm">
+                                {showApprovalLabel ? (
                                     <span>{check.approved_at ? 'Approved measurement' : 'Proposed measurement'}</span>
                                 ) : (
                                     <LemonTag type={tag.type}>{tag.label}</LemonTag>
@@ -95,7 +109,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                         ? ' · Monitoring definition'
                                         : ' · Goal for the full query window'}
                                 </span>
-                            </p>
+                            </div>
                             {query ? (
                                 <ReportCheckMetricChart
                                     reportId={report.id}
@@ -124,12 +138,16 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                                     config={config}
                                     monitoring={config.monitoring}
                                     metric={metric}
-                                    waitDescription={
-                                        cancellable && check.soak_minutes != null
-                                            ? `Minimum wait after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
-                                            : cancellable
-                                              ? 'The soak and run schedule are separate from this definition.'
-                                              : detail
+                                    timingDescription={
+                                        <ReportCheckTiming
+                                            check={check}
+                                            reportStatus={reportStatus}
+                                            detail={
+                                                showApprovalLabel && check.soak_minutes != null
+                                                    ? `Check observation window after implementation: ${monitoringPeriodLabel(check.soak_minutes)}.`
+                                                    : detail
+                                            }
+                                        />
                                     }
                                 />
                             ) : (
@@ -183,10 +201,7 @@ export function ReportExpectedImpact({ report, reportUrl }: { report: SignalRepo
                         data-attr="report-expected-impact-suggest-metrics"
                         type="secondary"
                         size="small"
-                        disabledReason={
-                            metricCheckReplacementDisabledReason ??
-                            (openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined)
-                        }
+                        disabledReason={openMeasurements.length === 0 ? 'No open metric checks to revise.' : undefined}
                         onClick={() => setModalOpen(true)}
                     >
                         Suggest different metrics

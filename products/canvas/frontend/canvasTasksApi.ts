@@ -9,7 +9,11 @@ import {
     tasksRunCreate,
     tasksRunsCommandCreate,
 } from 'products/tasks/frontend/generated/api'
-import type { ChannelDTOApi, TaskDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    ChannelDTOApi,
+    ChannelListResponseApi,
+    TaskDetailDTOApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import { canvasesVersionsRetrieve } from './generated/api'
 import type { CanvasApi } from './generated/api.schemas'
@@ -42,13 +46,13 @@ export function isTerminalRunStatus(status: string | null | undefined): boolean 
     return !!status && TERMINAL_RUN_STATUSES.has(status)
 }
 
-function toSpaces(response: unknown): CanvasSpace[] {
-    const rows = Array.isArray(response) ? response : ((response as { results?: unknown[] })?.results ?? [])
-    return (rows as Record<string, unknown>[]).map((row) => ({
+function toSpaces(response: ChannelListResponseApi): CanvasSpace[] {
+    const rows = Array.isArray(response) ? response : response.results
+    return rows.map((row) => ({
         id: String(row.id),
-        name: String(row.name ?? ''),
-        system_role: row.system_role === 'personal' || row.system_role === 'general' ? row.system_role : null,
-        channel_type: String(row.channel_type ?? ''),
+        name: row.name ?? '',
+        system_role: row.system_role ?? null,
+        channel_type: row.channel_type ?? '',
     }))
 }
 

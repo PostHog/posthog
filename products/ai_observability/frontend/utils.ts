@@ -3,9 +3,9 @@ import * as PartialJSON from 'partial-json'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { isObject, isString } from 'lib/utils/guards'
+import { escapeHogQLString, hogql } from 'lib/utils/hogql'
 
 import { DateRange, LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
-import { escapeHogQLString, hogql } from '~/queries/utils'
 
 import type { SpanAggregation } from './aiObservabilityTraceDataLogic'
 import {
@@ -88,6 +88,7 @@ export function sanitizeTraceUrlSearchParams(
     delete sanitizedSearchParams.line
     delete sanitizedSearchParams.tab
     delete sanitizedSearchParams.back_to
+    delete sanitizedSearchParams.back_url
     delete sanitizedSearchParams.msg
 
     if (options.removeSearch) {
@@ -862,6 +863,13 @@ export function getGeminiInlineData(input: unknown): { data: string; mime_type: 
         }
     }
 
+    // Gemini Interactions API uses top-level data and mime_type.
+    const d = input as Record<string, unknown>
+    const mimeType = d.mime_type ?? d.mimeType
+    if (typeof d.data === 'string' && typeof mimeType === 'string') {
+        return { data: d.data, mime_type: mimeType }
+    }
+
     return null
 }
 
@@ -870,7 +878,15 @@ export function isGeminiImageMessage(input: unknown): input is GeminiImageMessag
         return false
     }
     const inlineData = getGeminiInlineData(input)
-    return inlineData !== null && inlineData.mime_type.startsWith('image/')
+    if (inlineData) {
+        return inlineData.mime_type.startsWith('image/')
+    }
+    if ('data' in input && typeof input.data === 'string') {
+        return true
+    }
+    const uri = 'uri' in input ? input.uri : null
+    const mimeType = 'mime_type' in input ? input.mime_type : null
+    return typeof uri === 'string' && (typeof mimeType !== 'string' || mimeType.startsWith('image/'))
 }
 
 export function isGeminiDocumentMessage(input: unknown): input is GeminiDocumentMessage {
@@ -1398,8 +1414,7 @@ export interface EvaluationRunsStats {
 
 // Counts every matching run server-side. queryEvaluationRuns caps its fetch at
 // EVALUATION_RUNS_QUERY_LIMIT, so summary stats can't be derived from that list without
-// undercounting. Counting semantics mirror the evaluations list view (evaluationMetricsLogic)
-// so both surfaces report the same totals.
+// undercounting.
 export async function queryEvaluationRunsStats(params: {
     evaluation?: EvaluationConfig | null
     evaluationId?: string

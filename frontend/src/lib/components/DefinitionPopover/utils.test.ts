@@ -1,6 +1,6 @@
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { allOperatorsToHumanName, genericOperatorToHumanName } from './utils'
+import { allOperatorsToHumanName, featureFlagKeyFromProperty, genericOperatorToHumanName } from './utils'
 
 describe('DefinitionPopover operator helpers', () => {
     describe('genericOperatorToHumanName', () => {
@@ -49,5 +49,17 @@ describe('DefinitionPopover operator helpers', () => {
         ])('maps %s to "%s"', (operator, expected) => {
             expect(allOperatorsToHumanName(operator)).toBe(expected)
         })
+    })
+})
+
+describe('featureFlagKeyFromProperty', () => {
+    it.each([
+        ['$feature/my-flag', 'my-flag'],
+        ['$feature/', null],
+        ['$feature_enrollment/my-flag', null],
+        ['$browser', null],
+        [undefined, null],
+    ])('maps %s to %s', (propertyKey, expected) => {
+        expect(featureFlagKeyFromProperty(propertyKey)).toBe(expected)
     })
 })

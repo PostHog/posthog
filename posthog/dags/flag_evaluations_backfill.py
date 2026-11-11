@@ -12,7 +12,7 @@ from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import NodeRole, Workload
-from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.clickhouse.cluster import ClickhouseCluster, HostInfo
 from posthog.clickhouse.query_tagging import DagsterTags, Feature, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import EXECUTING_RUN_STATUSES, JobOwners, dagster_tags, describe_runs
@@ -52,7 +52,7 @@ _FINISHED_RUN_STATUSES = (
 # it does for rows from Kafka. inserted_at is left out so its DEFAULT stamps the event timestamp:
 # that keeps every copied row inside the deletion sweep's `inserted_at <= request.created_at` bound,
 # and it keeps copied rows out of the consumer-lag query below. _partition and _offset are left out
-# so that both are 0 on a copied row. _COPIED_ROW_FILTER relies on that.
+# so that both are 0 on a copied row. COPIED_ROW_FILTER relies on that.
 _COPIED_COLUMNS = (
     "uuid",
     "event",
@@ -77,7 +77,7 @@ _COPIED_VALUES = ", ".join(
 # A row from Kafka also has inserted_at = timestamp when its timestamp has no sub-second part and
 # falls in the second that Kafka received it. Kafka gives offset 0 only to the first message in a
 # partition, so the only Kafka row this filter can match is the first message in partition 0.
-_COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp"
+COPIED_ROW_FILTER = "_partition = 0 AND _offset = 0 AND inserted_at = timestamp"
 
 # A copied row's inserted_at is its timestamp, so the inserted_at != timestamp filter limits this
 # query to rows that arrived through the Kafka path.
@@ -235,11 +235,13 @@ def earliest_backfill_day(today: date) -> date:
     return today - timedelta(days=_EARLIEST_START_DAYS_AGO)
 
 
-def resolve_backfill_days(config: FlagEvaluationsBackfillConfig, *, today: date) -> tuple[date, ...]:
+def resolve_backfill_days(
+    *, start_date: str | None = None, end_date: str | None = None, today: date
+) -> tuple[date, ...]:
     latest_end = today - timedelta(days=1)
     earliest_start = earliest_backfill_day(today)
-    start = date.fromisoformat(config.start_date) if config.start_date else earliest_start
-    end = date.fromisoformat(config.end_date) if config.end_date else latest_end
+    start = date.fromisoformat(start_date) if start_date else earliest_start
+    end = date.fromisoformat(end_date) if end_date else latest_end
     if start < earliest_start:
         raise dagster.Failure(
             description=f"start_date {start} is before {earliest_start}. "
@@ -303,7 +305,7 @@ def plan_flag_evaluations_backfill(
     context: dagster.OpExecutionContext, config: FlagEvaluationsBackfillConfig
 ) -> BackfillPlan:
     """Resolve the window once, so a shard re-executed from the UI later copies the same days."""
-    days = resolve_backfill_days(config, today=datetime.now(UTC).date())
+    days = resolve_backfill_days(start_date=config.start_date, end_date=config.end_date, today=datetime.now(UTC).date())
     context.log.info(f"Backfilling {len(days)} day(s), newest first, from {days[0]} back to {days[-1]}")
     return BackfillPlan(days=days, config=config)
 
@@ -334,6 +336,11 @@ class ShardBackfill:
     because a run spans days. The weekly squash can start partway through, and the TTL can
     expire a planned day before the run reaches it. Days run newest first, so the run stops at
     the first expired day.
+
+    Each day picks one replica and runs its parts wait, consumer cutoff and copy there. The
+    anti-join reads only that replica's local parts, so the cutoff must come from the same
+    parts. A cutoff read on another replica does not show a replication fetch that the copy
+    replica has not finished.
     """
 
     cluster: ClickhouseCluster
@@ -365,21 +372,22 @@ class ShardBackfill:
             uncopied_days = len(days) - copied_days
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
-            self.wait_for_parts_to_merge(day)
+            copy_host = self.cluster.any_host_in_shard_by_roles(self.shard_num, [self.node_role], self.workload)
+            self.wait_for_parts_to_merge(day, copy_host)
             blocking_run_check = self._wait_for_disk_and_blocking_runs()
-            created_before = self.consumer_cutoff()
+            created_before = self.consumer_cutoff(copy_host)
             # The waits above have no shared deadline. The TTL boundary moves at UTC midnight.
             if self._reached_expired_day(day, uncopied_days=uncopied_days):
                 break
             try:
-                rows = self.copy_day(day, copy_query, settings, created_before)
+                rows = self.copy_day(day, copy_query, settings, created_before, copy_host)
             finally:
                 if not self.config.dry_run:
                     self.check_no_blocking_run_started(blocking_run_check, day=day)
             total_rows += rows
             copied_days += 1
             action = "would copy" if self.config.dry_run else "copied"
-            self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s)")
+            self.log.info(f"Shard {self.shard_num}, {day}: {action} {rows} row(s) on {copy_host.connection_info.host}")
         return ShardBackfillTotals(days=copied_days, rows=total_rows)
 
     def _wait_for_disk_and_blocking_runs(self) -> BlockingRunCheck:
@@ -400,13 +408,13 @@ class ShardBackfill:
         )
         return True
 
-    def wait_for_parts_to_merge(self, day: date) -> None:
+    def wait_for_parts_to_merge(self, day: date, copy_host: HostInfo) -> None:
         if self.config.max_unmerged_parts <= 0:
             return
         query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS([f"{day:%Y%m}"], table=FLAG_EVALUATIONS_DATA_TABLE, use_cluster=False)
         deadline = time.monotonic() + self.config.parts_check_max_wait_seconds
         while True:
-            active_parts = self._on_copy_host(partial(self._first_row, query))[0]
+            active_parts = self._on_host(copy_host, partial(self._first_row, query))[0]
             if active_parts < self.config.max_unmerged_parts:
                 return
             if time.monotonic() > deadline:
@@ -434,39 +442,10 @@ class ShardBackfill:
             )
 
     def wait_for_blocking_runs(self) -> BlockingRunCheck:
-        while True:
-            # The watermark comes before the scan. A run created during the scan then counts as created
-            # after it. Run storage can record a creation time to the whole second. The watermark
-            # therefore reaches one second back, and the post-copy check ignores runs that finished then.
-            since = datetime.now(UTC) - timedelta(seconds=1)
-            blockers = describe_runs(self.instance, BLOCKING_JOB_NAMES, exclude_run_id=self.run_id)
-            if not blockers:
-                break
-            self.log.info(
-                f"Waiting {self.config.blocking_run_poll_seconds}s for these runs to finish: {'; '.join(blockers)}"
-            )
-            time.sleep(self.config.blocking_run_poll_seconds)
-        finished = describe_runs(
-            self.instance,
-            BLOCKING_JOB_NAMES,
-            statuses=_FINISHED_RUN_STATUSES,
-            created_after=since,
-            exclude_run_id=self.run_id,
-        )
-        return BlockingRunCheck(since=since, finished_runs=frozenset(finished))
+        return wait_for_blocking_runs(self.instance, self.run_id, self.log, self.config.blocking_run_poll_seconds)
 
     def check_no_blocking_run_started(self, check: BlockingRunCheck, *, day: date) -> None:
-        started = [
-            run
-            for run in describe_runs(
-                self.instance,
-                BLOCKING_JOB_NAMES,
-                statuses=(*EXECUTING_RUN_STATUSES, *_FINISHED_RUN_STATUSES),
-                created_after=check.since,
-                exclude_run_id=self.run_id,
-            )
-            if run not in check.finished_runs
-        ]
+        started = blocking_runs_started_since(self.instance, check, self.run_id)
         if started:
             # A rerun for the same teams does not copy back the rows that earlier runs copied for other teams.
             team_filter = (
@@ -477,7 +456,7 @@ class ShardBackfill:
                 "The copy can hold rows or person_ids that the run removed from sharded_flag_evaluations. "
                 f"After that run finishes, delete the rows this job copied for {day} on shard {self.shard_num} "
                 f"(`DELETE FROM {FLAG_EVALUATIONS_DATA_TABLE} WHERE toDate(timestamp) = '{day}' "
-                f"AND {_COPIED_ROW_FILTER}{team_filter}`), then run the backfill again for the same teams."
+                f"AND {COPIED_ROW_FILTER}{team_filter}`), then run the backfill again for the same teams."
             )
 
     def wait_for_disk_headroom(self) -> None:
@@ -502,7 +481,7 @@ class ShardBackfill:
         """
         # Every replica of the shard, including offline ones, stores a copy of each inserted part.
         disks_by_host = self.cluster.map_hosts_in_shard_by_role(
-            self.shard_num, self._tagged(_read_policy_disks), node_role=self.node_role
+            self.shard_num, tagged(self.query_tags, _read_policy_disks), node_role=self.node_role
         ).result()
         if not disks_by_host:
             raise dagster.Failure(description=f"No replica of shard {self.shard_num} reported its disks.")
@@ -524,14 +503,14 @@ class ShardBackfill:
             raise dagster.Failure(description=f"Stopping shard {self.shard_num}: " + "; ".join(problems))
         return hosts_moving_parts
 
-    def consumer_cutoff(self) -> datetime:
+    def consumer_cutoff(self, copy_host: HostInfo) -> datetime:
         """Stop the shard when the Kafka path to flag_evaluations is too far behind.
 
         Otherwise return a cutoff such that flag_evaluations holds every fork row whose Kafka create time is
         before it.
         """
         checked_at = datetime.now(UTC)
-        kafka_partitions, lag_seconds = self._on_copy_host(partial(self._first_row, _KAFKA_POSITION_QUERY))
+        kafka_partitions, lag_seconds = self._on_host(copy_host, partial(self._first_row, _KAFKA_POSITION_QUERY))
         if kafka_partitions == 0:
             raise dagster.Failure(
                 description=f"Stopping shard {self.shard_num}: no row reached {FLAG_EVALUATIONS_DATA_TABLE} "
@@ -548,7 +527,9 @@ class ShardBackfill:
         # limit rather than the measured lag, which leaves that much slack for a late part.
         return checked_at - timedelta(seconds=self.config.max_consumer_lag_seconds) - _KAFKA_DELIVERY_TIMEOUT
 
-    def copy_day(self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime) -> int:
+    def copy_day(
+        self, day: date, copy_query: str, settings: dict[str, Any], created_before: datetime, copy_host: HostInfo
+    ) -> int:
         day_args = {
             "event": FLAG_EVALUATIONS_SOURCE_EVENT,
             "day_start": f"{day:%Y-%m-%d} 00:00:00",
@@ -568,30 +549,76 @@ class ShardBackfill:
             )
             if self.config.dry_run:
                 return result[0][0]
-            # sync_execute returns the written row count for an INSERT that wrote rows. It returns
-            # an empty result for an INSERT that wrote none.
-            return result if isinstance(result, int) else 0
+            return inserted_rows(result)
 
-        return sum(self._on_copy_host(partial(run_chunk, chunk)) for chunk in range(self.config.team_id_chunks))
+        return sum(self._on_host(copy_host, partial(run_chunk, chunk)) for chunk in range(self.config.team_id_chunks))
 
     def _first_row(self, query: str, client: Client) -> tuple:
         return sync_execute(query, workload=self.workload, sync_client=client)[0]
 
-    def _tagged(self, fn: Callable[[Client], T]) -> Callable[[Client], T]:
-        # The cluster runs fn on a pool thread. The query tags do not cross into that thread.
-        def tagged(client: Client) -> T:
-            with tags_context(
-                kind="dagster", dagster=self.query_tags, product=ProductKey.FEATURE_FLAGS, feature=Feature.BACKFILL
-            ):
-                return fn(client)
+    def _on_host(self, host: HostInfo, fn: Callable[[Client], T]) -> T:
+        return self.cluster.on_host(host, tagged(self.query_tags, fn)).result()
 
-        return tagged
 
-    def _on_copy_host(self, fn: Callable[[Client], T]) -> T:
-        result = self.cluster.map_any_host_in_shards_by_role(
-            {self.shard_num: self._tagged(fn)}, workload=self.workload, node_role=self.node_role
-        ).result()
-        return next(iter(result.values()))
+def wait_for_blocking_runs(
+    instance: dagster.DagsterInstance, run_id: str, log: dagster.DagsterLogManager, poll_seconds: int
+) -> BlockingRunCheck:
+    """Wait until no blocking run is active, then return the watermark for blocking_runs_started_since."""
+    while True:
+        # The watermark comes before the scan. A run created during the scan then counts as created
+        # after it. Run storage can record a creation time to the whole second. The watermark
+        # therefore reaches one second back, and blocking_runs_started_since ignores runs that finished then.
+        since = datetime.now(UTC) - timedelta(seconds=1)
+        blockers = describe_runs(instance, BLOCKING_JOB_NAMES, exclude_run_id=run_id)
+        if not blockers:
+            break
+        log.info(f"Waiting {poll_seconds}s for these runs to finish: {'; '.join(blockers)}")
+        time.sleep(poll_seconds)
+    finished = describe_runs(
+        instance, BLOCKING_JOB_NAMES, statuses=_FINISHED_RUN_STATUSES, created_after=since, exclude_run_id=run_id
+    )
+    return BlockingRunCheck(since=since, finished_runs=frozenset(finished))
+
+
+def blocking_runs_started_since(instance: dagster.DagsterInstance, check: BlockingRunCheck, run_id: str) -> list[str]:
+    statuses = (*EXECUTING_RUN_STATUSES, *_FINISHED_RUN_STATUSES)
+    runs = describe_runs(
+        instance, BLOCKING_JOB_NAMES, statuses=statuses, created_after=check.since, exclude_run_id=run_id
+    )
+    return [run for run in runs if run not in check.finished_runs]
+
+
+def shard_workload() -> tuple[Workload, NodeRole]:
+    return (Workload.OFFLINE, NodeRole.DATA) if is_cloud() else (Workload.DEFAULT, NodeRole.ALL)
+
+
+def tagged(query_tags: DagsterTags, fn: Callable[[Client], T]) -> Callable[[Client], T]:
+    # The cluster runs fn on a pool thread. The query tags do not cross into that thread.
+    def run(client: Client) -> T:
+        with tags_context(
+            kind="dagster", dagster=query_tags, product=ProductKey.FEATURE_FLAGS, feature=Feature.BACKFILL
+        ):
+            return fn(client)
+
+    return run
+
+
+def on_shard_host(
+    cluster: ClickhouseCluster,
+    shard_num: int,
+    fn: Callable[[Client], T],
+    query_tags: DagsterTags,
+    workload: Workload,
+    node_role: NodeRole,
+) -> T:
+    host = cluster.any_host_in_shard_by_roles(shard_num, [node_role], workload)
+    return cluster.on_host(host, tagged(query_tags, fn)).result()
+
+
+def inserted_rows(result: Any) -> int:
+    # sync_execute returns the written row count for an INSERT that wrote rows. It returns
+    # an empty result for an INSERT that wrote none.
+    return result if isinstance(result, int) else 0
 
 
 def _read_policy_disks(client: Client) -> list[PolicyDisk]:
@@ -608,7 +635,7 @@ def backfill_flag_evaluations_shard(
     shard_num: int,
     plan: BackfillPlan,
 ) -> int:
-    workload, node_role = (Workload.OFFLINE, NodeRole.DATA) if is_cloud() else (Workload.DEFAULT, NodeRole.ALL)
+    workload, node_role = shard_workload()
     totals = ShardBackfill(
         cluster=cluster,
         shard_num=shard_num,
@@ -637,7 +664,7 @@ def flag_evaluations_backfill_job() -> None:
 
     Safe to re-run over the same window: the anti-join inserts only rows that are missing.
     A re-run does not rewrite a stored row. To copy a day again, first delete the rows that an earlier
-    run copied, which match _COPIED_ROW_FILTER. Delete a row that the Kafka path wrote only when events
+    run copied, which match COPIED_ROW_FILTER. Delete a row that the Kafka path wrote only when events
     also holds the call. Events does not hold the calls of an organization on FLAG_EVALUATIONS_ONLY.
     """
     plan = plan_flag_evaluations_backfill()

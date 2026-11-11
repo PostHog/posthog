@@ -16,7 +16,8 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import consume_github_installation_sync
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GitHubIntegration
 from posthog.models.team import Team
 
 from products.engineering_analytics.backend.facade.contracts import CIEngine, JobLogInsights
@@ -127,8 +128,9 @@ def _log_credential(team: Team, source_id: str) -> _LogCredential | None:
         return _LogCredential(token=credential.personal_access_token, installation_id=None)
     if credential.integration_id is None:
         return None
-    integration = Integration.objects.filter(team_id=team.pk, id=credential.integration_id, kind="github").first()
-    if integration is None:
+    try:
+        integration = IntegrationManager.github.oauth.get(team.pk, credential.integration_id)
+    except IntegrationNotFound:
         return None
     github = GitHubIntegration(integration, source=_EGRESS_SOURCE, priority=Priority.NORMAL)
     if not github.github_installation_id:

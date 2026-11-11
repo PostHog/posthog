@@ -339,20 +339,28 @@ real anomaly worth investigating with the experiment URL.
 
 **Behavior** `[HIGH]`. The duration display next to the experiment's status is an estimate of sample size.
 It reads "~N days left" while the exposures are below the target, and "Target reached" once they are at or above it.
+When the target is more than four weeks away, it reads "Can detect X%+ changes within 4 weeks" with a warning icon instead.
+X is the smallest change that the experiment can detect within four weeks at its current traffic, not the minimum detectable effect.
+Above 100% it reads "Can detect only changes over 100% within 4 weeks".
 Older versions read "Complete".
 On an ended experiment "Complete" is the status tag: every ended experiment carries it, and the duration display is hidden.
 Read `status` first when the user says "complete".
 
-- The target is the sample needed to detect the **minimum detectable effect** with about 80% power at 95% confidence.
-- The estimate uses the **first primary metric** only.
+- The target is the sample needed to detect the **minimum detectable effect** with about 80% power, at the confidence level of the experiment's analysis (95% by default).
+- The estimate uses the **first primary metric** only, with the variance that the analysis computes from its results (after CUPED, when the experiment uses it).
+- The target is sized so that the comparison of the control with the smallest variant can detect the effect, so an uneven split needs a larger total than an even one.
 - The minimum detectable effect is the project's default, and 30% where none is set.
-  A 30% effect needs a small sample, so the target is reached within days on a busy surface.
+  A 30% effect on a conversion rate needs a small sample, so the target is reached within days on a busy surface.
+  A summed value such as revenue varies much more from person to person, so its target can be many times larger.
+- In manual mode the target comes from the baseline the user typed, not from the results.
 - "Target reached" says that an effect of that size would probably have shown.
   It says nothing about significance, and it does not end the experiment.
+- The running time settings list the exposures and the change that the experiment can detect today, at the next week marks, and on the date it reaches the target.
+  A change over 100% shows as ">100%".
 
 <!-- Source for maintainers (may rot): ExperimentRemainingTime.tsx in
 products/experiments/frontend/components/ExperimentMetaBar; runningTimeLogic.ts in
-frontend/src/scenes/experiments/RunningTimeCalculator. -->
+frontend/src/scenes/experiments/RunningTimeCalculator; running_time_target.py in products/experiments/backend. -->
 
 **Evidence to gather.** `running_time_calculation` in `experiment-get`:
 
@@ -362,7 +370,6 @@ frontend/src/scenes/experiments/RunningTimeCalculator. -->
 - `exposure_estimate_config.conversionRateInputType` — `manual` means that the user typed the baseline and the daily exposures.
   Both numbers above then come from that input: `recommended_running_time` is the whole estimated length, not the days left, and neither number is updated during the run.
   The same holds for numbers that were written when the experiment was created, through the API or by an agent, until someone opens the launched experiment.
-  A page load in the first day of the run, or before 100 exposures, also saves the whole estimated length, until a later page load replaces it.
   A `recommended_running_time` above 0 on an experiment whose exposures have passed the target is one of these cases, or a value saved by a page load before the target was reached.
 - `minimum_detectable_effect` — the experiment's own value, or the project default that was copied in when the experiment was created.
   When it is absent the project default applies.

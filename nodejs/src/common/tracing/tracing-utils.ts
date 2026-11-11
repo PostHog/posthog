@@ -1,4 +1,16 @@
-import { Attributes, Context, HrTime, Span, SpanKind, SpanStatusCode, Tracer, context, trace } from '@opentelemetry/api'
+import {
+    Attributes,
+    Context,
+    HrTime,
+    Span,
+    SpanKind,
+    SpanStatusCode,
+    TraceFlags,
+    Tracer,
+    context,
+    isSpanContextValid,
+    trace,
+} from '@opentelemetry/api'
 import { Counter, Histogram, Summary, exponentialBuckets } from 'prom-client'
 
 import { defaultConfig } from '~/common/config/config'
@@ -44,6 +56,13 @@ function getHighResTimestamp(): HrTime {
     const nanos = Math.round((epochMillis % 1000) * 1_000_000)
     return [seconds, nanos]
 }
+
+// The sampler is parent-based, so a child of an unsampled span is never exported.
+function hasUnsampledParent(ctx: Context): boolean {
+    const parent = trace.getSpanContext(ctx)
+    return parent !== undefined && isSpanContextValid(parent) && (parent.traceFlags & TraceFlags.SAMPLED) === 0
+}
+
 /**
  * Wraps a function in an OpenTelemetry tracing span.
  */
@@ -54,12 +73,16 @@ export function withTracingSpan<T>(
     fn: () => Promise<T>,
     parentContext?: Context
 ): Promise<T> {
+    const ctx = parentContext ?? context.active()
+    if (hasUnsampledParent(ctx)) {
+        return parentContext ? context.with(parentContext, fn) : fn()
+    }
     const _tracer = typeof tracer === 'string' ? trace.getTracer(tracer) : tracer
     const startHrTime = getHighResTimestamp()
     return _tracer.startActiveSpan(
         name,
         { kind: SpanKind.CLIENT, attributes: attrs, startTime: startHrTime },
-        parentContext ?? context.active(),
+        ctx,
         async (span) => {
             try {
                 const out = await fn()
@@ -137,6 +160,8 @@ interface FunctionInstrumentationOptions {
     parentContext?: Context
     /** False keeps the timeout guard and both duration metrics but emits no span. */
     span?: boolean
+    /** False skips the `instrumented_fn_duration_ms` summary, for callers that record their own duration. */
+    summary?: boolean
 }
 
 /**
@@ -182,6 +207,7 @@ export async function instrumentFn<T>(
     const attributes = (typeof options === 'string' ? undefined : options.attributes) ?? {}
     const parentContext = typeof options === 'string' ? undefined : options.parentContext
     const span = (typeof options === 'string' ? undefined : options.span) ?? true
+    const summary = (typeof options === 'string' ? undefined : options.summary) ?? true
 
     const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
         instrumentedFunctionTimeout.labels({ function: key }).inc()
@@ -201,17 +227,19 @@ export async function instrumentFn<T>(
 
     try {
         // Skip expensive span creation when tracing is disabled
-        const result = defaultConfig.DISABLE_OPENTELEMETRY_TRACING
-            ? await funcReportingErrorsInSpan()
-            : span
-              ? await withSpan(
-                    'instrumented_function',
-                    key,
-                    tag ? { ...attributes, tag } : attributes,
-                    funcReportingErrorsInSpan,
-                    parentContext
-                )
-              : await withSummary(key, tag, funcReportingErrorsInSpan)
+        const tracingEnabled = !defaultConfig.DISABLE_OPENTELEMETRY_TRACING
+        const run =
+            tracingEnabled && span
+                ? () =>
+                      withTracingSpan(
+                          'instrumented_function',
+                          key,
+                          tag ? { ...attributes, tag } : attributes,
+                          funcReportingErrorsInSpan,
+                          parentContext
+                      )
+                : funcReportingErrorsInSpan
+        const result = tracingEnabled && summary ? await withSummary(key, tag, run) : await run()
         end?.({ success: 'true' })
         if (logExecutionTime) {
             logTime(startTime, key)

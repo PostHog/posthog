@@ -12,13 +12,11 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from langchain_core.callbacks.base import BaseCallbackHandler
-from langchain_core.outputs import LLMResult
 from langchain_core.runnables.config import RunnableConfig
 from langgraph.errors import GraphInterrupt, GraphRecursionError
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command, StreamMode
 from opentelemetry import trace
-from posthoganalytics.ai.langchain.callbacks import CallbackHandler, GenerationMetadata
 
 from posthog.schema import (
     ApprovalDecisionStatus,
@@ -47,7 +45,7 @@ from products.posthog_ai.backend.models.assistant import Conversation
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
-from ee.hogai.llm import POSTHOG_AI_PRODUCT, is_ai_gateway_served
+from ee.hogai.llm import POSTHOG_AI_PRODUCT, MaxCallbackHandler
 from ee.hogai.tool import ApprovalRequest, ClientToolCallRequest, pending_approval_proposal_id
 from ee.hogai.utils.exceptions import (
     AGENT_RUN_UNHANDLED_ERROR_COUNTER,
@@ -77,26 +75,6 @@ from ee.hogai.utils.types.composed import AssistantMaxGraphState, AssistantMaxPa
 
 logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
-
-
-class MaxCallbackHandler(CallbackHandler):
-    """
-    Skips $ai_generation for gateway-served calls, which the gateway captures. $ai_trace and $ai_span still emit
-    because the AI credits query decides free turns from them.
-    """
-
-    def _capture_generation(
-        self,
-        trace_id: Any,
-        run_id: UUID,
-        run: GenerationMetadata,
-        output: LLMResult | BaseException,
-        parent_run_id: Optional[UUID] = None,
-        include_parent_id: bool = True,
-    ):
-        if is_ai_gateway_served(output):
-            return
-        super()._capture_generation(trace_id, run_id, run, output, parent_run_id, include_parent_id)
 
 
 class SubagentCallbackHandler(MaxCallbackHandler):
@@ -619,6 +597,22 @@ class BaseAgentRunner(ABC):
                         raise ValueError("Approval does not match a pending operation")
                     self._resume_payload = None
                     resume_value = None
+                elif self._resume_payload["action"] == "reject" and self._resume_payload.get("feedback"):
+                    # Feedback is a new instruction, so it rejects the whole batch, or each remaining card re-prompts with the old request.
+                    rejections = {
+                        pending.interrupt_id: {**self._resume_payload, "proposal_id": pending_id}
+                        for task in snapshot.tasks
+                        if task.result is None
+                        for pending in task.interrupts
+                        if (pending_id := pending_approval_proposal_id(pending.value))
+                    }
+                    for pending_id in {rejection["proposal_id"] for rejection in rejections.values()} - {proposal_id}:
+                        # Saved with the selected card's status below; matches the "skipped" cards the frontend shows live.
+                        if pending_id in self._conversation.approval_decisions:
+                            self._conversation.approval_decisions[pending_id]["decision_status"] = (
+                                ApprovalDecisionStatus.AUTO_REJECTED
+                            )
+                    resume_value = rejections
                 else:
                     # A scalar resume targets the next interrupt, which may belong to a different approval card.
                     resume_value = {approval_interrupt.interrupt_id: self._resume_payload}

@@ -187,7 +187,7 @@ def find_stalled_schemas(
     if source_type is not None:
         queryset = queryset.filter(source__source_type__iexact=source_type)
 
-    queryset = queryset.select_related("source").order_by("latest_run_at")
+    queryset = queryset.select_related("source").order_by(F("latest_run_at"))
     if limit is not None:
         queryset = queryset[:limit]
 
@@ -308,13 +308,10 @@ def repair_stalled_schema(stalled: StalledSchema) -> bool:
             REPAIRED_SCHEMA_ERROR,
             logger,
         )
-        # get_team_ids_with_recent_sync_failures renotifies a FAILED schema once
-        # last_error_notified_at is more than RENOTIFY_STILL_FAILING_AFTER old, with no newer
-        # failed job required. A schema that failed long ago, was notified, and has since been
-        # healthy for a while still carries that old stamp, so this repaint would otherwise read
-        # as "still failing" and send the failure digest instead of the informational message
-        # above. Stamping it here starts that window fresh; a genuinely new failure still notifies,
-        # because its job's finished_at is newer than this stamp.
+        # The failure digest lists a FAILED schema that has no notification stamp, so without
+        # one this repaint would read as a sync failure in the team's next digest instead of
+        # the informational message above. A genuinely new failure still notifies, because its
+        # job's finished_at is newer than this stamp.
         ExternalDataSchema.objects.filter(id=schema.id, team_id=schema.team_id).update(
             last_error_notified_at=timezone.now()
         )

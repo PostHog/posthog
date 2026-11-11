@@ -41,6 +41,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     _ch_ts,
     _dead_backticked_ids,
     _execute_ch_query_with_retry,
+    _fetch_overlapping_backfills,
     _is_retriable_ch_error,
     _label_generation_evals,
     _widened_ts_window,
@@ -48,6 +49,7 @@ from posthog.temporal.ai_observability.eval_reports.report_agent.tools import (
     add_section,
     get_eval_report_tools,
     get_report_run,
+    get_result_distribution_over_time,
     get_session_detail,
     get_summary_metrics,
     get_trace_detail,
@@ -71,6 +73,7 @@ _add_citation_fn = add_citation.func  # type: ignore[attr-defined]
 _list_recent_report_runs_fn = list_recent_report_runs.func  # type: ignore[attr-defined]
 _get_report_run_fn = get_report_run.func  # type: ignore[attr-defined]
 _get_summary_metrics_fn = get_summary_metrics.func  # type: ignore[attr-defined]
+_get_result_distribution_over_time_fn = get_result_distribution_over_time.func  # type: ignore[attr-defined]
 _list_all_eval_results_fn = list_all_eval_results.func  # type: ignore[attr-defined]
 _sample_eval_results_fn = sample_eval_results.func  # type: ignore[attr-defined]
 _sample_trace_details_fn = sample_trace_details.func  # type: ignore[attr-defined]
@@ -173,11 +176,20 @@ class TestWidenedTsWindow(SimpleTestCase):
 
 
 class TestSummaryMetrics(SimpleTestCase):
+    def setUp(self) -> None:
+        backfills_patcher = patch(
+            "posthog.temporal.ai_observability.eval_reports.report_agent.tools._fetch_overlapping_backfills",
+            return_value=[],
+        )
+        self.mock_backfills = backfills_patcher.start()
+        self.addCleanup(backfills_patcher.stop)
+
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_boolean_keeps_pass_rate_separate_from_outcome_distribution(self, mock_execute_hogql):
         mock_execute_hogql.side_effect = [
             [[80, 18, 2, 100]],
             [[7, 2, 1, 10]],
+            [],
         ]
         state = {
             "team_id": 1,
@@ -204,6 +216,7 @@ class TestSummaryMetrics(SimpleTestCase):
         mock_execute_hogql.side_effect = [
             [[0, 0, 4, 4]],
             [[0, 0, 3, 3]],
+            [],
         ]
         state = {
             "team_id": 1,
@@ -224,6 +237,7 @@ class TestSummaryMetrics(SimpleTestCase):
         mock_execute_hogql.side_effect = [
             [[2, 1, 1, 4]],
             [[1, 1, 0, 2]],
+            [],
         ]
         state = {
             "team_id": 1,
@@ -248,7 +262,7 @@ class TestSummaryMetrics(SimpleTestCase):
         current_query = mock_execute_hogql.call_args_list[0].args[1]
         self.assertIn("properties.$ai_sentiment_label = 'positive'", current_query)
         self.assertIn("properties.$ai_evaluation_result_type = 'sentiment'", current_query)
-        self.assertNotIn("properties.$ai_evaluation_result = true", current_query)
+        self.assertNotIn("properties.$ai_evaluation_result = 'true'", current_query)
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_detector_polarity_counts_a_false_result_as_the_pass(self, mock_execute_hogql):
@@ -256,6 +270,7 @@ class TestSummaryMetrics(SimpleTestCase):
         mock_execute_hogql.side_effect = [
             [[18, 80, 2, 100]],
             [[2, 7, 1, 10]],
+            [],
         ]
         state = {
             "team_id": 1,
@@ -273,7 +288,7 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertEqual(result["current_period"]["pass_rate"], 18.37)
         pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
         assert pass_column is not None
-        self.assertIn("properties.$ai_evaluation_result = false", pass_column.group(1))
+        self.assertIn("properties.$ai_evaluation_result = 'false'", pass_column.group(1))
 
     @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
     def test_state_without_polarity_counts_a_true_result_as_the_pass(self, mock_execute_hogql):
@@ -281,6 +296,7 @@ class TestSummaryMetrics(SimpleTestCase):
         mock_execute_hogql.side_effect = [
             [[80, 18, 2, 100]],
             [[7, 2, 1, 10]],
+            [],
         ]
         state = {
             "team_id": 1,
@@ -296,7 +312,71 @@ class TestSummaryMetrics(SimpleTestCase):
         self.assertEqual(result["current_period"]["result_counts"], {"pass": 80, "fail": 18, "na": 2})
         pass_column = re.search(r"countIf\((.*?)\) as pass_count", mock_execute_hogql.call_args_list[0].args[1], re.S)
         assert pass_column is not None
-        self.assertIn("properties.$ai_evaluation_result = true", pass_column.group(1))
+        self.assertIn("properties.$ai_evaluation_result = 'true'", pass_column.group(1))
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_splits_each_period_by_judge_model_and_reports_overlapping_backfills(self, mock_execute_hogql):
+        mock_execute_hogql.side_effect = [
+            [[0, 0, 0, 300]],
+            [[0, 0, 0, 100]],
+            [
+                ["previous_period", "judge-a", "2026-04-08 13:00:00", "2026-04-08 13:59:00", 99, 1, 0, 100],
+                ["current_period", "judge-a", "2026-04-08 14:00:00", "2026-04-08 14:29:00", 99, 1, 0, 100],
+                ["current_period", "judge-b", "2026-04-08 14:30:00", "2026-04-08 14:59:00", 96, 4, 0, 100],
+                ["current_period", "", "2026-04-08 14:00:00", "2026-04-08 14:59:00", 0, 0, 100, 100],
+            ],
+        ]
+        backfill = {
+            "status": "running",
+            "window_start": "2026-04-01T00:00:00+00:00",
+            "window_end": "2026-04-08T14:00:00+00:00",
+            "created_at": "2026-04-08T14:05:00+00:00",
+            "finished_at": None,
+        }
+        self.mock_backfills.return_value = [backfill]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "true_is_failure": True,
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T15:00:00+00:00",
+            "previous_period_start": "2026-04-08T13:00:00+00:00",
+        }
+
+        result = json.loads(_get_summary_metrics_fn(state=state))
+
+        current_models = result["current_period"]["judge_models"]
+        self.assertEqual([model["model"] for model in current_models], ["judge-a", "judge-b"])
+        self.assertEqual(current_models[1]["first_run_at"], "2026-04-08 14:30:00")
+        self.assertEqual(current_models[0]["result_rates"]["fail"], 1.0)
+        self.assertEqual(current_models[1]["result_rates"]["fail"], 4.0)
+        self.assertEqual([model["model"] for model in result["previous_period"]["judge_models"]], ["judge-a"])
+        self.assertEqual(result["backfills"], [backfill])
+
+    @patch("posthog.temporal.ai_observability.eval_reports.report_agent.tools._execute_hogql")
+    def test_distribution_reports_runs_per_judge_model_without_unmodeled_results(self, mock_execute_hogql):
+        mock_execute_hogql.return_value = [
+            ["2026-04-08 14:00:00", {"": 5, "judge-a": 10, "judge-b": 10}, 15, 5, 5, 25],
+            ["2026-04-08 15:00:00", {"judge-b": 10}, 7, 3, 0, 10],
+            ["2026-04-08 16:00:00", {"": 4}, 0, 0, 4, 4],
+        ]
+        state = {
+            "team_id": 1,
+            "evaluation_id": "eval-id",
+            "output_type": "boolean",
+            "period_start": "2026-04-08T14:00:00+00:00",
+            "period_end": "2026-04-08T16:00:00+00:00",
+        }
+
+        result = json.loads(_get_result_distribution_over_time_fn(state=state))
+
+        self.assertEqual(len(result), 3)
+        self.assertEqual(result[0]["total_runs"], 25)
+        self.assertEqual(result[0]["result_counts"], {"pass": 15, "fail": 5, "na": 5})
+        self.assertEqual(result[0]["judge_model_runs"], {"judge-a": 10, "judge-b": 10})
+        self.assertEqual(result[1]["judge_model_runs"], {"judge-b": 10})
+        self.assertNotIn("judge_model_runs", result[2])
 
 
 class TestTargetAwareEvalResults(SimpleTestCase):
@@ -1362,6 +1442,30 @@ class TestListAndGetReportRun(BaseTest):
         # Agent state is scoped to self.evaluation — other_run must not be visible
         result = json.loads(_get_report_run_fn(state=self.state, run_id=str(other_run.id)))
         self.assertIn("error", result)
+
+    def test_fetch_overlapping_backfills_returns_only_windows_that_overlap_the_periods(self):
+        from products.ai_observability.backend.models.evaluation_backfill import EvaluationBackfill
+
+        def create_backfill(window_start: dt.datetime, window_end: dt.datetime) -> None:
+            EvaluationBackfill.objects.for_team(self.team.id).create(
+                team=self.team,
+                evaluation=self.evaluation,
+                window_start=window_start,
+                window_end=window_end,
+                status="completed",
+                target="generation",
+                total_count=10,
+            )
+
+        ts_prev_start = dt.datetime(2026, 4, 1, tzinfo=dt.UTC)
+        ts_end = dt.datetime(2026, 4, 15, tzinfo=dt.UTC)
+        create_backfill(dt.datetime(2026, 3, 25, tzinfo=dt.UTC), dt.datetime(2026, 4, 2, tzinfo=dt.UTC))
+        create_backfill(dt.datetime(2026, 3, 1, tzinfo=dt.UTC), dt.datetime(2026, 4, 1, tzinfo=dt.UTC))
+        create_backfill(dt.datetime(2026, 4, 15, tzinfo=dt.UTC), dt.datetime(2026, 4, 20, tzinfo=dt.UTC))
+
+        backfills = _fetch_overlapping_backfills(self.team.id, str(self.evaluation.id), ts_prev_start, ts_end)
+
+        self.assertEqual([backfill["window_start"] for backfill in backfills], ["2026-03-25T00:00:00+00:00"])
 
 
 class TestExecuteChQueryWithRetry(SimpleTestCase):

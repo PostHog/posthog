@@ -8,6 +8,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { HogFunctionTestEditor } from 'scenes/hog-functions/configuration/HogFunctionTest'
+import { FLAG_CALLS_NOT_LOADABLE } from 'scenes/hog-functions/filters/flagCallsMatching'
 import { urls } from 'scenes/urls'
 
 import { asDisplay } from 'products/persons/frontend/person-utils'
@@ -24,6 +25,7 @@ export function HogFlowEditorTestEvent(): JSX.Element {
         noMatchingEvents,
         canTryExtendedSearch,
         shouldLoadSampleGlobals,
+        triggerMatchesOnlyFlagCallsOutsideEvents,
         eventPanelOpen,
         eventSelectorOpen,
         lastSearchedEventName,
@@ -108,13 +110,15 @@ export function HogFlowEditorTestEvent(): JSX.Element {
                                                 type="secondary"
                                                 onClick={() => loadSampleGlobals()}
                                                 tooltip={
-                                                    noMatchingEvents
+                                                    noMatchingEvents && !triggerMatchesOnlyFlagCallsOutsideEvents
                                                         ? 'No events match the current filters. Try adjusting your trigger filters.'
                                                         : 'Find the last event matching the trigger event filters, and use it to populate the globals for a test run.'
                                                 }
                                                 disabledReason={
                                                     noMatchingEvents
-                                                        ? 'No matching events found - adjust your trigger filters'
+                                                        ? triggerMatchesOnlyFlagCallsOutsideEvents
+                                                            ? FLAG_CALLS_NOT_LOADABLE
+                                                            : 'No matching events found - adjust your trigger filters'
                                                         : undefined
                                                 }
                                                 icon={<IconRedo />}

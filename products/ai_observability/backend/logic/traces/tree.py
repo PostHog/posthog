@@ -40,7 +40,7 @@ class TreeNode:
 
 
 def build_tree(events: Sequence[TraceEvent], trace_id: str) -> tuple[TreeNode, ...]:
-    nodes = [event for event in events if not event.is_annotation and not event.is_trace_event]
+    nodes = [event for event in events if not event.is_trace_event]
     known_keys = {event.node_key for event in nodes}
 
     def order(event: TraceEvent) -> tuple[datetime, float]:

@@ -35,6 +35,15 @@ export function parseVersion(version: string): SemanticVersion {
 // `parseVersion` because that one accepts a leading `v`, which the backend's `int()` rejects.
 // `allowWildcard` handles patterns like `1.2.*` by dropping the trailing `.`/`*`, matching the
 // backend's `rstrip('.*')` for the wildcard operator.
+// Mirrors STRICT_SEMVER_REGEX in posthog/hogql/property.py, which matches the flag service's
+// semver parser: a full X.Y.Z with no leading zeros, an optional `v` and an optional `-`/`+` suffix.
+// The exact and ordering operators compare the whole version, so a short `2.0` never equals `2.0.0`.
+const STRICT_SEMVER_PATTERN = /^\s*v?(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:[-+]\S*)?\s*$/
+
+export function isStrictSemverValue(value: string): boolean {
+    return STRICT_SEMVER_PATTERN.test(value)
+}
+
 export function isValidSemverValue(value: string, options?: { allowWildcard?: boolean }): boolean {
     let candidate = value.trim()
     if (options?.allowWildcard) {

@@ -28,6 +28,7 @@ class AccessMethod(StrEnum):
     OAUTH = "oauth"
     SHARING_TOKEN = "sharing_token"
     ID_JAG = "id_jag"
+    OIDC_WORKLOAD = "oidc_workload"
     PROJECT_SECRET_API_KEY = "project_secret_api_key"
     TEAM_SECRET_TOKEN = "team_secret_token"
 
@@ -118,6 +119,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
+    BATCH_RUN_OUTCOME = "batch_run_outcome"  # a workflow batch run checks whether its sends errored
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"
@@ -150,6 +152,7 @@ class Feature(StrEnum):
     # A 30 day aggregate that runs on every AI observability dashboard mount and trace view, so its
     # load is worth attributing separately from the tab queries it sits alongside.
     INSTRUMENTATION_CHECKLIST = "instrumentation_checklist"
+    AI_GATEWAY_DEV_USAGE = "ai_gateway_dev_usage"
 
 
 class FallbackTags(TypedDict):
@@ -218,6 +221,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.WEB_EXTERNAL_CLICKS_TABLE_QUERY
             | NodeKind.WEB_BOTS_TABLE_QUERY
             | NodeKind.WEB_AGENT_ANALYTICS_QUERY
+            | NodeKind.WEB_PAGE_DIRECTORY_QUERY
             | NodeKind.WEB_PAGE_URL_SEARCH_QUERY
             | NodeKind.WEB_VITALS_QUERY
             | NodeKind.WEB_VITALS_PATH_BREAKDOWN_QUERY
@@ -233,13 +237,16 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY
             | NodeKind.ERROR_TRACKING_BREAKDOWNS_QUERY
             | NodeKind.ERROR_TRACKING_RELEASES_QUERY
+            | NodeKind.ERROR_TRACKING_ISSUE_EVENTS_QUERY
         ):
             return {"product": Product.ERROR_TRACKING}
+        case NodeKind.INBOX_USAGE_QUERY:
+            return {"product": Product.SIGNALS}
         case NodeKind.LOGS_QUERY | NodeKind.LOG_ATTRIBUTES_QUERY | NodeKind.LOG_VALUES_QUERY:
             return {"product": Product.LOGS}
         case NodeKind.METRICS_QUERY | NodeKind.METRICS_HISTOGRAM_QUERY:
             return {"product": Product.METRICS}
-        case NodeKind.ACCOUNTS_TABLE_QUERY:
+        case NodeKind.ACCOUNTS_TABLE_QUERY | NodeKind.ACCOUNT_USERS_QUERY:
             return {"product": Product.CUSTOMER_ANALYTICS}
         case NodeKind.RECORDINGS_QUERY | NodeKind.SESSION_BATCH_EVENTS_QUERY:
             return {"product": Product.REPLAY}
@@ -289,10 +296,12 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MARKETING_ANALYTICS_ATTRIBUTION_PATHS_QUERY
             | NodeKind.MARKETING_ANALYTICS_RETENTION_QUERY
             | NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY
+            | NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
         case (
-            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            NodeKind.MCP_DASHBOARD_QUERY
+            | NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
             | NodeKind.MCP_MODEL_BREAKDOWN_QUERY
             | NodeKind.MCP_PROTOCOL_VERSION_BREAKDOWN_QUERY
             | NodeKind.MCP_TOOL_CALL_BREAKDOWN_QUERY
@@ -329,8 +338,6 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.INSIGHT_ACTORS_QUERY
             | NodeKind.INSIGHT_ACTORS_QUERY_OPTIONS
             | NodeKind.FUNNELS_ACTORS_QUERY
-            | NodeKind.FUNNEL_CORRELATION_QUERY
-            | NodeKind.FUNNEL_CORRELATION_ACTORS_QUERY
             | NodeKind.PATHS_V2_ACTORS_QUERY
             # data-source nodes, not full queries
             | NodeKind.EVENTS_NODE
@@ -338,6 +345,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.ACTIONS_NODE
             | NodeKind.PERSONS_NODE
             | NodeKind.DATA_WAREHOUSE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_NODE
+            | NodeKind.EXPERIMENT_WAREHOUSE_NATIVE_EXPOSURE_CONFIG
             | NodeKind.FUNNELS_DATA_WAREHOUSE_NODE
             | NodeKind.LIFECYCLE_DATA_WAREHOUSE_NODE
             | NodeKind.DATA_TABLE_NODE
@@ -444,6 +453,7 @@ class QueryTags(BaseModel):
     export_format: Optional[str] = None
     chargeable: Optional[int] = None
     api_queries_budgeted: Optional[bool] = None  # server-set only; request tags cannot reach it
+    warehouse_suggestion_access: Optional[str] = None
     request_name: Optional[str] = None
     name: Optional[str] = None
     endpoint_version: Optional[int] = None  # Endpoints, the product
@@ -687,6 +697,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
         return None
 
 
+def get_http_request_id() -> str | None:
+    http_request_id = get_query_tag_value("http_request_id")
+    return str(http_request_id) if isinstance(http_request_id, uuid.UUID) else None
+
+
 # Tag snapshots are isolated copy-on-write: every mutation goes through a top-level attribute
 # assignment on a fresh shallow copy (see update/with_temporal/with_dagster), and nested tag
 # objects are only ever replaced, never mutated in place. That makes shallow model_copy()
@@ -897,6 +912,13 @@ class QueryCounter:
     def max_query_time_ms(self):
         return self.max_query_time * 1000
 
+    def record_query_time(self, elapsed: float) -> None:
+        self.total_query_time += elapsed
+        self.count += 1
+        self.max_query_time = max(self.max_query_time, elapsed)
+        if elapsed > self.SLOW_QUERY_THRESHOLD_S:
+            self.slow_count += 1
+
     def __call__(self, execute, *args, **kwargs):
         import time
 
@@ -905,13 +927,7 @@ class QueryCounter:
         try:
             return execute(*args, **kwargs)
         finally:
-            elapsed = time.perf_counter() - start_time
-            self.total_query_time += elapsed
-            self.count += 1
-            if elapsed > self.max_query_time:
-                self.max_query_time = elapsed
-            if elapsed > self.SLOW_QUERY_THRESHOLD_S:
-                self.slow_count += 1
+            self.record_query_time(time.perf_counter() - start_time)
 
 
 @contextmanager

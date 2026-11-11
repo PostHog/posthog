@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import InterfaceError, OperationalError, transaction
 from django.db.models import Case, DurationField, ExpressionWrapper, F, OuterRef, Q, QuerySet, Subquery, When
 from django.utils import timezone
@@ -12,7 +13,7 @@ import grpc
 import structlog
 import posthoganalytics
 from celery import Task, chain, shared_task
-from celery.exceptions import Retry, SoftTimeLimitExceeded
+from celery.exceptions import MaxRetriesExceededError, Retry, SoftTimeLimitExceeded
 from celery.utils.time import get_exponential_backoff_interval
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
@@ -24,6 +25,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
+from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.personhog_client.interceptor import is_transient_rpc_error
@@ -45,7 +47,9 @@ from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, Import
 from products.cohorts.backend.models.util import (
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     close_open_population_attempts,
+    count_cohort_members,
     get_all_cohort_dependencies,
     get_all_cohort_dependents,
     get_clickhouse_query_stats,
@@ -95,7 +99,11 @@ COHORT_RECALCULATION_TRANSIENT_ERRORS = (
 # The recalculation set plus the soft time limit, which static population opts into because it can
 # resume: the ClickHouse insert excludes the actors it already wrote and personhog ignores existing
 # membership. Recording the limit as terminal would strand a half-written cohort instead.
-STATIC_POPULATION_TRANSIENT_ERRORS = (*COHORT_RECALCULATION_TRANSIENT_ERRORS, SoftTimeLimitExceeded)
+STATIC_POPULATION_TRANSIENT_ERRORS = (
+    *COHORT_RECALCULATION_TRANSIENT_ERRORS,
+    SoftTimeLimitExceeded,
+    StaticCohortReadBackIncomplete,
+)
 
 COHORT_RECALCULATIONS_BACKLOG_GAUGE = Gauge(
     "cohort_recalculations_backlog",
@@ -230,6 +238,7 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
     - AND it has not errored within the last hour. A population task stamps last_error_at when
       it schedules a retry, and reset_stuck_cohorts stamps it when it re-dispatches, so a recent
       error means the run is alive and resetting it would dispatch a duplicate population.
+    A cohort at the error cap is still released, so a query or CSV update can claim it again, but it is not re-run.
     """
     one_hour_ago = timezone.now() - relativedelta(hours=1)
     return (
@@ -237,7 +246,6 @@ def get_stuck_static_cohort_candidates_queryset() -> QuerySet:
             is_static=True,
             is_calculating=True,
             deleted=False,
-            errors_calculating__lt=MAX_ERRORS_CALCULATING,
         )
         .filter(
             Q(last_calculation__isnull=True, created_at__lte=one_hour_ago)
@@ -444,7 +452,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
     for cohort in (
         get_cohort_calculation_candidates_queryset()
         .filter(
-            Q(last_error_at__lte=timezone.now() - backoff_duration)  # type: ignore
+            Q(last_error_at__lte=timezone.now() - backoff_duration)
             | Q(last_error_at__isnull=True)  # backwards compatability cohorts before last_error_at was introduced
         )
         .order_by(F("last_calculation").asc(nulls_first=True))[0:parallel_count]
@@ -804,7 +812,7 @@ def calculate_cohort_from_list(
             return
 
         # An import that fails without a row of its own resolves `last_error_message` to whichever
-        # older population failed, because that lookup takes the newest errored row over the
+        # older population failed, because that lookup takes the newest finished history row over the
         # cohort's whole life. Recording the attempt also keeps imports in the calculation history
         # beside the query and filter population paths.
         history = CohortCalculationHistory.objects.create(
@@ -911,7 +919,8 @@ def _populate_static_cohort(
     cohort_id: int,
     team_id: Optional[int],
     ch_insert_done: bool,
-    insert_actors_into_ch: Callable[..., None],
+    rows_written: int,
+    insert_actors_into_ch: Callable[..., int],
     log_prefix: str,
 ) -> None:
     """Run one static population attempt: claim the cohort, fill ClickHouse, then sync Postgres.
@@ -951,7 +960,7 @@ def _populate_static_cohort(
         cohort.refresh_from_db()
 
         # A history record is the only way a population failure reaches the user: the cohort API
-        # reads `last_error_message` from the newest history row that carries an error. Without one,
+        # reads `last_error_message` from the newest finished history row. Without one,
         # a population that died on a ClickHouse limit is indistinguishable from a cohort that
         # matched nobody.
         history = CohortCalculationHistory.objects.create(
@@ -964,7 +973,7 @@ def _populate_static_cohort(
         # finished this phase skips it, because re-evaluating the source query costs the same hours
         # again and inserts nothing.
         if not ch_insert_done:
-            insert_actors_into_ch(cohort, team=team)
+            rows_written = insert_actors_into_ch(cohort, team=team)
             ch_insert_done = True
             logger.info(
                 f"{log_prefix}_ch_complete",
@@ -973,7 +982,7 @@ def _populate_static_cohort(
             )
 
         # Re-running the sync is safe because InsertCohortMembers ignores existing membership.
-        insert_cohort_people_into_pg(cohort, team_id=team_id)
+        insert_cohort_people_into_pg(cohort, team_id=team_id, min_rows=rows_written)
         logger.info(
             f"{log_prefix}_pg_complete",
             cohort_id=cohort_id,
@@ -983,7 +992,11 @@ def _populate_static_cohort(
         processing_error = err
         if not _is_final_attempt(task, _is_transient_population_error(err)):
             retry = _schedule_population_retry(
-                task, cohort_id, err, team_id=team_id, kwargs={"ch_insert_done": ch_insert_done}
+                task,
+                cohort_id,
+                err,
+                team_id=team_id,
+                kwargs={"ch_insert_done": ch_insert_done, "rows_written": rows_written},
             )
             raise retry
         logger.exception(
@@ -1032,7 +1045,7 @@ def _populate_static_cohort(
 )
 @skip_team_scope_audit
 def insert_cohort_from_query(
-    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False, rows_written: int = 0
 ) -> None:
     """
     One-time population task for static cohorts created from a HogQL query
@@ -1041,7 +1054,7 @@ def insert_cohort_from_query(
     Inserts actors into ClickHouse person_static_cohort, then syncs to Postgres.
 
     team_id is only optional for backwards compatibility with the old celery task signature.
-    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done.
+    All new tasks should pass team_id explicitly. Only a retry sets ch_insert_done and rows_written.
     """
     from products.cohorts.backend.models.util import insert_cohort_query_actors_into_ch
 
@@ -1050,6 +1063,7 @@ def insert_cohort_from_query(
         cohort_id=cohort_id,
         team_id=team_id,
         ch_insert_done=ch_insert_done,
+        rows_written=rows_written,
         insert_actors_into_ch=insert_cohort_query_actors_into_ch,
         log_prefix="insert_cohort_from_query",
     )
@@ -1064,12 +1078,12 @@ def insert_cohort_from_query(
 )
 @skip_team_scope_audit
 def insert_cohort_from_filters(
-    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False
+    self: Task, cohort_id: int, team_id: Optional[int] = None, ch_insert_done: bool = False, rows_written: int = 0
 ) -> None:
     """
     One-time population task for static cohorts created from saved cohort criteria.
 
-    Only a retry sets ch_insert_done.
+    Only a retry sets ch_insert_done and rows_written.
     """
     from products.cohorts.backend.models.util import insert_cohort_filter_actors_into_ch
 
@@ -1078,6 +1092,7 @@ def insert_cohort_from_filters(
         cohort_id=cohort_id,
         team_id=team_id,
         ch_insert_done=ch_insert_done,
+        rows_written=rows_written,
         insert_actors_into_ch=insert_cohort_filter_actors_into_ch,
         log_prefix="insert_cohort_from_filters",
     )
@@ -1109,6 +1124,41 @@ def insert_cohort_from_feature_flag(cohort_id: int, flag_key: str, team_id: int)
     # paging at the cap risks a deterministic, retry-immune timeout on large or
     # condition-heavy flags, so page well below it.
     get_cohort_actors_for_feature_flag(cohort_id, flag_key, team_id, batchsize=2_000)
+
+
+STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS = 10
+
+
+def _static_cohort_count_refresh_key(cohort_id: int) -> str:
+    return f"static-cohort-count-refresh:{cohort_id}"
+
+
+def schedule_static_cohort_count_refresh(*, team_id: int, cohort_id: int) -> None:
+    """Recount a static cohort soon, at most once per delay, for callers that add members one at a time.
+
+    Call it after the insert. The task deletes the key before it counts, so an insert that finds the key
+    already set is still in the pending count.
+    """
+    key = _static_cohort_count_refresh_key(cohort_id)
+    if not cache.add(key, True, timeout=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS * 10):
+        return
+    try:
+        refresh_static_cohort_count.apply_async(
+            kwargs={"team_id": team_id, "cohort_id": cohort_id},
+            countdown=STATIC_COHORT_COUNT_REFRESH_DELAY_SECONDS,
+        )
+    except Exception:
+        # No task is queued to delete the key, so leaving it set would block the next insert's recount.
+        cache.delete(key)
+        raise
+
+
+@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@with_team_scope()
+def refresh_static_cohort_count(team_id: int, cohort_id: int) -> None:
+    cache.delete(_static_cohort_count_refresh_key(cohort_id))
+    count = count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency="strong")
+    Cohort.objects.filter(team_id=team_id, id=cohort_id, is_static=True).update(count=count)
 
 
 def _collect_cohort_calculation_metrics(history: CohortCalculationHistory, start_time: datetime) -> None:
@@ -1248,6 +1298,15 @@ def collect_cohort_query_stats(
         # This runs even if the worker OOM'd, since this task was scheduled before the calculation
         _collect_cohort_calculation_metrics(history, start_time)
 
+    except Retry:
+        raise
+    except MaxRetriesExceededError:
+        logger.warning(
+            "Gave up collecting delayed cohort query stats",
+            tag_matcher=tag_matcher,
+            cohort_id=cohort_id,
+            history_id=history_id,
+        )
     except Exception as e:
         logger.exception(
             "Failed to collect delayed cohort query stats",
@@ -1289,6 +1348,8 @@ COHORT_BACKFILL_REFUSAL_OUTCOMES: dict[BackfillRefusalReason, str] = {
     # its own.
     BackfillRefusalReason.SIZING_SCAN_CAP_EXCEEDED: "refused_ineligible",
     BackfillRefusalReason.DEFINITION_CHANGED: "refused_transient",
+    # The cohort's batch query fails to compile on every trigger until the cohort or the compiler changes.
+    BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED: "refused_ineligible",
 }
 
 

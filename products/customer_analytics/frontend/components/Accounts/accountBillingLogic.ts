@@ -435,6 +435,8 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
         ],
         // The embedded <Query> only refetches when its query changes, not when variablesOverride changes — so a date
         // change must remount it. Keying on the resolved range gives each insight a key that changes with the range.
+        // The fallback <Query> passes this key as `dashboardItemId`. The `new-` prefix stops insightLogic from
+        // fetching it as a saved insight short ID, which fails as "not found".
         queryKeyFor: [
             (s) => [
                 s.resolvedDateRange,
@@ -445,7 +447,7 @@ export const accountBillingLogic = kea<accountBillingLogicType>([
             ],
             (resolvedDateRange: BillingDateRange, accountId, kind, instanceId, interval: BillingUsageInterval) =>
                 (shortId: string): string =>
-                    `account-billing-${accountId}-${kind}-${instanceId ?? 'default'}-${shortId}-${resolvedDateRange.date_from}-${resolvedDateRange.date_to}-${interval}`,
+                    `new-account-billing-${accountId}-${kind}-${instanceId ?? 'default'}-${shortId}-${resolvedDateRange.date_from}-${resolvedDateRange.date_to}-${interval}`,
         ],
     }),
     afterMount(({ actions, props }) => {

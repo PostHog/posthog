@@ -31,6 +31,7 @@ jest.mock('lib/lemon-ui/LemonToast')
 
 describe('saveToDatasetButtonLogic', () => {
     const mockDataset1: Dataset = {
+        tags: [],
         id: 'test-dataset-1',
         name: 'Test Dataset 1',
         description: 'First test dataset',
@@ -40,12 +41,15 @@ describe('saveToDatasetButtonLogic', () => {
         updated_at: '2024-01-01T00:00:00Z',
         created_by: null,
         archived: false,
+        expires_at: null,
+        expiring_soon: false,
         current_revision: null,
         current_revision_id: null,
         user_access_level: 'editor',
     }
 
     const mockDataset2: Dataset = {
+        tags: [],
         id: 'test-dataset-2',
         name: 'Test Dataset 2',
         description: 'Second test dataset',
@@ -55,6 +59,8 @@ describe('saveToDatasetButtonLogic', () => {
         updated_at: '2024-01-02T00:00:00Z',
         created_by: null,
         archived: false,
+        expires_at: null,
+        expiring_soon: false,
         current_revision: null,
         current_revision_id: null,
         user_access_level: 'editor',
@@ -446,7 +452,9 @@ describe('saveToDatasetButtonLogic', () => {
 
                 viewAction()
 
-                expect(router.actions.push).toHaveBeenCalledWith('/ai-evals/datasets/test-dataset-1')
+                expect(router.actions.push).toHaveBeenCalledWith(
+                    '/ai-evals/evaluations/offline/datasets/test-dataset-1'
+                )
             })
         })
 

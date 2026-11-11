@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from .cli import HarnessOptions, parse_args
 from .django_env import setup_django
 from .env_preflight import load_env_file
-from .ports import PERSONHOG_ROUTER_PORT
+from .ports import AI_GATEWAY_REDIS_URL, PERSONHOG_ROUTER_PORT
 from .providers import SANDBOX_PROVIDER_SETTING, PreflightError
 from .terminal import open_terminal
 from .transcript import RunTranscript, write_console
@@ -46,6 +46,10 @@ def _run(
     # singleton is already built. A PERSONHOG_ADDR leaked from a sourced dev .env
     # would otherwise silently point eval reads at the dev persons DB.
     os.environ["PERSONHOG_ADDR"] = f"127.0.0.1:{PERSONHOG_ROUTER_PORT}"
+
+    # HyperCache selects its cache alias at import time. Bootstrap enables
+    # gateway projections only after the selected suites start the gateway Redis.
+    os.environ["AI_GATEWAY_REDIS_URL"] = AI_GATEWAY_REDIS_URL
 
     setup_django(keep_logging=transcript is not None)
     if transcript is not None:
@@ -124,6 +128,22 @@ def _run_captured(options: HarnessOptions, transcript: RunTranscript, dashboard:
 
 def main(argv: list[str] | None = None) -> int:
     options = parse_args(argv)
+    if options.comparison_models:
+        from .comparison import ModelComparison  # noqa: PLC0415 — keep comparison orchestration off normal startup
+
+        transcript = RunTranscript.create()
+        try:
+            with transcript.capture(verbose=options.verbose):
+                _configure_logging(transcript, verbose=options.verbose)
+                try:
+                    return ModelComparison(options).run()
+                except OSError as error:
+                    write_console(f"error: Model comparison failed: {error}\n", stream=sys.stderr)
+                    return USAGE_ERROR_EXIT_CODE
+                finally:
+                    logging.shutdown()
+        finally:
+            transcript.finish()
     if options.list_only:
         _configure_logging()
         return _run(options)

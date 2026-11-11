@@ -14,7 +14,7 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.shutdown import ShutdownSignalListener
+from posthog.temporal.common.shutdown import ShutdownMonitor, ShutdownSignalListener, WorkerShuttingDownError
 from posthog.temporal.tests.utils.workflow import Waiter, WaitInputs, WaitMode, WaitWorkflow
 
 
@@ -207,3 +207,88 @@ async def test_shutdown_signal_listener_keeps_the_first_signal(wakeup_fd_full: b
             signal.signal(sig, handler)
         read_sock.close()
         write_sock.close()
+
+
+class _GraceSleep:
+    """Stands in for `asyncio.sleep` in the monitor, so a test decides when the grace ends."""
+
+    def __init__(self) -> None:
+        self.requested: list[float] = []
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def __call__(self, seconds: float) -> None:
+        self.requested.append(seconds)
+        self.started.set()
+        await self.release.wait()
+
+
+async def _settle() -> None:
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "grace_seconds,finishes_in_grace,expected",
+    [
+        # Today's behaviour: the first check after the signal hands off.
+        pytest.param(0.0, False, "handed_off_at_signal", id="no_grace_hands_off_at_once"),
+        pytest.param(60.0, True, "finished", id="finishes_inside_the_grace"),
+        pytest.param(60.0, False, "handed_off_after_grace", id="still_running_at_grace_end_hands_off"),
+    ],
+)
+async def test_shutdown_grace_delays_what_every_check_sees(
+    activity_environment, grace_seconds: float, finishes_in_grace: bool, expected: str
+):
+    sleep = _GraceSleep()
+    callback_ran: list[bool] = []
+
+    async def activity_body() -> str:
+        async with ShutdownMonitor(grace_seconds=grace_seconds, sleep=sleep) as monitor:
+            monitor.run_on_shutdown(lambda: callback_ran.append(True))
+            wait_for_shutdown = asyncio.ensure_future(monitor.wait_for_worker_shutdown())
+            await _settle()
+
+            # Before the signal, no check sees a shutdown.
+            monitor.raise_if_is_worker_shutdown()
+            assert (monitor.is_worker_shutdown(), monitor.seconds_since_shutdown(), callback_ran) == (False, None, [])
+
+            activity_environment.worker_shutdown()
+            await _settle()
+            try:
+                monitor.raise_if_is_worker_shutdown()
+            except WorkerShuttingDownError:
+                assert wait_for_shutdown.done() and callback_ran == [True]
+                return "handed_off_at_signal"
+
+            assert sleep.requested == [grace_seconds]
+            assert (monitor.is_worker_shutdown(), wait_for_shutdown.done(), callback_ran) == (False, False, [])
+            if finishes_in_grace:
+                return "finished"
+
+            sleep.release.set()
+            await asyncio.wait_for(wait_for_shutdown, timeout=5)
+            assert callback_ran == [True]
+            try:
+                monitor.raise_if_is_worker_shutdown()
+            except WorkerShuttingDownError:
+                return "handed_off_after_grace"
+            return "kept_running"
+
+    assert await activity_environment.run(activity_body) == expected
+
+
+@pytest.mark.parametrize(
+    "grace_seconds,sync,error",
+    [
+        pytest.param(-1.0, False, "must not be negative", id="negative_grace"),
+        # The thread monitor has no grace timer, so a grace there would never end.
+        pytest.param(60.0, True, "needs the async monitor", id="grace_on_the_thread_monitor"),
+    ],
+)
+def test_shutdown_grace_rejects_a_configuration_it_cannot_honour(grace_seconds: float, sync: bool, error: str):
+    with pytest.raises(ValueError, match=error):
+        monitor = ShutdownMonitor(grace_seconds=grace_seconds)
+        if sync:
+            monitor.start_sync()

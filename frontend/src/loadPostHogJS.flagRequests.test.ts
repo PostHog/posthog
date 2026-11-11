@@ -12,7 +12,7 @@ import { AppContext, PreflightStatus, Realm, UserType } from '~/types'
 // The real SDK decides when /flags is requested, so these tests count the requests it sends.
 jest.unmock('posthog-js')
 // The toolbar starts a second posthog-js instance with its own flags requests, which are out of scope here.
-jest.mock('~/toolbar/toolbarPosthogJS', () => ({
+jest.mock('~/toolbar/shared/toolbarPosthogJS', () => ({
     toolbarPosthogJS: {},
     captureToolbarException: jest.fn(),
     useToolbarFeatureFlag: () => false,

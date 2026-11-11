@@ -3,9 +3,12 @@ import time
 import typing
 import datetime as dt
 import dataclasses
+from uuid import UUID
 
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
+
+from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -21,9 +24,13 @@ from products.data_modeling.backend.facade.api import (
     clear_incremental_state,
     resolve_write_plan,
     set_incremental_state,
+    unbuilt_upstream_saved_query_ids,
 )
 from products.data_modeling.backend.facade.models import (
+    TERMINAL_JOB_STATUSES,
     DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobRunMode,
     DataModelingJobStatus,
     DataWarehouseSavedQuery,
     Node,
@@ -45,7 +52,12 @@ from products.managed_warehouse.backend.facade.contracts import (
 )
 from products.managed_warehouse.backend.facade.feature_flags import DATA_MODELING_SHADOW_FLAG
 
-from ..metrics import get_node_suspended_metric
+from ..metrics import (
+    UNKNOWN_RUN_MODE,
+    get_managed_warehouse_trino_compile_failure_metric,
+    get_managed_warehouse_trino_missing_object_metric,
+    get_node_suspended_metric,
+)
 from .utils import (
     CONSECUTIVE_FAILURES_TO_SUSPEND,
     bind_data_modeling_log_context,
@@ -84,6 +96,10 @@ class ManagedWarehouseShadowInputs:
         }
 
 
+INCREMENTAL_RUN_MODE = DataModelingJobRunMode.INCREMENTAL.value
+FULL_REFRESH_RUN_MODE = DataModelingJobRunMode.FULL_REFRESH.value
+
+
 @dataclasses.dataclass(frozen=False)
 class ManagedWarehouseShadowResult:
     row_count: int
@@ -93,6 +109,35 @@ class ManagedWarehouseShadowResult:
     error: str | None = None
     file_size_bytes: int = 0
     file_size_delta_bytes: int = 0
+    run_mode: str = UNKNOWN_RUN_MODE
+    read_bytes: int | None = None
+    cpu_microseconds: int | None = None
+    # The run read an upstream model that has never been built on Trino. That says nothing about the
+    # view itself, so the job is skipped rather than failed and does not count toward suspension.
+    skipped: bool = False
+
+
+_TABLE_MISSING_ERROR_NAMES = frozenset({"CATALOG_NOT_FOUND", "SCHEMA_NOT_FOUND", "TABLE_NOT_FOUND"})
+
+
+def _upstream_model_unbuilt(missing_object_error_name: str | None, team_id: int, saved_query_id: UUID) -> bool:
+    """Whether a missing Trino table is explained by an upstream model that has never been built there.
+
+    A missing imported table or events table is a sync or provisioning fault, so it still fails the job.
+    """
+    if missing_object_error_name not in _TABLE_MISSING_ERROR_NAMES:
+        return False
+    return bool(
+        unbuilt_upstream_saved_query_ids(team_id, saved_query_id, engine=DataModelingJobEngine.MANAGED_WAREHOUSE)
+    )
+
+
+def _failed_run_mode(plan: WritePlan | None, use_trino: bool) -> str:
+    if not use_trino:
+        return FULL_REFRESH_RUN_MODE
+    if plan is None:
+        return UNKNOWN_RUN_MODE
+    return INCREMENTAL_RUN_MODE if plan.incremental else FULL_REFRESH_RUN_MODE
 
 
 @frozen
@@ -128,12 +173,13 @@ def _is_managed_warehouse_shadow_flag_enabled(team: Team) -> bool:
         return False
 
 
-def _is_managed_warehouse_shadow_enabled(team: Team) -> bool:
+def is_managed_warehouse_shadow_enabled(team: Team) -> bool:
     if not _is_managed_warehouse_shadow_flag_enabled(team):
         return False
 
     return is_data_modeling_shadow_ready(
         organization_id=team.organization_id,
+        team_id=team.pk,
     )
 
 
@@ -174,7 +220,7 @@ def _get_shadow_input_objects(inputs: ManagedWarehouseShadowInputs) -> _ManagedW
 @database_sync_to_async_pool
 def _check_managed_warehouse_shadow_eligibility(inputs: ManagedWarehouseShadowEligibilityInputs) -> bool:
     objects = _load_shadow_objects(team_id=inputs.team_id, dag_id=inputs.dag_id, node_id=inputs.node_id)
-    return _is_managed_warehouse_shadow_enabled(objects.team)
+    return is_managed_warehouse_shadow_enabled(objects.team)
 
 
 async def _check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
@@ -190,7 +236,7 @@ async def check_managed_warehouse_shadow_enabled_activity(team_id: int) -> bool:
 
 @database_sync_to_async_pool
 def _check_team_managed_warehouse_shadow_eligibility(team_id: int) -> bool:
-    return _is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
+    return is_managed_warehouse_shadow_enabled(Team.objects.get(id=team_id))
 
 
 @activity.defn
@@ -211,17 +257,27 @@ async def check_managed_warehouse_shadow_eligibility_activity(
 def _resolve_managed_warehouse_job(job_id: str, result: "ManagedWarehouseShadowResult") -> str:
     """Update the managed warehouse job to its terminal state based on the result."""
     job = DataModelingJob.objects.get(id=job_id)
-    if job.status in (DataModelingJobStatus.FAILED, DataModelingJobStatus.CANCELLED, DataModelingJobStatus.COMPLETED):
+    if job.status in TERMINAL_JOB_STATUSES:
         return job.engine
     if result.error is None:
         job.status = DataModelingJobStatus.COMPLETED
         job.rows_materialized = result.row_count
         job.error = None
+    elif result.skipped:
+        job.status = DataModelingJobStatus.SKIPPED
+        job.rows_materialized = 0
+        job.error = result.error
     else:
         job.status = DataModelingJobStatus.FAILED
         job.rows_materialized = 0
         job.error = result.error
-    job.last_run_at = dt.datetime.now(dt.UTC)
+    completed_at = dt.datetime.now(dt.UTC)
+    job.read_bytes = result.read_bytes
+    job.cpu_microseconds = result.cpu_microseconds
+    job.usage_updated_at = (
+        completed_at if result.read_bytes is not None or result.cpu_microseconds is not None else None
+    )
+    job.last_run_at = completed_at
     job.save()
     return job.engine
 
@@ -251,6 +307,8 @@ async def _materialize_view_managed_warehouse(
     values: dict[str, object] = {}
     s3_secrets: tuple[DuckLakeS3Secret, ...] = ()
     plan: WritePlan | None = None
+    processed_bytes: list[int] = []
+    cpu_milliseconds: list[int] = []
     try:
         from products.managed_warehouse.backend.facade.client import execute_ducklake_create_table, execute_trino_model
 
@@ -273,6 +331,8 @@ async def _materialize_view_managed_warehouse(
                 saved_query_id=saved_query.id,
                 source_query=saved_query.query,
                 incremental=_trino_incremental_write(plan),
+                on_processed_bytes=processed_bytes.append,
+                on_cpu_milliseconds=cpu_milliseconds.append,
             )
             if plan.config is not None:
                 # A quiet window writes nothing, so it records the run without moving the watermark.
@@ -324,6 +384,9 @@ async def _materialize_view_managed_warehouse(
             table_name=result.table_name,
             file_size_bytes=result.file_size_bytes,
             file_size_delta_bytes=result.file_size_delta_bytes,
+            run_mode=INCREMENTAL_RUN_MODE if inputs.use_trino and result.merged else FULL_REFRESH_RUN_MODE,
+            read_bytes=_total_read_bytes(processed_bytes),
+            cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
         )
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
         await clear_node_suspension_for_engine(
@@ -334,20 +397,49 @@ async def _materialize_view_managed_warehouse(
         )
         return shadow_result
     except Exception as e:
+        from products.managed_warehouse.backend.facade.client import get_trino_missing_object_error_name
+
         duration = time.monotonic() - start_time
-        capture_exception(e, {"sql": sql, "inputs": inputs})
-        await logger.awarning(
-            "Managed warehouse shadow materialization failed",
-            node_name=node.name,
-            error=str(e),
-            duration_seconds=round(duration, 2),
-        )
+        missing_object_error_name = get_trino_missing_object_error_name(e)
+        if isinstance(e, TrinoLoweringError):
+            # Unsupported HogQL is an expected shadow outcome, so it is not an exception to track.
+            get_managed_warehouse_trino_compile_failure_metric(e.feature_code).add(1)
+            await logger.awarning(
+                "Managed warehouse shadow could not compile the view for Trino",
+                node_name=node.name,
+                error_code=e.feature_code,
+                duration_seconds=round(duration, 2),
+            )
+        elif missing_object_error_name is not None:
+            # A column or table that Trino cannot resolve is an expected shadow outcome, so it is not an exception to track.
+            get_managed_warehouse_trino_missing_object_metric(missing_object_error_name).add(1)
+            await logger.awarning(
+                "Managed warehouse shadow query failed in Trino",
+                node_name=node.name,
+                error_name=missing_object_error_name,
+                error=str(e),
+                duration_seconds=round(duration, 2),
+            )
+        else:
+            capture_exception(e, {"sql": sql, "inputs": inputs})
+            await logger.awarning(
+                "Managed warehouse shadow materialization failed",
+                node_name=node.name,
+                error=str(e),
+                duration_seconds=round(duration, 2),
+            )
         shadow_result = ManagedWarehouseShadowResult(
             row_count=0,
             duration_seconds=duration,
             schema_name=schema_name,
             table_name=table_name,
             error=str(e),
+            run_mode=_failed_run_mode(plan, inputs.use_trino),
+            read_bytes=_total_read_bytes(processed_bytes),
+            cpu_microseconds=_total_cpu_microseconds(cpu_milliseconds),
+            skipped=await database_sync_to_async_pool(_upstream_model_unbuilt)(
+                missing_object_error_name, team.pk, saved_query.id
+            ),
         )
         if plan is not None and plan.incremental:
             # The merge may have stopped partway or failed on a schema change. Rebuilding next run
@@ -357,6 +449,8 @@ async def _materialize_view_managed_warehouse(
             except Exception as clear_error:
                 capture_exception(clear_error)
         job_engine = await _resolve_managed_warehouse_job(inputs.job_id, shadow_result)
+        if shadow_result.skipped:
+            return shadow_result
         suspended = await maybe_suspend_node_for_engine(
             node_id=inputs.node_id,
             team_id=inputs.team_id,
@@ -372,6 +466,15 @@ async def _materialize_view_managed_warehouse(
                 f"Suspended node {inputs.node_id} ({job_engine}) after {CONSECUTIVE_FAILURES_TO_SUSPEND} consecutive failures",
             )
         return shadow_result
+
+
+def _total_read_bytes(processed_bytes: list[int]) -> int | None:
+    # No statement reported its bytes, so the run was not measured. That is not the same as reading zero bytes.
+    return sum(processed_bytes) if processed_bytes else None
+
+
+def _total_cpu_microseconds(cpu_milliseconds: list[int]) -> int | None:
+    return sum(cpu_milliseconds) * 1_000 if cpu_milliseconds else None
 
 
 def _trino_incremental_write(plan: WritePlan) -> TrinoIncrementalWrite | None:

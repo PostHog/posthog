@@ -7,8 +7,8 @@ from products.tasks.backend.logic.services.memory_watchdog import (
     MEMORY_WATCHDOG_EVENTS_SEPARATOR,
     MEMORY_WATCHDOG_NOW_PREFIX,
     MEMORY_WATCHDOG_STATE_SEPARATOR,
-    build_memory_watchdog_read_command,
 )
+from products.tasks.backend.logic.services.sandbox_teardown_stats import build_sandbox_teardown_read_command
 from products.tasks.backend.temporal.process_task.activities.read_sandbox_logs import (
     SANDBOX_TERMINATED_MESSAGE,
     ReadSandboxLogsInput,
@@ -71,7 +71,7 @@ def test_reports_memory_watchdog_kills_to_metrics():
     sandbox = MagicMock()
     sandbox.is_running.return_value = True
     sandbox.execute.side_effect = lambda command, **_: MagicMock(
-        stdout=watchdog_output if command == build_memory_watchdog_read_command() else ""
+        stdout=watchdog_output if command == build_sandbox_teardown_read_command() else ""
     )
     module = "products.tasks.backend.temporal.process_task.activities.read_sandbox_logs"
 

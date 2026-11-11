@@ -85,7 +85,7 @@ export function HealthDebugFlagTab(): JSX.Element {
             </HealthDebugSection>
             <HealthDebugSection
                 title="Changes since launch"
-                description="What the split and bucketing checks read from the flag's history."
+                description="What the split, bucketing and release-condition checks read from the flag's history."
             >
                 <SetupFactsTable facts={flagHistoryFacts} />
                 {flagChanges.length > 0 && (
@@ -114,7 +114,7 @@ export function HealthDebugFlagTab(): JSX.Element {
             </HealthDebugSection>
             <HealthDebugSection
                 title="Calls by release condition"
-                description="The flag's recent calls that the forced-variant check grades pinned conditions by."
+                description="The flag's recent calls that the forced-variant and release-condition checks grade overrides by."
             >
                 <SetupFactsTable facts={trafficFacts} />
             </HealthDebugSection>

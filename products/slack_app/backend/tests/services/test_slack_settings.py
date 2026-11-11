@@ -5,7 +5,10 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.slack_app.backend.models import SlackSettings, UntaggedFollowupMode
-from products.slack_app.backend.services.slack_settings import resolve_untagged_followup_mode
+from products.slack_app.backend.services.slack_settings import (
+    resolve_untagged_followup_mode,
+    resolve_untagged_question_mode,
+)
 
 
 @pytest.fixture
@@ -52,3 +55,25 @@ class TestResolveUntaggedFollowupMode:
             untagged_followup_mode=UntaggedFollowupMode.AUTO,
         )
         assert resolve_untagged_followup_mode(integration, "U001") == UntaggedFollowupMode.ASK
+
+
+class TestResolveUntaggedQuestionMode:
+    def test_unset_resolves_ask(self, slack_setup):
+        assert resolve_untagged_question_mode("T_WS", "U001") == UntaggedFollowupMode.ASK
+
+    @pytest.mark.parametrize(
+        "followup_mode,question_mode,expected",
+        [
+            # Each column answers only its own question.
+            (UntaggedFollowupMode.AUTO, None, UntaggedFollowupMode.ASK),
+            (UntaggedFollowupMode.NEVER, UntaggedFollowupMode.AUTO, UntaggedFollowupMode.AUTO),
+        ],
+    )
+    def test_the_followup_choice_does_not_leak(self, slack_setup, followup_mode, question_mode, expected):
+        SlackSettings.objects.create(
+            slack_workspace_id="T_WS",
+            slack_user_id="U001",
+            untagged_followup_mode=followup_mode,
+            untagged_question_mode=question_mode,
+        )
+        assert resolve_untagged_question_mode("T_WS", "U001") == expected

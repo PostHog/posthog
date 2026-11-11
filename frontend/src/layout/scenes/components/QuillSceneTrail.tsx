@@ -34,11 +34,15 @@ export interface QuillSceneTrailProps {
     lead?: ReactNode
     parent?: QuillSceneTrailParent
     icon?: ReactNode
+    /** Puts the icon before the scene name instead of on the parent crumb. */
+    iconLeadsName?: boolean
     /** The scene itself as the last crumb, for a name nobody can rename. Without it, an editable name follows the trail. */
     current?: QuillSceneTrailCurrent
 }
 
-export function QuillSceneTrail({ lead, parent, icon, current }: QuillSceneTrailProps): JSX.Element {
+export function QuillSceneTrail({ lead, parent, icon, iconLeadsName, current }: QuillSceneTrailProps): JSX.Element {
+    const parentIcon = parent && !iconLeadsName ? icon : undefined
+    const nameIcon = parentIcon ? undefined : icon
     return (
         <>
             {lead && (
@@ -58,18 +62,18 @@ export function QuillSceneTrail({ lead, parent, icon, current }: QuillSceneTrail
                             render={<LinkPrimitive to={parent.path} />}
                             data-attr="scene-title-breadcrumb-back"
                         >
-                            {icon && (
+                            {parentIcon && (
                                 <span className={LINK_ICON} aria-hidden>
-                                    {icon}
+                                    {parentIcon}
                                 </span>
                             )}
                             <span className="truncate">{parent.name}</span>
                         </Button>
                     ) : (
                         <span className={STATIC_PARENT}>
-                            {icon && (
+                            {parentIcon && (
                                 <span className={LINK_ICON} aria-hidden>
-                                    {icon}
+                                    {parentIcon}
                                 </span>
                             )}
                             <span className="truncate">{parent.name}</span>
@@ -79,18 +83,16 @@ export function QuillSceneTrail({ lead, parent, icon, current }: QuillSceneTrail
                         /
                     </span>
                 </>
-            ) : (
-                icon &&
-                !current && (
-                    <span className={TITLE_ICON} aria-hidden>
-                        {icon}
-                    </span>
-                )
+            ) : null}
+            {nameIcon && !current && (
+                <span className={TITLE_ICON} aria-hidden>
+                    {nameIcon}
+                </span>
             )}
             {current && (
                 <QuillSceneStaticName
                     name={current.name}
-                    icon={parent ? undefined : icon}
+                    icon={nameIcon}
                     description={current.description}
                     className={CRUMB}
                 />

@@ -8,6 +8,7 @@ use common_kafka_consumer::Partition;
 
 use common::one_message_batcher;
 use ingestion_consumer::batcher::worker_pool::WorkerPoolSource;
+use ingestion_consumer::batcher::RevokeId;
 use ingestion_consumer::grpc_transport::{GrpcPort, GrpcTransport};
 use ingestion_consumer::routing::RoutingStrategy;
 use ingestion_consumer::types::{Accumulator, SerializedKafkaMessage};
@@ -36,6 +37,7 @@ fn make_msg(key: &str) -> SerializedKafkaMessage {
         key: Some(key.to_string()),
         value: None,
         headers: HashMap::new(),
+        generation: 0,
     }
 }
 
@@ -45,7 +47,6 @@ async fn purging_a_just_submitted_batch_is_not_fatal() {
     let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
     let (batcher, mut outputs) = one_message_batcher(
@@ -57,10 +58,9 @@ async fn purging_a_just_submitted_batch_is_not_fatal() {
 
     let mut accumulator = Accumulator::default();
     accumulator.push(Partition(0), make_msg("a").into());
-    batcher.submit(accumulator);
-    // No await between submit and purge: the batcher task receives both
-    // before it runs, and discards the submission when it applies the purge.
-    batcher.revoker().purge_revoked(&[("test".to_string(), 0)]);
+    batcher.submit(accumulator, &HashMap::new());
+    // No await, so the task gets the submit and the purge before it runs.
+    batcher.revoke(RevokeId(1), &[("test".to_string(), 0)]);
 
     match tokio::time::timeout(Duration::from_millis(100), outputs.errors.recv()).await {
         Err(_) => {}
@@ -75,7 +75,6 @@ async fn dropping_an_idle_batcher_closes_its_outputs() {
     let pool_source = WorkerPoolSource::new(registry, RoutingStrategy::P2c);
     let transport = Arc::new(GrpcTransport::new(
         GrpcPort::OffsetFromHttp(0),
-        1,
         Duration::from_secs(30),
     ));
     let (batcher, mut outputs) = one_message_batcher(

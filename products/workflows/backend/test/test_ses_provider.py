@@ -132,6 +132,7 @@ class TestSESProvider(TestCase):
 
     @patch("products.workflows.backend.providers.ses.boto3.client")
     def test_create_email_domain_invalid_domain(self, mock_boto_client):
+        mock_boto_client.return_value.get_caller_identity.return_value = {"Account": "123456789012"}
         with override_settings(
             SES_ACCESS_KEY_ID="test_access_key", SES_SECRET_ACCESS_KEY="test_secret_key", SES_REGION="us-east-1"
         ):
@@ -333,6 +334,21 @@ class TestSESProvider(TestCase):
             assert dmarc_records[0]["status"] == expected_dmarc_status
             assert dmarc_records[0]["recordValue"] == expected_record_value
             assert result["status"] == "pending"  # SES statuses are Pending, so overall stays pending
+
+    @parameterized.expand(
+        [
+            ("set", {TEST_DOMAIN: {"MailFromDomain": f"bounces.{TEST_DOMAIN}"}}, "bounces"),
+            ("nested", {TEST_DOMAIN: {"MailFromDomain": f"mail.out.{TEST_DOMAIN}"}}, "mail.out"),
+            ("identity_without_mail_from", {TEST_DOMAIN: {}}, None),
+            ("unknown_identity", {}, None),
+            ("outside_domain", {TEST_DOMAIN: {"MailFromDomain": "bounces.other.example.com"}}, None),
+        ]
+    )
+    def test_get_mail_from_subdomain(self, _name, attributes, expected):
+        provider = SESProvider()
+        with patch.object(provider.ses_client, "get_identity_mail_from_domain_attributes") as mock_mail_from_attrs:
+            mock_mail_from_attrs.return_value = {"MailFromDomainAttributes": attributes}
+            assert provider.get_mail_from_subdomain(TEST_DOMAIN) == expected
 
     @parameterized.expand(
         [

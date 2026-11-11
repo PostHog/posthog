@@ -6,17 +6,19 @@ import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import type { DashboardLayoutSize, DashboardTile } from '~/types'
 
+import type { DashboardTileGroupApi } from './generated/api.schemas'
+
 interface GroupTitlesInput {
     tiles: DashboardTile[]
     layout: Layout | undefined
     activeBreakpoint: DashboardLayoutSize
-    groupTitles: Record<string, string> | undefined
+    groups: Record<string, DashboardTileGroupApi> | undefined
     compactor: Compactor
     widgetTilesShown: boolean
 }
 
-function getGroupTitle(groupTitles: Record<string, string>, groupKey: string): string | undefined {
-    const title: unknown = Object.hasOwn(groupTitles, groupKey) ? groupTitles[groupKey] : undefined
+function getGroupTitle(groups: Record<string, DashboardTileGroupApi>, groupKey: string): string | undefined {
+    const title: unknown = Object.hasOwn(groups, groupKey) ? groups[groupKey]?.title : undefined
     return typeof title === 'string' && title ? title : undefined
 }
 
@@ -37,11 +39,11 @@ export function getGroupTitlesByTileId({
     tiles,
     layout,
     activeBreakpoint,
-    groupTitles,
+    groups,
     compactor,
     widgetTilesShown,
 }: GroupTitlesInput): Record<number, string> {
-    if (!groupTitles) {
+    if (!groups) {
         return {}
     }
     const renderedTiles = tiles.filter((tile) => !tile.widget || widgetTilesShown)
@@ -58,7 +60,7 @@ export function getGroupTitlesByTileId({
         if (!tile.group_key) {
             continue
         }
-        const title = getGroupTitle(groupTitles, tile.group_key)
+        const title = getGroupTitle(groups, tile.group_key)
         if (!title) {
             continue
         }

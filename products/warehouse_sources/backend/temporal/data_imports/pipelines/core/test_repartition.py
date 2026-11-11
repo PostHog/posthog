@@ -518,6 +518,29 @@ class TestSelectCoarsenTarget:
 
     @parameterized.expand(
         [
+            # (name, count, target_bytes, min_count, preferred_count, expected_count)
+            ("nearest_divisor_below_the_target", 85, 10_000, 4, 8, 5),
+            ("nearest_divisor_above_the_target", 100, 10_000, 4, 8, 10),
+            ("a_tie_keeps_the_finer_layout", 60, 10_000, 4, 8, 10),
+            ("a_divisor_under_the_floor_never_wins", 96, 10_000, 4, 1, 4),
+            ("the_size_cap_overrides_the_preference", 64, 400, 4, 4, 8),
+            ("no_preference_keeps_the_coarsest_fit", 64, 10_000, 1, None, 1),
+        ]
+    )
+    def test_md5_count_bounds(self, _name, count, target_bytes, min_count, preferred_count, expected_count):
+        target, reason = select_coarsen_target(
+            _schema(partition_mode="md5", partition_count=count, partitioning_keys=["id"]),
+            {str(bucket): 50 for bucket in range(count)},
+            target_bytes,
+            min_md5_count=min_count,
+            preferred_md5_count=preferred_count,
+        )
+        assert reason == "selected"
+        assert target is not None
+        assert target.partition_count == expected_count
+
+    @parameterized.expand(
+        [
             ("hour", "day"),
             ("hour", "week"),
             ("hour", "month"),
@@ -1956,6 +1979,22 @@ class TestValidDeltaRowCount:
         next(iter(sorted((path / "_delta_log").glob("*.json")))).unlink()
         assert asyncio.run(repartition_module._valid_delta_row_count(str(path), {})) is None
 
+    def test_raises_typed_error_for_object_store_permission_denied(self):
+        # A bucket refusal says nothing about whether the table is intact, unlike a missing folder or
+        # a corrupt log, so it must not fold into the same None — and the raw OSError would otherwise
+        # carry the bucket key into whatever reports the failure.
+        original_error = OSError(
+            "Kernel error -> The operation lacked the necessary privileges to complete for path "
+            "dlt/team_1_source_2/table__repartitioned/_delta_log/_last_checkpoint"
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
+        with patch(f"{module}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.is_deltatable.side_effect = original_error
+            with pytest.raises(repartition_module.ObjectStorePermissionDeniedError) as exc_info:
+                asyncio.run(repartition_module._valid_delta_row_count("s3://bucket/table__repartitioned", {}))
+        assert exc_info.value.__cause__ is original_error
+        assert "_delta_log" not in str(exc_info.value)
+
 
 class TestPurgeS3Prefix:
     """Robustly clearing an S3 prefix underpins every destructive repartition step (temp rebuild, swap
@@ -2348,6 +2387,24 @@ class TestLiveMissingDataFile:
             repartition_module._live_missing_data_file(str(tmp_path / "absent"), {}, "dlt/x/absent/part.parquet")
         )
         assert result is None
+
+    def test_raises_typed_error_for_object_store_permission_denied(self):
+        # Same reasoning as _valid_delta_row_count's equivalent case: a bucket refusal is not the
+        # "live unreadable, treat as no revive needed" state the DeltaError/FileNotFoundError branch
+        # above covers, and the raw OSError would otherwise carry the bucket key into the report.
+        original_error = OSError(
+            "Kernel error -> The operation lacked the necessary privileges to complete for path "
+            "dlt/team_1_source_2/live/_delta_log/_last_checkpoint"
+        )
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.core.repartition"
+        with patch(f"{module}.deltalake.DeltaTable") as mock_delta_table:
+            mock_delta_table.side_effect = original_error
+            with pytest.raises(repartition_module.ObjectStorePermissionDeniedError) as exc_info:
+                asyncio.run(
+                    repartition_module._live_missing_data_file("s3://bucket/live", {}, "dlt/x/live/part.parquet")
+                )
+        assert exc_info.value.__cause__ is original_error
+        assert "_delta_log" not in str(exc_info.value)
 
 
 class TestReviveScheduling:

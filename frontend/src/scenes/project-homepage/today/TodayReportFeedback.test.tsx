@@ -28,7 +28,7 @@ describe('TodayReportFeedback', () => {
                 '/api/projects/:team_id/signals/reports/:id/artefacts/': { results: [] },
                 '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
                 '/api/projects/:team_id/signals/reports/available_reviewers/': [],
-                '/api/projects/:team_id/signals/reports/for_you/': { results: [], count: 0 },
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0 },
                 '/api/projects/:team_id/today/reports/:id/page/': [404, {}],
             },
             post: {

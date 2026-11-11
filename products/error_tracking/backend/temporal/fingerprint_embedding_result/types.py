@@ -1,6 +1,18 @@
 import dataclasses
+from datetime import datetime, timedelta
+
+from django.utils.dateparse import parse_datetime
 
 from products.error_tracking.backend.temporal.lifecycle.types import LifecycleIssueSnapshot
+
+CLOSEST_FINGERPRINTS_WINDOW = timedelta(days=30)
+
+
+def parse_embedding_timestamp(timestamp: str) -> datetime:
+    parsed = parse_datetime(timestamp)
+    if parsed is None:
+        raise ValueError(f"Invalid embedding timestamp: {timestamp}")
+    return parsed
 
 
 @dataclasses.dataclass(frozen=True)
@@ -38,6 +50,9 @@ class AutoMergeReopenedTarget:
 class AutoMergeOutcome:
     merged_count: int = 0
     reopened_target: AutoMergeReopenedTarget | None = None
+    target_fingerprint: str | None = None
+    # Which rule made the merge: "distance" or "judge". None when nothing merged in this attempt.
+    merge_decision: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)

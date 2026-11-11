@@ -290,7 +290,7 @@ class TestSkillBundle(APIBaseTest):
         self._create_skill("mine")
         LLMSkillFile.objects.create(skill=self._create_skill("with-file"), path="scripts/run.py", content="print(1)\n")
         self._create_skill("owned", created_by=self.other_user)
-        set_skill_owners(self.team, "owned", [self.user])
+        set_skill_owners(self.team, "owned", [self.user], acting_user=None)
         self._create_skill("someone-elses", created_by=self.other_user)
         self._create_skill("signals-scout-x", category="scout")
         self._create_skill("archived", deleted=True)
@@ -487,8 +487,8 @@ class TestSkillBundle(APIBaseTest):
         AccessControl.objects.create(team=self.team, resource="llm_skill", resource_id=None, access_level="none")
         allowed = self._create_skill("allowed")
         self._create_skill("blocked")
-        set_skill_owners(self.team, "allowed", [member])
-        set_skill_owners(self.team, "blocked", [member])
+        set_skill_owners(self.team, "allowed", [member], acting_user=None)
+        set_skill_owners(self.team, "blocked", [member], acting_user=None)
         AccessControl.objects.create(
             team=self.team,
             resource="llm_skill",
@@ -544,7 +544,7 @@ class TestSkillBundle(APIBaseTest):
         assert self._skill_dirs(response) == set()
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
-    @patch("products.skills.backend.api.skills.SkillBundleBurstThrottle.rate", new="1/minute")
+    @patch("products.skills.backend.api.skill_throttles.SkillBundleBurstThrottle.rate", new="1/minute")
     def test_oauth_and_session_callers_are_throttled(self, *_args):
         # The general Burst/Sustained throttles only count personal-API-key traffic, so an OAuth
         # (or session) caller would otherwise hit this expensive zip endpoint unthrottled. The

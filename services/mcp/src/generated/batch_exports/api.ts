@@ -16,8 +16,10 @@ export const BatchExportsListParams = () => zod.object({
         ),
 })
 
+export const batchExportsListQueryLimitMax = 1000
+
 export const BatchExportsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(batchExportsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
@@ -204,7 +206,7 @@ export const BatchExportsCreateBody = () => zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the\nnon-credential fields of `PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
@@ -413,25 +415,13 @@ export const BatchExportsCreateBody = () => zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID.'
                                             ),
                                         bucket_credentials: zod
-                                            .union([
-                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
-                                            ])
-                                            .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
-                                            ),
+                                            .number()
+                                            .describe('AWS S3 integration ID used to stage files in the S3 bucket.'),
                                     })
                                     .describe(
                                         'S3 staging configuration for a Redshift batch export running in COPY mode.'
@@ -440,7 +430,7 @@ export const BatchExportsCreateBody = () => zod
                                     .describe("S3 staging configuration, required when mode is 'COPY'."),
                             })
                             .describe(
-                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Redshift batch-export destination.'),
@@ -595,6 +585,12 @@ export const BatchExportsCreateBody = () => zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -681,17 +677,11 @@ export const BatchExportsCreateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -949,7 +939,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     ),
                             })
                             .describe(
-                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the\nnon-credential fields of `PostgresBatchExportInputs` in `products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
@@ -1160,25 +1150,13 @@ export const BatchExportsPartialUpdateBody = () => zod
                                                 zod
                                                     .string()
                                                     .describe('ARN of an IAM role attached to the Redshift cluster.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
                                             ])
                                             .describe(
-                                                'Authorization for Redshift to read staged files during COPY: the ARN of an IAM role attached to the cluster, inline AWS credentials, or the id of an aws-s3-kind Integration.'
+                                                'Authorization for Redshift to read staged files during COPY: an IAM role ARN or an AWS S3 integration ID.'
                                             ),
                                         bucket_credentials: zod
-                                            .union([
-                                                zod.number().describe('ID of an aws-s3-kind Integration.'),
-                                                zod.object({
-                                                    aws_access_key_id: zod.string(),
-                                                    aws_secret_access_key: zod.string(),
-                                                }),
-                                            ])
-                                            .describe(
-                                                'Credentials used to stage files in the S3 bucket: inline AWS credentials or the id of an aws-s3-kind Integration.'
-                                            ),
+                                            .number()
+                                            .describe('AWS S3 integration ID used to stage files in the S3 bucket.'),
                                     })
                                     .describe(
                                         'S3 staging configuration for a Redshift batch export running in COPY mode.'
@@ -1187,7 +1165,7 @@ export const BatchExportsPartialUpdateBody = () => zod
                                     .describe("S3 staging configuration, required when mode is 'COPY'."),
                             })
                             .describe(
-                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or inline in\nthis config (legacy). Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
+                                'Typed configuration for a Redshift batch-export destination.\n\nConnection credentials live in the linked Integration, never here. Mirrors the non-credential fields of `RedshiftBatchExportInputs` in\n`products\/batch_exports\/backend\/service.py`.'
                             ),
                     })
                     .describe('Request shape for creating or updating a Redshift batch-export destination.'),
@@ -1344,6 +1322,12 @@ export const BatchExportsPartialUpdateBody = () => zod
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1430,17 +1414,11 @@ export const BatchExportsPartialUpdateBody = () => zod
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -1824,6 +1802,12 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             zod.null(),
                         ])
                         .optional(),
+                    materializeRepeatedCTEs: zod
+                        .union([zod.boolean(), zod.null()])
+                        .optional()
+                        .describe(
+                            'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                        ),
                     materializedColumnsOptimizationMode: zod
                         .union([zod.enum(['disabled', 'optimized']), zod.null()])
                         .optional(),
@@ -1910,17 +1894,11 @@ export const FileDownloadBatchExportsCreateBody = () => zod.union([
                             'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                         ),
                     useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                    useNewEventsCluster: zod
-                        .union([zod.boolean(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                        ),
                     useNewEventsSchema: zod
                         .union([zod.boolean(), zod.null()])
                         .optional()
                         .describe(
-                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                            "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                         ),
                     usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                     usePreaggregatedTableTransforms: zod
@@ -2132,6 +2110,12 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                 materializationMode: zod
                     .union([zod.enum(['auto', 'legacy_null_as_string', 'legacy_null_as_null', 'disabled']), zod.null()])
                     .optional(),
+                materializeRepeatedCTEs: zod
+                    .union([zod.boolean(), zod.null()])
+                    .optional()
+                    .describe(
+                        'Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag.'
+                    ),
                 materializedColumnsOptimizationMode: zod
                     .union([zod.enum(['disabled', 'optimized']), zod.null()])
                     .optional(),
@@ -2216,17 +2200,11 @@ export const FileDownloadBatchExportsCountRowsCreateBody = () => zod
                         'Remove provably redundant casts and nullability wrappers (e.g. `toString(String)`, `assumeNotNull(non_nullable)`, dead `ifNull` fallbacks) using inferred expression types'
                     ),
                 useMaterializedViews: zod.union([zod.boolean(), zod.null()]).optional(),
-                useNewEventsCluster: zod
-                    .union([zod.boolean(), zod.null()])
-                    .optional()
-                    .describe(
-                        'Read this query from the native events cluster and native JSON events table (`true`), or keep its existing connection (`false` or unset). This is an internal rollout switch for eligible projects. PostHog staff manage eligibility through instance settings. Each query must opt in; project defaults cannot enable it. Only synchronous HogQLQuery SQL comparisons are supported.'
-                    ),
                 useNewEventsSchema: zod
                     .union([zod.boolean(), zod.null()])
                     .optional()
                     .describe(
-                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, the project's stored value applies, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance settings. This is an internal rollout switch. PostHog staff set the project value in Django admin and the project settings API ignores it."
+                        "Read events from the native JSON events table (`true`) or the legacy events table (`false`). When unset, a staff person's `ph_new_events_schema` cookie applies, then the project's listing in the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS` instance setting, then the `CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA` instance setting. This is an internal rollout switch, and the project settings API ignores it."
                     ),
                 usePreaggregatedIntermediateResults: zod.union([zod.boolean(), zod.null()]).optional(),
                 usePreaggregatedTableTransforms: zod

@@ -5,6 +5,7 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill": "workspace:*",
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
@@ -13,8 +14,8 @@
         "posthog-js": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/jest-dom": "^5.17.0",
-        "@testing-library/react": "^14.3.1"
+        "@testing-library/jest-dom": "^7.0.1",
+        "@testing-library/react": "^16.3.3"
     },
     "peerDependencies": {
         "@posthog/brand": "catalog:",

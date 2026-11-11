@@ -14,7 +14,8 @@ from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import get_action
+from products.actions.backend.facade.contracts import ActionNotFound
 from products.posthog_ai.backend.models.assistant import Conversation, CoreMemory
 
 from ee.hogai.utils.dispatcher import AssistantDispatcher, create_dispatcher_from_config
@@ -202,8 +203,8 @@ class TaxonomyUpdateDispatcherNodeMixin:
                         )
                     case "retrieve_action_properties" | "retrieve_action_property_values":
                         try:
-                            action_model = Action.objects.get(
-                                pk=action.tool_input["action_id"], team__project_id=self._team.project_id
+                            action_model = get_action(
+                                action_id=int(action.tool_input["action_id"]), project_id=self._team.project_id
                             )
                             if action.tool == "retrieve_action_properties":
                                 substeps.append(f"Exploring `{action_model.name}` action properties")
@@ -211,7 +212,7 @@ class TaxonomyUpdateDispatcherNodeMixin:
                                 substeps.append(
                                     f"Analyzing `{action.tool_input['property_name']}` action property of `{action_model.name}`"
                                 )
-                        except Action.DoesNotExist:
+                        except ActionNotFound:
                             pass
 
         content = "Picking relevant events and properties"

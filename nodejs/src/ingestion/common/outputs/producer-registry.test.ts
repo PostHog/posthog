@@ -1,7 +1,12 @@
+import { BlackholeKafkaProducer } from '~/common/kafka/blackhole-producer'
 import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
 import { buildIngestionProducerRegistry } from './producer-registry'
-import { getDefaultKafkaDownstreamProducerEnvConfig, getDefaultKafkaUpstreamProducerEnvConfig } from './producers'
+import {
+    INGESTION_BLACKHOLE_PRODUCER,
+    getDefaultKafkaDownstreamProducerEnvConfig,
+    getDefaultKafkaUpstreamProducerEnvConfig,
+} from './producers'
 
 jest.mock('~/common/kafka/producer')
 
@@ -17,8 +22,12 @@ describe('buildIngestionProducerRegistry', () => {
         [true, 0],
         [false, 2],
     ])('with INGESTION_OUTPUTS_DISABLED=%s connects %i Kafka producers', async (disabled, connected) => {
-        await buildIngestionProducerRegistry(undefined, { ...config, INGESTION_OUTPUTS_DISABLED: disabled })
+        const registry = await buildIngestionProducerRegistry(undefined, {
+            ...config,
+            INGESTION_OUTPUTS_DISABLED: disabled,
+        })
 
         expect(KafkaProducerWrapper.createWithConfig).toHaveBeenCalledTimes(connected)
+        expect(registry.getProducer(INGESTION_BLACKHOLE_PRODUCER)).toBeInstanceOf(BlackholeKafkaProducer)
     })
 })

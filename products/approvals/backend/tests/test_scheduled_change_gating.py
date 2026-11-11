@@ -13,6 +13,7 @@ from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest, ChangeRequestState, ValidationStatus
 from products.approvals.backend.services import ChangeRequestService
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
 
@@ -72,21 +73,40 @@ class TestScheduledChangeGating(APIBaseTest):
 
         return gate_scheduled_change(flag, payload, self.user)
 
-    def test_scheduled_enable_under_policy_creates_pending_cr_and_does_not_apply(self, _mock_enabled):
-        self._enable_policy()
-        flag = self._disabled_flag()
-
-        scheduled = self._schedule(
-            flag,
-            {"operation": "update_status", "value": True},
-            datetime.now(UTC) - timedelta(seconds=30),
+    @parameterized.expand(
+        [
+            ("standalone_flag", False, False, "feature_flag.enable"),
+            ("experiment_flag_after_rollout", True, True, "experiment.launch"),
+        ]
+    )
+    def test_scheduled_enable_under_policy_creates_pending_cr_and_does_not_apply(
+        self, _mock_enabled, _name: str, owned_by_experiment: bool, rolled_out: bool, action_key: str
+    ):
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key=action_key,
+            conditions={},
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
         )
+        flag = self._disabled_flag()
+        if owned_by_experiment:
+            Experiment.objects.create(team=self.team, name="Owner", feature_flag=flag)
 
-        assert scheduled.change_request is not None
-        assert scheduled.change_request.state == ChangeRequestState.PENDING
-        assert ChangeRequest.objects.filter(state=ChangeRequestState.APPROVED).count() == 0
+        with patch("products.approvals.backend.ownership.scope_by_owner_state", return_value=rolled_out):
+            scheduled = self._schedule(
+                flag,
+                {"operation": "update_status", "value": True},
+                datetime.now(UTC) - timedelta(seconds=30),
+            )
 
-        process_scheduled_changes()
+            assert scheduled.change_request is not None
+            assert scheduled.change_request.action_key == action_key
+            assert scheduled.change_request.state == ChangeRequestState.PENDING
+            assert ChangeRequest.objects.filter(state=ChangeRequestState.APPROVED).count() == 0
+
+            process_scheduled_changes()
 
         flag.refresh_from_db()
         assert flag.active is False

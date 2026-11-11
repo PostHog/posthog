@@ -1,6 +1,7 @@
-from contextlib import AbstractContextManager
+from contextlib import AbstractContextManager, nullcontext
+from typing import Any
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -13,9 +14,19 @@ from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.user import User
 
 from ee.partners.stripe.api.provisioning import AUTH_CODE_CACHE_PREFIX
+from ee.partners.stripe.api.provisioning.core import ACCOUNT_NOT_LINKABLE_MESSAGE, EMAIL_NOT_VERIFIED_MESSAGE
 from ee.partners.stripe.api.provisioning.test.base import BASE_PATH, StripeProvisioningTestBase
 
 URL = f"{BASE_PATH}/provisioning/account_requests"
+CAPTURE = "ee.partners.stripe.api.provisioning.analytics.posthoganalytics.capture"
+
+
+def _account_request_events(capture: MagicMock) -> list[dict[str, Any]]:
+    return [
+        call.kwargs["properties"]
+        for call in capture.call_args_list
+        if call.args[:1] == ("agentic_provisioning account_request",)
+    ]
 
 
 def _account_request(email: str, **overrides) -> dict:
@@ -34,9 +45,15 @@ def _account_request(email: str, **overrides) -> dict:
 
 
 class TestAccountRequests(StripeProvisioningTestBase):
-    def test_new_user_gets_auth_code_and_welcome_email(self):
+    @parameterized.expand(
+        [
+            ("without_kyc", {}),
+            ("with_malformed_kyc", {"kyc": "email"}),
+        ]
+    )
+    def test_new_user_gets_auth_code_and_welcome_email(self, _name: str, kyc_fields: dict[str, Any]) -> None:
         with patch("ee.partners.stripe.api.provisioning.core.send_provisioning_welcome") as welcome:
-            res = self._post_signed(URL, data=_account_request("brand-new@example.com"))
+            res = self._post_signed(URL, data=_account_request("brand-new@example.com", **kyc_fields))
         assert res.status_code == 200
         body = res.json()
         assert body["id"] == "acctreq_test"
@@ -88,16 +105,113 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert not User.objects.filter(email="brand-new@example.com").exists()
         assert Organization.objects.count() == organization_count
 
-    def test_existing_user_gets_silent_code_for_requested_team(self):
-        res = self._post_signed(
-            URL, data=_account_request(self.user.email, configuration={"region": "US", "team_id": self.team.id})
-        )
+    @parameterized.expand(
+        [
+            ("without_kyc", {}, None),
+            ("with_verified_email", {"kyc": {"verified_fields": ["name", "email"]}}, True),
+        ]
+    )
+    def test_existing_user_gets_silent_code_for_requested_team(
+        self, _name: str, kyc_fields: dict[str, Any], kyc_email_verified: bool | None
+    ) -> None:
+        with patch(CAPTURE) as capture:
+            res = self._post_signed(
+                URL,
+                data=_account_request(
+                    self.user.email, configuration={"region": "US", "team_id": self.team.id}, **kyc_fields
+                ),
+            )
         assert res.status_code == 200
         body = res.json()
         assert body["type"] == "oauth"
         code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{body['oauth']['code']}")
         assert code_data["user_id"] == self.user.id
         assert code_data["team_id"] == self.team.id
+        assert [(event["outcome"], event["kyc_email_verified"]) for event in _account_request_events(capture)] == [
+            ("existing_user", kyc_email_verified)
+        ]
+
+    @parameterized.expand(
+        [
+            (
+                "kyc_without_email",
+                {"verified_fields": ["name", "phone"]},
+                True,
+                False,
+                "requires_kyc",
+                EMAIL_NOT_VERIFIED_MESSAGE,
+                ["email_not_verified"],
+            ),
+            (
+                "kyc_without_verified_fields",
+                {},
+                True,
+                False,
+                "requires_kyc",
+                EMAIL_NOT_VERIFIED_MESSAGE,
+                ["email_not_verified"],
+            ),
+            (
+                "kyc_with_verified_fields_not_a_list",
+                {"verified_fields": "email"},
+                True,
+                False,
+                "requires_kyc",
+                EMAIL_NOT_VERIFIED_MESSAGE,
+                ["email_not_verified"],
+            ),
+            (
+                "deactivated_user",
+                {"verified_fields": ["email"]},
+                False,
+                False,
+                "forbidden",
+                ACCOUNT_NOT_LINKABLE_MESSAGE,
+                ["user_inactive"],
+            ),
+            (
+                "concurrent_signup_with_kyc_without_email",
+                {"verified_fields": ["name"]},
+                True,
+                True,
+                "requires_kyc",
+                EMAIL_NOT_VERIFIED_MESSAGE,
+                ["race_condition_existing_user", "email_not_verified"],
+            ),
+        ]
+    )
+    def test_existing_user_is_not_linked(
+        self,
+        _name: str,
+        kyc: Any,
+        user_is_active: bool,
+        concurrent_signup: bool,
+        error_code: str,
+        message: str,
+        outcomes: list[str],
+    ) -> None:
+        self.user.is_active = user_is_active
+        self.user.save()
+        view_lookup_misses_user: AbstractContextManager[object] = (
+            patch(
+                "ee.partners.stripe.api.provisioning.views.EmailLookupHandler",
+                MagicMock(**{"get_user_by_email.return_value": None}),
+            )
+            if concurrent_signup
+            else nullcontext()
+        )
+
+        with (
+            view_lookup_misses_user,
+            patch("ee.partners.stripe.api.provisioning.core.cache") as auth_code_cache,
+            patch(CAPTURE) as capture,
+        ):
+            res = self._post_signed(URL, data=_account_request(self.user.email, kyc=kyc))
+
+        assert res.status_code == 403
+        assert res.json() == {"id": "acctreq_test", "type": "error", "error": {"code": error_code, "message": message}}
+        auth_code_cache.set.assert_not_called()
+        assert [event["outcome"] for event in _account_request_events(capture)] == outcomes
 
     def test_optional_fields_accept_explicit_null(self):
         # Spec JSON tolerance: an explicit null on an optional field is treated
@@ -113,6 +227,7 @@ class TestAccountRequests(StripeProvisioningTestBase):
                 code_challenge=None,
                 code_challenge_method=None,
                 configuration=None,
+                kyc=None,
             ),
         )
         assert res.status_code == 200

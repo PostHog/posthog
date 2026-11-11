@@ -50,7 +50,13 @@ const meta: Meta<typeof MarketingAnalyticsSourceStatusBanner> = {
                         },
                     },
                 ],
-                '/api/projects/:team_id/external_data_sources/wizard/': () => [200, {}],
+                '/api/projects/:team_id/external_data_sources/wizard/': () => [
+                    200,
+                    {
+                        GoogleAds: { iconPath: '/static/services/google-ads.png' },
+                        OpenAIAds: { iconPath: '/static/services/openai_ads.svg' },
+                    },
+                ],
                 '/api/environments/:team_id/external_data_sources/': () => [
                     200,
                     {

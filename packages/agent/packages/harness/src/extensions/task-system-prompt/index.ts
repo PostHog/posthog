@@ -1,7 +1,6 @@
 export {
   CloudTaskPrompt,
   type CloudTaskPromptOptions,
-  type SlackArtifactDelivery,
 } from "./cloud";
 export {
   createPiTaskSystemPromptExtension,

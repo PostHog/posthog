@@ -52,6 +52,20 @@ class TestWarehouseUsage(BaseTest):
         )
         return source
 
+    def _create_history_table(self, source: ExternalDataSource, name: str) -> None:
+        string_column = {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}
+        table = DataWarehouseTable(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            credential=DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team),
+            url_pattern="https://bucket.s3/history/*",
+            columns={"id": string_column, "valid_from": string_column, "valid_to": string_column},
+        )
+        table.mark_as_history_table()
+        table.save()
+
     def _create_self_managed_table(self, name: str = "self_managed_1") -> None:
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         DataWarehouseTable.objects.create(
@@ -109,10 +123,7 @@ class TestWarehouseUsage(BaseTest):
     def test_prompt_jev_source_reads_are_attributed(self):
         source = self._create_stripe_table()
 
-        with (
-            patch("posthog.hogql.transforms.prompt_jev.feature_enabled_or_false", return_value=True),
-            patch("posthog.hogql.query.sync_execute", return_value=([], [("label", "Nullable(String)")])),
-        ):
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("label", "Nullable(String)")])):
             response = execute_hogql_query(
                 "SELECT label FROM (SELECT jev(id, 'Refund?') AS label FROM stripe_table_1 LIMIT 10)",
                 self.team,
@@ -120,6 +131,41 @@ class TestWarehouseUsage(BaseTest):
             )
 
         assert [s.id for s in response.used_data_warehouse_sources or []] == [str(source.id)]
+
+    @parameterized.expand(
+        [
+            ("current_table_only", "SELECT id FROM stripe_table_1", False),
+            ("history_table_only", "SELECT id FROM stripe_table_1_cdc", True),
+            (
+                "history_table_joined_after_current_table",
+                "SELECT a.id FROM stripe_table_1 a JOIN stripe_table_1_cdc b ON a.id = b.id",
+                True,
+            ),
+        ]
+    )
+    def test_flags_a_source_whose_history_table_is_read(self, _name, query, expected):
+        source = self._create_stripe_table()
+        self._create_history_table(source, "stripe_table_1_cdc")
+
+        sources = self._sources_for(query)
+
+        assert [(s.id, s.uses_history_table) for s in sources] == [(str(source.id), expected)]
+
+    def test_history_read_survives_a_jev_read_of_the_same_source(self):
+        source = self._create_stripe_table()
+        self._create_history_table(source, "stripe_table_1_cdc")
+        executor = HogQLQueryExecutor(query="SELECT id FROM stripe_table_1_cdc", team=self.team, user=self.user)
+        # A jev source execution of the same connector read only the current table.
+        executor._prompt_jev_warehouse_sources = [
+            WarehouseSourceUsage(id=str(source.id), source_type="Stripe", table_name="stripe_table_1")
+        ]
+
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("id", "Nullable(String)")])):
+            response = executor.execute()
+
+        assert [(s.id, s.uses_history_table) for s in response.used_data_warehouse_sources or []] == [
+            (str(source.id), True)
+        ]
 
     def test_deduplicates_by_source(self):
         source = self._create_stripe_table()

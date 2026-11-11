@@ -89,11 +89,15 @@ def assert_export_authorization(exported_asset: ExportedAsset) -> None:
         _raise_invalid_export_authorization(exported_asset, "missing_export_creator")
 
     if source_authentication == ExportedAsset.SourceAuthentication.PERSONAL_API_KEY:
-        credential = PersonalAPIKey.objects.filter(
-            id=exported_asset.source_credential_id,
-            user_id=created_by.id,
-            user__is_active=True,
-        ).first()
+        credential = (
+            PersonalAPIKey.objects.filter(
+                id=exported_asset.source_credential_id,
+                user_id=created_by.id,
+                user__is_active=True,
+            )
+            .exclude(expires_at__lte=timezone.now())
+            .first()
+        )
         granted_scopes = list(credential.scopes or []) if credential is not None else []
     elif source_authentication == ExportedAsset.SourceAuthentication.OAUTH_ACCESS_TOKEN:
         credential = OAuthAccessToken.objects.filter(

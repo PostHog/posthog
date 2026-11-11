@@ -7,24 +7,26 @@ import { LemonTag, lemonToast } from '@posthog/lemon-ui'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { getApprovalActionLabel, getApprovalResourceName, getApprovalResourceUrl } from 'scenes/approvals/utils'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { membersLogic } from '~/models/membersLogic'
 import { ApprovalDecision, ChangeRequest, ChangeRequestState } from '~/types'
 
 import { ApprovalLogicProps, ProposedChangesTab, approvalLogic } from './approvalLogic'
 import { ChangeRequestActions } from './ChangeRequestActions'
 import { generateDecisionAnalysis } from './decisionAnalysis'
+import { QuillChangeRequestActions } from './QuillChangeRequestActions'
 
 export const scene: SceneExport<ApprovalLogicProps> = {
     component: ApprovalDetail,
@@ -41,6 +43,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
 
     const containerRef = useRef<HTMLDivElement>(null)
     const [width] = useSize(containerRef)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     if (!isApprovalsFeatureEnabled || changeRequestMissing) {
         return <NotFound object="change request" />
@@ -55,6 +58,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
     }
 
     const decisionAnalysis = generateDecisionAnalysis(changeRequest)
+    const ChangeRequestActionsComponent = todayRailNav ? QuillChangeRequestActions : ChangeRequestActions
 
     return (
         <SceneContent>
@@ -63,7 +67,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                 description={changeRequest.intent_display?.description}
                 resourceType={{ type: 'change_request' }}
                 actions={
-                    <ChangeRequestActions
+                    <ChangeRequestActionsComponent
                         changeRequest={changeRequest}
                         onApprove={() => approveChangeRequest()}
                         onReject={(_, reason) => {
@@ -106,7 +110,7 @@ function ApprovalDetail({ id }: ApprovalLogicProps): JSX.Element {
                             <div className="mt-1">
                                 {(() => {
                                     const resourceUrl = getApprovalResourceUrl(
-                                        changeRequest.action_key,
+                                        changeRequest.resource_type,
                                         changeRequest.resource_id
                                     )
                                     const name = getApprovalResourceName(

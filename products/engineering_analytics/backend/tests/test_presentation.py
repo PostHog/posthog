@@ -11,6 +11,7 @@ import requests
 from parameterized import parameterized
 from rest_framework import status
 
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.facade import contracts
 from products.engineering_analytics.backend.logic.ci_signals_config import (
     AUTHORIZED_SOURCES_CONFIG_KEY,
@@ -25,6 +26,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
 )
 from products.signals.backend.models import SignalSourceConfig
 from products.warehouse_sources.backend.facade.contracts import GitHubSourceCredential
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
 class TestScopeEnrollment(SimpleTestCase):
@@ -136,6 +138,10 @@ def _repo_overview() -> contracts.RepoOverview:
         rerun_cycles_prev=1,
         merged_pr_count=42,
         merged_pr_count_prev=40,
+        reverting_pr_count=2,
+        reverting_pr_count_prev=1,
+        revert_share=2 / 42,
+        revert_share_prev=1 / 40,
         median_open_to_merge_seconds=3600.0,
         median_open_to_merge_seconds_prev=4000.0,
         median_ready_to_merge_seconds=3000.0,
@@ -185,6 +191,8 @@ def _repo_overview() -> contracts.RepoOverview:
         open_to_merge_series_granularity="day",
         ready_to_merge_series=[],
         ready_to_merge_series_granularity="day",
+        revert_share_series=[],
+        revert_share_series_granularity="day",
         delivery_pipeline=contracts.DeliveryPipeline(
             merged_pr_count=38,
             stages=[
@@ -410,6 +418,8 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         data = response.json()
         assert data["merged_pr_count"] == 42
         assert data["merged_pr_count_prev"] == 40
+        assert data["reverting_pr_count"] == 2
+        assert data["revert_share"] == 2 / 42
         assert data["merge_queue_billable_minutes"] == 30.0  # the digest's queue row reads this key
         assert data["depot_ci_billable_minutes"] == 20.0  # the digest's Depot CI row reads this key
         assert data["merge_queue_merged_pr_count"] == 38
@@ -573,7 +583,15 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             by_run=[
                 contracts.RunCost(run_id=9100, run_attempt=1, billable_minutes=2510.0, estimated_cost_usd=61.2),
             ],
-            llm_spend=contracts.PRLLMSpend(cost_usd=1.5, input_tokens=1200, output_tokens=340, generations=4),
+            llm_spend=contracts.PRLLMSpend(
+                cost_usd=1.5,
+                input_tokens=1200,
+                output_tokens=340,
+                generations=4,
+                cache_read_input_tokens=90000,
+                cache_creation_input_tokens=8000,
+                peak_context_tokens=45000,
+            ),
         )
         with mock.patch(f"{_VIEWS}.get_pr_cost", return_value=summary) as getter:
             response = self.client.get(self._url("pr_cost"), {"pr_number": "10", "repo": "PostHog/posthog"})
@@ -587,6 +605,9 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
             "input_tokens": 1200,
             "output_tokens": 340,
             "generations": 4,
+            "cache_read_input_tokens": 90000,
+            "cache_creation_input_tokens": 8000,
+            "peak_context_tokens": 45000,
         }
         assert getter.call_args.kwargs["pr_number"] == 10
         assert getter.call_args.kwargs["repo"] == "PostHog/posthog"
@@ -781,11 +802,27 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
 
-    def test_requires_rollout_feature_flag(self) -> None:
-        # The whole viewset is gated on the engineering-analytics rollout flag (which the
-        # conftest fixture enables); with the flag off, every endpoint must 403.
+    @parameterized.expand([("sources", "get"), ("enable", "post")])
+    def test_requires_rollout_feature_flag(self, action: str, method: str) -> None:
+        # The conftest fixture enables the rollout flag; with it off, every endpoint must 403.
         with mock.patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self.client.get(self._url("sources"))
+            response = getattr(self.client, method)(self._url(action))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "engineering-analytics" in response.json()["detail"]
+
+    def test_enable_is_idempotent(self) -> None:
+        with mock.patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:
+            first = self.client.post(self._url("enable"))
+            second = self.client.post(self._url("enable"))
+
+        assert first.status_code == status.HTTP_204_NO_CONTENT
+        assert second.status_code == status.HTTP_204_NO_CONTENT
+        # The views sync once, on creation; the post-load hook keeps them current afterwards.
+        mock_sync.assert_called_once()
+        assert (
+            DataWarehouseManagedViewSet.objects.filter(
+                team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
+            ).count()
+            == 1
+        )

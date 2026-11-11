@@ -24,6 +24,7 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -81,12 +82,12 @@ import {
 } from 'products/error_tracking/frontend/components/Assignee/AssigneeDisplay'
 import { AssigneeSelect } from 'products/error_tracking/frontend/components/Assignee/AssigneeSelect'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
-import { MessageAudience } from 'products/workflows/frontend/MessageAudience/messageAudience'
 import { MessageAudienceButton } from 'products/workflows/frontend/MessageAudience/MessageAudienceButton'
-import { draftMessage } from 'products/workflows/frontend/MessageAudience/messageDrafts'
 
 import { EarlyAccessFeatureLogicProps, earlyAccessFeatureLogic } from './earlyAccessFeatureLogic'
+import { enrolledPeopleAudience } from './enrolledPeopleAudience'
 import { InstructionsModal } from './InstructionsModal'
+import { QuillEarlyAccessFeatureActions } from './QuillEarlyAccessFeatureActions'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
@@ -149,63 +150,6 @@ export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     productKey: ProductKey.EARLY_ACCESS_FEATURES,
 }
 
-function enrolledPeopleAudience(earlyAccessFeature: EarlyAccessFeatureType): MessageAudience {
-    const flagKey = earlyAccessFeature.feature_flag.key
-    return {
-        source: 'early_access',
-        properties: [
-            {
-                key: `$feature_enrollment/${flagKey}`,
-                type: PropertyFilterType.Person,
-                operator: PropertyOperator.Exact,
-                value: ['true'],
-            },
-        ],
-        broadcastName: `${earlyAccessFeature.name} is now available`,
-        broadcastEmail: draftMessage({
-            kind: 'feature_available',
-            featureName: earlyAccessFeature.name,
-            featureDescription: earlyAccessFeature.description,
-        }),
-        workflowEmail: draftMessage({
-            kind: 'feature_enrolled',
-            featureName: earlyAccessFeature.name,
-            featureDescription: earlyAccessFeature.description,
-        }),
-        draftSource: { source: 'early_access', source_id: earlyAccessFeature.id },
-        workflowTrigger: {
-            type: 'event',
-            filters: {
-                events: [
-                    {
-                        id: '$feature_enrollment_update',
-                        name: '$feature_enrollment_update',
-                        type: 'events',
-                        order: 0,
-                        properties: [
-                            {
-                                key: '$feature_flag',
-                                value: [flagKey],
-                                operator: PropertyOperator.Exact,
-                                type: PropertyFilterType.Event,
-                            },
-                            // posthog-js sends a boolean here. Exact compiles to a string compare until the project
-                            // has a Boolean definition for this property, so it would never match. Contains
-                            // compares the stringified value, which works with or without that definition.
-                            {
-                                key: '$feature_enrollment',
-                                value: 'true',
-                                operator: PropertyOperator.IContains,
-                                type: PropertyFilterType.Event,
-                            },
-                        ],
-                    },
-                ],
-            },
-        },
-    }
-}
-
 export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.Element {
     const {
         earlyAccessFeature,
@@ -231,8 +175,18 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
 
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
+
+    const cancelEditing = (): void => {
+        if (isEditingFeature) {
+            editFeature(false)
+            loadEarlyAccessFeature()
+        } else {
+            router.actions.push(urls.earlyAccessFeatures())
+        }
+    }
 
     // Determine if Save/Cancel buttons should be visible
     const wasOriginallyGA = originalEarlyAccessFeatureStage === EarlyAccessFeatureStage.GeneralAvailability
@@ -355,118 +309,122 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     }}
                     forceEdit={isEditingFeature || isNewEarlyAccessFeature}
                     actions={
-                        <>
-                            {!earlyAccessFeatureLoading ? (
-                                canShowSaveButtons ? (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            data-attr="cancel-feature"
-                                            onClick={() => {
-                                                if (isEditingFeature) {
-                                                    editFeature(false)
-                                                    loadEarlyAccessFeature()
-                                                } else {
-                                                    router.actions.push(urls.earlyAccessFeatures())
-                                                }
-                                            }}
-                                            size="small"
-                                            disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.EarlyAccessFeature}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={userAccessLevel}
-                                        >
+                        todayRailNav ? (
+                            <QuillEarlyAccessFeatureActions
+                                isNewEarlyAccessFeature={isNewEarlyAccessFeature}
+                                canShowSaveButtons={canShowSaveButtons}
+                                userAccessLevel={userAccessLevel}
+                                accessControlDisabledReason={accessControlDisabledReason}
+                                onCancel={cancelEditing}
+                            />
+                        ) : (
+                            <>
+                                {!earlyAccessFeatureLoading ? (
+                                    canShowSaveButtons ? (
+                                        <>
                                             <LemonButton
-                                                type="primary"
-                                                onClick={submitEarlyAccessFeature}
-                                                data-attr="save-feature"
-                                                loading={isEarlyAccessFeatureSubmitting}
+                                                type="secondary"
+                                                data-attr="cancel-feature"
+                                                onClick={cancelEditing}
                                                 size="small"
+                                                disabledReason={isEarlyAccessFeatureSubmitting ? 'Saving…' : undefined}
                                             >
-                                                {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
+                                                Cancel
                                             </LemonButton>
-                                        </AccessControlAction>
-                                    </>
-                                ) : (
-                                    <>
-                                        {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
-                                            <LemonMenu
-                                                items={[
-                                                    {
-                                                        title: 'Choose stage',
-                                                        items: [
-                                                            {
-                                                                label: 'Concept',
-                                                                tooltip:
-                                                                    'Users can opt in to register interest, but the feature flag will not be enabled for them.',
-                                                                onClick: () =>
-                                                                    updateStage(EarlyAccessFeatureStage.Concept),
-                                                            },
-                                                            {
-                                                                label: 'Alpha',
-                                                                tooltip:
-                                                                    'Early testing. Opted-in users will have the feature flag enabled.',
-                                                                onClick: () =>
-                                                                    updateStage(EarlyAccessFeatureStage.Alpha),
-                                                            },
-                                                            {
-                                                                label: 'Beta (default)',
-                                                                tooltip:
-                                                                    'Wider testing. Opted-in users will have the feature flag enabled.',
-                                                                onClick: () =>
-                                                                    updateStage(EarlyAccessFeatureStage.Beta),
-                                                            },
-                                                            {
-                                                                label: 'General availability',
-                                                                tooltip:
-                                                                    'Feature becomes read-only. All opted-in users retain access.',
-                                                                onClick: () =>
-                                                                    updateStage(
-                                                                        EarlyAccessFeatureStage.GeneralAvailability
-                                                                    ),
-                                                            },
-                                                        ],
-                                                    },
-                                                ]}
-                                            >
-                                                {/* The trigger must stay the direct child of LemonMenu — it
-                                                    clones the trigger to inject the menu-toggle onClick, which an
-                                                    AccessControlAction wrapper would swallow. Gate via disabledReason. */}
-                                                <LemonButton
-                                                    tooltip="Publish this feature to make it available"
-                                                    type="primary"
-                                                    size="small"
-                                                    disabledReason={accessControlDisabledReason ?? undefined}
-                                                >
-                                                    Release
-                                                </LemonButton>
-                                            </LemonMenu>
-                                        )}
-                                        {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
                                             <AccessControlAction
                                                 resourceType={AccessControlResourceType.EarlyAccessFeature}
                                                 minAccessLevel={AccessControlLevel.Editor}
                                                 userAccessLevel={userAccessLevel}
                                             >
                                                 <LemonButton
-                                                    type="secondary"
-                                                    onClick={() => editFeature(true)}
-                                                    loading={false}
-                                                    data-attr="edit-feature"
+                                                    type="primary"
+                                                    onClick={submitEarlyAccessFeature}
+                                                    data-attr="save-feature"
+                                                    loading={isEarlyAccessFeatureSubmitting}
                                                     size="small"
                                                 >
-                                                    Edit
+                                                    {isNewEarlyAccessFeature ? 'Save as draft' : 'Save'}
                                                 </LemonButton>
                                             </AccessControlAction>
-                                        )}
-                                    </>
-                                )
-                            ) : undefined}
-                        </>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
+                                                <LemonMenu
+                                                    items={[
+                                                        {
+                                                            title: 'Choose stage',
+                                                            items: [
+                                                                {
+                                                                    label: 'Concept',
+                                                                    tooltip:
+                                                                        'Users can opt in to register interest, but the feature flag will not be enabled for them.',
+                                                                    onClick: () =>
+                                                                        updateStage(EarlyAccessFeatureStage.Concept),
+                                                                },
+                                                                {
+                                                                    label: 'Alpha',
+                                                                    tooltip:
+                                                                        'Early testing. Opted-in users will have the feature flag enabled.',
+                                                                    onClick: () =>
+                                                                        updateStage(EarlyAccessFeatureStage.Alpha),
+                                                                },
+                                                                {
+                                                                    label: 'Beta (default)',
+                                                                    tooltip:
+                                                                        'Wider testing. Opted-in users will have the feature flag enabled.',
+                                                                    onClick: () =>
+                                                                        updateStage(EarlyAccessFeatureStage.Beta),
+                                                                },
+                                                                {
+                                                                    label: 'General availability',
+                                                                    tooltip:
+                                                                        'Feature becomes read-only. All opted-in users retain access.',
+                                                                    onClick: () =>
+                                                                        updateStage(
+                                                                            EarlyAccessFeatureStage.GeneralAvailability
+                                                                        ),
+                                                                },
+                                                            ],
+                                                        },
+                                                    ]}
+                                                >
+                                                    {/* The trigger must stay the direct child of LemonMenu — it
+                                                    clones the trigger to inject the menu-toggle onClick, which an
+                                                    AccessControlAction wrapper would swallow. Gate via disabledReason. */}
+                                                    <LemonButton
+                                                        tooltip="Publish this feature to make it available"
+                                                        type="primary"
+                                                        size="small"
+                                                        disabledReason={accessControlDisabledReason ?? undefined}
+                                                    >
+                                                        Release
+                                                    </LemonButton>
+                                                </LemonMenu>
+                                            )}
+                                            {earlyAccessFeature.stage !=
+                                                EarlyAccessFeatureStage.GeneralAvailability && (
+                                                <AccessControlAction
+                                                    resourceType={AccessControlResourceType.EarlyAccessFeature}
+                                                    minAccessLevel={AccessControlLevel.Editor}
+                                                    userAccessLevel={userAccessLevel}
+                                                >
+                                                    <LemonButton
+                                                        type="secondary"
+                                                        onClick={() => editFeature(true)}
+                                                        loading={false}
+                                                        data-attr="edit-feature"
+                                                        size="small"
+                                                    >
+                                                        Edit
+                                                    </LemonButton>
+                                                </AccessControlAction>
+                                            )}
+                                        </>
+                                    )
+                                ) : undefined}
+                            </>
+                        )
                     }
                 />
 
@@ -829,7 +787,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             actions={
                                 <>
                                     <MessageAudienceButton
-                                        audience={enrolledPeopleAudience(earlyAccessFeature)}
+                                        audience={enrolledPeopleAudience(earlyAccessFeature, 'early_access')}
                                         label="Email opted-in users"
                                         size="medium"
                                     />

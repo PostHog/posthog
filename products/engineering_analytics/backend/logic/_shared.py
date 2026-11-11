@@ -1,6 +1,6 @@
 """Caller-input resolution shared by the domain orchestration modules."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -8,7 +8,8 @@ from posthog.utils import relative_date_parse
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
-_DEFAULT_WINDOW = "-30d"
+DEFAULT_WINDOW = timedelta(days=30)
+_DEFAULT_WINDOW = f"-{DEFAULT_WINDOW.days}d"
 
 # workflow_health zero-fills one daily entry per workflow per day in the window, so an
 # unbounded range would materialize an enormous response. A year is plenty for trends.

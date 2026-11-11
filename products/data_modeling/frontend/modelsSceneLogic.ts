@@ -1,15 +1,16 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import type { DataWarehouseSavedQuerySummary } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { urls } from 'scenes/urls'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
+import { catalogRestructureEnabled } from './catalogRestructure'
 import { BehindScheduleModel, modelsBehindSchedule } from './freshness'
 import { NodeSuspensionApi } from './generated/api.schemas'
 import { lineageDataLogic } from './lineage/lineageDataLogic'
@@ -18,12 +19,20 @@ import { servingSuspension } from './suspension'
 
 const MODEL_NODE_TYPES = new Set<DataModelingNodeType>(['view', 'matview', 'endpoint'])
 
-export type ModelsSceneTab = 'overview' | 'models' | 'lineage' | 'data-quality'
+export type ModelsSceneTab = 'overview' | 'models' | 'lineage' | 'data-quality' | 'usage'
 
-const MODELS_SCENE_TABS: ModelsSceneTab[] = ['overview', 'models', 'lineage', 'data-quality']
+const MODELS_SCENE_TABS: ModelsSceneTab[] = ['overview', 'models', 'lineage', 'data-quality', 'usage']
 
 function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
+}
+
+const DATA_CATALOG_TAB_FOR: Record<ModelsSceneTab, string | undefined> = {
+    overview: undefined,
+    models: 'tables',
+    'data-quality': 'data-quality',
+    lineage: 'lineage',
+    usage: 'usage',
 }
 
 /** One row of the overview's attention table: a broken model, why, and what it holds up. */
@@ -36,15 +45,13 @@ export interface AttentionModel {
 }
 
 export interface modelsSceneLogicValues {
+    featureFlags: FeatureFlagsSet // featureFlagLogic
     dataWarehouseSavedQueries: DataWarehouseSavedQuerySummary[] // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesFailed: boolean // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoaded: boolean // dataWarehouseViewsLogic
     dataWarehouseSavedQueriesLoading: boolean // dataWarehouseViewsLogic
-    featureFlags: FeatureFlagsSet // featureFlagLogic
-    receivedFeatureFlags: boolean // featureFlagLogic
     activeTab: ModelsSceneTab
     lineageTabVisited: boolean
-    dataQualityTabEnabled: boolean
     nodes: DataModelingNode[] // lineageDataLogic
     nodesLoading: boolean // lineageDataLogic
     nodesLoaded: boolean // lineageDataLogic
@@ -60,12 +67,13 @@ export interface modelsSceneLogicValues {
     modelsResolved: boolean
     modelsFailed: boolean
     noModelsYet: boolean
+    usageEnabled: boolean
+    catalogRestructureEnabled: boolean
 }
 
 export interface modelsSceneLogicActions {
     loadDataWarehouseSavedQueries: () => any // dataWarehouseViewsLogic
     loadNodes: () => any // lineageDataLogic
-    setFeatureFlags: (flags: string[], variants: Record<string, boolean | string>) => any // featureFlagLogic
     setActiveTab: (tab: ModelsSceneTab) => { tab: ModelsSceneTab }
     setNow: (now: number) => { now: number }
 }
@@ -76,7 +84,6 @@ export interface modelsSceneLogicMeta {
         failingNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
         suspendedNodes: (nodes: DataModelingNode[]) => DataModelingNode[]
         suspensionBySavedQueryId: (nodes: DataModelingNode[]) => Record<string, NodeSuspensionApi | undefined>
-        dataQualityTabEnabled: (featureFlags: FeatureFlagsSet) => boolean
         attentionModels: (
             failingNodes: DataModelingNode[],
             suspendedNodes: DataModelingNode[],
@@ -92,6 +99,8 @@ export interface modelsSceneLogicMeta {
         modelsResolved: (nodesLoaded: boolean, dataWarehouseSavedQueriesLoaded: boolean) => boolean
         modelsFailed: (nodesFailed: boolean, dataWarehouseSavedQueriesFailed: boolean) => boolean
         noModelsYet: (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]) => boolean
+        usageEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        catalogRestructureEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -106,6 +115,8 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
     path(['scenes', 'models', 'modelsSceneLogic']),
     connect(() => ({
         values: [
+            featureFlagLogic,
+            ['featureFlags'],
             dataWarehouseViewsLogic,
             [
                 'dataWarehouseSavedQueries',
@@ -113,19 +124,10 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
                 'dataWarehouseSavedQueriesLoaded',
                 'dataWarehouseSavedQueriesLoading',
             ],
-            featureFlagLogic,
-            ['featureFlags', 'receivedFeatureFlags'],
             lineageDataLogic,
             ['nodes', 'nodesLoading', 'nodesLoaded', 'nodesFailed', 'edges'],
         ],
-        actions: [
-            dataWarehouseViewsLogic,
-            ['loadDataWarehouseSavedQueries'],
-            featureFlagLogic,
-            ['setFeatureFlags'],
-            lineageDataLogic,
-            ['loadNodes'],
-        ],
+        actions: [dataWarehouseViewsLogic, ['loadDataWarehouseSavedQueries'], lineageDataLogic, ['loadNodes']],
     })),
     actions({
         setActiveTab: (tab: ModelsSceneTab) => ({ tab }),
@@ -259,34 +261,39 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]): boolean =>
                 !nodes.some((node) => MODEL_NODE_TYPES.has(node.type)) && savedQueries.length === 0,
         ],
-        dataQualityTabEnabled: [
+        usageEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_QUALITY_CHECKS],
+            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_MODELING_USAGE],
+        ],
+        catalogRestructureEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => catalogRestructureEnabled(featureFlags),
         ],
     }),
-    listeners(({ actions }) => ({
-        setFeatureFlags: ({ variants }) => {
-            if (router.values.searchParams.tab === 'data-quality') {
-                actions.setActiveTab(variants[FEATURE_FLAGS.DATA_QUALITY_CHECKS] ? 'data-quality' : 'overview')
-            }
-        },
-    })),
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
-            let tab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
-            if (tab === 'data-quality' && !values.receivedFeatureFlags) {
+            const requestedTab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
+            if (values.catalogRestructureEnabled) {
+                const { tab: _tab, ...otherParams } = searchParams
+                const catalogTab = DATA_CATALOG_TAB_FOR[requestedTab]
+                router.actions.replace(
+                    urls.dataCatalog(),
+                    catalogTab ? { ...otherParams, tab: catalogTab } : otherParams
+                )
                 return
             }
-            if (tab === 'data-quality' && !values.dataQualityTabEnabled) {
-                tab = 'overview'
-            }
+            const tab: ModelsSceneTab = requestedTab === 'usage' && !values.usageEnabled ? 'overview' : requestedTab
+            posthog.capture('models tab viewed', { tab })
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }
         },
     })),
-    afterMount(({ actions, cache }) => {
-        actions.loadDataWarehouseSavedQueries()
+    afterMount(({ actions, cache, values }) => {
+        // Mounting dataWarehouseViewsLogic already starts this load, so only refresh when it was mounted earlier
+        if (!values.dataWarehouseSavedQueriesLoading) {
+            actions.loadDataWarehouseSavedQueries()
+        }
         actions.setNow(Date.now())
         cache.disposables.add(() => {
             const intervalId = window.setInterval(() => actions.setNow(Date.now()), 60_000)

@@ -116,6 +116,19 @@ export const ExperimentImplementationSnippet = memo(
                 // so if something goes wrong with flag evaluation, you don't break your app.
             }
         `,
+            dotnet: dedent`
+            var flags = await posthog.EvaluateFlagsAsync("distinct-id");
+
+            if (flags.GetFlag("your-experiment-feature-flag")?.VariantKey == "test")
+            {
+                // Do something differently for this user
+            }
+            else
+            {
+                // It's a good idea to let control variant always be the default behaviour,
+                // so if something goes wrong with flag evaluation, you don't break your app.
+            }
+        `,
             android: dedent`
             if (PostHog.getFeatureFlag("your-experiment-feature-flag") == "test") {
                 // do something
@@ -159,6 +172,7 @@ export const ExperimentImplementationSnippet = memo(
             php: 'php',
             ruby: 'ruby',
             go: 'go',
+            dotnet: 'csharp',
             android: 'kotlin',
             ios: 'swift',
             flutter: 'dart',

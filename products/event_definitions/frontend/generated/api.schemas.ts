@@ -83,8 +83,8 @@ export interface EnterpriseEventDefinitionApi {
     readonly id: string
     /** @maxLength 400 */
     name: string
-    /** @nullable */
-    owner?: number | null
+    /** The user responsible for the event, or null when it has no owner. */
+    readonly owner?: UserBasicApi | null
     /** @nullable */
     description?: string | null
     tags?: unknown[]
@@ -101,6 +101,8 @@ export interface EnterpriseEventDefinitionApi {
     readonly verified_by: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** @nullable */
+    readonly scheduled_deletion_at: string | null
     enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -132,11 +134,61 @@ export interface PaginatedEnterpriseEventDefinitionListApi {
 /**
  * Serializer mixin that handles tags for objects.
  */
+export interface EnterpriseEventDefinitionRequestApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /**
+     * ID of the user responsible for the event. Null removes the owner.
+     * @nullable
+     */
+    owner?: number | null
+    /** @nullable */
+    description?: string | null
+    tags?: unknown[]
+    /** @nullable */
+    readonly created_at: string | null
+    readonly updated_at: string
+    readonly updated_by: UserBasicApi
+    /** @nullable */
+    readonly last_seen_at: string | null
+    readonly last_updated_at: string
+    verified?: boolean
+    /** @nullable */
+    readonly verified_at: string | null
+    readonly verified_by: UserBasicApi
+    /** @nullable */
+    hidden?: boolean | null
+    /** @nullable */
+    readonly scheduled_deletion_at: string | null
+    enforcement_mode?: SchemaEnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    primary_property?: string | null
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
+    default_columns?: string[]
+    readonly media_preview_urls: readonly string[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedEnterpriseEventDefinitionApi {
     readonly id?: string
     /** @maxLength 400 */
     name?: string
-    /** @nullable */
+    /**
+     * ID of the user responsible for the event. Null removes the owner.
+     * @nullable
+     */
     owner?: number | null
     /** @nullable */
     description?: string | null
@@ -154,6 +206,8 @@ export interface PatchedEnterpriseEventDefinitionApi {
     readonly verified_by?: UserBasicApi
     /** @nullable */
     hidden?: boolean | null
+    /** @nullable */
+    readonly scheduled_deletion_at?: string | null
     enforcement_mode?: SchemaEnforcementModeEnumApi
     /**
      * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
@@ -169,6 +223,34 @@ export interface PatchedEnterpriseEventDefinitionApi {
     post_to_slack?: boolean
     default_columns?: string[]
     readonly media_preview_urls?: readonly string[]
+}
+
+/**
+ * Serializer mixin that handles tags for objects.
+ */
+export interface EventDefinitionRecordApi {
+    readonly id: string
+    /** @maxLength 400 */
+    name: string
+    /** @nullable */
+    created_at?: string | null
+    /** @nullable */
+    last_seen_at?: string | null
+    readonly last_updated_at: string
+    tags?: unknown[]
+    enforcement_mode?: SchemaEnforcementModeEnumApi
+    /**
+     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
+     * @maxLength 400
+     * @nullable
+     */
+    primary_property?: string | null
+    readonly is_action: boolean
+    readonly action_id: number
+    readonly is_calculating: boolean
+    readonly last_calculated_at: string
+    readonly created_by: UserBasicApi
+    post_to_slack?: boolean
 }
 
 /**
@@ -253,34 +335,6 @@ export interface EventDefinitionBulkUpdateVerifiedResponseApi {
 }
 
 /**
- * Serializer mixin that handles tags for objects.
- */
-export interface EventDefinitionRecordApi {
-    readonly id: string
-    /** @maxLength 400 */
-    name: string
-    /** @nullable */
-    created_at?: string | null
-    /** @nullable */
-    last_seen_at?: string | null
-    readonly last_updated_at: string
-    tags?: unknown[]
-    enforcement_mode?: SchemaEnforcementModeEnumApi
-    /**
-     * Name of a single property on this event that PostHog UIs should display alongside the event (for example `$pathname` on `$pageview`). When set, surfaces like the session replay inspector show the property's value next to the event name without the user having to open the event.
-     * @maxLength 400
-     * @nullable
-     */
-    primary_property?: string | null
-    readonly is_action: boolean
-    readonly action_id: number
-    readonly is_calculating: boolean
-    readonly last_calculated_at: string
-    readonly created_by: UserBasicApi
-    post_to_slack?: boolean
-}
-
-/**
  * Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those.
  */
 export type PrimaryPropertiesResponseApiPrimaryProperties = { [key: string]: string }
@@ -307,6 +361,10 @@ export type EventDefinitionsListParams = {
      * JSON-encoded list of event names to omit. The name matches the property definitions endpoint that shares it.
      */
     excluded_properties?: string
+    /**
+     * When true, find similar event names only if the filtered search has no matches.
+     */
+    fuzzy_search?: boolean
     /**
      * Number of results to return per page.
      * @minimum 1

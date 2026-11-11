@@ -15,6 +15,7 @@ import httpx
 from posthoganalytics.ai.evaluations import EvaluationItem, EvaluationResult
 from pydantic import SecretStr
 
+from products.posthog_ai.eval_harness import offline_results
 from products.posthog_ai.eval_harness.engines.types import EvalSummary
 from products.posthog_ai.eval_harness.harness import reporting
 from products.posthog_ai.eval_harness.harness.offline_delivery import OfflineEvalDelivery
@@ -196,6 +197,61 @@ async def test_finished_uploads_are_not_retried_or_marked_interrupted_while_repo
         assert "upload failed:" in output
         assert "Results were not saved for retry." in output
         assert "403" in output
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("shutdown", ["pause", "deadline", "interrupt", "tag_timeout"])
+async def test_completed_upload_stays_successful_when_tagging_is_interrupted(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    shutdown: str,
+) -> None:
+    monkeypatch.setattr(offline_results.logger, "disabled", False)
+    caplog.set_level("WARNING", logger=offline_results.__name__)
+    tag_started = asyncio.Event()
+    release_tag = asyncio.Event()
+    requests: list[httpx.Request] = []
+    server = OfflineServer()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.method == "PATCH":
+            tag_started.set()
+            await release_tag.wait()
+        return server.respond(request)
+
+    publisher = _publisher(monkeypatch, respond)
+    reporter = ProgressReporter(total_suites=1)
+    await reporter.record_summary(
+        "experiment-1", EvalSummary(engine_name="braintrust", experiment_name="experiment-1", scores={})
+    )
+    delivery = OfflineEvalDelivery(reporter)
+    if shutdown == "tag_timeout":
+        monkeypatch.setattr(offline_results, "TAG_TIMEOUT_SECONDS", 0)
+    assert delivery.submit(publisher, replace(_upload(1), tags=("team:example",)))
+    if shutdown != "tag_timeout":
+        await asyncio.wait_for(tag_started.wait(), timeout=5)
+        if shutdown == "pause":
+            await delivery.pause()
+            release_tag.set()
+        elif shutdown == "deadline":
+            await delivery.drain(timeout=0)
+        else:
+            await delivery.cancel()
+    await delivery.drain()
+
+    reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
+    output = capsys.readouterr().out
+    assert server.status == "completed"
+    assert sum(request.url.path.endswith("/complete/") for request in requests) == 1
+    assert output.count("POSTHOG OFFLINE") == 1
+    assert "PostHog: https://posthog.example.com/project/123/" in output
+    assert "upload failed" not in output
+    if shutdown == "tag_timeout":
+        assert "tagging timed out" in caplog.text
+    elif shutdown != "pause":
+        assert "tag update interrupted" in caplog.text
 
 
 @pytest.mark.asyncio

@@ -199,6 +199,10 @@ export function initializePostHog(sessionId?: string) {
     defaults: "2026-05-30",
     api_host: apiHost,
     ui_host: uiHost,
+    // The flags this app reads are listed in feature-flag-keys.json. Each one must carry the
+    // posthog-desktop evaluation context in PostHog, because this filter hides a flag that is
+    // tagged only with other contexts. The JSON list does not set the context.
+    evaluation_contexts: ["posthog-desktop"],
     metrics: {
       serviceName: "posthog-desktop",
       environment: import.meta.env.PROD ? "production" : "development",

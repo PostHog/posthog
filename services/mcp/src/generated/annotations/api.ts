@@ -19,8 +19,10 @@ export const AnnotationsListParams = () => zod.object({
         ),
 })
 
+export const annotationsListQueryLimitMax = 1000
+
 export const AnnotationsListQueryParams = () => zod.object({
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(annotationsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
 })
@@ -194,6 +196,7 @@ export const ChangeFeedListParams = () => zod.object({
         ),
 })
 
+export const changeFeedListQueryKindsDefault = []
 export const changeFeedListQueryLimitDefault = 100
 export const changeFeedListQueryLimitMax = 500
 
@@ -206,6 +209,18 @@ export const ChangeFeedListQueryParams = () => zod.object({
         .datetime({ offset: true })
         .optional()
         .describe('End of the time window (inclusive), ISO 8601. Defaults to now.'),
+    kinds: zod
+        .array(
+            zod
+                .enum(['feature_flag', 'experiment', 'release', 'annotation'])
+                .describe(
+                    '\* `feature_flag` - Feature flag\n\* `experiment` - Experiment\n\* `release` - Release\n\* `annotation` - Annotation'
+                )
+        )
+        .default(changeFeedListQueryKindsDefault)
+        .describe(
+            'Return only these kinds of change. Omit to return every kind. Use `feature_flag` and `experiment` to see configuration edits without releases and annotations.'
+        ),
     limit: zod
         .number()
         .min(1)

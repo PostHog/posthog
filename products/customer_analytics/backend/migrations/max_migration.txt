@@ -1,1 +1,1 @@
-0061_announcement_send_as
+0066_squash_2026_11_02_schema_addons

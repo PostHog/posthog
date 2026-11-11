@@ -1,1 +1,1 @@
-0124_replayscanner_free_only
+0148_squash_2026_11_02_schema_addons

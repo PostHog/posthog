@@ -1083,17 +1083,27 @@ _DUPLICATE_PK_CHECK_SETTINGS: dict[str, Any] = {
 #     execution, not ClickHouse Cloud's cold-resume wake-up latency or a scan
 #     the server hasn't yet gotten around to capping — so the HTTP client's own
 #     read timeout can fire first. Same designed fallback as the budget caps.
+#   - A transient egress-proxy blip (`is_transient_egress_proxy_error`) is our own
+#     infrastructure being briefly unreachable, not a sign the probe's query itself
+#     is suspect. Same designed-fallback reasoning as the budget caps above.
+#   - ACCESS_DENIED (code 497): the connecting user lacks SELECT on this table. The main
+#     extraction query against the same table fails identically and the source already
+#     classifies it as a non-retryable customer-config issue (see `get_non_retryable_errors`),
+#     so capturing it here too is the same failure reported twice under a different frame.
 _EXPECTED_PROBE_FAILURE_SUBSTRINGS: tuple[str, ...] = (
     "is unknown or readonly",
     "MEMORY_LIMIT_EXCEEDED",
     "TIMEOUT_EXCEEDED",
     "Read timed out",
+    "ACCESS_DENIED",
 )
 
 
 def _is_expected_probe_failure(message: str) -> bool:
     """Whether a duplicate-PK probe failure is an expected environment limit or designed fallback."""
-    return any(substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS)
+    return any(
+        substring in message for substring in _EXPECTED_PROBE_FAILURE_SUBSTRINGS
+    ) or is_transient_egress_proxy_error(message)
 
 
 def _has_duplicate_primary_keys(
@@ -1102,13 +1112,16 @@ def _has_duplicate_primary_keys(
     table_name: str,
     primary_keys: list[str] | None,
     logger: FilteringBoundLogger,
+    conditions: Sequence[str] = (),
+    parameters: dict[str, Any] | None = None,
 ) -> bool | None:
     """Check whether the merge key has obvious duplicate combinations.
 
     ClickHouse enforces uniqueness on nothing, so the key an incremental merge
-    matches rows on is unproven until this probes it. We probe a
-    bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows) rather
-    than scanning the whole thing, because:
+    matches rows on is unproven until this probes it. `conditions` and
+    `parameters` limit the probe to the rows the sync reads. Without them we
+    probe a bounded prefix of the table (DUPLICATE_PK_CHECK_ROW_BUDGET rows)
+    rather than scanning the whole thing, because:
 
     1. A user who chose a non-unique key will virtually always show
        duplicates inside any reasonably sized prefix.
@@ -1126,10 +1139,11 @@ def _has_duplicate_primary_keys(
         return False
 
     quoted_keys = ", ".join(_quote_identifier(k) for k in primary_keys)
+    where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
     # LIMIT 1 lets ClickHouse short-circuit the moment it finds a duplicate.
-    query = f"SELECT 1 FROM {_qualified_table(database, table_name)} GROUP BY {quoted_keys} HAVING count() > 1 LIMIT 1"
+    query = f"SELECT 1 FROM {_qualified_table(database, table_name)}{where} GROUP BY {quoted_keys} HAVING count() > 1 LIMIT 1"
     try:
-        result = client.query(query, settings=_DUPLICATE_PK_CHECK_SETTINGS)
+        result = client.query(query, parameters=parameters, settings=_DUPLICATE_PK_CHECK_SETTINGS)
         return len(result.result_rows) > 0
     except ClickHouseError as e:
         # An exhausted budget or a rejected setting compared no rows, so it says nothing about
@@ -1236,12 +1250,17 @@ def _get_partition_settings(
     except ClickHouseError as e:
         # Partitioning is a best-effort optimization; any failure here degrades
         # to default partitioning. A transient rate-limit/gateway response from
-        # the source, or a blip reaching our own egress proxy, isn't actionable
-        # on our side, so don't add error-tracking noise for it. clickhouse-connect
-        # wraps the proxy failure in the ClickHouseError caught here, so it never
-        # reaches the shared classification in `_handle_import_error`.
+        # the source, a read timeout from a slow or cold-starting source host, or a
+        # blip reaching our own egress proxy, isn't actionable on our side, so don't
+        # add error-tracking noise for it. clickhouse-connect wraps the proxy failure
+        # in the ClickHouseError caught here, so it never reaches the shared
+        # classification in `_handle_import_error`.
         message = str(e)
-        if not _is_transient_http_response(message) and not is_transient_egress_proxy_error(message):
+        if (
+            not _is_transient_http_response(message)
+            and "Read timed out" not in message
+            and not is_transient_egress_proxy_error(message)
+        ):
             capture_exception(e)
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
@@ -1301,6 +1320,24 @@ def _needs_to_string_cast(inner: str) -> bool:
     if inner in _ARROW_UNSUPPORTED_EXACT:
         return True
     return any(inner.startswith(prefix) for prefix in _ARROW_UNSUPPORTED_PREFIXES)
+
+
+def _reads_in_incremental_order(
+    columns: list[ClickHouseColumn], should_use_incremental_field: bool, incremental_field: str | None
+) -> bool:
+    """Whether the read returns its rows in ascending order of the incremental value.
+
+    The query has `ORDER BY <incremental field>`, and a paged read walks ascending ranges of that
+    field. A column that the SELECT list casts with `toString()` has an alias with the column's
+    name, so the server can order by the text and not by the number.
+    """
+    if not should_use_incremental_field or incremental_field is None:
+        return False
+    column = next((column for column in columns if column.name == incremental_field), None)
+    if column is None:
+        return False
+    inner, _ = _strip_type_modifiers(column.data_type)
+    return not _needs_to_string_cast(inner)
 
 
 def _build_select_list(columns: list[ClickHouseColumn]) -> str:
@@ -1752,7 +1789,23 @@ def clickhouse_source(
             if sync_type == ExternalDataSchemaSyncType.INCREMENTAL and should_probe_for_duplicates(
                 merge_keys, primary_keys, constraints_enforced=False
             ):
-                probed = _has_duplicate_primary_keys(client, database, table_name, merge_keys, logger)
+                probe_conditions: list[str] = []
+                probe_parameters: dict[str, Any] = {}
+                # The merge can only fail on a duplicate among the rows this run reads.
+                if should_use_incremental_field and incremental_field and db_incremental_field_last_value is not None:
+                    probe_conditions, filter_params = _build_conditions(
+                        should_use_incremental_field=True,
+                        incremental_field=incremental_field,
+                        incremental_field_type=incremental_field_type,
+                        row_filters=row_filters,
+                    )
+                    probe_parameters = {
+                        **filter_params,
+                        "last_value": _last_value_param(db_incremental_field_last_value, incremental_field_type),
+                    }
+                probed = _has_duplicate_primary_keys(
+                    client, database, table_name, merge_keys, logger, probe_conditions, probe_parameters
+                )
                 # Only a probe that ran proves anything.
                 has_duplicate_primary_keys = probed is True
         finally:
@@ -1905,4 +1958,9 @@ def clickhouse_source(
         partition_size=partition_settings.partition_size if partition_settings else None,
         rows_to_sync=rows_to_sync,
         has_duplicate_primary_keys=has_duplicate_primary_keys,
+        sort_mode=(
+            "asc"
+            if _reads_in_incremental_order(list(table.columns), should_use_incremental_field, incremental_field)
+            else None
+        ),
     )

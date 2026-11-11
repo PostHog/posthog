@@ -6,6 +6,7 @@ import {
     BooleanFlagSnippet,
     BubbleInstallation,
     DjangoInstallation,
+    DotNetInstallation,
     FlagPayloadSnippet,
     FlutterInstallation,
     FramerInstallation,
@@ -117,6 +118,10 @@ const FeatureFlagsRubyOnRailsInstructionsWrapper = withOnboardingDocsWrapper({
 })
 const FeatureFlagsGoInstructionsWrapper = withOnboardingDocsWrapper({
     Installation: GoInstallation,
+    snippets: SERVER_SDK_SNIPPETS,
+})
+const FeatureFlagsDotNetInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: DotNetInstallation,
     snippets: SERVER_SDK_SNIPPETS,
 })
 const FeatureFlagsAPIInstructionsWrapper = withOnboardingDocsWrapper({ Installation: APIInstallation })
@@ -282,6 +287,7 @@ export const FeatureFlagsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.ASTRO]: FeatureFlagsAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: FeatureFlagsBubbleInstructionsWrapper,
     [SDKKey.DJANGO]: FeatureFlagsDjangoInstructionsWrapper,
+    [SDKKey.DOTNET]: FeatureFlagsDotNetInstructionsWrapper,
     [SDKKey.FLUTTER]: FeatureFlagsFlutterInstructionsWrapper,
     [SDKKey.FRAMER]: FeatureFlagsFramerInstructionsWrapper,
     [SDKKey.GO]: FeatureFlagsGoInstructionsWrapper,

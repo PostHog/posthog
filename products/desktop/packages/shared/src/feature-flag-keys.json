@@ -16,8 +16,8 @@
   "DESKTOP_HOME_FLAG": "desktop-home-flag",
   "DESKTOP_WORK_LAYOUT_FLAG": "desktop-work-layout",
   "DISCOVERY_RUN_FLAG": "posthog-code-discovery-run",
-  "EXPERIMENT_SUGGESTIONS_FLAG": "posthog-code-experiment-suggestions",
   "FAST_MODE_FLAG": "posthog-desktop-fast-mode",
+  "GITLAB_INTEGRATION_FLAG": "posthog-desktop-gitlab-integration",
   "LOCAL_MCP_IMPORT_FLAG": "posthog-code-local-mcp-import",
   "LOOPS_FLAG": "loops",
   "MCP_GATEWAY_FLAG": "mcp-gateway",
@@ -33,7 +33,6 @@
   "TASK_ANALYSIS_FLAG": "posthog-code-task-analysis",
   "TASK_COST_VISIBLE_FLAG": "posthog-code-task-cost-visible",
   "TASKS_PREWARM_SANDBOX_FLAG": "tasks-prewarm-sandbox",
-  "TRIAGE_FOCUS_FLAG": "posthog-desktop-triage-focus",
   "TWIG_CLOUD_MODE_FLAG": "twig-cloud-mode-toggle",
   "USER_SPEND_LIMIT_FLAG": "ai-gateway-user-spend-limit"
 }

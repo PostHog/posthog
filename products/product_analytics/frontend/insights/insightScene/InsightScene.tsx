@@ -4,12 +4,13 @@ import { useEffect } from 'react'
 
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { withBackLink } from 'scenes/analytics/analyticsBackLink'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/schema/node-guards'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { isBIVisualizationNode, isDataVisualizationNode } from '~/queries/utils'
 import { ItemMode } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
@@ -34,7 +35,7 @@ export function InsightScene(): JSX.Element {
             insightMode === ItemMode.Edit
         ) {
             if (isBIVisualizationNode(insight.query) && !biEnabled) {
-                router.actions.replace(urls.insightView(insightId))
+                router.actions.replace(withBackLink(urls.insightView(insightId)))
                 return
             }
             const editorUrl = isBIVisualizationNode(insight.query) ? urls.businessIntelligence : urls.sqlEditor

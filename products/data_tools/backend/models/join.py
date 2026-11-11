@@ -4,6 +4,7 @@ from warnings import warn
 from django.db import models
 from django.utils import timezone
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
 
@@ -30,7 +31,11 @@ class DataWarehouseViewLink(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     to_join_key = models.CharField(max_length=400)
 
 
-class DataWarehouseJoin(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
+# nosemgrep: no-new-uuidt-models -- an existing model, and a new primary key default would need a migration.
+class DataWarehouseJoin(ModelActivityMixin, CreatedMetaFields, UUIDTModel, DeletedMetaFields):
+    # The join API hard deletes. Other paths soft delete through save().
+    activity_logging_on_delete = True
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     source_table_name = models.CharField(max_length=400)
     source_table_key = models.CharField(max_length=400)

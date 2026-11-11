@@ -1,10 +1,19 @@
 from typing import Any
 
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
+
 from posthog.models.activity_logging.activity_log import AuditableScope, Change, Detail, changes_between, log_activity
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentHoldout,
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+)
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.models.web_experiment import WebExperiment
 
@@ -28,6 +37,18 @@ def _is_derived_running_time_drift(change: Change) -> bool:
         if value is not None and not isinstance(value, dict):
             return False
     return _without_derived_running_time_keys(change.before) == _without_derived_running_time_keys(change.after)
+
+
+def _is_metric_fingerprint_drift(change: Change) -> bool:
+    if change.field not in ("metrics", "metrics_secondary"):
+        return False
+    if not isinstance(change.before, list) or not isinstance(change.after, list):
+        return False
+    if not all(isinstance(metric, dict) for metric in [*change.before, *change.after]):
+        return False
+    before = [{key: value for key, value in metric.items() if key != "fingerprint"} for metric in change.before]
+    after = [{key: value for key, value in metric.items() if key != "fingerprint"} for metric in change.after]
+    return before == after
 
 
 @mutable_receiver(model_activity_signal, sender=Experiment)
@@ -67,7 +88,11 @@ def handle_experiment_change(
     # changes. A change earns a log entry only when a calculator input was edited.
     # log_activity drops an "updated" activity whose changes end up empty, so a pure-drift
     # save produces no row at all.
-    changes = [change for change in changes if not _is_derived_running_time_drift(change)]
+    changes = [
+        change
+        for change in changes
+        if not _is_derived_running_time_drift(change) and not _is_metric_fingerprint_drift(change)
+    ]
 
     log_activity(
         organization_id=after_update.team.organization_id,
@@ -121,4 +146,102 @@ def handle_team_experiments_config_change(
         scope="Team",
         activity="updated",
         detail=Detail(changes=changes, name=after_update.team.name),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=ExperimentSavedMetric)
+def handle_experiment_saved_metric_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        activity=activity,
+        detail=Detail(
+            # need to use ExperimentSavedMetric here for field exclusions..
+            changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
+            name=after_update.name,
+            type="shared_metric",
+        ),
+    )
+
+
+@receiver(pre_delete, sender=ExperimentSavedMetric)
+def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=instance.id,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        activity="deleted",
+        detail=Detail(name=instance.name, type="shared_metric"),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=ExperimentHoldout)
+def handle_experiment_holdout_change(
+    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
+):
+    log_activity(
+        organization_id=after_update.team.organization_id,
+        team_id=after_update.team_id,
+        user=user or after_update.created_by,
+        was_impersonated=was_impersonated,
+        item_id=after_update.id,
+        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=after_update.name,
+            type="holdout",
+        ),
+    )
+
+
+@receiver(pre_delete, sender=ExperimentHoldout)
+def handle_experiment_holdout_delete(sender, instance, **kwargs):
+    log_activity(
+        organization_id=instance.team.organization_id,
+        team_id=instance.team_id,
+        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=activity_storage.get_was_impersonated(),
+        item_id=instance.id,
+        scope="Experiment",
+        activity="deleted",
+        detail=Detail(name=instance.name, type="holdout"),
+    )
+
+
+@mutable_receiver(model_activity_signal, sender=ExperimentToSavedMetric)
+def handle_experiment_to_saved_metric_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    instance = after_update or before_update
+    if not instance:
+        return
+
+    log_activity(
+        organization_id=instance.experiment.team.organization_id,
+        team_id=instance.experiment.team_id,
+        user=user or activity_storage.get_user(),
+        was_impersonated=was_impersonated or activity_storage.get_was_impersonated(),
+        item_id=instance.experiment_id,
+        # Stored under the public Experiment scope so it shows up in the experiment
+        # activity log feed. The describer arm on `type="saved_metric_config"`
+        # renders the row.
+        scope="Experiment",
+        activity=activity,
+        detail=Detail(
+            # `"ExperimentToSavedMetric"` is an InternalActivityScope key used only for
+            # field_exclusions / changes_between — never written to ActivityLog.scope.
+            changes=changes_between("ExperimentToSavedMetric", previous=before_update, current=after_update),
+            name=instance.saved_metric.name,
+            type="saved_metric_config",
+        ),
     )

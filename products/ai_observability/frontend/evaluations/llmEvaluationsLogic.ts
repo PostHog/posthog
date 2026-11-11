@@ -34,7 +34,8 @@ import { evaluationCanResolveModel } from './evaluationCapabilities'
 import { listAllEvaluations, patchEvaluation } from './evaluationsApi'
 import { EvaluationConfig } from './types'
 
-const INITIAL_DATE_FROM = '-24h' as string | null
+// The overview compares each day with the previous period, which a 24 hour range is too short to show.
+const INITIAL_DATE_FROM = '-7d' as string | null
 const INITIAL_DATE_TO = null as string | null
 
 export type LLMEvaluationsLogicProps = Record<string, never>
@@ -58,19 +59,15 @@ export interface llmEvaluationsLogicValues {
     deletingDirectoryId: string | null
     detectorEvaluationIds: string[]
     directoryEditor: EvaluationDirectoryEditor | null
-    displayedEvaluations: EvaluationConfig[]
     evaluationDirectories: EvaluationDirectoryApi[]
     evaluationDirectoriesLoading: boolean
     evaluations: EvaluationConfig[]
-    evaluationsFilter: string
     evaluationsLoadFailed: boolean
     evaluationsLoading: boolean
     evaluationsSettled: boolean
-    filteredEvaluations: EvaluationConfig[]
     movingEvaluationId: string | null
     selectedDirectory: EvaluationDirectoryApi | null
     selectedDirectoryId: string | null
-    showDisabledEvaluations: boolean
     submitDirectoryLoading: boolean
     unhealthyProviderKeysUsedByEvaluations: LLMProviderKey[]
 }
@@ -167,12 +164,6 @@ export interface llmEvaluationsLogicActions {
     setDirectoryEditorName: (name: string) => {
         name: string
     }
-    setEvaluationsFilter: (filter: string) => {
-        filter: string
-    }
-    setShowDisabledEvaluations: (show: boolean) => {
-        show: boolean
-    }
     submitDirectory: () => {
         value: true
     }
@@ -201,21 +192,11 @@ export interface llmEvaluationsLogicActions {
 export interface llmEvaluationsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         detectorEvaluationIds: (evaluations: EvaluationConfig[]) => string[]
-        filteredEvaluations: (
-            evaluations: EvaluationConfig[],
-            evaluationsFilter: string,
-            showDisabledEvaluations: boolean
-        ) => EvaluationConfig[]
         selectedDirectoryId: (searchParams: Record<string, any>) => string | null
         selectedDirectory: (
             evaluationDirectories: EvaluationDirectoryApi[],
             selectedDirectoryId: string | null
         ) => EvaluationDirectoryApi | null
-        displayedEvaluations: (
-            filteredEvaluations: EvaluationConfig[],
-            evaluationsFilter: string,
-            selectedDirectoryId: string | null
-        ) => EvaluationConfig[]
         canEnableEvaluation: (
             activeProviderKey: LLMProviderKey | null | undefined
         ) => (evaluation: EvaluationConfig) => boolean
@@ -266,8 +247,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         toggleEvaluationEnabled: (id: string) => ({ id }),
         toggleEvaluationEnabledSuccess: (id: string) => ({ id }),
         toggleEvaluationEnabledFailure: (id: string, error: string) => ({ id, error }),
-        setEvaluationsFilter: (filter: string) => ({ filter }),
-        setShowDisabledEvaluations: (show: boolean) => ({ show }),
     }),
 
     reducers({
@@ -339,18 +318,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 loadEvaluations: () => false,
                 loadEvaluationsFailure: () => true,
                 loadEvaluationsSuccess: () => false,
-            },
-        ],
-        evaluationsFilter: [
-            '',
-            {
-                setEvaluationsFilter: (_, { filter }) => filter,
-            },
-        ],
-        showDisabledEvaluations: [
-            true,
-            {
-                setShowDisabledEvaluations: (_, { show }) => show,
             },
         ],
         directoryEditor: [
@@ -565,26 +532,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             (evaluations: EvaluationConfig[]): string[] =>
                 evaluations.filter((evaluation) => evaluationIsDetector(evaluation)).map((evaluation) => evaluation.id),
         ],
-        filteredEvaluations: [
-            (s) => [s.evaluations, s.evaluationsFilter, s.showDisabledEvaluations],
-            (evaluations: EvaluationConfig[], filter: string, showDisabledEvaluations: boolean) => {
-                const visible = showDisabledEvaluations
-                    ? evaluations
-                    : evaluations.filter((e: EvaluationConfig) => e.enabled)
-                if (!filter) {
-                    return visible
-                }
-                return visible.filter(
-                    (e: EvaluationConfig) =>
-                        e.name.toLowerCase().includes(filter.toLowerCase()) ||
-                        e.description?.toLowerCase().includes(filter.toLowerCase()) ||
-                        ('prompt' in e.evaluation_config &&
-                            e.evaluation_config.prompt.toLowerCase().includes(filter.toLowerCase())) ||
-                        ('source' in e.evaluation_config &&
-                            e.evaluation_config.source.toLowerCase().includes(filter.toLowerCase()))
-                )
-            },
-        ],
         selectedDirectoryId: [
             (s) => [s.searchParams],
             (searchParams: Record<string, unknown>): string | null =>
@@ -597,19 +544,6 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 selectedDirectoryId: string | null
             ): EvaluationDirectoryApi | null =>
                 directories.find((directory) => directory.id === selectedDirectoryId) ?? null,
-        ],
-        displayedEvaluations: [
-            (s) => [s.filteredEvaluations, s.evaluationsFilter, s.selectedDirectoryId],
-            (
-                filteredEvaluations: EvaluationConfig[],
-                evaluationsFilter: string,
-                selectedDirectoryId: string | null
-            ): EvaluationConfig[] =>
-                evaluationsFilter
-                    ? filteredEvaluations
-                    : filteredEvaluations.filter(
-                          (evaluation) => (evaluation.directory_id ?? null) === selectedDirectoryId
-                      ),
         ],
         canEnableEvaluation: [
             (s) => [s.activeProviderKey],

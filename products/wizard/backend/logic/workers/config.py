@@ -7,6 +7,7 @@ from products.tasks.backend.facade.sandbox import SandboxTemplate
 WIZARD_TIMEOUT_SECONDS = 45 * 60
 WIZARD_TIMEOUT_EXIT_CODE = 124
 WIZARD_ERROR_DETAIL_LENGTH = 2000
+WIZARD_ERROR_MESSAGE_LENGTH = 500
 WIZARD_ERROR_OUTPUT_PREFIX = "phw-error:"
 MAX_HANDOFF_BODY_BYTES = 60_000
 LOCAL_WIZARD_BUILD_TIMEOUT_SECONDS = 15 * 60
@@ -17,13 +18,16 @@ WIZARD_DIFF_OUTPUT_PATH = "/tmp/posthog-wizard-diff.patch"
 LOCAL_WIZARD_SOURCE_ENTRIES = (
     "README.md",
     "bin.ts",
+    "main.ts",
     "package.json",
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "scripts",
     "src",
-    "tsconfig.build.json",
+    "tsconfig.base.json",
+    "tsconfig.bin.json",
     "tsconfig.json",
+    "tsconfig.no-tui.json",
     "tsdown.config.ts",
     "types",
 )

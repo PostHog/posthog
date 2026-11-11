@@ -274,27 +274,22 @@ describe('accountSessionReplaysLogic', () => {
 
     it('opens the global player without changing filters or rows and emits no customer data', async () => {
         const capture = jest.spyOn(posthog, 'capture')
-        sessionPlayerModalLogic.mount()
-        try {
-            const logic = mount()
-            await expectLogic(logic).toFinishAllListeners()
-            logic.actions.setUser(logic.values.availableUsers[0])
-            await expectLogic(logic).toFinishAllListeners()
-            const list = logic.values.replayList
-            logic.actions.openRecording('recording-one')
-            expect(sessionPlayerModalLogic.values.activeSessionRecording).toEqual({ id: 'recording-one' })
-            sessionPlayerModalLogic.actions.closeSessionPlayer()
-            expect(logic.values.replayList).toBe(list)
-            expect(logic.values.selectedUser?.value).toBe(PERSON_UUID)
-            expect(capture).toHaveBeenCalledWith(AccountsEvents.ReplaysRecordingOpened)
-            const replayCalls = capture.mock.calls.filter(([event]) =>
-                event.startsWith('customer analytics account replay')
-            )
-            expect(JSON.stringify(replayCalls)).not.toMatch(
-                /account-key-one|recording-one|Example user|example-user|11111111/
-            )
-        } finally {
-            sessionPlayerModalLogic.unmount()
-        }
+        const logic = mount()
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setUser(logic.values.availableUsers[0])
+        await expectLogic(logic).toFinishAllListeners()
+        const list = logic.values.replayList
+        logic.actions.openRecording('recording-one')
+        expect(sessionPlayerModalLogic.findMounted()?.values.activeSessionRecording).toEqual({ id: 'recording-one' })
+        sessionPlayerModalLogic.actions.closeSessionPlayer()
+        expect(logic.values.replayList).toBe(list)
+        expect(logic.values.selectedUser?.value).toBe(PERSON_UUID)
+        expect(capture).toHaveBeenCalledWith(AccountsEvents.ReplaysRecordingOpened)
+        const replayCalls = capture.mock.calls.filter(([event]) =>
+            event.startsWith('customer analytics account replay')
+        )
+        expect(JSON.stringify(replayCalls)).not.toMatch(
+            /account-key-one|recording-one|Example user|example-user|11111111/
+        )
     })
 })

@@ -14,7 +14,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
-from posthog.hogql.errors import ExposedHogQLError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 
 from posthog.api_queries_budget import QueryCost, record_request_query_cost
 from posthog.clickhouse.client import (
@@ -37,6 +37,12 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.shared_link_user import SharedLinkUser
+
+
+def _exposed_from(cause: Exception, message: str) -> ExposedHogQLError:
+    error = ExposedHogQLError(message)
+    error.__cause__ = cause
+    return error
 
 
 def build_query(sql):
@@ -75,35 +81,86 @@ class TestQueryStatusManager(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("at_capacity", ClickHouseAtCapacity(), ClickHouseAtCapacity.default_detail, "clickhouse_at_capacity"),
-            (
-                "ran_concurrently",
-                QueryRanConcurrently(),
-                QueryRanConcurrently.default_detail,
-                "query_ran_concurrently",
-            ),
-            ("concurrency_limit", ConcurrencyLimitExceeded(), None, "clickhouse_at_capacity"),
+            (ClickHouseAtCapacity, 5, "clickhouse_at_capacity"),
+            (ConcurrencyLimitExceeded, 11, "clickhouse_at_capacity"),
+            (QueryRanConcurrently, 11, "query_ran_concurrently"),
+            (RuntimeError, 1, None),
         ]
     )
-    def test_process_query_task_on_failure_marks_status_errored(self, _name, exc, error_message, error_code):
+    def test_process_query_task_on_failure_marks_status_errored(self, error_type, attempts, error_code):
         from posthog.tasks.tasks import process_query_task
 
         self.manager.store_query_status(self.query_status)
 
-        process_query_task.on_failure(
-            exc=exc,
-            task_id="celery-task-id",
-            args=(self.team_id, None, self.query_id),
-            kwargs={},
-            einfo=None,
-        )
+        with (
+            patch("posthog.clickhouse.client.execute_process_query", side_effect=error_type()) as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            task_result = process_query_task.apply(
+                args=(self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False), throw=False
+            )
+
+        self.assertTrue(task_result.failed())
+        self.assertIsInstance(task_result.result, error_type)
+        self.assertEqual(execute.call_count, attempts)
 
         result = self.manager.get_query_status()
         self.assertTrue(result.complete)
         self.assertTrue(result.error)
-        self.assertEqual(result.error_message, error_message)
+        self.assertEqual(result.error_message, getattr(error_type, "default_detail", None))
         self.assertEqual(result.error_code, error_code)
         self.assertIsNotNone(result.end_time)
+
+    @parameterized.expand([0, 1, 2, 3, 4])
+    def test_process_query_task_recovers_from_capacity_errors(self, failures):
+        from posthog.tasks.tasks import process_query_task
+
+        error = ClickHouseAtCapacity()
+        with (
+            patch(
+                "posthog.clickhouse.client.execute_process_query", side_effect=[error] * failures + [None]
+            ) as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+            patch.object(process_query_task, "retry", wraps=process_query_task.retry) as retry,
+        ):
+            result = process_query_task.apply(
+                args=(self.team_id, None, self.query_id, build_query("SELECT 1"), {}, False), throw=False
+            )
+
+        self.assertTrue(result.successful())
+        self.assertEqual(execute.call_count, failures + 1)
+        self.assertEqual([call.kwargs["countdown"] for call in retry.call_args_list], [error.wait] * failures)
+
+    @parameterized.expand([False, True])
+    def test_process_query_task_respects_team_concurrency_limit(self, keyword_args):
+        from posthog.tasks.tasks import process_query_task
+
+        self.manager.store_query_status(self.query_status)
+        expires_at = (datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=5)).timestamp()
+        get_client().zadd(
+            f"celery_running_tasks:{process_query_task.name}:{self.team_id}",
+            {f"occupied-{i}": expires_at for i in range(10)},
+        )
+        arguments = {
+            "team_id": self.team_id,
+            "user_id": None,
+            "query_id": self.query_id,
+            "query_json": build_query("SELECT 1"),
+            "query_tags": {},
+            "is_query_service": False,
+        }
+        with (
+            patch("posthog.clickhouse.client.execute_process_query") as execute,
+            patch.dict(process_query_task.app.conf.changes, task_eager_propagates=False),
+        ):
+            result = process_query_task.apply(
+                **({"kwargs": arguments} if keyword_args else {"args": tuple(arguments.values())}), throw=False
+            )
+
+        self.assertTrue(result.failed())
+        self.assertIsInstance(result.result, ConcurrencyLimitExceeded)
+        execute.assert_not_called()
+        self.assertTrue(self.manager.get_query_status().complete)
 
     def test_store_clickhouse_query_progress(self):
         query_status = {f"{self.team_id}_{self.query_id}_1": {"progress": 1234}}
@@ -422,6 +479,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.error_message
         self.assertRegex(result.error_message, "trailing tokens after expression")
+        self.assertEqual(result.error_code, "hogql_syntax_error")
 
     def test_async_query_user_safe_error_carries_error_code(self):
         query = build_query("SELECT * FROM events")
@@ -440,19 +498,28 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
     @parameterized.expand(
         [
-            ("unknown_identifier", 47, "unknown_identifier"),
-            ("unsupported_method", 1, "unsupported_method"),
-            ("syntax_error", 62, None),
-            ("query_was_cancelled", 394, None),
-            ("temporary_server_fault", 252, "too_many_parts"),
-            ("unknown_server_fault", 999_999, None),
+            # code_name can be lost when an internal error is re-raised from another thread.
+            ("without_user_copy", InternalCHQueryError("DB::Exception: stored-secret", code=62), "syntax_error"),
+            (
+                "temporary_server_fault",
+                InternalCHQueryError("DB::Exception: stored-secret", code=252),
+                "too_many_parts",
+            ),
+            (
+                "unknown_server_fault",
+                InternalCHQueryError("DB::Exception: stored-secret", code=999_999),
+                "unknown_exception",
+            ),
+            (
+                "python_error",
+                json.JSONDecodeError("stored-secret", "stored-secret", 0),
+                "unhandled_json_decode_error",
+            ),
         ]
     )
-    def test_async_query_internal_ch_error_code(self, _name, code, expected_code):
+    def test_async_query_internal_error_code(self, _name, error, expected_code):
         query = build_query("SELECT * FROM events")
         query_id = uuid.uuid4().hex
-        # code_name can be lost when an internal error is re-raised from another thread.
-        error = InternalCHQueryError("DB::Exception: stored-secret", code=code)
 
         with (
             patch("posthog.api.services.query.process_query_dict", side_effect=error),
@@ -492,6 +559,22 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
                 ExposedCHQueryError("Expected an integer argument", code=43),
                 "illegal_type_of_argument",
                 "Expected an integer argument",
+                False,
+            ),
+            (
+                "wrapped_database_error",
+                False,
+                _exposed_from(ConnectionError("stored-secret"), "Warehouse connection failed"),
+                "unhandled_connection_error",
+                "Warehouse connection failed",
+                False,
+            ),
+            (
+                "wrapped_query_error",
+                False,
+                _exposed_from(QueryError("Unknown table `evnts`."), "Warehouse SQL is invalid"),
+                "hogql_query_error",
+                "Warehouse SQL is invalid",
                 False,
             ),
         ]

@@ -4,7 +4,6 @@ import {
     props,
     MakeLogicType,
     actions,
-    afterMount,
     connect,
     isBreakpoint,
     kea,
@@ -15,9 +14,10 @@ import {
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { componentsToDayJs, dateStringToComponents, dateStringToDayJs } from 'lib/utils/dateFilters'
-import { percentage } from 'lib/utils/numbers'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { escapeHogQLString } from 'lib/utils/hogql'
 import { isAbortedRequest } from 'lib/utils/requests'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -30,12 +30,9 @@ import {
     CompareFilter,
     CustomEventConversionGoal,
     DataTableNode,
-    EventsNode,
-    GroupNode,
     HogQLQuery,
     InsightVizNode,
     NodeKind,
-    TrendsFilter,
     WebAnalyticsConversionGoal,
     WebAnalyticsOrderByFields,
     WebAnalyticsPropertyFilters,
@@ -43,21 +40,33 @@ import {
     WebStatsBreakdown,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier, escapeHogQLString } from '~/queries/utils'
+import { ActionType, InsightLogicProps, PropertyFilterType, PropertyOperator, TeamType } from '~/types'
+
 import {
-    ActionType,
-    BaseMathType,
-    ChartDisplayType,
-    FilterLogicalOperator,
-    InsightLogicProps,
-    PropertyFilterType,
-    PropertyOperator,
-    TeamType,
-} from '~/types'
+    AI_VIEW,
+    CRAWLER,
+    GOOGLE_VIEW,
+    HUMAN_EVENTS,
+    HUMAN_VIEW,
+    PAGE_PERFORMANCE_EVENTS,
+    PagePerformanceMetric,
+    PagePerformanceWindow,
+    RAW_PATH,
+    AI_ASSISTANT_BREAKDOWN,
+    AI_CRAWLER_FILTERS,
+    buildAiCrawlerTrendQuery,
+    buildAiReferralTableQuery,
+    buildAiReferralTrendQuery,
+    buildBreakdownQuery,
+    buildPagePerformancePathExpr,
+    pageCandidatesPredicate,
+    pageKeyExpr,
+    resolvePagePerformanceWindow,
+    windowPredicates,
+} from 'products/web_analytics/frontend/searchAndAi/searchAndAiQueries'
 
 import type { TeamPublicType } from '../../types'
 import {
-    BOT_ANALYTICS_EVENTS,
     TileId,
     WEB_ANALYTICS_DATA_COLLECTION_NODE_ID,
     WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -69,24 +78,16 @@ import { webAnalyticsLogic } from './webAnalyticsLogic'
 import type { DateFilterState } from './webAnalyticsLogic'
 import { WebAnalyticsLogicProps } from './webAnalyticsLogicProps'
 
-const PAGE_PERFORMANCE_EVENTS = "('$pageview', '$screen', '$http_log')"
-
-const HUMAN_EVENTS = "('$pageview', '$screen')"
-
 const PAGE_TABLE_LIMIT = 20
 
+const STATIC_ASSET_PATH_FILTER: WebAnalyticsPropertyFilters[number] = {
+    key: '$pathname',
+    value: '(?i)\\.(png|jpe?g|gif|svg|ico|webp|avif|bmp|css|js|mjs|map|woff2?|ttf|otf|eot)$',
+    operator: PropertyOperator.NotRegex,
+    type: PropertyFilterType.Event,
+}
+
 const PAGE_CANDIDATE_LIMIT = 200
-
-const HUMAN_VIEW = "(event = '$pageview' OR event = '$screen') AND NOT `$virt_is_bot`"
-
-const GOOGLE_VIEW = `${HUMAN_VIEW} AND session.$channel_type = 'Organic Search' AND session.$entry_referring_domain ILIKE '%google%'`
-
-const AI_VIEW = `${HUMAN_VIEW} AND session.$channel_type = 'AI'`
-
-const CRAWLER =
-    "`$virt_is_bot` = true AND `$virt_bot_name` != '' AND `$virt_traffic_category` IN ('ai_crawler', 'ai_assistant', 'ai_search')"
-
-export type PagePerformanceMetric = 'llm_referrals' | 'agent_crawls' | 'google_search'
 
 export interface PagePerformanceBreakdownState {
     page: string
@@ -96,14 +97,6 @@ export interface PagePerformanceBreakdownState {
 export interface PagePerformanceOrderBy {
     column: string
     direction: 'ASC' | 'DESC'
-}
-
-export interface PagePerformanceWindow {
-    currentFrom: dayjs.Dayjs | null
-    currentTo: dayjs.Dayjs
-    previousFrom: dayjs.Dayjs | null
-    previousTo: dayjs.Dayjs | null
-    timezone: string
 }
 
 export interface OverviewTotals {
@@ -240,8 +233,6 @@ export const resolvePagePerformanceDataState = (
     }
 }
 
-const tsLiteral = (date: dayjs.Dayjs, timezone: string): string => date.tz(timezone).format("'YYYY-MM-DD HH:mm:ss'")
-
 const conversionMatch = (conversionGoal: WebAnalyticsConversionGoal | null): string | null => {
     if (conversionGoal && 'actionId' in conversionGoal) {
         return `matchesAction(${(conversionGoal as ActionConversionGoal).actionId})`
@@ -250,55 +241,6 @@ const conversionMatch = (conversionGoal: WebAnalyticsConversionGoal | null): str
         return `event = ${escapeHogQLString((conversionGoal as CustomEventConversionGoal).customEventName)}`
     }
     return null
-}
-
-const RAW_PATH = 'properties.$pathname'
-
-export const buildPagePerformancePathExpr = (
-    source: string,
-    enabled: boolean,
-    filters: { regex?: string; alias?: string }[] | undefined
-): string => {
-    if (!enabled || !filters?.length) {
-        return source
-    }
-    let expr = source
-    for (const f of filters) {
-        if (f.regex && f.alias != null) {
-            expr = `replaceRegexpAll(${expr}, ${escapeHogQLString(f.regex)}, ${escapeHogQLString(f.alias)})`
-        }
-    }
-    return expr
-}
-
-export const resolvePagePerformanceWindow = (
-    dateFilter: DateFilterState,
-    compareFilter: CompareFilter,
-    timezone: string,
-    now: dayjs.Dayjs = dayjs().tz(timezone)
-): PagePerformanceWindow => {
-    const currentFrom =
-        dateFilter.dateFrom === 'all'
-            ? null
-            : (dateStringToDayJs(dateFilter.dateFrom, timezone) ?? now.subtract(7, 'day'))
-    const parsedCurrentTo = dateFilter.dateTo ? dateStringToDayJs(dateFilter.dateTo, timezone) : null
-    const currentTo =
-        parsedCurrentTo && /^\d{4}-\d{2}-\d{2}$/.test(dateFilter.dateTo ?? '')
-            ? parsedCurrentTo.endOf('day')
-            : (parsedCurrentTo ?? now)
-
-    if (!compareFilter.compare || !currentFrom) {
-        return { currentFrom, currentTo, previousFrom: null, previousTo: null, timezone }
-    }
-
-    const spanMs = Math.max(currentTo.diff(currentFrom), 1)
-    const compareToComponents = dateStringToComponents(compareFilter.compare_to ?? null)
-    const previousFrom = compareToComponents
-        ? componentsToDayJs(compareToComponents, currentFrom, timezone)
-        : currentFrom.subtract(spanMs, 'millisecond')
-    const previousTo = compareToComponents ? previousFrom.add(spanMs, 'millisecond') : currentFrom
-
-    return { currentFrom, currentTo, previousFrom, previousTo, timezone }
 }
 
 export interface ParsedOverviewResponse {
@@ -420,23 +362,6 @@ export const parseMetricCell = (value: unknown): MetricCellValue | null =>
         ? { current: Number(value[0] ?? 0), previous: Number(value[1] ?? 0) }
         : null
 
-/** Shares below 10% get a decimal, so a page holding 0.4% of site traffic doesn't read as 0%. */
-export const formatShare = (part: number, whole: number): string | null => {
-    if (whole <= 0 || part <= 0) {
-        return null
-    }
-    const fraction = part / whole
-    return percentage(fraction, fraction < 0.1 ? 1 : 0)
-}
-
-/** Percent change against the previous period, or null when there is no comparable baseline. */
-export const changeVsPrevious = (current: number, previous: number): number | null => {
-    if (previous === 0) {
-        return null
-    }
-    return current === previous ? 0 : current / previous - 1
-}
-
 const SORTABLE_COLUMNS = new Set([
     'breakdown_value',
     'visitors',
@@ -448,23 +373,6 @@ const SORTABLE_COLUMNS = new Set([
 ])
 const orderByExpr = (column: string): string =>
     `"context.columns.${SORTABLE_COLUMNS.has(column) ? column : 'visitors'}"`
-
-const windowPredicates = (window: PagePerformanceWindow): { cur: string; prev: string; full: string } => {
-    const upperBound = `timestamp <= ${tsLiteral(window.currentTo, window.timezone)}`
-    const cur = window.currentFrom
-        ? `timestamp >= ${tsLiteral(window.currentFrom, window.timezone)} AND ${upperBound}`
-        : upperBound
-    const prev =
-        window.previousFrom && window.previousTo
-            ? `timestamp >= ${tsLiteral(window.previousFrom, window.timezone)} AND timestamp < ${tsLiteral(window.previousTo, window.timezone)}`
-            : 'false'
-    return { cur, prev, full: `(${cur}) OR (${prev})` }
-}
-
-const pageKeyExpr = (pathExpr: string): string => `concat(coalesce(properties.$host, ''), ${pathExpr})`
-
-const pageCandidatesPredicate = (pageKey: string, candidates: string[]): string =>
-    candidates.length > 0 ? `${pageKey} IN (${candidates.map(escapeHogQLString).join(', ')})` : 'false'
 
 /**
  * In the page_durations subquery, `{filters}` matches the carrier event (the NEXT pageview, or the
@@ -596,73 +504,13 @@ GROUP BY GROUPING SETS ((bucket), ())
 `
 }
 
-const buildBreakdownQuery = (
-    metric: PagePerformanceMetric,
-    page: string,
-    window: PagePerformanceWindow,
-    pathExpr: string
-): string | null => {
-    const { cur } = windowPredicates(window)
-    const pageMatch = `${pageKeyExpr(pathExpr)} = ${escapeHogQLString(page)}`
-
-    if (metric === 'llm_referrals') {
-        return `
-SELECT
-    coalesce(nullIf(session.$entry_referring_domain, ''), '(direct)') AS "Assistant",
-    uniq(person_id) AS "Visitors"
-FROM events
-WHERE and(${AI_VIEW}, ${pageMatch}, (${cur}), {filters})
-GROUP BY "Assistant"
-ORDER BY "Visitors" DESC
-LIMIT 10
-`
-    }
-    if (metric === 'agent_crawls') {
-        return `
-SELECT
-    \`$virt_bot_name\` AS "Crawler",
-    \`$virt_traffic_category\` AS "Category",
-    count() AS "Requests",
-    max(timestamp) AS "Last seen"
-FROM events
-WHERE and(${CRAWLER}, event IN ${PAGE_PERFORMANCE_EVENTS}, ${pageMatch}, (${cur}), {filters})
-GROUP BY "Crawler", "Category"
-ORDER BY "Requests" DESC
-LIMIT 50
-`
-    }
-    return null
-}
-
-export const buildGoogleSearchConsoleQuery = (
-    tableName: string,
-    page: string,
-    window: PagePerformanceWindow,
-    isPathCleaningEnabled: boolean,
-    pathCleaningFilters: { regex?: string; alias?: string }[] | undefined
-): string => {
-    const gscPath = buildPagePerformancePathExpr('path(page)', isPathCleaningEnabled, pathCleaningFilters)
-    const gscPageKey = `concat(domain(page), ${gscPath})`
-    const dateField = 'toDate(date)'
-    const dateUpperBound = `${dateField} <= toDate(${tsLiteral(window.currentTo, window.timezone)})`
-    const datePredicate = window.currentFrom
-        ? `${dateField} >= toDate(${tsLiteral(window.currentFrom, window.timezone)}) AND ${dateUpperBound}`
-        : dateUpperBound
-
-    return `SELECT query AS "Query", sum(clicks) AS "Clicks", round(avg(position), 1) AS "Avg. position"
-FROM ${escapeDottedHogQLIdentifier(tableName)}
-WHERE ${gscPageKey} = ${escapeHogQLString(page)} AND (${datePredicate})
-GROUP BY query
-ORDER BY sum(clicks) DESC
-LIMIT 20`
-}
-
 export interface pagePerformanceLogicValues {
     allActions: ActionType[]
     currentTeam: TeamPublicType | TeamType | null
     compareFilter: CompareFilter
     conversionGoal: WebAnalyticsConversionGoal | null
     dateFilter: DateFilterState
+    featureFlags: FeatureFlagsSet
     filterTestAccounts: boolean
     isPathCleaningEnabled: boolean
     webAnalyticsFilters: WebAnalyticsPropertyFilters
@@ -670,7 +518,7 @@ export interface pagePerformanceLogicValues {
     breakdownModal: PagePerformanceBreakdownState | null
     breakdownQuery: DataTableNode | null
     candidatesError: string | null
-    candidatesInput: string
+    candidatesInput: string | null
     candidatesLoading: boolean
     dataState: PagePerformanceDataState
     footerText: string
@@ -693,6 +541,7 @@ export interface pagePerformanceLogicValues {
     pageTableInput: string
     pathExpr: string
     previousPathExpr: string
+    showPagesSection: boolean
     window: PagePerformanceWindow
 }
 
@@ -733,6 +582,7 @@ export interface pagePerformanceLogicActions {
 
 export interface pagePerformanceLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
+        showPagesSection: (featureFlags: FeatureFlagsSet) => boolean
         window: (
             dateFilter: DateFilterState,
             compareFilter: CompareFilter,
@@ -760,7 +610,8 @@ export interface pagePerformanceLogicMeta {
             filterTestAccounts: boolean,
             conversionGoal: WebAnalyticsConversionGoal | null,
             compareFilter: CompareFilter,
-            webAnalyticsFilters: WebAnalyticsPropertyFilters
+            webAnalyticsFilters: WebAnalyticsPropertyFilters,
+            showPagesSection: boolean
         ) => AiSectionQueries
         bucketSize: (window: PagePerformanceWindow) => PagePerformanceBucket
         overviewHumanQuery: (
@@ -775,7 +626,7 @@ export interface pagePerformanceLogicMeta {
             filterTestAccounts: boolean,
             webAnalyticsFilters: WebAnalyticsPropertyFilters
         ) => string
-        candidatesInput: (pageCandidateQuery: WebStatsTableQuery) => string
+        candidatesInput: (pageCandidateQuery: WebStatsTableQuery, showPagesSection: boolean) => string | null
         breakdownQuery: (
             breakdownModal: PagePerformanceBreakdownState | null,
             window: PagePerformanceWindow,
@@ -814,7 +665,7 @@ export type pagePerformanceLogicType = MakeLogicType<
 export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<pagePerformanceLogicType>([
     props({} as WebAnalyticsLogicProps),
     key((props) => props.context ?? 'web-analytics'),
-    path((key) => ['scenes', key === 'page-visibility' ? 'pageVisibility' : 'webAnalytics', 'pagePerformanceLogic']),
+    path(['scenes', 'webAnalytics', 'pagePerformanceLogic']),
     connect((props: WebAnalyticsLogicProps) => ({
         actions: [dataNodeCollectionLogic({ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }), ['reloadAll']],
         values: [
@@ -831,6 +682,8 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
             ['currentTeam'],
             actionsModel,
             ['actions as allActions'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -919,6 +772,11 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
         ],
     }),
     selectors(() => ({
+        showPagesSection: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean =>
+                !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PAGE_REPORTS_DIRECTORY],
+        ],
         window: [
             (s) => [s.dateFilter, s.compareFilter, s.currentTeam],
             (
@@ -1012,83 +870,37 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
             }),
         ],
         aiSectionQueries: [
-            (s) => [s.dateFilter, s.filterTestAccounts, s.conversionGoal, s.compareFilter, s.webAnalyticsFilters],
+            (s) => [
+                s.dateFilter,
+                s.filterTestAccounts,
+                s.conversionGoal,
+                s.compareFilter,
+                s.webAnalyticsFilters,
+                s.showPagesSection,
+            ],
             (
                 dateFilter: DateFilterState,
                 filterTestAccounts: boolean,
                 conversionGoal: WebAnalyticsConversionGoal | null,
                 compareFilter: CompareFilter,
-                webAnalyticsFilters: WebAnalyticsPropertyFilters
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                showPagesSection: boolean
             ): AiSectionQueries => {
                 const dateRange = { date_from: dateFilter.dateFrom, date_to: dateFilter.dateTo }
-                const interval = dateFilter.interval
+                const tileFilters = { dateFilter, filterTestAccounts, properties: webAnalyticsFilters }
+                const tableFilters = { ...tileFilters, compareFilter, conversionGoal }
 
-                const referralFilters: WebAnalyticsPropertyFilters = [
-                    {
-                        key: '$channel_type',
-                        value: ['AI'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Session,
-                    },
-                    ...webAnalyticsFilters,
-                ]
-                const crawlerFilters: WebAnalyticsPropertyFilters = [
-                    {
-                        key: '$virt_is_bot',
-                        value: ['true'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                    {
-                        key: '$virt_bot_name',
-                        value: [''],
-                        operator: PropertyOperator.IsNot,
-                        type: PropertyFilterType.Event,
-                    },
-                    {
-                        key: '$virt_traffic_category',
-                        value: ['ai_crawler', 'ai_assistant', 'ai_search'],
-                        operator: PropertyOperator.Exact,
-                        type: PropertyFilterType.Event,
-                    },
-                    ...webAnalyticsFilters,
-                ]
-
-                const referralColumns = [
-                    'breakdown_value',
-                    'visitors',
-                    'views',
-                    ...(conversionGoal ? ['total_conversions', 'conversion_rate'] : []),
-                    'cross_sell',
-                ]
-
-                const referralTable = (breakdownBy: WebStatsBreakdown): DataTableNode => ({
-                    full: true,
-                    kind: NodeKind.DataTableNode,
-                    source: {
-                        kind: NodeKind.WebStatsTableQuery,
-                        properties: referralFilters,
-                        breakdownBy,
-                        dateRange,
-                        compareFilter,
-                        conversionGoal,
-                        limit: 10,
-                        filterTestAccounts,
-                        tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                    },
-                    embedded: false,
-                    showActions: true,
-                    columns: referralColumns,
-                })
-
-                const crawlerTable = (breakdownBy: WebBotsBreakdown): DataTableNode => ({
+                const crawlerTable = (
+                    breakdownBy: WebBotsBreakdown,
+                    extraFilters: WebAnalyticsPropertyFilters = []
+                ): DataTableNode => ({
                     full: true,
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.WebBotsTableQuery,
                         breakdownBy,
                         dateRange,
-                        properties: crawlerFilters,
+                        properties: [...AI_CRAWLER_FILTERS, ...webAnalyticsFilters, ...extraFilters],
                         limit: 10,
                         filterTestAccounts,
                         tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
@@ -1097,70 +909,21 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
                     embedded: false,
                 })
 
-                const crawlerRequestSeries: GroupNode[] = [
-                    {
-                        kind: NodeKind.GroupNode,
-                        name: BOT_ANALYTICS_EVENTS.join(', '),
-                        custom_name: 'Requests',
-                        operator: FilterLogicalOperator.Or,
-                        nodes: BOT_ANALYTICS_EVENTS.map(
-                            (event): EventsNode => ({
-                                event,
-                                kind: NodeKind.EventsNode as const,
-                                math: BaseMathType.TotalCount,
-                                name: event,
-                            })
-                        ),
-                        math: BaseMathType.TotalCount,
-                    },
-                ]
-
                 return {
-                    referralTrend: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            dateRange,
-                            interval,
-                            series: [
-                                {
-                                    kind: NodeKind.EventsNode,
-                                    event: '$pageview',
-                                    name: '$pageview',
-                                    math: BaseMathType.UniqueSessions,
-                                },
-                            ],
-                            trendsFilter: {
-                                display: ChartDisplayType.ActionsLineGraph,
-                                showLegend: true,
-                            } as TrendsFilter,
-                            breakdownFilter: getWebAnalyticsBreakdownFilter(WebStatsBreakdown.InitialReferringDomain),
-                            properties: referralFilters,
-                            filterTestAccounts,
-                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        },
-                        hidePersonsModal: true,
-                        embedded: true,
-                    },
-                    byEngine: referralTable(WebStatsBreakdown.InitialReferringDomain),
-                    landingPages: referralTable(WebStatsBreakdown.InitialPage),
-                    crawlerTrend: {
-                        kind: NodeKind.InsightVizNode,
-                        source: {
-                            kind: NodeKind.TrendsQuery,
-                            dateRange,
-                            interval,
-                            series: crawlerRequestSeries,
-                            trendsFilter: { display: ChartDisplayType.ActionsLineGraph } as TrendsFilter,
-                            properties: crawlerFilters,
-                            filterTestAccounts,
-                            tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                        },
-                        hidePersonsModal: true,
-                        embedded: true,
-                    },
+                    referralTrend: buildAiReferralTrendQuery(
+                        tileFilters,
+                        showPagesSection
+                            ? getWebAnalyticsBreakdownFilter(WebStatsBreakdown.InitialReferringDomain)
+                            : AI_ASSISTANT_BREAKDOWN
+                    ),
+                    byEngine: buildAiReferralTableQuery(tableFilters, WebStatsBreakdown.InitialReferringDomain),
+                    landingPages: buildAiReferralTableQuery(tableFilters, WebStatsBreakdown.InitialPage),
+                    crawlerTrend: buildAiCrawlerTrendQuery(tileFilters, 'Requests'),
                     byCrawler: crawlerTable(WebBotsBreakdown.Crawler),
-                    crawledPages: crawlerTable(WebBotsBreakdown.Path),
+                    crawledPages: crawlerTable(
+                        WebBotsBreakdown.Path,
+                        showPagesSection ? [] : [STATIC_ASSET_PATH_FILTER]
+                    ),
                 }
             },
         ],
@@ -1218,22 +981,37 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
             ): string => JSON.stringify([overviewInput, orderBy, conversionGoal]),
         ],
         candidatesInput: [
-            (s) => [s.pageCandidateQuery],
-            (pageCandidateQuery: WebStatsTableQuery): string => JSON.stringify(pageCandidateQuery),
+            (s) => [s.pageCandidateQuery, s.showPagesSection],
+            (pageCandidateQuery: WebStatsTableQuery, showPagesSection: boolean): string | null =>
+                showPagesSection ? JSON.stringify(pageCandidateQuery) : null,
         ],
         breakdownQuery: [
-            (s) => [s.breakdownModal, s.window, s.filterTestAccounts, s.webAnalyticsFilters, s.pathExpr],
+            (s) => [
+                s.breakdownModal,
+                s.window,
+                s.filterTestAccounts,
+                s.webAnalyticsFilters,
+                s.pathExpr,
+                s.showPagesSection,
+            ],
             (
                 breakdownModal: PagePerformanceBreakdownState | null,
                 window: PagePerformanceWindow,
                 filterTestAccounts: boolean,
                 webAnalyticsFilters: WebAnalyticsPropertyFilters,
-                pathExpr: string
+                pathExpr: string,
+                showPagesSection: boolean
             ): DataTableNode | null => {
                 if (!breakdownModal) {
                     return null
                 }
-                const query = buildBreakdownQuery(breakdownModal.metric, breakdownModal.page, window, pathExpr)
+                const query = buildBreakdownQuery(
+                    breakdownModal.metric,
+                    breakdownModal.page,
+                    window,
+                    pathExpr,
+                    !showPagesSection
+                )
                 if (!query) {
                     return null
                 }
@@ -1404,7 +1182,9 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
             },
             reloadAll: () => {
                 actions.loadOverview()
-                actions.loadCandidates()
+                if (values.showPagesSection) {
+                    actions.loadCandidates()
+                }
             },
         }
     }),
@@ -1412,14 +1192,12 @@ export const pagePerformanceLogic: LogicWrapper<pagePerformanceLogicType> = kea<
         overviewInput: () => {
             actions.loadOverview(true)
         },
-        candidatesInput: () => {
-            actions.loadCandidates(true)
+        candidatesInput: (candidatesInput: string | null) => {
+            if (candidatesInput) {
+                actions.loadCandidates(true)
+            }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadOverview(true)
-        actions.loadCandidates(true)
-    }),
 ])
 
 export const createPagePerformanceInsightProps = (tile: TileId, tab?: string): InsightLogicProps => ({

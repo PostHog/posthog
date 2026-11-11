@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -126,5 +127,75 @@ describe('retentionLogic', () => {
 
         expect(logic.values.allCohortsEmpty).toBe(allCohortsEmpty)
         expect(logic.values.hasEntityPropertyFilters).toBe(hasEntityPropertyFilters)
+    })
+
+    const daysAgo = (days: number): string => dayjs().utc().startOf('day').subtract(days, 'day').toISOString()
+
+    it.each([
+        {
+            name: 'drops the current period when excluded',
+            query: { ...retentionQuery(), dateRange: { excludeIncompletePeriods: true } },
+            rows: [cohortRow(daysAgo(2), [100, 50, 20])],
+            expectedCounts: [100, 50],
+        },
+        {
+            name: 'keeps the current period when not excluded',
+            query: retentionQuery(),
+            rows: [cohortRow(daysAgo(2), [100, 50, 20])],
+            expectedCounts: [100, 50, 20],
+        },
+        {
+            name: 'drops a custom bracket that has not ended',
+            query: {
+                ...retentionQuery(),
+                retentionFilter: { ...retentionQuery().retentionFilter, retentionCustomBrackets: [7, 7] },
+                dateRange: { excludeIncompletePeriods: true },
+            },
+            rows: [cohortRow(daysAgo(10), [100, 40, 30])],
+            expectedCounts: [100, 40],
+        },
+        {
+            name: 'treats empty custom brackets as ordinary retention',
+            query: {
+                ...retentionQuery(),
+                retentionFilter: { ...retentionQuery().retentionFilter, retentionCustomBrackets: [] },
+                dateRange: { excludeIncompletePeriods: true },
+            },
+            rows: [cohortRow(daysAgo(2), [100, 50, 20])],
+            expectedCounts: [100, 50],
+        },
+        {
+            name: 'ignores the exclusion for 24-hour windows',
+            query: {
+                ...retentionQuery(),
+                retentionFilter: { ...retentionQuery().retentionFilter, timeWindowMode: '24_hour_windows' as const },
+                dateRange: { excludeIncompletePeriods: true },
+            },
+            rows: [cohortRow(daysAgo(2), [100, 50, 20])],
+            expectedCounts: [100, 50, 20],
+        },
+    ])('$name', async ({ query, rows, expectedCounts }) => {
+        await loadResults(query, rows)
+
+        expect(logic.values.results[0].values.map((value) => value.count)).toEqual(expectedCounts)
+    })
+
+    it('drops the current week of a Monday-start project on a Sunday', async () => {
+        jest.useFakeTimers({ advanceTimers: true })
+        jest.setSystemTime(new Date('2024-01-14T12:00:00Z'))
+        try {
+            await loadResults(
+                {
+                    ...retentionQuery(),
+                    retentionFilter: { ...retentionQuery().retentionFilter, period: RetentionPeriod.Week },
+                    dateRange: { excludeIncompletePeriods: true },
+                },
+                [cohortRow('2024-01-01T00:00:00Z', [100, 50, 20])]
+            )
+
+            expect(logic.values.results[0].values.map((value) => value.count)).toEqual([100])
+        } finally {
+            jest.useRealTimers()
+        }
     })
 })

@@ -23,7 +23,7 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, github_request
 from posthog.egress.limiter.policies import Priority
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, github_app_jwt_credentials
 from posthog.temporal.common.client import async_connect
 
 from products.tasks.backend.constants import DEV_STACK_IMAGE_NAME
@@ -89,7 +89,7 @@ class InfrastructureStatus:
 
     @cached_property
     def _github_installation_id(self) -> str | None:
-        if not (settings.GITHUB_APP_CLIENT_ID and settings.GITHUB_APP_PRIVATE_KEY):
+        if not github_app_jwt_credentials().configured:
             return None
         response = GitHubIntegrationBase.app_request("repos/PostHog/posthog/installation", timeout=5)
         response.raise_for_status()

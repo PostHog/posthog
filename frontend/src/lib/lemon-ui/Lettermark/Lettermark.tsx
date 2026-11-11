@@ -13,8 +13,8 @@ export enum LettermarkColor {
 export interface LettermarkProps {
     /** Name or value the lettermark should represent. */
     name?: string | number | null
-    /** If given, will choose a color based on the index */
-    index?: number
+    /** If given, will choose a color based on the index. A string is read as a UUID. */
+    index?: number | string
     /** Specify the color */
     color?: LettermarkColor
     /** Circular rounded style rather than square */
@@ -24,6 +24,13 @@ export interface LettermarkProps {
     /** @default 'medium' */
     size?: 'xsmall' | 'small' | 'medium' | 'xlarge'
     className?: string
+}
+
+/** Picks one of the lettermark colors (1-based) for an entity ID. */
+export function lettermarkColorIndex(entityId: number | string): number {
+    // A whole UUID doesn't fit into the JS number type, so its last 4 bytes stand in for it.
+    const index = typeof entityId === 'string' ? parseInt(entityId.split('-').at(-1)!, 16) : entityId
+    return (index % NUM_LETTERMARK_STYLES) + 1
 }
 
 /** An icon-sized lettermark.
@@ -40,7 +47,7 @@ export const Lettermark = React.forwardRef<HTMLDivElement, LettermarkProps>(func
             : String.fromCodePoint(name.codePointAt(0)!).toLocaleUpperCase()
         : '?'
 
-    const colorIndex = color ? color : typeof index === 'number' ? (index % NUM_LETTERMARK_STYLES) + 1 : undefined
+    const colorIndex = color ? color : index !== undefined ? lettermarkColorIndex(index) : undefined
 
     return (
         <div

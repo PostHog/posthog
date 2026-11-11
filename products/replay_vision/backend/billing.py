@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Literal, cast
 
-from django.db.models import Case, Count, IntegerField, Sum, Value, When
+from django.db.models import Count, IntegerField, Sum
 from django.db.models.functions import Coalesce
 
 import structlog
@@ -132,18 +132,6 @@ def observation_credits_for_model(model: str) -> int:
         logger.warning("replay_vision.unknown_model_credits", model=model, fallback=_FALLBACK_CREDITS)
         return _FALLBACK_CREDITS
     return credits
-
-
-def observation_credits_case() -> Case:
-    """SQL mirror of `observation_credits_for_model`, for pricing observations inside a query."""
-    return Case(
-        *(
-            When(scanner_snapshot__model=model, then=Value(credits))
-            for model, credits in OBSERVATION_CREDITS_BY_MODEL.items()
-        ),
-        default=Value(_FALLBACK_CREDITS),
-        output_field=IntegerField(),
-    )
 
 
 def get_replay_vision_credits_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:

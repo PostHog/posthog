@@ -8,17 +8,29 @@ fewer keeps no progress at all. The failure message says how to fix a reported f
 
 import ast
 import warnings
+from datetime import date
 from pathlib import Path
 
 from parameterized import parameterized
 
+from posthog.test.repo_invariants.ratchet import enforce_baseline
+
 REPO_ROOT = Path(__file__).parents[3]
 BASELINE_PATH = Path(__file__).parent / "resume_state_after_yield_baseline.txt"
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+BLOCKING_FROM = date.fromisoformat("2026-10-06")
+# Vendor directories live in the product and in the `products/warehouse_sources/sources/` tree.
+SOURCE_ROOTS = (
+    REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources",
+    REPO_ROOT / "products/warehouse_sources/sources",
+)
 SKIPPED_DIRS = {"tests", "test", "__pycache__"}
-REGENERATE = "python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py"
+REGENERATE = "PYTHONPATH=. python posthog/test/repo_invariants/test_resume_state_staged_before_yield.py"
 
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return [(root, path) for root in SOURCE_ROOTS for path in root.rglob(pattern)]
 
 
 def _own_nodes(statement: ast.stmt) -> list[ast.AST]:
@@ -169,8 +181,8 @@ def _parse(source: str) -> ast.Module | None:
 
 def collect_functions() -> list[str]:
     sources: dict[str, str] = {}
-    for file in SOURCES_ROOT.rglob("*.py"):
-        relative = file.relative_to(SOURCES_ROOT)
+    for root, file in _source_files("*.py"):
+        relative = file.relative_to(root)
         if SKIPPED_DIRS.intersection(relative.parts) or file.name.startswith("test_"):
             continue
         source = file.read_text(encoding="utf-8", errors="ignore")
@@ -323,16 +335,21 @@ def test_resume_state_saved_after_a_yield_matches_the_baseline() -> None:
     added = [line for line in scanned if line not in recorded]
     removed = [line for line in recorded if line not in scanned]
     report = "\n".join([*(f"  + {line}" for line in added), *(f"  - {line}" for line in removed)])
-    raise AssertionError(
-        f"{BASELINE_PATH.name} no longer matches the repo.\n"
-        "A '+' line is a source generator that calls `save_state` after the `yield` the state covers. "
-        "The pipeline commits staged state right after it writes a batch, and on a worker shutdown it "
-        "ends the attempt before control returns to the source. That state is lost for the last batch, "
-        "so the next attempt reads the batch again, and a full refresh appends it twice. "
-        "Call `save_state` before the `yield` of the batch it covers. "
-        "Do not add the line to the baseline: the list may only get shorter.\n"
-        f"A '-' line means a function was fixed. The file must record that too. Run: {REGENERATE}\n"
-        f"{report}"
+    enforce_baseline(
+        added=added,
+        removed=removed,
+        blocking_from=BLOCKING_FROM,
+        message=(
+            f"{BASELINE_PATH.name} no longer matches the repo.\n"
+            "A '+' line is a source generator that calls `save_state` after the `yield` the state covers. "
+            "The pipeline commits staged state right after it writes a batch, and on a worker shutdown it "
+            "ends the attempt before control returns to the source. That state is lost for the last batch, "
+            "so the next attempt reads the batch again, and a full refresh appends it twice. "
+            "Call `save_state` before the `yield` of the batch it covers. "
+            "Do not add the line to the baseline: the list may only get shorter.\n"
+            f"A '-' line means a function was fixed. The file must record that too. Run: {REGENERATE}\n"
+            f"{report}"
+        ),
     )
 
 

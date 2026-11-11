@@ -38,20 +38,27 @@ from django.views.decorators.http import require_GET
 import structlog
 
 from posthog.api.github_callback.redirects import PERSONAL_INTEGRATIONS_SETTINGS_PATH
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import user_slack_integration_from_identity
 from posthog.views import login_required
 
 from products.slack_app.backend.analytics import alias_slack_user, capture_slack_event
-from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_link_search_scopes_enabled, is_slack_app_oauth_enabled
+from products.slack_app.backend.logic.onboarding.dispatch import request_onboarding
+from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_user_oauth import (
     CallbackState,
     InviteToken,
     SlackUserOAuthError,
     build_authorize_url,
     exchange_code,
+    granted_user_scopes,
+)
+from products.slack_app.backend.services.workspace_integrations import (
+    WorkspaceIntegration,
+    get_team_workspace_integration,
 )
 
 logger = structlog.get_logger(__name__)
@@ -79,7 +86,7 @@ def _settings_redirect(*, error: str | None = None) -> HttpResponseRedirect:
 
 
 def _link_failed(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     reason: str,
     *,
     slack_user_id: str | None = None,
@@ -99,12 +106,8 @@ def _link_failed(
     return _settings_redirect(error=reason)
 
 
-def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> Integration | None:
-    return (
-        Integration.objects.filter(team_id=posthog_team_id, kind="slack", integration_id=slack_team_id)
-        .select_related("team", "team__organization")
-        .first()
-    )
+def _load_workspace_integration(posthog_team_id: int, slack_team_id: str) -> WorkspaceIntegration | None:
+    return get_team_workspace_integration(posthog_team_id, slack_team_id)
 
 
 @require_GET
@@ -129,6 +132,7 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
     if not is_slack_app_oauth_enabled(workspace_integration):
         return _settings_redirect(error="flag_off")
 
+    search_scopes = is_slack_app_link_search_scopes_enabled(workspace_integration)
     callback_state = CallbackState(
         slack_team_id=invite.slack_team_id,
         posthog_team_id=invite.posthog_team_id,
@@ -136,10 +140,16 @@ def slack_user_link_authorize(request: HttpRequest) -> HttpResponse:
         slack_user_id=invite.slack_user_id,
         channel=invite.channel,
         thread_ts=invite.thread_ts,
+        search_scopes=search_scopes,
     ).encode()
 
     try:
-        authorize_url = build_authorize_url(redirect_uri=_callback_redirect_uri(), state=callback_state)
+        authorize_url = build_authorize_url(
+            redirect_uri=_callback_redirect_uri(),
+            state=callback_state,
+            slack_team_id=invite.slack_team_id,
+            search_scopes=search_scopes,
+        )
     except SlackUserOAuthError:
         logger.exception("slack_app_user_link_authorize_misconfigured")
         return _settings_redirect(error="not_configured")
@@ -179,7 +189,7 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         return _link_failed(workspace_integration, "flag_off", slack_user_id=state.slack_user_id)
 
     try:
-        identity = exchange_code(code=code, redirect_uri=_callback_redirect_uri())
+        identity = exchange_code(code=code, redirect_uri=_callback_redirect_uri(), search_scopes=state.search_scopes)
     except SlackUserOAuthError as exc:
         logger.warning("slack_app_user_link_callback_exchange_failed", error=str(exc))
         return _link_failed(workspace_integration, "exchange_failed", slack_user_id=state.slack_user_id)
@@ -270,13 +280,16 @@ def slack_user_link_callback(request: HttpRequest) -> HttpResponse:
         channel=state.channel,
         thread_ts=state.thread_ts,
     )
+    request_onboarding(workspace_integration, identity.slack_user_id, may_start=False)
+    if state.search_scopes and "search:read.public" in granted_user_scopes(identity.user_scopes):
+        start_work_focus(workspace_integration, identity.slack_user_id)
 
     return _settings_redirect()
 
 
 def _post_link_success_followup(
     *,
-    workspace_integration: Integration,
+    workspace_integration: WorkspaceIntegration,
     slack_user_id: str,
     channel: Any,
     thread_ts: Any,

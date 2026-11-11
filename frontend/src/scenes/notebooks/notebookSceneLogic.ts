@@ -2,6 +2,8 @@ import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props, s
 import type { BuiltLogic } from 'kea'
 import { router } from 'kea-router'
 
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { analyticsBackLink } from 'scenes/analytics/analyticsBackLink'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -102,7 +104,12 @@ export interface notebookSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         notebookId: (shortId: string) => string
         loading: (notebookLoading: boolean, notebooksLoading: boolean) => boolean
-        breadcrumbs: (notebook: NotebookType | null, loading: boolean) => Breadcrumb[]
+        breadcrumbs: (
+            notebook: NotebookType | null,
+            loading: boolean,
+            searchParams: Record<string, any>,
+            featureFlags: FeatureFlagsSet
+        ) => Breadcrumb[]
         projectTreeRef: (arg: string) => ProjectTreeRef | null
         sidePanelContext: (notebookId: string, isLocalOnly: boolean) => SidePanelSceneContext | null
     }
@@ -137,22 +144,35 @@ export const notebookSceneLogic = kea<notebookSceneLogicType>([
         ],
 
         breadcrumbs: [
-            (s) => [s.notebook, s.loading],
-            (notebook: NotebookType | null, loading: boolean): Breadcrumb[] => {
-                const parent: Breadcrumb =
-                    notebook?.parent_resource?.type === 'account'
-                        ? {
-                              key: Scene.CustomerAnalytics,
-                              name: 'Accounts',
-                              path: urls.customerAnalyticsAccount(notebook.parent_resource.id),
-                              iconType: 'group',
-                          }
-                        : {
-                              key: Scene.Notebooks,
-                              name: 'Notebooks',
-                              path: urls.notebooks(),
-                              iconType: 'notebook',
-                          }
+            (s) => [s.notebook, s.loading, router.selectors.searchParams, featureFlagLogic.selectors.featureFlags],
+            (
+                notebook: NotebookType | null,
+                loading: boolean,
+                searchParams: Record<string, any>,
+                featureFlags: FeatureFlagsSet
+            ): Breadcrumb[] => {
+                // The Analytics list that opened the notebook names the way back, like the dashboard scene allows.
+                const backLink = analyticsBackLink(searchParams, featureFlags)
+                const parent: Breadcrumb = backLink
+                    ? {
+                          key: backLink.url,
+                          name: backLink.name,
+                          path: backLink.url,
+                          iconType: 'notebook',
+                      }
+                    : notebook?.parent_resource?.type === 'account'
+                      ? {
+                            key: Scene.CustomerAnalytics,
+                            name: 'Accounts',
+                            path: urls.customerAnalyticsAccount(notebook.parent_resource.id),
+                            iconType: 'group',
+                        }
+                      : {
+                            key: Scene.Notebooks,
+                            name: 'Notebooks',
+                            path: urls.notebooks(),
+                            iconType: 'notebook',
+                        }
                 return [
                     parent,
                     {

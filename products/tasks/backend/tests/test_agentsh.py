@@ -1,5 +1,7 @@
 import os
+import re
 import shlex
+import base64
 import logging
 import tempfile
 import subprocess
@@ -402,6 +404,7 @@ class TestEnvWrapper(SimpleTestCase):
             wrapper_file = Path(temp_dir) / "wrapper.sh"
             env_file.write_bytes(
                 b"SAFE_BASE=kept\x00NODE_OPTIONS=--require=/tmp/payload.js\x00GITHUB_TOKEN=ghs_snapshot\x00"
+                b"JWT_PUBLIC_KEY=-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\x00"
             )
             github_env_file.write_bytes(b"GITHUB_TOKEN=ghs_fresh\x00GH_TOKEN=ghs_fresh\x00IGNORED=unsafe\x00")
             oauth_env_file.write_bytes(b"POSTHOG_PERSONAL_API_KEY=oauth_fresh\x00IGNORED=unsafe\x00")
@@ -413,8 +416,8 @@ class TestEnvWrapper(SimpleTestCase):
                     str(wrapper_file),
                     "bash",
                     "-c",
-                    'printf "%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
-                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}"',
+                    'printf "%s|%s|%s|%s|%s|%s" "$SAFE_BASE" "$GH_TOKEN" "$GITHUB_TOKEN" '
+                    '"$POSTHOG_PERSONAL_API_KEY" "${NODE_OPTIONS:-}" "$JWT_PUBLIC_KEY"',
                 ],
                 check=True,
                 capture_output=True,
@@ -422,7 +425,10 @@ class TestEnvWrapper(SimpleTestCase):
                 env={"PATH": os.environ["PATH"], "NODE_OPTIONS": "--require=/tmp/inherited.js"},
             )
 
-            self.assertEqual(result.stdout, "kept|ghs_fresh|ghs_fresh|oauth_fresh|")
+            self.assertEqual(
+                result.stdout,
+                "kept|ghs_fresh|ghs_fresh|oauth_fresh||-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----",
+            )
 
     def test_wrapper_does_not_set_proxy_vars(self):
         wrapper = generate_env_wrapper()
@@ -636,6 +642,9 @@ class TestModalSandboxAgentShWrapping(TestCase):
         )
 
         def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            encoded_script = re.search(r"printf %s ([A-Za-z0-9+/=]+) \| base64 -d", command)
+            if encoded_script:
+                command = base64.b64decode(encoded_script.group(1)).decode()
             if "--taskId" in command:
                 launched.append(command)
                 return ExecutionResult(stdout="", stderr="", exit_code=0)

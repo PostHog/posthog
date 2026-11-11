@@ -130,6 +130,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
                 results_by_day[key] = BoxPlotDatum(
                     day=key,
                     label=format_label_date(day_val, self.query_date_range, self.team.week_start_day),
+                    count=int(row[7]),
                     min=float(row[1]) if row[1] is not None else 0.0,
                     p25=float(row[2]) if row[2] is not None else 0.0,
                     median=float(row[3]) if row[3] is not None else 0.0,
@@ -149,6 +150,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
                         BoxPlotDatum(
                             day=key,
                             label=format_label_date(dt, self.query_date_range, self.team.week_start_day),
+                            count=0,
                             min=0.0,
                             p25=0.0,
                             median=0.0,
@@ -198,6 +200,7 @@ class BoxPlotTrendsQueryRunner(TrendsQueryRunner):
             ),
             ast.Alias(alias="max_val", expr=ast.Call(name="max", args=[field_expr])),
             ast.Alias(alias="mean_val", expr=ast.Call(name="avg", args=[field_expr])),
+            ast.Alias(alias="count_val", expr=ast.Call(name="count", args=[field_expr])),
         ]
 
     def _build_standard_query(self, query_builder, agg_ops, series_node, events_filter, day_start) -> ast.SelectQuery:

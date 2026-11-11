@@ -23,6 +23,7 @@ import {
     buildAggregateQuery,
     buildOpenEndedQuery,
     buildSurveyExampleInvocationGlobals,
+    buildSurveyRespondentsQuery,
     buildSurveyResponsesExportQuery,
     buildSurveyOptionalBooleanPropertyFilter,
     buildSurveyTimestampFilter,
@@ -1300,6 +1301,29 @@ describe('survey utils', () => {
             expect(query).toContain("(q0_answer = '2')")
             expect(query).not.toContain("getSurveyResponse(0, 'q-rating') = '2'")
             expect(query).toContain("uuid NOT IN ('archived-uuid')")
+        })
+
+        it.each(['count', 'people'] as const)(
+            'keeps people who dismissed after answering in the %s respondents query',
+            (select) => {
+                const survey = buildSurvey(true)
+
+                const query = buildSurveyRespondentsQuery(survey, buildFilters(survey), select)
+
+                // The event filter already drops dismissals without an answer, so a filter on the merged
+                // outcome would only drop people whose answers the results still show.
+                expect(query).toContain("'survey dismissed', 'survey abandoned'")
+                expect(query).not.toContain("outcome != 'dismissed'")
+            }
+        )
+
+        it('counts respondents with an email from the email alone, not the whole person properties', () => {
+            const survey = buildSurvey(true)
+
+            const query = buildSurveyRespondentsQuery(survey, buildFilters(survey), 'count')
+
+            expect(query).toContain('argMax(respondent_email, tuple(timestamp, event_uuid))')
+            expect(query).not.toContain('person_properties')
         })
 
         it('counts an unanswered optional single choice when the merge yields null instead of an empty string', () => {

@@ -53,6 +53,7 @@ const metricAttributeValuesList = (): ToolBase<
                 dateTo: params.dateTo,
                 key: params.key,
                 limit: params.limit,
+                metricName: params.metricName,
                 value: params.value,
             },
         })

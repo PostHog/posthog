@@ -9,6 +9,8 @@ EVALUATION_WORKFLOW_PREFIXES = {
     "sentiment": "llma-sentiment-eval",
 }
 
+GENERATION_NOT_FOUND = "generation_not_found"
+
 
 class EvaluationActivityResult(TypedDict, total=False):
     """Result produced by evaluation execution activities.
@@ -84,3 +86,30 @@ def build_skipped_evaluation_result(
     if allows_na:
         result["applicable"] = False
     return result
+
+
+def build_skipped_sentiment_result(*, reasoning: str, skip_reason: str) -> EvaluationActivityResult:
+    return {
+        "result_type": "sentiment",
+        "reasoning": reasoning,
+        "skipped": True,
+        "skip_reason": skip_reason,
+    }
+
+
+def build_generation_not_found_result(evaluation: dict[str, Any]) -> EvaluationActivityResult:
+    """Skip for a generation that left `ai_events` before its evaluation ran.
+
+    The workflow returns this skip without an emit, because an $ai_evaluation event needs the
+    generation that it grades.
+    """
+    reasoning = "Generation not found; evaluation skipped."
+    output_type = evaluation.get("output_type", "boolean")
+    if output_type == "sentiment":
+        return build_skipped_sentiment_result(reasoning=reasoning, skip_reason=GENERATION_NOT_FOUND)
+    return build_skipped_evaluation_result(
+        output_type=output_type,
+        allows_na=(evaluation.get("output_config") or {}).get("allows_na", False),
+        reasoning=reasoning,
+        skip_reason=GENERATION_NOT_FOUND,
+    )

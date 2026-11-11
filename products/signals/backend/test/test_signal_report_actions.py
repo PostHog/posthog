@@ -1,4 +1,4 @@
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
@@ -10,7 +10,33 @@ from rest_framework import status
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
-from products.signals.backend.models import SignalReport, SignalReportAction, SignalScoutConfig, SignalScoutRun
+from products.signals.backend.artefact_schemas import Dismissal
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportAction,
+    SignalReportArtefact,
+    SignalScoutConfig,
+    SignalScoutRun,
+)
+from products.signals.backend.report_actions import suppress_report_from_slack
+
+
+class TestSignalReportSlackActions(BaseTest):
+    def test_slack_dismissal_records_its_verdict_once(self) -> None:
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="A report")
+
+        for _ in range(2):
+            assert suppress_report_from_slack(
+                self.team.id, str(report.id), slack_user_id="slack-user-1", user_id=self.user.id
+            )
+
+        report.refresh_from_db()
+        assert report.status == SignalReport.Status.SUPPRESSED
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        feedback = Dismissal.model_validate_json(dismissal.content)
+        assert feedback.state == "suppressed"
+        assert feedback.reason == "slack_dismiss"
+        assert feedback.slack_user_id == "slack-user-1"
 
 
 class TestSignalReportViewedEndpoint(APIBaseTest):

@@ -4,7 +4,7 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HOG_FILTERS_EXAMPLES } from '~/cdp/_tests/examples'
 import { createExampleHogFlowInvocation } from '~/cdp/_tests/fixtures-hogflows'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
-import { CohortMembershipRepository } from '~/cdp/services/cohorts/cohort-membership-repository'
+import { CohortMembershipRepository, StoredCohortMembership } from '~/cdp/services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
 
@@ -197,6 +197,10 @@ describe('action.conditional_branch', () => {
                 }
                 return Promise.resolve(this.memberCohortIds)
             }
+
+            getCohortMembership(): Promise<StoredCohortMembership | null> {
+                return Promise.reject(new Error('not used by branches'))
+            }
         }
 
         // Same shape the Python serializer emits: the authored properties plus compiled bytecode.
@@ -295,10 +299,32 @@ describe('action.conditional_branch', () => {
             expect(repository.calls).toEqual([])
         })
 
-        it('propagates a lookup failure instead of routing on a made-up answer', async () => {
+        it.each([
+            [0, 10],
+            [1, 60],
+        ])('retries a failed lookup after %s earlier failures in %ss instead of routing', async (earlier, delay) => {
             const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
+            invocation.state.currentAction!.cohortLookupAttempts = earlier || undefined
+            action.config.conditions = [{ filters: cohortConditionFilters('inCohort') }]
+
+            const result = await new ConditionalBranchHandler(repository).execute({
+                invocation,
+                action,
+                result: createInvocationResult(invocation),
+            })
+
+            expect(result.nextAction).toBeUndefined()
+            expect(result.scheduledAt).toEqual(DateTime.now().plus({ seconds: delay }))
+            expect(invocation.state.currentAction!.cohortLookupAttempts).toBe(earlier + 1)
+            expect(invocation.state.currentAction!.cohortLookupFailed).toBeUndefined()
+        })
+
+        it('marks the step failed and throws once every lookup attempt failed', async () => {
+            const repository = new FakeCohortMembershipRepository([], new Error('lookup timed out'))
+            invocation.state.currentAction!.cohortLookupAttempts = 2
 
             await expect(executeWithRepository(repository, 'inCohort')).rejects.toThrow('lookup timed out')
+            expect(invocation.state.currentAction!.cohortLookupFailed).toBe(true)
         })
     })
 
@@ -350,6 +376,7 @@ describe('action.conditional_branch', () => {
             }
             const stubCohortMembershipRepository: CohortMembershipRepository = {
                 getMemberCohortIds: () => Promise.resolve([]),
+                getCohortMembership: () => Promise.resolve(null),
             }
             handler = new ConditionalBranchHandler(stubCohortMembershipRepository)
             counterHogflowWaitAdvancedAtMaxWait.reset()

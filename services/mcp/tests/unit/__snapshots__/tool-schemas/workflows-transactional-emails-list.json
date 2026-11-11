@@ -1,0 +1,44 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Only sends queued at or after this time. Defaults to 7 days ago. The log keeps sends for 30 days.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Only sends queued before this time. Defaults to now.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$",
+            "type": "string"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Page size.",
+            "maximum": 200,
+            "minimum": 1,
+            "type": "number"
+        },
+        "offset": {
+            "default": 0,
+            "description": "Sends to skip.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "search": {
+            "description": "A `message_id` for an exact match, or part of the recipient's email address.",
+            "type": "string"
+        },
+        "status": {
+            "description": "Only sends in this delivery status.\n\n* `queued` - Queued\n* `failed` - Failed\n* `sent` - Sent\n* `delivered` - Delivered\n* `bounced` - Bounced\n* `complained` - Complained",
+            "enum": ["queued", "failed", "sent", "delivered", "bounced", "complained"],
+            "type": "string"
+        },
+        "workflow_id": {
+            "description": "Only sends of the transactional email backed by this workflow.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -5,6 +5,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Glob-pinned: exact deb revisions vanish from mirrors on security point
 # releases, which would 404 the build; the upstream version stays fixed.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    "ca-certificates" \
     "curl=8.14.1*" \
     && rm -rf /var/lib/apt/lists/*
 
@@ -31,6 +32,7 @@ RUN pip install --no-cache-dir \
     pyarrow==24.0.0 \
     duckdb==1.5.3 \
     requests==2.32.3 \
+    "certifi>=2026.10.19" \
     beautifulsoup4==4.12.3 \
     lxml==6.1.1 \
     sqlalchemy==2.0.30 \

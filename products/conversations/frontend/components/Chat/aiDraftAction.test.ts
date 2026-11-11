@@ -21,6 +21,7 @@ describe('aiDraftAction', () => {
         ['public auto-sent reply', { isPrivate: false, persistAs: 'reply' as const }, null],
         ['public clarifying question', { isPrivate: false, persistAs: 'clarification' as const }, null],
         ['human private note', { authorType: 'human' as const }, null],
+        ['automated private note', { automatedUpdate: true }, null],
     ])('%s', (_name, overrides, expected) => {
         expect(aiDraftAction({ ...base, ...overrides })).toBe(expected)
     })

@@ -1,5 +1,11 @@
 import type { ThreadItem, ToolInvocation } from '../types/streamTypes'
-import { activityWindow, groupConsecutiveTools, groupThreadActivity, groupToolRuns } from './groupThreadActivity'
+import {
+    activityWindow,
+    groupConsecutiveTools,
+    groupThreadActivity,
+    groupToolRuns,
+    reuseActivityGroups,
+} from './groupThreadActivity'
 
 describe('thread activity grouping', () => {
     const tool = (id: string, startedAt = 1000): ThreadItem => ({
@@ -93,6 +99,21 @@ describe('thread activity grouping', () => {
             items.filter((item) => item.id !== 'setup')
         )
         expect(groupToolRuns(items, calls, { ...options, settled: true }).at(-1)?.id).toBe('live-chart')
+    })
+
+    it('keeps a group id when earlier calls load in front of it', () => {
+        const latest = groupThreadActivity([tool('later'), tool('last', 1100)], new Set())
+        const loaded = reuseActivityGroups(
+            latest,
+            groupThreadActivity([tool('earlier', 900), tool('later'), tool('last', 1100)], new Set())
+        )
+
+        expect(loaded.map((item) => item.id)).toEqual(['activity-later'])
+        expect(loaded[0].type === 'activity_group' && loaded[0].items.map((row) => row.id)).toEqual([
+            'earlier',
+            'later',
+            'last',
+        ])
     })
 
     it('does not invent a duration when part of the group has no recorded start', () => {

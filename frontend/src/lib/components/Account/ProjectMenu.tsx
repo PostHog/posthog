@@ -11,12 +11,14 @@ import {
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { projectLogic } from 'scenes/projectLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { TeamBasicType } from '~/types'
 
 import { pendingInvitesLogic } from './pendingInvitesLogic'
 import { ProjectCombobox } from './ProjectCombobox'
+import { ProjectLogo } from './ProjectLogo'
 
 export function ProjectName({ team, className }: { team: TeamBasicType; className?: string }): JSX.Element {
     return (
@@ -28,15 +30,10 @@ export function ProjectName({ team, className }: { team: TeamBasicType; classNam
 }
 
 export function PendingInviteDot({ className }: { className?: string }): JSX.Element {
-    const { pendingInvites } = useValues(pendingInvitesLogic)
-    const organizationNames = pendingInvites.map((invite) => invite.organization_name)
-    const title =
-        organizationNames.length === 1
-            ? `You have a pending invite to join ${organizationNames[0]}.`
-            : `You have pending invites to join ${organizationNames.length} organizations.`
+    const { pendingInvitesLabel } = useValues(pendingInvitesLogic)
 
     return (
-        <Tooltip title={title} placement="right">
+        <Tooltip title={pendingInvitesLabel} placement="right">
             <span
                 aria-label="Pending invite"
                 className={cn('relative flex items-center justify-center size-3 shrink-0', className)}
@@ -56,6 +53,7 @@ export function ProjectMenu({
 }): JSX.Element | null {
     const iconOnly = buttonProps?.iconOnly ?? false
     const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(projectLogic)
     const { pendingInvites } = useValues(pendingInvitesLogic)
     const hasPendingInvites = pendingInvites.length > 0
 
@@ -74,9 +72,12 @@ export function ProjectMenu({
                     )}
                 >
                     {iconOnly ? (
-                        <div className="Lettermark bg-[var(--color-bg-fill-button-tertiary-active)] w-5 h-5 dark:text-tertiary">
-                            {String.fromCodePoint(currentTeam.name.codePointAt(0)!).toLocaleUpperCase()}
-                        </div>
+                        <ProjectLogo
+                            name={currentTeam.name}
+                            projectId={currentTeam.project_id}
+                            mediaId={currentProject?.logo_media_id}
+                            size="small"
+                        />
                     ) : (
                         <span className="truncate">{currentTeam.name ?? 'Project'}</span>
                     )}

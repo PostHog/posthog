@@ -24,8 +24,8 @@ from products.alerts_platform.backend.facade.contracts import (
     EvaluationAnnouncement,
     IncidentAction,
     LegacyEventEmission,
-    source_filters,
 )
+from products.alerts_platform.backend.facade.rolling_checks import rolling_check_lookback_minutes
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     LOGS_ALERT_INCIDENT_CLOSED_EVENT,
@@ -37,9 +37,9 @@ from products.logs.backend.alert_event_properties import (
     incident_closed_event_properties,
     threshold_event_properties,
 )
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_state_machine import IncidentCloseReason
 from products.logs.backend.platform_alert_wording import check_window_end, in_utc
+from products.logs.backend.platform_source_config import filters_of
 
 # Below the delivery activity's own timeout, which a flush must not use up.
 FLUSH_TIMEOUT_SECONDS: Final = 5.0
@@ -97,7 +97,7 @@ def _message_event(transition: AnnouncedTransition, alert: _Alert) -> AlertInter
         alert_name=alert.alert_name,
         team_id=alert.team_id,
         consecutive_failures=alert.consecutive_failures,
-        filters=source_filters(transition.source_config),
+        filters=filters_of(transition.source_config),
         triggered_at=transition.occurred_at,
     )
     return alert.event(event_name, {**properties, error_key: transition.error_message or ""}, transition)
@@ -135,7 +135,7 @@ def _threshold_properties(transition: AnnouncedTransition, alert: _Alert) -> dic
         threshold_operator=condition["threshold_operator"],
         window_minutes=condition["window_minutes"],
         result_count=int(transition.value) if transition.value is not None else None,
-        filters=source_filters(transition.source_config),
+        filters=filters_of(transition.source_config),
         date_from=date_to - timedelta(minutes=lookback),
         date_to=date_to,
         triggered_at=transition.occurred_at,

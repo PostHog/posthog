@@ -236,7 +236,7 @@ class TestSSORedirectSuccess(BaseSSOMockTest):
         response = SSOTestHelper.make_sso_request(
             sso_setup["client"], sso_setup["url"], experimentation_item_id=f"flag_{flag.id}"
         )
-        SSOTestHelper.assert_successful_redirect(response, f"/project/{team.pk}/feature_flags/{flag.pk}")
+        SSOTestHelper.assert_successful_redirect(response, f"/project/{team.pk}/feature-flags/{flag.pk}")
 
 
 class TestSSORedirectValidation:

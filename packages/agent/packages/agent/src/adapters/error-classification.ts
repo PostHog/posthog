@@ -34,6 +34,10 @@ const UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN = /API Error:\s*(?:429|5\d\d)\b/i;
 // "unexpected status <code> <reason>: <body>" instead of the "API Error:" wording.
 const CODEX_PROVIDER_ERROR_STATUS_PATTERN =
   /unexpected status\s*(?:429|5\d\d)\b/i;
+// OpenAI refuses a flex-tier request when it has no flex capacity. The
+// refusal carries no HTTP status in the text, but it is transient.
+const UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN = /\bcapacity unavailable\b/i;
+const CODEX_SERVER_OVERLOADED_PATTERN = /\bSelected model is at capacity\b/i;
 const SANDBOX_TASK_SPEND_LIMIT_PATTERN =
   /This agent run reached its spend limit/i;
 const TURN_ENDED_WITHOUT_RESPONSE_PATTERN =
@@ -87,7 +91,9 @@ export function classifyAgentError(
   }
   if (
     UPSTREAM_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
-    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text)
+    CODEX_PROVIDER_ERROR_STATUS_PATTERN.test(text) ||
+    CODEX_SERVER_OVERLOADED_PATTERN.test(text) ||
+    UPSTREAM_CAPACITY_UNAVAILABLE_PATTERN.test(text)
   ) {
     return "upstream_provider_failure";
   }
@@ -136,7 +142,7 @@ export function sanitizeAgentErrorCause(
   return text.slice(0, 400);
 }
 
-function rejectedRequestMessage(body: string): string | undefined {
+export function rejectedRequestMessage(body: string): string | undefined {
   try {
     const message = JSON.parse(body)?.error?.message;
     return typeof message === "string" ? message : undefined;

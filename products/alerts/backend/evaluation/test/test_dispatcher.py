@@ -16,9 +16,14 @@ from posthog.caching.insight_result import InsightResult
 from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorS3FileChangedDuringRead
 from posthog.hogql_queries.query_failure_handling import build_failure_exception
 from posthog.query_cache.failures import QueryFailureRecord
+from posthog.query_creator_access import CreatorLeftOrganizationError
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    CREATOR_LOST_ACCESS_DISABLE_REASON,
     AlertExtractionError,
+    AlertOwnerAccessError,
     ComparableSeries,
     ExtractionResult,
     SeriesPoint,
@@ -37,7 +42,14 @@ class _Extractor:
     def __init__(self, outcome: Exception | ExtractionResult) -> None:
         self._outcome = outcome
 
-    def extract(self, alert: Any, insight: Any, query: Any, execution_mode: ExecutionMode) -> ExtractionResult:
+    def extract(
+        self,
+        alert: Any,
+        insight: Any,
+        query: Any,
+        execution_mode: ExecutionMode,
+        cache_age_seconds: int | None = None,
+    ) -> ExtractionResult:
         if isinstance(self._outcome, Exception):
             raise self._outcome
         return self._outcome
@@ -132,14 +144,17 @@ def test_per_series_judges_every_breakdown_value_where_the_alert_stops_at_the_fi
     )
     alert.insight.query = {"kind": "TrendsQuery"}
     extractor = _Extractor(ExtractionResult(series=series, is_breakdown=True))
+    query_slot = MagicMock(return_value=nullcontext())
     with (
         patch.dict(EXTRACTORS, {NodeKind.TRENDS_QUERY: extractor}),
+        patch("products.alerts.backend.evaluation.dispatcher.assert_creator_can_run"),
         patch("products.alerts.backend.evaluation.dispatcher.upgrade_insight", return_value=nullcontext()),
         patch("products.alerts.backend.evaluation.dispatcher.validate_evaluation_delay"),
         patch("products.alerts.backend.evaluation.dispatcher._resolve_execution_mode", return_value=IF_STALE),
     ):
-        evaluated = check_alert_per_series(alert)
+        evaluated = check_alert_per_series(alert, query_slot=query_slot)
 
+    query_slot.assert_called_once_with()
     assert isinstance(evaluated, PerSeriesEvaluation)
     assert [(s.label, s.result.value, bool(s.result.breaches)) for s in evaluated.series] == [
         ("Chrome", 150.0, True),
@@ -194,6 +209,7 @@ def test_per_series_keys_trends_breakdowns_on_their_raw_values(
     )
     with (
         patch("products.alerts.backend.evaluation.trends.calculate_for_query_based_insight", return_value=calculated),
+        patch("products.alerts.backend.evaluation.dispatcher.assert_creator_can_run"),
         patch("products.alerts.backend.evaluation.dispatcher.upgrade_insight", return_value=nullcontext()),
     ):
         evaluated = check_alert_per_series(alert)
@@ -201,3 +217,23 @@ def test_per_series_keys_trends_breakdowns_on_their_raw_values(
     assert isinstance(evaluated, PerSeriesEvaluation)
     assert [series.identity for series in evaluated.series] == expected_identities
     assert evaluated.truncated is truncated
+
+
+@pytest.mark.parametrize(
+    "denial, expected_message",
+    [
+        (CreatorLeftOrganizationError(), CREATOR_LEFT_DISABLE_REASON),
+        (UserAccessControlError("insight", "viewer", "1"), CREATOR_LOST_ACCESS_DISABLE_REASON),
+    ],
+)
+def test_per_series_refuses_an_owner_who_can_no_longer_run_the_query(denial, expected_message) -> None:
+    alert = MagicMock(detector_config=None)
+    with (
+        patch("products.alerts.backend.evaluation.dispatcher.assert_creator_can_run", side_effect=denial),
+        patch("products.alerts.backend.evaluation.dispatcher._resolved_query") as resolve,
+        pytest.raises(AlertOwnerAccessError) as raised,
+    ):
+        check_alert_per_series(alert)
+
+    assert str(raised.value) == expected_message
+    resolve.assert_not_called()

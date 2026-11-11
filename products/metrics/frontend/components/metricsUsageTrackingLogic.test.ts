@@ -230,6 +230,8 @@ describe('metricsUsageTrackingLogic', () => {
             ],
         } as any)
         metricsViewerLogic.actions.setMetricName(SECRET_METRIC)
+        // A series row with no metric is not part of the request.
+        metricsViewerLogic.actions.addClause()
         metricsViewerLogic.actions.fetchQueryResults({})
         await expectLogic(metricsViewerLogic).toDispatchActions(['fetchQueryResultsSuccess'])
 
@@ -244,6 +246,10 @@ describe('metricsUsageTrackingLogic', () => {
                     range_function: null,
                     has_group_by: false,
                     has_filters: false,
+                    date_from: '-1h',
+                    clause_count: 1,
+                    has_formula: false,
+                    is_derived: false,
                 },
             ],
         ])
@@ -336,6 +342,22 @@ describe('metricsUsageTrackingLogic', () => {
         await expectLogic(logic, () => {
             metricsViewerLogic.actions.fetchQueryResults({})
         }).toNotHaveDispatchedActions([viewerQueryIntent()])
+    })
+
+    // Derived series come from spans and logs, so they must not count as metrics activation.
+    it('a query of only derived series records the derived intent instead of the viewer intent', async () => {
+        const derivedQueryIntent = teamLogic.actionCreators.addProductIntent({
+            product_type: ProductKey.METRICS,
+            intent_context: ProductIntentContext.METRICS_DERIVED_QUERY_RUN,
+        })
+        metricsViewerLogic.actions.setMetricName('posthog.derived.spans.requests')
+        await expectLogic(logic, () => {
+            metricsViewerLogic.actions.fetchQueryResults({})
+        })
+            .toDispatchActions([derivedQueryIntent])
+            .toNotHaveDispatchedActions([viewerQueryIntent()])
+
+        expect(captures('metrics query completed')[0][1]).toMatchObject({ is_derived: true })
     })
 
     it('the empty-name initial query success records no product intent', async () => {

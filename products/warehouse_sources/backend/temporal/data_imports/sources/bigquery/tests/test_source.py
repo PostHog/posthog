@@ -29,7 +29,10 @@ from requests.adapters import HTTPAdapter
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.batch_exports.backend.facade.destinations.bigquery import ServiceAccountOwnershipError
+from products.batch_exports.backend.facade.destinations.bigquery import (
+    GoogleCloudCredentialsError,
+    ServiceAccountOwnershipError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
@@ -45,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_INVALID_TOKEN_URI_ERROR,
     BIGQUERY_MISSING_KEY_FILE_FIELDS_ERROR,
     BIGQUERY_NO_CREDENTIALS_ERROR,
+    BIGQUERY_POSTHOG_CREDENTIALS_ERROR,
     BIGQUERY_QUERY_CREATE_RETRY,
     BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_READ_ROWS_RETRY,
@@ -53,6 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BIGQUERY_VALIDATION_GENERIC_ERROR,
     BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
+    BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
     BigQueryAuthResolutionError,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
@@ -698,6 +703,24 @@ def test_bigquery_unparseable_private_key_is_non_retryable(observed_error):
     assert all(non_retryable_errors[key] is not None for key in matching)
 
 
+@pytest.mark.parametrize(
+    "observed_error",
+    [
+        # Volatile project/dataset/identifier must not be required for the match.
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets/my_dataset/"
+        "tables?prettyPrint=false: VPC Service Controls: Request is prohibited by organization's "
+        "policy. vpcServiceControlsUniqueIdentifier: abc123.",
+        "403 VPC Service Controls: Request is prohibited by organization's policy. "
+        "vpcServiceControlsUniqueIdentifier: xyz789.",
+    ],
+)
+def test_non_retryable_errors_match_vpc_service_controls_denial(observed_error):
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in observed_error]
+    assert matching, "VPC Service Controls denial should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+
+
 def _run_delete_all_temp_destination_tables(side_effect, logger):
     bq = mock.MagicMock()
     bq.list_tables.side_effect = side_effect
@@ -949,6 +972,15 @@ def test_bigquery_rejects_non_google_token_uri_before_building_credentials(token
             BIGQUERY_VALIDATION_PERMISSION_DENIED_ERROR,
             False,
         ),
+        (
+            Forbidden(
+                "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-project/datasets/"
+                "my_dataset/tables?prettyPrint=false: VPC Service Controls: Request is prohibited "
+                "by organization's policy. vpcServiceControlsUniqueIdentifier: abc123."
+            ),
+            BIGQUERY_VPC_SERVICE_CONTROLS_ERROR,
+            False,
+        ),
         (RuntimeError("something unexpected"), BIGQUERY_VALIDATION_GENERIC_ERROR, True),
     ],
 )
@@ -1168,6 +1200,21 @@ def test_non_retryable_errors_match_impersonation_token_denied(observed_error):
 def test_non_retryable_errors_match_custom_quota_exceeded(observed_error):
     """An administrator-set custom cost control (e.g. QueryUsagePerDay) can't be recovered by
     retrying within the sync's window — the user must raise the quota or sync less data."""
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    assert any(key in observed_error for key in non_retryable_errors)
+
+
+def test_non_retryable_errors_match_no_reservation_or_slots_configured():
+    """A project with neither on-demand pricing nor a flat-rate reservation configured for the
+    queried region fails every query identically — retrying can't recover it, the user must
+    change their Google Cloud billing/capacity setup."""
+    observed_error = str(
+        BadRequest(
+            "Cannot run query: project does not have the reservation in the data region or no "
+            "slots are configured; reason: invalid, message: Cannot run query: project does not "
+            "have the reservation in the data region or no slots are configured\n\nLocation: US"
+        )
+    )
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert any(key in observed_error for key in non_retryable_errors)
 
@@ -1610,6 +1657,7 @@ def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownershi
     config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
 
     with (
+        mock.patch(f"{_BATCH_EXPORT_MODULE}.ensure_our_google_cloud_credentials_are_valid"),
         mock.patch(f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership") as mock_verify,
         mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
         mock.patch.object(bq_module.google_auth_impersonated_credentials, "Credentials") as mock_impersonated,
@@ -1622,30 +1670,61 @@ def test_bigquery_auth_from_keyless_integration_impersonates_only_after_ownershi
     assert mock_impersonated.call_args.kwargs["target_principal"] == "sa@my-project.iam.gserviceaccount.com"
 
 
+# Verbatim wording from batch exports, which raises the same error for the same check.
+_OWNERSHIP_ERROR = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
+
+
+@pytest.mark.parametrize(
+    "own_credentials_error, ownership_error, expected_message, expect_non_retryable, expect_ownership_checked",
+    [
+        # The customer has to change their service account description, so the sync must stop
+        # rather than retry the same rejection every run.
+        pytest.param(None, _OWNERSHIP_ERROR, str(_OWNERSHIP_ERROR), True, True, id="ownership_unverified"),
+        # PostHog's worker cannot get its own Google Cloud credentials. The ownership check would
+        # fail with the same "getAccessToken denied" text as a missing customer grant, which is
+        # non-retryable and tells the customer to fix IAM. Nothing on their side can fix this.
+        pytest.param(
+            GoogleCloudCredentialsError(),
+            None,
+            BIGQUERY_POSTHOG_CREDENTIALS_ERROR,
+            False,
+            False,
+            id="posthog_credentials_unavailable",
+        ),
+    ],
+)
 @pytest.mark.django_db
-def test_bigquery_unverified_service_account_ownership_is_reported_and_not_retried(team, settings):
+def test_bigquery_impersonation_precheck_failure_is_reported_and_retried_only_on_posthog_side(
+    team,
+    settings,
+    own_credentials_error,
+    ownership_error,
+    expected_message,
+    expect_non_retryable,
+    expect_ownership_checked,
+):
     settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD = "//iam.googleapis.com/projects/1/locations/global"
     settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT = "posthog@posthog.iam.gserviceaccount.com"
     integration = _google_cloud_integration(team, with_key=False)
     config = BigQuerySourceConfig(dataset_id="my_dataset", auth_type=_integration_auth(integration.id))
-    # Verbatim wording from batch exports, which raises the same error for the same check.
-    ownership_error = ServiceAccountOwnershipError("sa@my-project.iam.gserviceaccount.com", "org-uuid")
 
     with (
         mock.patch(
-            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+            f"{_BATCH_EXPORT_MODULE}.ensure_our_google_cloud_credentials_are_valid", side_effect=own_credentials_error
         ),
+        mock.patch(
+            f"{_BATCH_EXPORT_MODULE}.verify_impersonated_service_account_ownership", side_effect=ownership_error
+        ) as mock_verify,
         mock.patch(f"{_BATCH_EXPORT_MODULE}.get_our_google_cloud_credentials"),
         mock.patch.object(bq_module, "bigquery_client") as mock_client,
     ):
         ok, message = BigQuerySource().validate_credentials(config, team_id=team.id)
 
     assert ok is False
-    assert message == str(ownership_error)
+    assert message == expected_message
     mock_client.assert_not_called()
-    # The customer has to change their service account description, so the sync must stop rather
-    # than retry the same rejection every run.
-    assert any(key in str(ownership_error) for key in BigQuerySource().get_non_retryable_errors())
+    assert mock_verify.called is expect_ownership_checked
+    assert error_message_matches(expected_message, BigQuerySource().get_non_retryable_errors()) is expect_non_retryable
 
 
 @pytest.mark.django_db

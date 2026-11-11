@@ -83,6 +83,56 @@
       }
     },
     {
+      "includes": [
+        "packages/agent/src/sdk/**/*.ts",
+        "packages/agent/src/server/agent-server.ts",
+        "packages/agent/src/server/pi-agent-server.ts",
+        "packages/agent/src/server/product/**/*.ts",
+        "packages/agent/src/server/launch/**/*.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["@posthog/shared", "@posthog/shared/*"],
+                    "message": "The agent runtime must not depend on desktop code. Import from @posthog/agent-contracts."
+                  },
+                  {
+                    "group": ["**/products/**"],
+                    "message": "The server and SDK receive one product definition from application boot. Do not import products into the runtime."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "includes": ["packages/agent/src/products/**/*.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "patterns": [
+                  {
+                    "group": ["**/server/**", "**/boot/**"],
+                    "message": "Products use the agent SDK in src/sdk. Do not import runtime internals."
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["packages/agent-contracts/**/*.ts"],
       "linter": {
         "rules": {

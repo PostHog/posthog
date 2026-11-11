@@ -16,7 +16,13 @@ export const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType,
 // attribute map entry and returns nothing. Pin them to `column` by key so a recent groups by the
 // real column, matching a fresh pick from the `Logs` group.
 // This mirrors the backend dict by hand; `groupBySource.test.ts` fails if the two drift apart.
-export const GROUPABLE_COLUMN_KEYS = new Set<string>(['severity_level', 'trace_id', 'span_id'])
+export const GROUPABLE_COLUMN_KEYS = new Set<string>([
+    'severity_level',
+    'trace_id',
+    'span_id',
+    'service_name',
+    'pattern',
+])
 
 export function resolveGroupBySource(key: string, groupType: TaxonomicFilterGroupType): LogsGroupBySourceEnumApi {
     if (GROUPABLE_COLUMN_KEYS.has(key)) {

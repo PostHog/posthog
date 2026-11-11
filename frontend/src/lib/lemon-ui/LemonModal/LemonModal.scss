@@ -102,11 +102,18 @@ body.ReactModal__Body--open {
     .LemonModal__content {
         padding: 1rem;
         overflow-y: auto;
-        overscroll-behavior: contain;
 
         &.LemonModal__content--embedded {
             padding: 0;
         }
+    }
+
+    // Contain the scroll chain only on the outermost content, which is the section that scrolls.
+    // A nested content section has no height limit, so it is a scroll container that cannot scroll,
+    // and containment there stops the wheel at that section instead of passing it to the section
+    // above. The page behind the modal stays still because .LemonModal__layout also contains it.
+    .LemonModal__layout > .LemonModal__content {
+        overscroll-behavior: contain;
     }
 
     .LemonModal__container {

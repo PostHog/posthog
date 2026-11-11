@@ -6,14 +6,17 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+import { SidePanelTab } from '~/types'
 
 import { dataCatalogAgentSyncLogic } from './dataCatalogAgentSyncLogic'
 import {
     dataCatalogMetricSceneLogic,
     LINEAGE_RETRY_MS,
     MARKDOWN_DEFINITION_TEMPLATE,
+    referencedTablePreviewQuery,
 } from './dataCatalogMetricSceneLogic'
 import {
     dataCatalogMetricsApproveCreate,
@@ -54,6 +57,9 @@ jest.mock('./generated/api', () => ({
     dataCatalogMetricsRunCreate: jest.fn(),
 }))
 
+const SAVED_AT = '2026-10-23T12:00:00.000000Z'
+const EDITED_DEFINITION = { kind: 'HogQLQuery', query: 'SELECT 2' }
+
 function buildMetric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
     return {
         id: 'metric-1',
@@ -77,9 +83,6 @@ describe('dataCatalogMetricSceneLogic', () => {
         initKeaTests()
         logic = dataCatalogMetricSceneLogic({ name: 'weekly_active_users' })
         logic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_QUALITY_CHECKS], {
-            [FEATURE_FLAGS.DATA_QUALITY_CHECKS]: true,
-        })
         await expectLogic(logic).toDispatchActions(['loadMetricSuccess'])
     })
 
@@ -159,7 +162,7 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(lineageRequest()).not.toHaveBeenCalled()
     })
 
-    it('retries a not-ready lineage exactly once', async () => {
+    it('retries a not-ready lineage exactly once, then reports it missing', async () => {
         jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
         try {
             lineageRequest().mockRejectedValue(new ApiError('nope', 404))
@@ -167,12 +170,14 @@ describe('dataCatalogMetricSceneLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             expect(lineageRequest()).toHaveBeenCalledTimes(1)
 
+            expect(logic.values.lineageProblem).toBe('not_ready')
+
             await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS)
             expect(lineageRequest()).toHaveBeenCalledTimes(2)
 
             await jest.advanceTimersByTimeAsync(LINEAGE_RETRY_MS * 3)
             expect(lineageRequest()).toHaveBeenCalledTimes(2)
-            expect(logic.values.lineageProblem).toBe('not_ready')
+            expect(logic.values.lineageProblem).toBe('missing')
         } finally {
             jest.useRealTimers()
         }
@@ -279,18 +284,6 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(router.values.searchParams.tab).toBe('data-quality')
     })
 
-    // The metric check endpoints are gated on the same flag, so a link to the tab from a project
-    // outside the rollout has to land on Definition. Otherwise the panel mounts against endpoints
-    // that reject every request.
-    it('refuses the data quality tab while the data quality flag is off', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
-        router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'data-quality' })
-        await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.metricChecksEnabled).toBe(false)
-        expect(logic.values.activeTab).toBe('definition')
-        expect(router.values.searchParams.tab).toBeUndefined()
-    })
-
     it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
         'allows check authoring only for a HogQL definition (%s)',
         (definition_kind) => {
@@ -299,15 +292,70 @@ describe('dataCatalogMetricSceneLogic', () => {
         }
     )
 
-    it('saving an approved metric edit reflects the proposed status from the response', async () => {
+    it.each([
+        ['Save and reset to proposed', false, 'proposed', 0],
+        ['Save and approve', true, 'approved', 1],
+    ])('%s on an approved metric edit', async (_button, approve, expectedStatus, approveCalls) => {
         ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(
-            buildMetric({ status: 'proposed', definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
+            buildMetric({ status: 'proposed', definition: EDITED_DEFINITION, updated_at: SAVED_AT })
+        )
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', definition: EDITED_DEFINITION })
         )
 
-        logic.actions.updateMetric({ definition: { kind: 'HogQLQuery', query: 'SELECT 2' } })
+        logic.actions.updateMetric({ definition: EDITED_DEFINITION }, approve)
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(logic.values.metric?.status).toEqual('proposed')
+        expect((dataCatalogMetricsApproveCreate as jest.Mock).mock.calls).toEqual(
+            Array(approveCalls).fill(['1', 'weekly_active_users', { expected_updated_at: SAVED_AT }])
+        )
+        expect(logic.values.metric?.status).toEqual(expectedStatus)
+    })
+
+    it('keeps a saved edit proposed when approving it fails', async () => {
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'proposed', definition: EDITED_DEFINITION, updated_at: SAVED_AT })
+        )
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockRejectedValue(new ApiError('changed', 409))
+
+        logic.actions.updateMetric({ definition: EDITED_DEFINITION }, true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.metric).toMatchObject({ status: 'proposed', definition: EDITED_DEFINITION })
+        expect(lemonToast.warning).toHaveBeenCalledWith(
+            'Metric saved, but approving it failed. Approve it from the banner.'
+        )
+        expect(logic.values.mutating).toBe(false)
+    })
+
+    it('never approves when saving fails', async () => {
+        ;(dataCatalogMetricsPartialUpdate as jest.Mock).mockRejectedValue(new ApiError('nope', 500))
+
+        logic.actions.updateMetric({ definition: EDITED_DEFINITION }, true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsApproveCreate).not.toHaveBeenCalled()
+        expect(logic.values.metric?.status).toEqual('approved')
+        expect(logic.values.mutating).toBe(false)
+    })
+
+    it.each([
+        ['events', 'SELECT * FROM events LIMIT 100'],
+        ['sales-data', 'SELECT * FROM "sales-data" LIMIT 100'],
+        ['postgres.orders', 'SELECT * FROM postgres.orders LIMIT 100'],
+    ])('previews the referenced table %s with an escaped name', (tableName, expected) => {
+        expect(referencedTablePreviewQuery(tableName)).toEqual(expected)
+    })
+
+    it('confirms an approval by the metric display name', async () => {
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', display_name: 'Weekly active users' })
+        )
+
+        logic.actions.approveMetric()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.success).toHaveBeenCalledWith('Approved Weekly active users')
     })
 
     it('surfaces refresh when approve returns 409 and leaves the metric untouched', async () => {
@@ -335,6 +383,30 @@ describe('dataCatalogMetricSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.runResult?.compiled_query).toEqual('SELECT count()')
+    })
+
+    it('records the run and opens the agent when running with AI without scene integration', async () => {
+        ;(dataCatalogMetricsRunCreate as jest.Mock).mockResolvedValue({ results: [] })
+
+        logic.actions.runMetricWithAI()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(dataCatalogMetricsRunCreate).toHaveBeenCalledWith('1', 'weekly_active_users', {})
+        expect(sidePanelStateLogic.values.selectedTab).toEqual(SidePanelTab.Max)
+        expect(sidePanelStateLogic.values.selectedTabOptions).toContain('weekly_active_users')
+    })
+
+    it.each([
+        [false, ['Data catalog', 'Weekly active users']],
+        [true, ['Data catalog', 'Metrics', 'Weekly active users']],
+    ])('with the catalog restructure %s the breadcrumbs read %j', (restructure, names) => {
+        logic.actions.setMetric(buildMetric({ display_name: 'Weekly active users' }))
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: restructure,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: restructure,
+        })
+
+        expect(logic.values.breadcrumbs.map((crumb) => crumb.name)).toEqual(names)
     })
 
     it('discards the edited draft when the definition editor closes without saving', async () => {
@@ -550,24 +622,6 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(otherProjectLogic.values.editingDefinition).toBe(false)
         expect(otherProjectLogic.values.draftMarkdown).toEqual('')
         otherProjectLogic.unmount()
-    })
-
-    it('opens the markdown editor once loaded when arriving with ?edit=definition', async () => {
-        jest.clearAllMocks()
-        ;(dataCatalogMetricsRetrieve as jest.Mock).mockResolvedValue(
-            buildMetric({ name: 'stub_metric', definition_kind: null, definition: null, status: 'proposed' })
-        )
-        const stubLogic = dataCatalogMetricSceneLogic({ name: 'stub_metric' })
-        stubLogic.mount()
-        await expectLogic(stubLogic).toDispatchActions(['loadMetricSuccess'])
-
-        router.actions.push(urls.dataCatalogMetric('stub_metric'), { edit: 'definition' })
-        await expectLogic(stubLogic).toDispatchActions(['loadMetricSuccess'])
-
-        expect(stubLogic.values.editingDefinition).toBe(true)
-        expect(stubLogic.values.draftMarkdown).toEqual(MARKDOWN_DEFINITION_TEMPLATE)
-        expect(router.values.searchParams.edit).toBeUndefined()
-        stubLogic.unmount()
     })
 
     it('keeps the shared open-metric slot when the previous instance unmounts after the rename target mounts', async () => {

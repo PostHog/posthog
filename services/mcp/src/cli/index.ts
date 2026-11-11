@@ -44,6 +44,9 @@ Usage:
   posthog-cli api skill install [--force] <skill-id>
   posthog-cli api agents-md install [--path AGENTS.md]
 
+Call targets: --project-id <id> and --organization-id <id> override environment and login defaults.
+Targets apply to this invocation. Repeat them on each call or set per-process environment variables.
+
 Destructive tools require --confirm when executed. Use --dry-run before mutations.
 Agents: run \`posthog-cli api --agent-help\` and load the output into context before anything else.`
 }
@@ -109,8 +112,7 @@ async function runStaticExecCommand(command: string): Promise<void> {
     printResult(result)
 }
 
-async function runExecCommand(command: string): Promise<void> {
-    const config = resolveCliConfig()
+async function runExecCommand(command: string, config: CliConfig): Promise<void> {
     if (command.startsWith('call ')) {
         requireApiKey(config)
     }
@@ -238,6 +240,7 @@ async function main(): Promise<void> {
             return
         }
         case 'call': {
+            const config = resolveCliConfig(args)
             const dryRun = takeFlag(args, '--dry-run')
             if (dryRun) {
                 await runDryCall(args)
@@ -250,7 +253,10 @@ async function main(): Promise<void> {
             if (!toolName) {
                 throw new Error('Usage: posthog-cli api call [--json] [--dry-run] [--confirm] <tool> [json]')
             }
-            await runExecCommand(`call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`)
+            await runExecCommand(
+                `call ${json ? '--json ' : ''}${confirmed ? '--confirm ' : ''}${toolName} ${jsonBody}`,
+                config
+            )
             return
         }
         case 'skill':

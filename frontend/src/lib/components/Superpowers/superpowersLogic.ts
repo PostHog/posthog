@@ -11,7 +11,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { PreflightStatus, UserType } from '../../../types'
 
 export type FakeStatusOverride = 'none' | 'operational' | 'degraded_performance' | 'partial_outage' | 'major_outage'
-export type FakeBillingAlert = 'none' | 'info' | 'warning' | 'error'
+export type FakeBillingAlert = 'none' | 'usage_limit_reached' | 'usage_limit_approaching' | 'trial'
 
 // The PostHog Team cohort in PostHog's own project excludes people with this person property set to true.
 export const EXCLUDED_FROM_POSTHOG_TEAM_COHORT_PROPERTY = 'excluded_from_posthog_team_cohort'

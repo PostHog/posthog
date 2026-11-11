@@ -21,12 +21,12 @@ import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { toSentenceCase } from 'lib/utils/strings'
 
 import { BillingFeatureType, BillingPlan, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { billingLogic } from './billingLogic'
 import { BillingProductAddonActions } from './BillingProductAddonActions'
 import { billingProductLogic } from './billingProductLogic'
 import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
@@ -116,6 +116,7 @@ const PlanCard = ({
 
     return (
         <div
+            data-attr={`billing-product-addon-${addon.type}`}
             className={clsx(
                 'flex flex-col gap-3 p-5 rounded bg-surface-secondary',
                 (addon.subscribed || isOnTrial) && 'ring-1 ring-accent'

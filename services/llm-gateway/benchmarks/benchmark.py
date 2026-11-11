@@ -242,13 +242,13 @@ def create_clients(
     if openai_key:
         clients["openai_direct"] = AsyncOpenAI(api_key=openai_key)
         if gateway_api_key:
-            clients["openai_gateway"] = AsyncOpenAI(base_url=f"{gateway_url}/v1", api_key=gateway_api_key)
+            clients["openai_gateway"] = AsyncOpenAI(base_url=f"{gateway_url}/django/v1", api_key=gateway_api_key)
 
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
     if anthropic_key:
         clients["anthropic_direct"] = AsyncAnthropic(api_key=anthropic_key)
         if gateway_api_key:
-            clients["anthropic_gateway"] = AsyncAnthropic(base_url=gateway_url, api_key=gateway_api_key)
+            clients["anthropic_gateway"] = AsyncAnthropic(base_url=f"{gateway_url}/django", api_key=gateway_api_key)
 
     return clients
 

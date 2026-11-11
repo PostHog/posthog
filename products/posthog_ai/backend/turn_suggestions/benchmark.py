@@ -277,7 +277,7 @@ def _judge_at_endpoint(case: BenchmarkCase, endpoint: SystemOneEndpoint) -> Turn
     return read_judgment(parse_system_one_response(response.json(), questions), case.transcript, case.available)
 
 
-def _judge(case: BenchmarkCase, endpoint: SystemOneEndpoint | None) -> CaseResult:
+def judge_case(case: BenchmarkCase, endpoint: SystemOneEndpoint | None = None) -> CaseResult:
     started = time.monotonic()
     judgment: TurnJudgment | None = None
     failure: str | None = None
@@ -310,7 +310,7 @@ def run_cases(
     the order of ``cases``."""
     results = []
     with ThreadPoolExecutor(max_workers=workers) as pool:
-        for future in as_completed([pool.submit(_judge, case, endpoint) for case in cases]):
+        for future in as_completed([pool.submit(judge_case, case, endpoint) for case in cases]):
             result = future.result()
             on_result(result)
             results.append(result)

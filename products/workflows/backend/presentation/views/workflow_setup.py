@@ -1,6 +1,5 @@
 from typing import Any
 
-import posthoganalytics
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -9,15 +8,11 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.dataclasses import frozen
-from posthog.models import User
 from posthog.utils import absolute_uri
 
 from products.workflows.backend.facade.contracts import SetupStep
 from products.workflows.backend.facade.enums import SetupStepKey
 from products.workflows.backend.facade.setup_status import email_sending_paused, get_setup_steps
-from products.workflows.backend.presentation.views.workflow_data_suggestions import (
-    FEATURE_FLAG_KEY as DATA_SUGGESTIONS_FLAG_KEY,
-)
 
 # The steps an email can't send without. The rest make sending safer or faster but never block it.
 _REQUIRED_TO_SEND = (SetupStepKey.CHANNEL, SetupStepKey.DOMAIN)
@@ -93,9 +88,6 @@ class WorkflowSetupStatusSerializer(serializers.Serializer):
         allow_null=True,
         help_text="The first step that is not done, or null when every step is done.",
     )
-    data_suggestions_available = serializers.BooleanField(
-        help_text="Whether workflows-data-suggestions-list can suggest workflows from this project's events."
-    )
 
 
 class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -119,7 +111,6 @@ class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "ready_to_send_email": all(done[key] for key in _REQUIRED_TO_SEND) and not paused,
                     "email_sending_paused": paused,
                     "next_open_step": next((step.key for step in steps if not step.done), None),
-                    "data_suggestions_available": self._data_suggestions_available(request),
                 }
             ).data
         )
@@ -133,16 +124,3 @@ class WorkflowSetupViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "next_step": copy.next_step,
             "app_url": absolute_uri(f"/project/{self.team.id}{copy.path}"),
         }
-
-    def _data_suggestions_available(self, request: Request) -> bool:
-        user = request.user
-        if not isinstance(user, User) or not user.distinct_id:
-            return False
-        return bool(
-            posthoganalytics.feature_enabled(
-                DATA_SUGGESTIONS_FLAG_KEY,
-                user.distinct_id,
-                groups={"organization": str(self.organization.id)},
-                group_properties={"organization": {"id": str(self.organization.id)}},
-            )
-        )

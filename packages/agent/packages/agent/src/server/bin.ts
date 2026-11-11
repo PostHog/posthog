@@ -9,10 +9,11 @@ import { DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE } from "@posthog/harness/e
 import { Command } from "commander";
 import { z } from "zod/v4";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
+import { selectProduct } from "../boot/select-product";
 import { AgentServer } from "./agent-server";
 import { launcherToProcessMs } from "./boot-phases";
 import { CredentialRelayError } from "./credential-relay";
-import { PiAgentServer } from "./pi-agent-server";
+import type { PiAgentServer } from "./pi-agent-server";
 import {
   claudeCodeConfigSchema,
   mcpServersSchema,
@@ -112,6 +113,15 @@ function readCodexRunToken(): string {
     program.error("--codexSubscription requires the run token on fd 3");
   }
   return token;
+}
+
+async function createPiAgentServer(
+  config: AgentServerConfig,
+): Promise<PiAgentServer> {
+  const piAgentServerModule: typeof import("./pi-agent-server") = await import(
+    new URL("./pi-agent-server.js", import.meta.url).href
+  );
+  return new piAgentServerModule.PiAgentServer(config);
 }
 
 function parseBooleanOption(
@@ -304,6 +314,7 @@ program
 
     const serverConfig: AgentServerConfig = {
       port: parseInt(options.port, 10),
+      selectProduct,
       agentStateDir: env.POSTHOG_AGENT_STATE_DIR,
       jwtPublicKey: env.JWT_PUBLIC_KEY,
       eventIngestToken: env.POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN,
@@ -356,7 +367,7 @@ program
     };
     const server =
       env.POSTHOG_AGENT_RUNTIME === "pi"
-        ? new PiAgentServer(serverConfig)
+        ? await createPiAgentServer(serverConfig)
         : new AgentServer(serverConfig);
 
     process.on("SIGINT", async () => {

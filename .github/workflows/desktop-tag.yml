@@ -22,9 +22,10 @@ jobs:
         # A manual run can start from any ref, and a break-glass run tags that ref's head. Only
         # master and an existing release tag hold code that already merged.
         if: >-
-            github.event_name == 'schedule' ||
-            (github.event_name == 'workflow_dispatch' &&
-             (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v')))
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name == 'schedule' ||
+             (github.event_name == 'workflow_dispatch' &&
+              (github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/desktop-v'))))
         # The release App's key lives in this environment, which only master and a desktop-v* tag reach.
         environment: desktop-tagging
         permissions:
@@ -36,7 +37,8 @@ jobs:
         steps:
             - name: Get app token
               id: app-token
-              uses: getsentry/action-github-app-token@5c1e90706fe007857338ac1bfbd7a4177db2f789 # v4.0.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: getsentry/action-github-app-token@v4.0.0
               with:
                   app_id: ${{ vars.GH_APP_ARRAY_RELEASER_APP_ID }}
                   private_key: ${{ secrets.GH_APP_ARRAY_RELEASER_PRIVATE_KEY }}
@@ -69,7 +71,8 @@ jobs:
                   fi
 
             - name: Checkout
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none

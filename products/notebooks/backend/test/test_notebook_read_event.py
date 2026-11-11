@@ -1,10 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models import FileSystem
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+from products.notebooks.backend.models import Notebook
 
 CAPTURE_PATH = "products.notebooks.backend.presentation.views.notebook.capture_notebook_read"
 
@@ -46,3 +50,33 @@ class TestNotebookReadEvent(APIBaseTest):
         self.assertEqual(kwargs["short_id"], short_id)
         self.assertEqual(kwargs["read_source"], "mcp")
         self.assertEqual(kwargs["api_key_type"], "PersonalAPIKeyAuthentication")
+
+    @parameterized.expand(
+        [
+            ("unlisted_browser", Notebook.Visibility.UNLISTED, False, Notebook.Visibility.DEFAULT),
+            ("unlisted_api_key", Notebook.Visibility.UNLISTED, True, Notebook.Visibility.UNLISTED),
+            ("internal_browser", Notebook.Visibility.INTERNAL, False, Notebook.Visibility.INTERNAL),
+        ]
+    )
+    def test_browser_read_lists_an_unlisted_notebook(
+        self, _name: str, visibility: str, via_api_key: bool, expected: str
+    ) -> None:
+        notebook = Notebook.objects.create(team=self.team, visibility=visibility)
+        headers: dict[str, str] = {}
+        if via_api_key:
+            key_value = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                user=self.user, label="read-key", secure_value=hash_key_value(key_value), scopes=["notebook:read"]
+            )
+            self.client.logout()
+            headers["Authorization"] = f"Bearer {key_value}"
+
+        response = self.client.get(self._url(notebook.short_id), headers=headers)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        notebook.refresh_from_db()
+        self.assertEqual(notebook.visibility, expected)
+        self.assertEqual(
+            FileSystem.objects.filter(team=self.team, type="notebook", ref=notebook.short_id).exists(),
+            expected == Notebook.Visibility.DEFAULT,
+        )

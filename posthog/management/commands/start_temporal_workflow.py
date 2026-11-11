@@ -16,6 +16,7 @@ from posthog.temporal.health_checks import WORKFLOWS as HEALTH_CHECK_WORKFLOWS
 from posthog.temporal.proxy_service import WORKFLOWS as PROXY_SERVICE_WORKFLOWS
 from posthog.temporal.quota_limiting import WORKFLOWS as QUOTA_LIMITING_WORKFLOWS
 from posthog.temporal.salesforce_enrichment import WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS
+from posthog.temporal.session_replay.copy_recording import COPY_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.count_playlist_items import COUNT_PLAYLIST_ITEMS_WORKFLOWS
 from posthog.temporal.session_replay.delete_recordings import DELETE_RECORDINGS_WORKFLOWS
 from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
@@ -149,6 +150,7 @@ class Command(BaseCommand):
             + SALESFORCE_ENRICHMENT_WORKFLOWS
             + TEST_WORKFLOWS
             + COUNT_PLAYLIST_ITEMS_WORKFLOWS
+            + COPY_RECORDING_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
             + SYNC_EVENTS_RETENTION_WORKFLOWS

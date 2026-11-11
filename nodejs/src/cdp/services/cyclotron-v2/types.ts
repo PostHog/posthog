@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { z } from 'zod'
 
+import type { BatchResolverResumeOutcome } from '~/cdp/services/hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome } from '~/cdp/services/hogflows/step-resume.service'
 
 export type CyclotronV2JobStatus = 'available' | 'running' | 'completed' | 'failed' | 'canceled'
@@ -25,6 +26,9 @@ export const CyclotronV2JobInitSchema = z.object({
     priority: z.number().int().optional(),
     scheduled: z.date().optional(),
     parentRunId: z.string().nullish(),
+    // Keep `state` small. Queue rows churn, and PostgreSQL moves large BYTEA values to TOAST,
+    // where only vacuum reclaims the space. Files and blobs go to object storage, never into
+    // this column or a new cyclotron table. See "Keep rows small" in ./README.md.
     state: z.instanceof(Buffer).nullish(),
     distinctId: z.string().nullish(),
     personId: z.string().nullish(),
@@ -96,6 +100,7 @@ export interface CyclotronV2DequeuedJob {
     ack(): Promise<void>
     fail(): Promise<void>
     reschedule(options?: CyclotronV2RescheduleOptions): Promise<void>
+    defer(options: { scheduledAt: Date; state?: Buffer }): Promise<void>
     cancel(): Promise<void>
     heartbeat(): Promise<void>
     // `cancelRequested: true` means the check-in was refused: a cancel flag landed on this
@@ -195,6 +200,11 @@ export interface CyclotronV2JobProducer {
     rescheduleParkedJobs(options: CyclotronV2RescheduleParkedOptions): Promise<CyclotronV2RescheduleParkedResult>
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
+    resumeParkedBatchResolver(options: {
+        teamId: number
+        functionId: string
+        batchJobId: string
+    }): Promise<BatchResolverResumeOutcome>
     disconnect(): Promise<void>
 }
 
@@ -212,7 +222,9 @@ export type CyclotronV2WorkerConfig = {
     batchMaxSize?: number
     pollDelayMs?: number
     heartbeatTimeoutMs?: number
+    releaseWriteHeartbeatLimitMs?: number
     includeEmptyBatches?: boolean
+    boundedPolls?: boolean
 }
 
 export type CyclotronV2JanitorConfig = {

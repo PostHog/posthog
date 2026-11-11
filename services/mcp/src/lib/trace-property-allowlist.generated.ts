@@ -17,6 +17,7 @@ export const AI_TAXONOMY_EVENT_PROPERTIES = [
     '$ai_cache_creation_5m_input_tokens',
     '$ai_cache_creation_input_tokens',
     '$ai_cache_read_audio_tokens',
+    '$ai_cache_read_image_tokens',
     '$ai_cache_read_input_tokens',
     '$ai_cache_read_token_price',
     '$ai_cache_reporting_exclusive',

@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { IconEllipsis } from '@posthog/icons'
+import { IconArrowLeft, IconEllipsis } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -12,14 +13,15 @@ import { getAccessControlDisabledReason, getProductAccessDisabledReason } from '
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { openCreateScorerVersionDialog } from './openCreateScorerVersionDialog'
+import { QuillAIObservabilityScorerActions } from './QuillAIObservabilityScorerActions'
 import { ScoreDefinitionForm } from './ScoreDefinitionForm'
 import { formatKindLabel } from './scoreDefinitionModalUtils'
 import { ScorerLogicProps, scorerLogic } from './scorerLogic'
+import { ScorersScene } from './ScorersScene'
 
 export const scene: SceneExport<ScorerLogicProps> = {
     component: AIObservabilityScorerScene,
@@ -49,6 +51,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
         removeOption,
     } = useActions(logic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const editDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.LlmAnalytics,
         AccessControlLevel.Editor
@@ -59,30 +62,42 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
 
     if (definitionLoading || (!isNew && !definition && !loadError)) {
         return (
-            <SceneContent>
+            <ScorersScene>
                 <LemonSkeleton className="h-8 w-64" />
                 <LemonSkeleton className="h-96 w-full max-w-3xl" />
-            </SceneContent>
+            </ScorersScene>
         )
     }
     if (loadError) {
         return (
-            <SceneContent>
+            <ScorersScene>
                 <LemonBanner type="error" action={{ children: 'Try again', onClick: loadDefinition }}>
                     {loadError}
                 </LemonBanner>
                 <LemonButton to={urls.aiObservabilityScorers()}>Back to scorers</LemonButton>
-            </SceneContent>
+            </ScorersScene>
         )
     }
 
     return (
-        <SceneContent>
-            <SceneTitleSection
-                name={isNew ? 'New scorer' : definition?.name || 'Scorer'}
-                description="Define the scores used in manual reviews and offline evaluations."
-                resourceType={{ type: 'llm_evaluations' }}
-                actions={
+        <ScorersScene>
+            <div className="flex flex-wrap items-center gap-3">
+                <nav aria-label="Scorer" className="flex min-w-0 flex-1 basis-40 items-center gap-2">
+                    <LemonButton
+                        size="small"
+                        icon={<IconArrowLeft />}
+                        aria-label="Back to scorers"
+                        tooltip="Back to scorers"
+                        to={urls.aiObservabilityScorers()}
+                        disabledReason={saving ? 'Saving scorer' : undefined}
+                    />
+                    <h2 className="text-base font-semibold m-0 truncate" title={definition?.name}>
+                        {isNew ? 'New scorer' : definition?.name || 'Scorer'}
+                    </h2>
+                </nav>
+                {todayRailNav ? (
+                    <QuillAIObservabilityScorerActions {...props} />
+                ) : (
                     <div className="flex flex-wrap items-center gap-2">
                         {!isNew && definition && (
                             <LemonMenu
@@ -103,11 +118,9 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                                                   ? 'Save your changes first'
                                                   : undefined),
                                         onClick: () =>
-                                            LemonDialog.open({
-                                                title: 'Create a new scorer version?',
-                                                content: `Version ${definition.current_version + 1} will keep the current configuration. Use this when your external evaluator changes.`,
-                                                primaryButton: { children: 'Create version', onClick: createVersion },
-                                                secondaryButton: { children: 'Cancel' },
+                                            openCreateScorerVersionDialog({
+                                                currentVersion: definition.current_version,
+                                                createVersion,
                                             }),
                                         'data-attr': 'llma-scorer-new-version',
                                     },
@@ -126,12 +139,18 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                                     },
                                 ]}
                             >
-                                <LemonButton icon={<IconEllipsis />} aria-label="Scorer actions" type="secondary" />
+                                <LemonButton
+                                    icon={<IconEllipsis />}
+                                    aria-label="Scorer actions"
+                                    type="secondary"
+                                    size="small"
+                                />
                             </LemonMenu>
                         )}
                         <LemonButton
                             to={urls.aiObservabilityScorers()}
                             type="secondary"
+                            size="small"
                             disabledReason={saving ? 'Saving scorer' : undefined}
                             data-attr="llma-scorer-cancel"
                         >
@@ -139,6 +158,7 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                         </LemonButton>
                         <LemonButton
                             type="primary"
+                            size="small"
                             htmlType="submit"
                             form="scorer-form"
                             loading={saving}
@@ -148,8 +168,8 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                             {isNew ? 'Create scorer' : 'Save changes'}
                         </LemonButton>
                     </div>
-                }
-            />
+                )}
+            </div>
             <form
                 id="scorer-form"
                 className="max-w-3xl w-full space-y-6 pb-8"
@@ -222,6 +242,6 @@ export function AIObservabilityScorerScene(props: ScorerLogicProps): JSX.Element
                     removeOption={removeOption}
                 />
             </form>
-        </SceneContent>
+        </ScorersScene>
     )
 }

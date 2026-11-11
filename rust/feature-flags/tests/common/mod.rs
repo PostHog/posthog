@@ -1,4 +1,5 @@
 use std::net::SocketAddr;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -9,7 +10,7 @@ use common_redis::MockRedisClient;
 use feature_flags::team::team_models::Team;
 use feature_flags::utils::test_utils::team_token_hypercache_key;
 use governor::clock;
-use lifecycle::Manager;
+use lifecycle::{Manager, ManagerBuilder, PrestopAction};
 use limiters::redis::QUOTA_LIMITER_CACHE_KEY;
 use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
@@ -34,13 +35,11 @@ impl ServerHandle {
     }
 }
 
-fn build_test_manager(token: CancellationToken) -> Manager {
+fn test_manager_builder() -> ManagerBuilder {
     Manager::builder("feature-flags-test")
         .with_trap_signals(false)
         .with_prestop_check(false)
-        .with_shutdown_token(token)
         .with_global_shutdown_timeout(Duration::from_secs(10))
-        .build()
 }
 
 impl ServerHandle {
@@ -58,7 +57,29 @@ impl ServerHandle {
     ) -> ServerHandle {
         Self::for_config_with_s3_and_rate_limiter_clock(
             config,
+            test_manager_builder(),
             flags_with_cohorts_s3,
+            clock::DefaultClock::default(),
+        )
+        .await
+    }
+
+    /// Like `for_config`, but the server drains once `prestop_path` exists, as in production.
+    #[allow(dead_code)]
+    pub async fn for_config_with_prestop_drain(
+        config: Config,
+        prestop_path: &Path,
+    ) -> ServerHandle {
+        let manager_builder = test_manager_builder()
+            .with_prestop_path(prestop_path)
+            .with_prestop_action(PrestopAction::Drain {
+                // Longer than any test, so the drain limit never starts shutdown mid-test.
+                max: Duration::from_secs(60),
+            });
+        Self::for_config_with_s3_and_rate_limiter_clock(
+            config,
+            manager_builder,
+            None,
             clock::DefaultClock::default(),
         )
         .await
@@ -72,11 +93,18 @@ impl ServerHandle {
     where
         C: clock::Clock + Clone + Send + Sync + 'static,
     {
-        Self::for_config_with_s3_and_rate_limiter_clock(config, None, rate_limiter_clock).await
+        Self::for_config_with_s3_and_rate_limiter_clock(
+            config,
+            test_manager_builder(),
+            None,
+            rate_limiter_clock,
+        )
+        .await
     }
 
     async fn for_config_with_s3_and_rate_limiter_clock<C>(
         config: Config,
+        manager_builder: ManagerBuilder,
         flags_with_cohorts_s3: Option<Arc<dyn common_hypercache::S3Client + Send + Sync>>,
         rate_limiter_clock: C,
     ) -> ServerHandle
@@ -86,7 +114,9 @@ impl ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
-        let mut manager = build_test_manager(shutdown.clone());
+        let mut manager = manager_builder
+            .with_shutdown_token(shutdown.clone())
+            .build();
         let handles = register_components(&mut manager);
         let monitor_guard = manager.monitor_background();
 
@@ -152,7 +182,9 @@ impl ServerHandle {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
         let shutdown = CancellationToken::new();
-        let mut manager = build_test_manager(shutdown.clone());
+        let mut manager = test_manager_builder()
+            .with_shutdown_token(shutdown.clone())
+            .build();
         // `monitor_background()` is intentionally not called in this path:
         // ReadinessHandler reads the token directly and `trap_signals=false`
         // means no supervisor is required. `manager` is dropped at the end of

@@ -29,18 +29,8 @@ export function getDefaultZScoreDetectorConfig(window: number): ZScoreDetectorCo
     }
 }
 
-/** The model reports its own confidence, so this is the confidence the alert requires before firing. */
-export const DEFAULT_LLM_DETECTION_CONFIDENCE = 0.7
-export const MAX_LLM_DETECTOR_WINDOW = 400
-/** What evaluation uses when the config carries no window. Keep in step with the detector's DEFAULT_WINDOW. */
-export const DEFAULT_LLM_DETECTOR_WINDOW = 90
-
-export function getDefaultLLMDetectorConfig(window: number): SingleDetectorConfig {
-    return {
-        type: 'llm',
-        threshold: DEFAULT_LLM_DETECTION_CONFIDENCE,
-        window: Math.min(window, MAX_LLM_DETECTOR_WINDOW),
-    }
+export function getDefaultLLMDetectorConfig(): SingleDetectorConfig {
+    return { type: 'llm' }
 }
 
 export function getDefaultAnomalyDetectorConfig(interval?: AlertCalculationInterval): SingleDetectorConfig {

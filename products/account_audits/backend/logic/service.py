@@ -108,7 +108,7 @@ class AccountAuditService:
                 text_content="",
                 created_by_id=actor_id,
                 last_modified_by_id=actor_id,
-                visibility="internal",
+                visibility="unlisted",
                 creation_source="server",
             )
             run_id = create_audit_task(

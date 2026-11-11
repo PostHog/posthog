@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { IconPlus, IconPlusSmall, IconRefresh, IconTrash } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDialog, LemonInput, LemonSelect, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -45,6 +46,7 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const {
         sources,
         sourcesLoading,
@@ -69,14 +71,29 @@ export function BusinessKnowledgeScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="Business knowledge"
-                description="Upload text, public URLs, or files so PostHog AI can understand your business context, vision, and policies."
+                description="Upload text, public URLs, or files so AI can understand your business context, vision, and policies."
                 resourceType={{ type: 'business_knowledge' }}
                 actions={
-                    <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => openCreateModal()}>
-                        Add source
-                    </LemonButton>
+                    todayRailNav ? (
+                        <Button variant="primary" onClick={() => openCreateModal()}>
+                            <IconPlus />
+                            Add source
+                        </Button>
+                    ) : (
+                        <LemonButton type="primary" icon={<IconPlusSmall />} onClick={() => openCreateModal()}>
+                            Add source
+                        </LemonButton>
+                    )
                 }
             />
+            {/* pinned: survey 01a17c76-64cf-0000-1bbf-c105e1141a32 targets #business-knowledge-feedback-button */}
+            <LemonBanner
+                type="info"
+                dismissKey="business-knowledge-beta-banner"
+                action={{ children: 'Send feedback', id: 'business-knowledge-feedback-button' }}
+            >
+                <p>Business knowledge is in beta. Tell us what you'd like to see here, or report any issues.</p>
+            </LemonBanner>
             <BusinessKnowledgeTabs activeTab="sources" />
             <SceneSection title="Libraries" className="gap-y-2">
                 <LibraryRow />

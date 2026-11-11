@@ -9,8 +9,14 @@ from posthog.test.base import (
 )
 from unittest.mock import MagicMock, patch
 
+from products.subscriptions.backend.logic.report_text import ReportDocument, ReportText, ReportTextItem
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import generate_ai_report
-from products.subscriptions.backend.temporal.ai_subscription.schemas import EnrichedPromptSpec, QueryPlan, QueryPlanStep
+from products.subscriptions.backend.temporal.ai_subscription.schemas import (
+    EnrichedPromptSpec,
+    HogQLFix,
+    QueryPlan,
+    QueryPlanStep,
+)
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import ReportWindow, compute_report_window
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
@@ -46,11 +52,23 @@ class _WindowPipelineHelpers:
     def _capture_synthesis(self, mock_chat: MagicMock, report: str) -> dict[str, str]:
         captured: dict[str, str] = {}
 
-        def _invoke(messages: list) -> MagicMock:
+        def _invoke(messages: list[tuple[str, str]]) -> ReportDocument:
             captured["human"] = messages[1][1]
-            return MagicMock(content=report)
+            return ReportDocument(
+                topic=None,
+                sections=[],
+                custom_layout=[ReportText(items=[ReportTextItem(kind="text", text=report)])],
+            )
 
-        mock_chat.return_value.invoke.side_effect = _invoke
+        synthesis_chat = MagicMock()
+        synthesis_chat.invoke.side_effect = _invoke
+
+        def _structured_output(schema: dict[str, object] | type[HogQLFix], **kwargs: object) -> MagicMock:
+            if schema is HogQLFix:
+                return mock_chat.return_value.with_structured_output.return_value
+            return synthesis_chat
+
+        mock_chat.return_value.with_structured_output.side_effect = _structured_output
         return captured
 
 

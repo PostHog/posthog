@@ -5,3 +5,10 @@
     {# Team admin includes inline formsets (GroupTypeMapping, TeamMarketingAnalyticsConfig) #}
     {# which require this template override for CSP compliance #}
 {% endblock %}
+{% block admin_console_url %}
+    {% if original.pk %}
+        {% url 'admin_console_team' pk=original.pk %}
+    {% else %}
+        {{ block.super }}
+    {% endif %}
+{% endblock %}

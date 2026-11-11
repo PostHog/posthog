@@ -1,10 +1,62 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 
-import { withRetry } from './grpc-retry'
+import { HandledVerdict, withRetry } from './grpc-retry'
+import { personhogHandledVerdictsTotal, personhogTerminalErrorsTotal } from './metrics'
 
 jest.mock('~/common/utils/logger')
 
+class SurvivorWriteVerdict extends Error implements HandledVerdict {
+    readonly handledVerdict = 'person_not_found'
+}
+
+class UnexpectedStoreError extends Error {}
+
+async function counterValues(counter: typeof personhogTerminalErrorsTotal | typeof personhogHandledVerdictsTotal) {
+    return (await counter.get()).values.map(({ labels, value }) => ({ ...labels, value }))
+}
+
 describe('withRetry', () => {
+    beforeEach(() => {
+        personhogTerminalErrorsTotal.reset()
+        personhogHandledVerdictsTotal.reset()
+    })
+
+    it('files a handled verdict under verdicts, not terminal errors, and rethrows it unchanged', async () => {
+        const verdict = new SurvivorWriteVerdict('merged away')
+        let callCount = 0
+        const error: unknown = await withRetry(
+            () => {
+                callCount++
+                throw verdict
+            },
+            'test-client',
+            'updatePersonProperties'
+        ).catch((e: unknown) => e)
+
+        expect(error).toBe(verdict)
+        expect(error).not.toHaveProperty('isRetriable')
+        expect(callCount).toBe(1)
+        expect(await counterValues(personhogTerminalErrorsTotal)).toEqual([])
+        expect(await counterValues(personhogHandledVerdictsTotal)).toEqual([
+            { method: 'updatePersonProperties', client: 'test-client', verdict: 'person_not_found', value: 1 },
+        ])
+    })
+
+    it('labels a terminal non-gRPC error with its class so it stays visible on its own series', async () => {
+        await withRetry(
+            () => {
+                throw new UnexpectedStoreError('boom')
+            },
+            'test-client',
+            'updatePersonProperties'
+        ).catch(() => undefined)
+
+        expect(await counterValues(personhogHandledVerdictsTotal)).toEqual([])
+        expect(await counterValues(personhogTerminalErrorsTotal)).toEqual([
+            { method: 'updatePersonProperties', client: 'test-client', error_type: 'UnexpectedStoreError', value: 1 },
+        ])
+    })
+
     it('returns the result on first success', async () => {
         const result = await withRetry(() => Promise.resolve('ok'), 'test-client', 'test-method')
         expect(result).toBe('ok')
@@ -107,6 +159,36 @@ describe('withRetry', () => {
         ).rejects.toMatchObject({ code: Code.Unavailable, isRetriable: true })
         // 1 initial + 2 retries = 3 total (default maxRetries=2)
         expect(callCount).toBe(3)
+    })
+
+    it.each([
+        ['Unavailable', Code.Unavailable, 50],
+        ['ResourceExhausted', Code.ResourceExhausted, 250],
+    ])('waits the %s backoff before the first retry', async (_name, code, firstDelayMs) => {
+        jest.useFakeTimers()
+        const random = jest.spyOn(Math, 'random').mockReturnValue(0)
+        try {
+            let callCount = 0
+            const result = withRetry(
+                () => {
+                    callCount++
+                    if (callCount === 1) {
+                        throw new ConnectError('transient', code)
+                    }
+                    return Promise.resolve('ok')
+                },
+                'test-client',
+                'test-method'
+            )
+            await jest.advanceTimersByTimeAsync(firstDelayMs - 1)
+            expect(callCount).toBe(1)
+            await jest.advanceTimersByTimeAsync(1)
+            await expect(result).resolves.toBe('ok')
+            expect(callCount).toBe(2)
+        } finally {
+            random.mockRestore()
+            jest.useRealTimers()
+        }
     })
 
     it('respects custom maxRetries', async () => {

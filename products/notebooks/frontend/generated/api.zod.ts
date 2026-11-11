@@ -688,9 +688,7 @@ export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
     include_prepared_insights: zod
         .boolean()
         .default(notebooksRunsCreateBodyIncludePreparedInsightsDefault)
-        .describe(
-            'Include prepared embedded insights when refreshing a dashboard widget. Requires notebook widgets to be enabled.'
-        ),
+        .describe('Include prepared embedded insights when refreshing a dashboard widget.'),
     variables: zod
         .array(
             zod
@@ -722,7 +720,7 @@ export const NotebooksRunsCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. Generated widgets enable HogQL runs without a connection or kernel.
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. HogQL runs without a connection or kernel are always available.
  */
 export const notebooksSqlV2RunCreateBodyReuseResultsDefault = false
 export const notebooksSqlV2RunCreateBodyNodeTypeDefault = `hogql`

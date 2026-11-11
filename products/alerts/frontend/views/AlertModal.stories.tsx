@@ -7,6 +7,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import {
     AlertCalculationInterval,
     AlertConditionType,
@@ -14,7 +15,6 @@ import {
     InsightThresholdType,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 
 import type { AlertCheck, AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
@@ -180,7 +180,7 @@ const llmDetectorAlert = makeAlert({
     id: 'alert-llm',
     name: 'Watch signups',
     calculation_interval: AlertCalculationInterval.DAILY,
-    detector_config: { type: 'llm', threshold: 0.7, window: 90, instructions: 'Only tell me about drops.' },
+    detector_config: { type: 'llm', instructions: 'Only tell me about drops.' },
     threshold: undefined,
     checks: makeChecks([980, 1010, 960, 1030, 990, 1020, 640]).map((check, index, checks) =>
         index === checks.length - 1

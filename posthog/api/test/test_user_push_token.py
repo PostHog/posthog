@@ -1,10 +1,20 @@
-from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from posthog.test.base import APIBaseTest, BaseTest
+from unittest.mock import MagicMock, patch
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership, User
 from posthog.models.user_push_token import UserPushToken
-from posthog.push_notifications import send_push_to_user
+from posthog.push_notifications import mobile_push_delivery_allowed, send_push_to_user
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
+from products.signals.backend.models import SignalReport
 
 
 class TestUserPushTokenEndpoints(APIBaseTest):
@@ -83,7 +93,8 @@ class TestUserPushTokenEndpoints(APIBaseTest):
         self.assertFalse(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[shared]").exists())
         self.assertTrue(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[shared]").exists())
 
-    def test_register_does_not_leak_across_users(self):
+    @patch("posthog.push_notifications.requests.post")
+    def test_register_transfers_device_to_current_user(self, mock_post: MagicMock) -> None:
         other_user = self._create_user("other@example.com")
         UserPushToken.objects.create(user=other_user, token="ExponentPushToken[abc]", platform="ios")
 
@@ -93,8 +104,19 @@ class TestUserPushTokenEndpoints(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        # Both users now own a row for that token (unique together is per-user).
-        self.assertEqual(UserPushToken.objects.filter(token="ExponentPushToken[abc]").count(), 2)
+        self.assertEqual(UserPushToken.objects.filter(token="ExponentPushToken[abc]").count(), 1)
+        self.assertFalse(UserPushToken.objects.filter(user=other_user, token="ExponentPushToken[abc]").exists())
+        self.assertEqual(send_push_to_user(other_user, title="Old account", body="Example update"), 0)
+        mock_post.assert_not_called()
+
+        self.client.force_login(other_user)
+        response = self.client.post(
+            "/api/users/@me/push_tokens/unregister/",
+            {"token": "ExponentPushToken[abc]"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertTrue(UserPushToken.objects.filter(user=self.user, token="ExponentPushToken[abc]").exists())
 
     def test_unauthenticated_requests_are_rejected(self):
         self.client.logout()
@@ -297,3 +319,72 @@ class TestPushNotifications(APIBaseTest):
         self.assertEqual(accepted, 0)
         # Token preserved — only DeviceNotRegistered prunes.
         self.assertTrue(UserPushToken.objects.filter(token="ExponentPushToken[a]").exists())
+
+
+class TestReportPushDelivery(BaseTest):
+    @parameterized.expand(
+        [
+            ("member", True),
+            ("project_denied", False),
+            ("inactive", False),
+            ("removed_member", False),
+            ("organization_admin", True),
+            ("reports_denied", False),
+            ("role_granted", True),
+            ("role_denied", False),
+        ]
+    )
+    @patch("posthog.push_notifications.posthoganalytics.feature_enabled", return_value=True)
+    def test_report_delivery_checks_only_recipient_access(self, state: str, allowed: bool, _flag: object) -> None:
+        self.organization.available_product_features = [
+            {"key": feature, "name": feature}
+            for feature in [AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS]
+        ]
+        self.organization.save()
+        membership = OrganizationMembership.objects.get(organization=self.organization, user=self.user)
+        membership.level = (
+            OrganizationMembership.Level.ADMIN if state == "organization_admin" else OrganizationMembership.Level.MEMBER
+        )
+        membership.save()
+        User.objects.create_and_join(self.organization, "other-recipient@example.com", None)
+        report = SignalReport.objects.create(team=self.team, status=SignalReport.Status.READY, title="Example report")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
+        if state.startswith("role_"):
+            role = Role.objects.create(organization=self.organization, name="Report readers")
+            RoleMembership.objects.create(role=role, user=self.user, organization_member=membership)
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                role=role,
+                access_level="member" if state == "role_granted" else "none",
+            )
+        else:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="none" if state in {"project_denied", "organization_admin"} else "member",
+            )
+        if state == "inactive":
+            User.objects.filter(id=self.user.id).update(is_active=False)
+        elif state == "removed_member":
+            membership.delete()
+        elif state == "reports_denied":
+            AccessControl.objects.create(team=self.team, resource="task", access_level="none")
+
+        with CaptureQueriesContext(connection) as queries:
+            result = mobile_push_delivery_allowed(
+                self.user,
+                {"type": "report", "project_id": self.team.id, "report_id": str(report.id)},
+            )
+
+        self.assertEqual(result, allowed)
+        membership_queries = [
+            query["sql"] for query in queries if 'FROM "posthog_organizationmembership"' in query["sql"]
+        ]
+        for query in membership_queries:
+            self.assertIn(f'"user_id" = {self.user.id}', query)

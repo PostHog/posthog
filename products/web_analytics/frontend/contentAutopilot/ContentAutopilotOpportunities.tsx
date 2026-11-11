@@ -11,40 +11,40 @@ import {
     LemonSwitch,
     LemonTable,
     LemonTag,
-    Link,
+    Spinner,
 } from '@posthog/lemon-ui'
 
 import { pluralize } from 'lib/utils/strings'
-import { faviconUrl, parseWebAnalyticsURL } from 'scenes/web-analytics/common'
+import { faviconUrl } from 'scenes/web-analytics/common'
 
 import type { ContentAutopilotOpportunityApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
 import { MAX_DRAFTS_PER_RUN, contentAutopilotLogic } from './contentAutopilotLogic'
-
-const ENGINE_LABELS: Record<string, string> = {
-    'claude-web-search': 'Claude',
-    'openai-web-search': 'ChatGPT',
-    'exa-answer': 'Exa',
-}
+import { ContentAutopilotPageToUpdate } from './ContentAutopilotPageToUpdate'
+import { ContentAutopilotProposalStatusTag } from './ContentAutopilotProposalStatusTag'
+import { engineLabel } from './utils'
 
 const STATUS_TAGS: Record<ContentAutopilotOpportunityApi['status'], JSX.Element | null> = {
     new: null,
-    queued: <LemonTag type="completion">Drafting</LemonTag>,
+    queued: (
+        <LemonTag type="completion" icon={<Spinner />}>
+            Drafting
+        </LemonTag>
+    ),
     drafted: <LemonTag type="success">Drafted</LemonTag>,
     dismissed: <LemonTag type="muted">Dismissed</LemonTag>,
 }
 
-const engineLabel = (engine: string): string => ENGINE_LABELS[engine] ?? engine
-
 const visibilityTag = (gap: ContentAutopilotOpportunityApi['gap']): JSX.Element => {
     const answers = pluralize(gap.checks, 'answer')
     if (gap.cited_checks > 0) {
-        return <LemonTag type="warning">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
+        return <LemonTag type="success">{`Cited in ${gap.cited_checks} of ${answers}`}</LemonTag>
     }
     if (gap.mentioned_checks) {
-        return <LemonTag type="highlight">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
+        return <LemonTag type="warning">{`Mentioned in ${gap.mentioned_checks} of ${answers}, not cited`}</LemonTag>
     }
-    return <LemonTag type="danger">Not mentioned</LemonTag>
+    return <LemonTag type="default">Not mentioned</LemonTag>
 }
 
 export const ContentAutopilotOpportunities = (): JSX.Element => {
@@ -61,13 +61,15 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
         runMutationLoading,
         dismissingOpportunityId,
         opportunitySearch,
+        opportunityProposals,
+        pagesToUpdate,
+        draftingOpportunityIds,
     } = useValues(contentAutopilotLogic)
     const {
         refreshOpportunities,
         toggleOpportunitySelection,
         draftOpportunities,
         dismissOpportunity,
-        selectProposal,
         setShowDismissedOpportunities,
         setOpportunitySearch,
     } = useActions(contentAutopilotLogic)
@@ -76,14 +78,16 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
     return (
         <section className="flex flex-col gap-3">
             <p className="m-0 text-muted max-w-3xl">
-                Questions AI assistants answered without citing {siteName}, most promising first. Pick up to{' '}
-                {MAX_DRAFTS_PER_RUN} and draft them.
+                Prompts where AI assistants answered without citing {siteName}, clearest gaps first. Content autopilot
+                drafts a page that answers the prompt, or changes to a page you already have. Select up to{' '}
+                {MAX_DRAFTS_PER_RUN} to draft them together. You review and download each draft, and nothing is
+                published for you.
             </p>
             <div className="flex flex-wrap items-center justify-between gap-2">
                 <LemonInput
                     type="search"
                     size="small"
-                    placeholder="Search questions"
+                    placeholder="Search prompts"
                     value={opportunitySearch}
                     onChange={setOpportunitySearch}
                     className="w-72"
@@ -112,8 +116,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={draftOpportunities}
-                        loading={runMutationLoading}
+                        onClick={() => draftOpportunities()}
+                        loading={runMutationLoading && draftingOpportunityIds.length === 0}
                         disabledReason={draftDisabledReason}
                         data-attr="content-autopilot-draft-opportunities"
                     >
@@ -142,10 +146,10 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
             ) : visibleOpportunities.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     {opportunitySearch.trim() ? (
-                        <p className="m-0 text-muted">No questions match your search.</p>
+                        <p className="m-0 text-muted">No prompts match your search.</p>
                     ) : dismissedOpportunityCount > 0 ? (
                         <>
-                            <h3 className="m-0">All questions are dismissed</h3>
+                            <h3 className="m-0">All opportunities are dismissed</h3>
                             <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
                                 Turn on "Show dismissed" to see them again, or refresh to check for new citation gaps.
                             </p>
@@ -154,9 +158,8 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                         <>
                             <h3 className="m-0">No citation gaps found</h3>
                             <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                                Opportunities appear when AI citation checks show an assistant answering a tracked
-                                question without citing {siteName}. If checks haven't run for this project yet, there's
-                                nothing to show.
+                                An opportunity appears when an AI assistant answers a tracked prompt without citing{' '}
+                                {siteName}. Add prompts on the Prompts tab, and check back after the next daily run.
                             </p>
                         </>
                     )}
@@ -184,14 +187,21 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                             ),
                         },
                         {
-                            title: 'Question',
+                            title: 'Prompt',
                             key: 'title',
-                            render: (_, opportunity) => (
-                                <div className="flex flex-wrap items-center gap-2 py-2 min-w-60">
-                                    <span className="font-semibold">{opportunity.title}</span>
-                                    {STATUS_TAGS[opportunity.status]}
-                                </div>
-                            ),
+                            render: (_, opportunity) => {
+                                const proposal = opportunityProposals[opportunity.id]
+                                return (
+                                    <div className="flex flex-wrap items-center gap-2 py-2 min-w-60">
+                                        <span className="font-semibold">{opportunity.title}</span>
+                                        {opportunity.status === 'drafted' && proposal ? (
+                                            <ContentAutopilotProposalStatusTag proposal={proposal} />
+                                        ) : (
+                                            STATUS_TAGS[opportunity.status]
+                                        )}
+                                    </div>
+                                )
+                            },
                         },
                         {
                             title: 'In AI answers',
@@ -232,35 +242,17 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                 ),
                         },
                         {
-                            title: 'Suggested fix',
+                            title: 'Page to update',
                             key: 'recommendation',
-                            render: (_, opportunity) =>
-                                opportunity.recommended_type === 'page_improvement' && opportunity.target_url ? (
-                                    <span className="text-sm">
-                                        Update{' '}
-                                        <Link to={opportunity.target_url} target="_blank">
-                                            {parseWebAnalyticsURL(opportunity.target_url).pathname ??
-                                                opportunity.target_url}
-                                        </Link>
-                                    </span>
-                                ) : (
-                                    <span className="text-sm text-muted">Decided when drafting</span>
-                                ),
+                            render: (_, opportunity) => (
+                                <ContentAutopilotPageToUpdate page={pagesToUpdate[opportunity.id] ?? null} />
+                            ),
                         },
                         {
                             key: 'actions',
                             render: (_, opportunity) => (
-                                <div className="flex flex-wrap justify-end gap-1">
-                                    {opportunity.proposal_id && opportunity.status === 'drafted' ? (
-                                        <LemonButton
-                                            size="small"
-                                            type="secondary"
-                                            onClick={() => selectProposal(opportunity.proposal_id)}
-                                            data-attr="content-autopilot-review-opportunity-draft"
-                                        >
-                                            Review draft
-                                        </LemonButton>
-                                    ) : null}
+                                <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap">
+                                    <ContentAutopilotDraftButton opportunity={opportunity} />
                                     {opportunity.status !== 'dismissed' ? (
                                         <LemonButton
                                             size="small"
@@ -272,7 +264,7 @@ export const ContentAutopilotOpportunities = (): JSX.Element => {
                                                     ? 'Wait for the draft to finish'
                                                     : dismissingOpportunityId &&
                                                         dismissingOpportunityId !== opportunity.id
-                                                      ? 'Wait for the other question to finish dismissing'
+                                                      ? 'Wait for the other opportunity to finish dismissing'
                                                       : undefined
                                             }
                                             data-attr="content-autopilot-dismiss-opportunity"

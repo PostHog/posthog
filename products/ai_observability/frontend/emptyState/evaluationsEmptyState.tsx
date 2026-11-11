@@ -3,11 +3,11 @@ import { IconListCheck } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
-import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { EvaluationQuickStart } from '../evaluations/EvaluationQuickStart'
+import { EvaluationsTabs } from '../evaluations/EvaluationsTabs'
 import { EvaluationsPreview } from './EvaluationsPreview'
 import { evaluationsSetupLogic } from './evaluationsSetupLogic'
 
@@ -15,9 +15,12 @@ const HedgehogJudge = pngHoggie(judgePng)
 
 export const evaluationsEmptyState: SceneProductEmptyState = {
     statusLogic: evaluationsSetupLogic,
+    SceneNav: function EvaluationsEmptyStateNav(): JSX.Element {
+        return <EvaluationsTabs activeTab="online-evals" />
+    },
     config: {
         productKey: ProductKey.LLM_EVALUATIONS,
-        productName: 'Evaluations',
+        productName: 'Online evaluations',
         icon: <IconListCheck />,
         accentColor: 'var(--color-product-llm-evaluations-light)',
         accentColorDark: 'var(--color-product-llm-analytics-dark)',
@@ -28,15 +31,9 @@ export const evaluationsEmptyState: SceneProductEmptyState = {
                 lead: 'Score your generations, traces, or sessions in production. Use an LLM as a judge, Hog code, or sentiment analysis for a wide range of checks. Start with a template, from scratch, or with PostHog AI, then view pass rates over time and jump straight into the runs that failed.',
             },
         },
-        primaryAction: {
-            label: 'Create your first evaluation',
-            to: urls.aiObservabilityEvaluationTemplates(),
-            accessControl: {
-                resourceType: AccessControlResourceType.Evaluation,
-                minAccessLevel: AccessControlLevel.Editor,
-            },
-            dataAttr: 'create-evaluation-button',
-        },
+        // Owns the primary-action slot so the shared fallback button doesn't come back; the quick start below is the only CTA.
+        PrimaryAction: () => null,
+        SetupActions: EvaluationQuickStart,
         docsUrl: 'https://posthog.com/docs/ai-evals/evaluations',
         skippable: false,
         previewLabel: 'Example: how your evaluations will score',

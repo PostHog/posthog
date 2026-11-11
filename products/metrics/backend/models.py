@@ -48,6 +48,9 @@ class MetricsDashboardTemplate(UUIDModel):
         help_text="The metric names that the panels read. Matching compares them with the metric names of a team.",
     )
     panels = models.JSONField(default=list, blank=True, help_text="The panels, each with an insight query and a box.")
+    variables = models.JSONField(
+        default=list, blank=True, help_text="The dashboard variables that the panels refer to, such as $service."
+    )
     content_hash = models.CharField(max_length=64, blank=True, default="")
     generation = models.JSONField(
         default=dict, blank=True, help_text="The record of the AI generation: rounds, pictures and verdicts."
@@ -129,3 +132,19 @@ class MetricsDashboardDiscovery(TeamScopedRootMixin, UUIDModel):
 
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team"], name="metrics_dash_discovery_unique_team")]
+
+
+class MetricDailyQueryCount(TeamScopedRootMixin, UUIDModel):
+    """How many queries read a metric of a team on one UTC day."""
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    metric_name = models.CharField(max_length=400)
+    date = models.DateField()
+    query_count = models.BigIntegerField(default=0)
+    last_queried_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "metric_name", "date"], name="metrics_daily_query_count_unique")
+        ]
+        indexes = [models.Index(fields=["team", "date"], name="metrics_dqc_team_date_idx")]

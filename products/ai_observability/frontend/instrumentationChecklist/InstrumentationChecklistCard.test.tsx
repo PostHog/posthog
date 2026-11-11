@@ -5,9 +5,6 @@ import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import {
@@ -105,10 +102,6 @@ describe('InstrumentationChecklistCard', () => {
         // Module state by design, so it outlives an unmount and would carry one case into the next.
         clearCachedChecklistVerdict()
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {
-            [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: true,
-        })
     })
 
     afterEach(() => {
@@ -142,17 +135,6 @@ describe('InstrumentationChecklistCard', () => {
         expect(panel()).toHaveAttribute('aria-expanded', 'true')
     })
 
-    const noVerdictCases: [string, () => void][] = [
-        [
-            'the feature flag is off',
-            () =>
-                featureFlagLogic.actions.setFeatureFlags([], {
-                    [FEATURE_FLAGS.AI_OBSERVABILITY_INSTRUMENTATION_CHECKLIST]: false,
-                }),
-        ],
-        ['the read failed', () => mockRetrieve.mockRejectedValue({ status: 500 })],
-    ]
-
     it('holds its header while the first read runs, rather than a skeleton', async () => {
         mockRetrieve.mockReturnValue(new Promise(() => {}))
         renderCard()
@@ -162,8 +144,8 @@ describe('InstrumentationChecklistCard', () => {
         expect(document.querySelector('.LemonSkeleton')).not.toBeInTheDocument()
     })
 
-    it.each(noVerdictCases)('renders nothing, not a skeleton, while %s', async (_, arrange) => {
-        arrange()
+    it('renders nothing, not a skeleton, when the read failed', async () => {
+        mockRetrieve.mockRejectedValue({ status: 500 })
         renderCard()
 
         await expectLogic(instrumentationChecklistLogic).toFinishAllListeners()

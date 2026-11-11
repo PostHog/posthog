@@ -10,7 +10,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from products.batch_exports.backend.service import BatchExportModel
+from products.batch_exports.backend.service import BatchExportEventsModel
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
 from products.batch_exports.backend.temporal.destinations.workflows_batch_export import (
     WorkflowsBatchExportInputs,
@@ -81,7 +81,7 @@ async def test_workflows_export_workflow(
     The workflow should update the batch export run status to completed and post the expected
     records to a test server.
     """
-    model = BatchExportModel(name="events", schema=None)
+    model = BatchExportEventsModel()
 
     workflow_id = str(uuid.uuid4())
     inputs = WorkflowsBatchExportInputs(

@@ -20,14 +20,20 @@ import type {
     CopyFlagsDependencyRequirementsResponseApi,
     CopyFlagsRequestApi,
     CopyFlagsResponseApi,
+    CreateStaticCohortForFlagResponseApi,
     DependentFlagApi,
     EvaluationContextSuggestionRequestApi,
     EvaluationContextSuggestionResponseApi,
     FeatureFlagApi,
+    FeatureFlagCodeAnalysisApi,
+    FeatureFlagCodeAnalysisStartApi,
+    FeatureFlagCodeAnalysisTargetApi,
+    FeatureFlagCodeCleanupStartApi,
     FeatureFlagCreateRequestSchemaApi,
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
     FeatureFlagRollOutToEveryoneRequestApi,
+    FeatureFlagSetActiveRequestApi,
     FeatureFlagSetReleaseConditionRolloutRequestApi,
     FeatureFlagStatusResponseApi,
     FeatureFlagTestEvaluationRequestApi,
@@ -35,6 +41,7 @@ import type {
     FeatureFlagVersionResponseApi,
     FeatureFlagsActivityRetrieveParams,
     FeatureFlagsAllActivityRetrieveParams,
+    FeatureFlagsCodeAnalysisTargetRetrieveParams,
     FeatureFlagsEvaluationReasonsRetrieveParams,
     FeatureFlagsListParams,
     FeatureFlagsMyFlagsRetrieveParams,
@@ -747,6 +754,32 @@ export const featureFlagsActivityRetrieve = async (
     })
 }
 
+export const getFeatureFlagsAnalyzeCodeCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/analyze_code/`
+}
+
+/**
+ * Start a read-only analysis of where the project's GitHub repository checks this flag.
+ *
+ * An agent clones the repository, finds every check of the flag, and reports the code each outcome runs.
+ * It does not change code or the flag. Returns 400 when no repository can be chosen (see
+ * `code_analysis_target`), 403 when AI data processing is not approved or the request comes from a task
+ * sandbox, and 409 when an analysis is already running.
+ */
+export const featureFlagsAnalyzeCodeCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagCodeAnalysisStartApi?: FeatureFlagCodeAnalysisStartApi,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsAnalyzeCodeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagCodeAnalysisStartApi),
+    })
+}
+
 export const getFeatureFlagsArchiveCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/archive/`
 }
@@ -771,6 +804,70 @@ export const featureFlagsArchiveCreate = async (
     })
 }
 
+export const getFeatureFlagsCodeAnalysisRetrieveUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/code_analysis/`
+}
+
+/**
+ * The latest code analysis of this flag: where the project's GitHub repository checks the flag, and
+ * the code each outcome runs.
+ *
+ * Poll until `is_terminal` is true. `result` is filled once the run completes. Returns 404 when the
+ * flag has never been analyzed.
+ */
+export const featureFlagsCodeAnalysisRetrieve = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsCodeAnalysisRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagsCodeAnalysisTargetRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: FeatureFlagsCodeAnalysisTargetRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flags/${id}/code_analysis_target/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flags/${id}/code_analysis_target/`
+}
+
+/**
+ * Repository a code analysis of this flag would read.
+ *
+ * Resolution order: the requested repository, else the one the last analysis used, else the
+ * environment's default flag cleanup repository, else the only connected repository. When the
+ * project has several repositories and none is chosen (`source=ambiguous`), pass one in `repository`.
+ */
+export const featureFlagsCodeAnalysisTargetRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: FeatureFlagsCodeAnalysisTargetRetrieveParams,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisTargetApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisTargetApi>(
+        getFeatureFlagsCodeAnalysisTargetRetrieveUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
 export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/feature_flags/${id}/create_static_cohort_for_flag/`
 }
@@ -783,15 +880,15 @@ export const getFeatureFlagsCreateStaticCohortForFlagCreateUrl = (projectId: str
 export const featureFlagsCreateStaticCohortForFlagCreate = async (
     projectId: string,
     id: number,
-    featureFlagApi: NonReadonly<FeatureFlagApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(featureFlagApi),
-    })
+): Promise<CreateStaticCohortForFlagResponseApi> => {
+    return apiMutator<CreateStaticCohortForFlagResponseApi>(
+        getFeatureFlagsCreateStaticCohortForFlagCreateUrl(projectId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getFeatureFlagsDependentFlagsListUrl = (projectId: string, id: number) => {
@@ -825,15 +922,21 @@ export const getFeatureFlagsDisableCreateUrl = (projectId: string, id: number) =
  *
  * A disabled flag stops evaluating for every consumer, including a linked experiment or a
  * session replay setting. Read the full definition first to report that impact.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const featureFlagsDisableCreate = async (
     projectId: string,
     id: number,
+    featureFlagSetActiveRequestApi?: FeatureFlagSetActiveRequestApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsDisableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetActiveRequestApi),
     })
 }
 
@@ -847,16 +950,50 @@ export const getFeatureFlagsEnableCreateUrl = (projectId: string, id: number) =>
  * Sets `active` to true and changes nothing else. Targeting, variants, payloads, tags and
  * archived state are left as they are. An archived flag is refused: unarchive it first. A
  * flag whose own flag dependencies are disabled or use an unsupported configuration
- * format is also refused. An already-enabled flag is returned unchanged.
+ * format is also refused, as is a flag whose release conditions target a deleted cohort.
+ * An already-enabled flag is returned unchanged.
+ *
+ * Send the `version` your last read returned. A flag whose `filters.version` is 2 requires
+ * it, and for any flag a change after that version is refused with 409.
  */
 export const featureFlagsEnableCreate = async (
     projectId: string,
     id: number,
+    featureFlagSetActiveRequestApi?: FeatureFlagSetActiveRequestApi,
     options?: RequestInit
 ): Promise<FeatureFlagApi> => {
     return apiMutator<FeatureFlagApi>(getFeatureFlagsEnableCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagSetActiveRequestApi),
+    })
+}
+
+export const getFeatureFlagsOpenCleanupPrCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/feature_flags/${id}/open_cleanup_pr/`
+}
+
+/**
+ * Open a draft pull request that removes this stale flag's checks from the code.
+ *
+ * An agent starts from the checks the latest code analysis found, keeps the code for one outcome, and
+ * opens the pull request in the repository the analysis read. It does not change the flag. Returns 400
+ * when the flag isn't stale, the analysis found no checks, or an outcome must be chosen (see
+ * `cleanup` on `code_analysis`), 403 when AI data processing is not approved or the request comes from a
+ * task sandbox, and 409 when a cleanup pull request is still being opened.
+ */
+export const featureFlagsOpenCleanupPrCreate = async (
+    projectId: string,
+    id: number,
+    featureFlagCodeCleanupStartApi?: FeatureFlagCodeCleanupStartApi,
+    options?: RequestInit
+): Promise<FeatureFlagCodeAnalysisApi> => {
+    return apiMutator<FeatureFlagCodeAnalysisApi>(getFeatureFlagsOpenCleanupPrCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagCodeCleanupStartApi),
     })
 }
 
@@ -1008,7 +1145,8 @@ export const getFeatureFlagsUnarchiveCreateUrl = (projectId: string, id: number)
  * Restore an archived feature flag to the default flag list.
  *
  * Sets `archived` to false and changes nothing else. The flag stays disabled; enable it
- * with a separate call. An already-unarchived flag is returned unchanged.
+ * with a separate call. A flag whose release conditions target a deleted cohort is
+ * refused: remove that condition first. An already-unarchived flag is returned unchanged.
  */
 export const featureFlagsUnarchiveCreate = async (
     projectId: string,

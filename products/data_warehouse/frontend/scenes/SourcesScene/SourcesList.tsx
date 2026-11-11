@@ -1,26 +1,23 @@
-import { combineUrl } from 'kea-router'
+import { useValues } from 'kea'
 
 import { IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import {
-    CATEGORY_SEARCH_PARAM,
-    SELF_MANAGED_CATEGORY,
-} from 'products/data_warehouse/frontend/scenes/NewSourceScene/sourceCategories'
 import { DirectConnectSourcesTable } from 'products/data_warehouse/frontend/shared/components/DirectConnectSourcesTable'
 import { ManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/ManagedSourcesTable'
 import { SelfManagedSourcesTable } from 'products/data_warehouse/frontend/shared/components/SelfManagedSourcesTable'
-import { SourceAlerts } from 'products/data_warehouse/frontend/shared/sourceAlerts/SourceAlerts'
+import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
 
 export function SourcesList(): JSX.Element {
+    const { hasSelfManagedTables } = useValues(sourceManagementLogic)
+
     return (
         <div className="flex flex-col gap-4">
             <SceneSection
@@ -67,41 +64,17 @@ export function SourcesList(): JSX.Element {
             >
                 <DirectConnectSourcesTable />
             </SceneSection>
-            <SceneDivider />
-
-            <SceneSection
-                title="Self-managed data warehouse sources"
-                description="Connect to your own data sources, making them queryable in PostHog"
-                actions={
-                    <LemonButton
-                        type="primary"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        to={
-                            combineUrl(urls.dataPipelinesNew('source'), {
-                                [CATEGORY_SEARCH_PARAM]: SELF_MANAGED_CATEGORY,
-                            }).url
-                        }
-                        data-attr="new-self-managed-source"
-                    >
-                        New self-managed source
-                    </LemonButton>
-                }
-            >
-                <SelfManagedSourcesTable />
-            </SceneSection>
-
-            <FlaggedFeature flag={FEATURE_FLAGS.DWH_SYNC_ALERTS}>
+            {hasSelfManagedTables && (
                 <>
                     <SceneDivider />
                     <SceneSection
-                        title="Alerts"
-                        description="Get a message in Slack, Discord, Teams, or a webhook when a source sync fails, recovers, or finishes"
+                        title="Self-managed data warehouse sources"
+                        description="Tables that PostHog reads in place from your own bucket"
                     >
-                        <SourceAlerts />
+                        <SelfManagedSourcesTable />
                     </SceneSection>
                 </>
-            </FlaggedFeature>
+            )}
         </div>
     )
 }

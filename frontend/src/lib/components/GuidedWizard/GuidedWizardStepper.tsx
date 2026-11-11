@@ -88,14 +88,14 @@ export function GuidedWizardStepper<Step extends string>({
                                     <div key={error}>{error}</div>
                                 ))}
                             >
-                                <IconWarning className="size-5 text-warning" />
+                                <IconWarning className="size-5 shrink-0 text-warning" />
                             </Tooltip>
                         ) : isCompleted ? (
-                            <IconCheckCircle className="size-5 text-success" />
+                            <IconCheckCircle className="size-5 shrink-0 text-success" />
                         ) : (
                             <span
                                 className={cn(
-                                    'flex items-center justify-center size-5 rounded-full text-xs font-semibold',
+                                    'flex items-center justify-center size-5 shrink-0 rounded-full text-xs font-semibold',
                                     'transition-all duration-150',
                                     isCurrent && 'bg-accent text-primary-inverse ring-2 ring-accent/25',
                                     !isCurrent && 'bg-surface-secondary text-secondary border border-primary'
@@ -105,16 +105,21 @@ export function GuidedWizardStepper<Step extends string>({
                             </span>
                         )}
 
-                        {/* Label */}
+                        {/* Reserve the bold label width so changing steps cannot move neighboring buttons. */}
                         <span
-                            className={cn(
-                                'text-sm transition-colors duration-150',
-                                isCurrent && 'font-semibold text-primary',
-                                isCompleted && 'font-medium text-primary',
-                                !isCompleted && !isCurrent && 'text-secondary'
-                            )}
+                            className="grid text-sm after:invisible after:font-semibold after:content-[attr(data-label)] after:[grid-area:1/1]"
+                            data-label={step.label}
                         >
-                            {step.label}
+                            <span
+                                className={cn(
+                                    '[grid-area:1/1] transition-colors duration-150',
+                                    isCurrent && 'font-semibold text-primary',
+                                    isCompleted && 'font-medium text-primary',
+                                    !isCompleted && !isCurrent && 'text-secondary'
+                                )}
+                            >
+                                {step.label}
+                            </span>
                         </span>
 
                         {step.optional && <span className="text-xs text-tertiary">optional</span>}

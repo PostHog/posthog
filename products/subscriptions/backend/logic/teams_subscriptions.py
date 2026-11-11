@@ -6,7 +6,6 @@ from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription
 from products.subscriptions.backend.logic.subscription_utils import (
     DEBUG_PLACEHOLDER_IMAGE_URL,
     TRUNCATION_MARKER,
@@ -17,6 +16,7 @@ from products.subscriptions.backend.logic.subscription_utils import (
     subscription_support_url,
     summary_skipped_over_budget_message,
 )
+from products.subscriptions.backend.models.subscription import Subscription
 
 TEAMS_UTM_TAGS = f"{UTM_TAGS_BASE}&utm_medium=teams"
 

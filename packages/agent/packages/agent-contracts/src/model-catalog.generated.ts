@@ -161,6 +161,19 @@ export const MODELS: readonly CatalogModel[] = [
     retired: true,
   },
   {
+    id: "zai-org/glm-5.2",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["high", "max"],
+    label: "GLM-5.2",
+    cost: {
+      inputPerMtok: 1.4,
+      outputPerMtok: 4.4,
+    },
+    costMultiplier: "≈0.57×",
+    costSummary: "Input $1.40 · Output $4.40 per 1M tokens",
+    retired: true,
+  },
+  {
     id: "zai-org/glm-5.3",
     runtimeAdapter: "claude",
     reasoningEfforts: ["high", "max"],
@@ -207,6 +220,18 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "≈0.05×",
     costSummary: "Input $0.13 · Output $0.26 per 1M tokens",
+  },
+  {
+    id: "deepseek-ai/deepseek-v4.1-flash-1017-fast",
+    runtimeAdapter: "claude",
+    reasoningEfforts: [],
+    label: "DeepSeek V4.1 Flash Fast",
+    cost: {
+      inputPerMtok: 0.6,
+      outputPerMtok: 2.4,
+    },
+    costMultiplier: "≈0.27×",
+    costSummary: "Input $0.60 · Output $2.40 per 1M tokens",
   },
   {
     id: "claude-opus-4-5",
@@ -315,6 +340,19 @@ export const MODELS: readonly CatalogModel[] = [
     },
     costMultiplier: "5×",
     costSummary: "Input $10 · Output $50 per 1M tokens",
+    supports1MContext: true,
+  },
+  {
+    id: "claude-fable-5-2",
+    runtimeAdapter: "claude",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max", "ultracode"],
+    label: "Claude Fable 5.2",
+    cost: {
+      inputPerMtok: 8,
+      outputPerMtok: 40,
+    },
+    costMultiplier: "4×",
+    costSummary: "Input $8 · Output $40 per 1M tokens",
     supports1MContext: true,
   },
   {
@@ -452,6 +490,25 @@ export const MODELS: readonly CatalogModel[] = [
     costMultiplier: "1× base",
     costSummary:
       "Per 1M tokens: $2 input/$10 output to 272K; $4 input/$15 output above",
+  },
+  {
+    id: "gpt-6.1-terra",
+    runtimeAdapter: "codex",
+    reasoningEfforts: ["low", "medium", "high", "xhigh", "max"],
+    label: "GPT-6.1 Terra",
+    cost: {
+      inputPerMtok: 1,
+      outputPerMtok: 5,
+      longContext: {
+        aboveInputTokens: 272000,
+        inputPerMtok: 2,
+        outputPerMtok: 7.5,
+      },
+    },
+    costMultiplier: "0.5× base",
+    costSummary:
+      "Per 1M tokens: $1 input/$5 output to 272K; $2 input/$7.50 output above",
+    retired: true,
   },
   {
     id: "gpt-6-luna",

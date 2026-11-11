@@ -52,6 +52,7 @@ const unverifiedPartnerApp: ConnectedAppApi = {
     is_verified: false,
     is_first_party: false,
     requires_access_confirmation: true,
+    is_self_registered: false,
 }
 
 const verifiedPartnerApp: ConnectedAppApi = {
@@ -63,6 +64,7 @@ const verifiedPartnerApp: ConnectedAppApi = {
     is_verified: true,
     is_first_party: false,
     requires_access_confirmation: false,
+    is_self_registered: false,
 }
 
 const passkey = {

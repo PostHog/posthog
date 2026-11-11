@@ -16,7 +16,6 @@ from django.http import HttpRequest
 
 import structlog
 from drf_spectacular.utils import empty
-from posthoganalytics import capture_exception
 from prometheus_client import Counter
 from requests.adapters import HTTPAdapter
 from rest_framework import request, serializers, status
@@ -77,6 +76,7 @@ class ServiceRequest:
         self.successful_authenticator = None
         self.path = "/"
         self.data: dict = {}
+        self.FILES: dict = {}
         self.GET: dict = {}
         self.META: dict = {}
         self.headers: dict = {}
@@ -271,7 +271,6 @@ def parse_actor_property_filters(raw_properties: Optional[str]) -> list[dict]:
 INSIGHT_KINDS = {
     "TrendsQuery",
     "FunnelsQuery",
-    "FunnelCorrelationQuery",
     "RetentionQuery",
     "PathsQuery",
     "PathsV2Query",
@@ -288,13 +287,14 @@ ASYNC_QUERY_KINDS = INSIGHT_KINDS | {
     "TracesQuery",
     "ExperimentQuery",
     "ExperimentExposureQuery",
+    # Server-owned HogQL sections keep the extended timeout their standalone HogQLQuery tiles had.
+    "MCPDashboardQuery",
 }
 _EXTRA_ASYNC_KINDS = ASYNC_QUERY_KINDS - INSIGHT_KINDS
 
 INSIGHT_ACTORS_KINDS = {
     "InsightActorsQuery",
     "FunnelsActorsQuery",
-    "FunnelCorrelationActorsQuery",
     "StickinessActorsQuery",
     "PathsV2ActorsQuery",
 }
@@ -678,7 +678,8 @@ class ServerTimingsGathered:
         return all_timings
 
     def to_header_string(self, hogql_timings: list[QueryTiming] | None = None) -> str:
-        timings = self.generate_timings(hogql_timings).items()
+        slowest_hogql_timings = sorted(hogql_timings or [], key=lambda timing: timing.t, reverse=True)[:20]
+        timings = self.generate_timings(slowest_hogql_timings).items()
         result: list[str] = []
         current_length = 0
 
@@ -697,9 +698,11 @@ class ServerTimingsGathered:
                 The timings header is a debug signal we don't rely on for functionality
                 so not receiving all timings is not the worse thing in the world
                 """
-                capture_exception(
-                    Exception(f"Server timing header exceeded 10k limit with {len(timings)} timings"),
-                    properties={"generated_so_far": ", ".join(result), "length_of_timings": len(timings)},
+                logger.info(
+                    "server_timing_header_truncated",
+                    timing_count=len(timings),
+                    included_timing_count=len(result),
+                    header_length=current_length,
                 )
                 break
 

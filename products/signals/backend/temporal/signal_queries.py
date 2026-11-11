@@ -8,6 +8,7 @@ from typing import Union
 import structlog
 import temporalio
 from asgiref.sync import async_to_sync
+from temporalio.exceptions import ApplicationError
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -16,11 +17,13 @@ from posthog.api.embedding_worker import DocumentKey, async_get_recently_seen_do
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.clickhouse.workload import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.models import SignalEmissionRecord, SignalReport
 from products.signals.backend.signal_metadata import (
     EMBEDDING_MODEL,
     REASSIGN_SIGNAL_ROW_CAP,
@@ -39,6 +42,7 @@ from products.signals.backend.temporal.types import SignalCandidate, SignalData,
 logger = structlog.get_logger(__name__)
 
 
+REPORT_RESEARCH_SIGNAL_LIMIT = 100
 WAIT_POLL_INTERVAL_SECONDS = 10
 
 # For this long, ClickHouse is polled only when the recently-seen store confirms the
@@ -602,15 +606,17 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportInput:
     team_id: int
     report_id: str
+    required_signal_id: str | None = None
 
 
-@dataclass
+@frozen
 class FetchSignalsForReportOutput:
     signals: list[SignalData]
+    processed_pending_signal_id: str | None = None
 
 
 @temporalio.activity.defn
@@ -618,16 +624,54 @@ class FetchSignalsForReportOutput:
 @close_db_connections
 async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -> FetchSignalsForReportOutput:
     try:
-        team = await Team.objects.aget(pk=input.team_id)
+        team = await Team.objects.select_related("organization").aget(pk=input.team_id)
 
+        pending_id = await (
+            SignalReport.objects.using("default")
+            .filter(team_id=input.team_id, id=input.report_id)
+            .values_list("pending_triggering_signal_id", flat=True)
+            .afirst()
+        )
+        pending_signal_id = str(pending_id) if pending_id else None
+        required_ids = set(filter(None, [input.required_signal_id]))
+        priority_ids = required_ids | set(filter(None, [pending_signal_id]))
+        placeholders = {
+            **_report_placeholders(input.report_id),
+            "priority_signal_ids": ast.Tuple(
+                exprs=[ast.Constant(value=signal_id) for signal_id in sorted(priority_ids)]
+            ),
+        }
         result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchForReport",
-            query=_signals_for_report_query(),
+            query=_signals_for_report_query(
+                limit=REPORT_RESEARCH_SIGNAL_LIMIT, prioritize_signal_ids=bool(priority_ids)
+            ),
             team=team,
-            placeholders=_report_placeholders(input.report_id),
+            placeholders=placeholders,
         )
 
-        signals = [_parse_signal_row(row) for row in (result.results or [])]
+        signals = sorted(
+            (_parse_signal_row(row) for row in (result.results or [])),
+            key=lambda signal: (signal.timestamp, signal.signal_id),
+        )
+        fetched_ids = {signal.signal_id for signal in signals}
+        if not required_ids.issubset(fetched_ids):
+            raise ApplicationError(
+                "Required report signal is not visible in ClickHouse yet", type="RequiredReportSignalNotVisible"
+            )
+
+        if required_ids:
+            await (
+                SignalReport.objects.using("default")
+                .filter(
+                    team_id=input.team_id,
+                    id=input.report_id,
+                    status=SignalReport.Status.IN_PROGRESS,
+                    triggering_signal_id=input.required_signal_id,
+                    pending_triggering_signal_id=input.required_signal_id,
+                )
+                .aupdate(pending_triggering_signal_id=None)
+            )
 
         logger.debug(
             f"Fetched {len(signals)} signals for report {input.report_id}",
@@ -635,7 +679,12 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             report_id=input.report_id,
             signal_count=len(signals),
         )
-        return FetchSignalsForReportOutput(signals=signals)
+        return FetchSignalsForReportOutput(
+            signals=signals,
+            processed_pending_signal_id=pending_signal_id if pending_signal_id in fetched_ids else None,
+        )
+    except ApplicationError:
+        raise
     except Exception as e:
         logger.exception(
             f"Failed to fetch signals for report {input.report_id}: {e}",
@@ -852,9 +901,18 @@ def fetch_report_ids_for_source_ids(team: Team, source_ids: list[str]) -> dict[s
     return {row[0]: row[1] for row in (result.results or []) if row[0] and row[1]}
 
 
-def fetch_live_report_ids_for_source_ids(
-    team: Team, source_ids: list[str], source_product: str | None = None
-) -> dict[str, list[str]]:
+@frozen
+class SourceSignalMatch:
+    signal_id: str
+    report_id: str
+
+
+def fetch_live_source_signal_matches(
+    team: Team,
+    source_ids: list[str],
+    source_product: str | None = None,
+    source_type: str | None = None,
+) -> dict[str, list[SourceSignalMatch]]:
     """Map each `source_id` to every live report its signals grouped into, newest report first.
 
     Sibling of `fetch_report_ids_for_source_ids`, which answers a different question: that one
@@ -872,23 +930,27 @@ def fetch_live_report_ids_for_source_ids(
 
     source_id_scan_filter = "JSONExtractString(metadata, 'source_id') IN ({source_ids})"
     product_filter = "AND source_product = {source_product}" if source_product is not None else ""
+    type_filter = "AND source_type = {source_type}" if source_type is not None else ""
     ch_query = f"""
-        SELECT source_id, groupArray(report_id) as report_ids
+        SELECT source_id, groupArray((signal_id, report_id)) as signal_matches
         FROM (
             SELECT
+                document_id as signal_id,
                 JSONExtractString(metadata, 'source_id') as source_id,
                 JSONExtractString(metadata, 'report_id') as report_id,
                 JSONExtractBool(metadata, 'deleted') as is_deleted,
                 JSONExtractString(metadata, 'source_product') as source_product,
+                JSONExtractString(metadata, 'source_type') as source_type,
                 max(timestamp) as latest_timestamp
             FROM ({_deduped_signals_subquery(extra_where=source_id_scan_filter)})
-            GROUP BY source_id, report_id, is_deleted, source_product
+            GROUP BY signal_id, source_id, report_id, is_deleted, source_product, source_type
             ORDER BY latest_timestamp DESC
         )
         WHERE NOT is_deleted
           AND source_id != ''
           AND report_id != ''
           {product_filter}
+          {type_filter}
         GROUP BY source_id
     """
 
@@ -898,6 +960,8 @@ def fetch_live_report_ids_for_source_ids(
     }
     if source_product is not None:
         placeholders["source_product"] = ast.Constant(value=source_product)
+    if source_type is not None:
+        placeholders["source_type"] = ast.Constant(value=source_type)
 
     tag_queries(product=Product.SIGNALS, feature=Feature.QUERY)
     result = execute_hogql_query(
@@ -907,4 +971,77 @@ def fetch_live_report_ids_for_source_ids(
         placeholders=placeholders,
     )
 
-    return {row[0]: list(row[1]) for row in (result.results or []) if row[0] and row[1]}
+    return {
+        row[0]: [SourceSignalMatch(signal_id=signal_id, report_id=report_id) for signal_id, report_id in row[1]]
+        for row in (result.results or [])
+        if row[0] and row[1]
+    }
+
+
+def fetch_source_signal_matches(
+    team: Team,
+    source_ids: list[str],
+    source_product: str,
+    source_type: str,
+) -> dict[str, list[SourceSignalMatch]]:
+    """Resolve source identity durably, falling back to retained signal embeddings during rollout."""
+    if not source_ids:
+        return {}
+
+    records = list(
+        SignalEmissionRecord.objects.filter(
+            team=team,
+            source_product=source_product,
+            source_type=source_type,
+            source_id__in=source_ids,
+            signal_id__isnull=False,
+            report_id__isnull=False,
+        ).values_list("source_id", "signal_id", "report_id")
+    )
+    report_ids = {report_id for _, _, report_id in records if report_id}
+    live_report_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team=team, id__in=report_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    matches = {
+        source_id: [SourceSignalMatch(signal_id=signal_id, report_id=report_id)]
+        for source_id, signal_id, report_id in records
+        if signal_id and report_id in live_report_ids
+    }
+
+    missing_source_ids = [source_id for source_id in source_ids if source_id not in matches]
+    if not missing_source_ids:
+        return matches
+
+    retained_matches = fetch_live_source_signal_matches(
+        team,
+        missing_source_ids,
+        source_product,
+        source_type,
+    )
+    retained_report_ids = {match.report_id for source_matches in retained_matches.values() for match in source_matches}
+    live_retained_report_ids = {
+        str(report_id)
+        for report_id in SignalReport.objects.filter(team=team, id__in=retained_report_ids)
+        .exclude(status=SignalReport.Status.DELETED)
+        .values_list("id", flat=True)
+    }
+    matches.update(
+        {
+            source_id: [match for match in source_matches if match.report_id in live_retained_report_ids]
+            for source_id, source_matches in retained_matches.items()
+            if any(match.report_id in live_retained_report_ids for match in source_matches)
+        }
+    )
+    return matches
+
+
+def fetch_live_report_ids_for_source_ids(
+    team: Team, source_ids: list[str], source_product: str | None = None
+) -> dict[str, list[str]]:
+    return {
+        source_id: [match.report_id for match in matches]
+        for source_id, matches in fetch_live_source_signal_matches(team, source_ids, source_product).items()
+    }

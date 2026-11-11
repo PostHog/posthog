@@ -40,6 +40,7 @@ describe('observationsDockLogic', () => {
     let releaseInlineScan: () => void
     let releaseScanners: () => void
     let inlineScanOutcome: string
+    let inlineScanBody: unknown
     let observationResults: ReplayObservationApi[]
     let observationsFail: boolean
     let scannerResults: ReplayScannerApi[]
@@ -72,8 +73,9 @@ describe('observationsDockLogic', () => {
                     })
                     return [202, { workflow_id: 'wf-1' }]
                 },
-                '/api/projects/:team/vision/scanners/inline_scan/': async () => {
+                '/api/projects/:team/vision/scanners/inline_scan/': async ({ request }) => {
                     inlineScanCalls += 1
+                    inlineScanBody = await request.json()
                     await new Promise<void>((resolve) => {
                         releaseInlineScan = resolve
                     })
@@ -140,6 +142,8 @@ describe('observationsDockLogic', () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
 
         expect(inlineScanCalls).toBe(1)
+        // By name, not by prompt, so the button always lands on the shared built-in scanner.
+        expect(inlineScanBody).toEqual({ built_in: 'summarize_recording', session_ids: ['sess-1'] })
         // The second click is dropped, but it now says so rather than leaving the user in front of a
         // button that looked live and did nothing.
         expect(lemonToast.info).toHaveBeenCalled()

@@ -30,7 +30,7 @@ export function AutomationEmptyState(): JSX.Element {
             <div className="flex flex-wrap justify-center gap-2">
                 <LemonButton
                     type="primary"
-                    to={onboardingWizardUrl('automation')}
+                    to={onboardingWizardUrl('automation', { entry: 'automation_empty_state' })}
                     onClick={() => capture('guided-setup')}
                     data-attr="workflows-automation-empty-state-guided-setup"
                 >

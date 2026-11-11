@@ -72,6 +72,18 @@
                         "description": "Caller-generated UUID for one input/output execution. Reuse for exact retries.",
                         "type": "string"
                     },
+                    "model_version": {
+                        "anyOf": [
+                            {
+                                "maxLength": 255,
+                                "type": "string"
+                            },
+                            {
+                                "type": "null"
+                            }
+                        ],
+                        "description": "Model used for this item. Omitted or null values inherit the experiment's model."
+                    },
                     "payload": {
                         "additionalProperties": false,
                         "description": "Optional input/output payload, up to 1 MiB and 32 JSON levels. Omission, {} and null properties differ.",

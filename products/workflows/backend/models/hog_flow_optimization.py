@@ -17,8 +17,6 @@ class HogFlowOptimization(TeamScopedRootMixin, UUIDModel):
     Who flipped it and when is in the workflow's activity log, next to the rest of that workflow's
     history, rather than as a pair of columns here that could only remember the last flip. Cadence
     and "when did it last look" belong to whoever schedules the producer, a Signals scout today.
-
-    Behind the `self-optimising-workflows` flag.
     """
 
     # db_constraint=False on team: a real FK to a hot table takes a parent-table lock on creation;

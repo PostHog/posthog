@@ -65,6 +65,13 @@
                    required />
             <p class="help">The team's schema in the warehouse (lowercase letters, numbers and underscores). The schema name cannot be changed later.</p>
         </div>
+        <div style="margin: 20px 0;">
+            <label>
+                <input type="checkbox" name="internal_only" />
+                Internal testing
+            </label>
+            <p class="help">Load this team's existing data in the background. Keep <code>managed-warehouse-trino-query</code> off while testing. Enable it to give customers access to the loaded warehouse.</p>
+        </div>
         <div style="margin-top: 20px;">
             <input type="submit"
                    class="default"

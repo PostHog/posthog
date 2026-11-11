@@ -9,11 +9,11 @@ import { pluralize } from 'lib/utils/strings'
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
 import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
+import { AccuracyTrendCard } from './AccuracyTrendCard'
 import { ConfusionMatrixCard } from './ConfusionMatrixCard'
 import { EmptyTab } from './EmptyTab'
 import { LiveModelDrivers } from './LiveModelDrivers'
 import { MetricCard } from './MetricCard'
-import { RealizedAucChart } from './RealizedAucChart'
 import { ScoreNowButton } from './ScoreNowButton'
 import { SectionCard } from './SectionCard'
 import { SegmentCalibrationBars } from './SegmentCalibrationBars'
@@ -50,12 +50,10 @@ function NotCheckedYet(): JSX.Element {
 export function OnlinePerformanceTab(): JSX.Element {
     const {
         pipeline,
-        champion,
         onlinePerformance,
         onlinePerformanceLoading,
         onlinePerformanceError,
         latestChampionPerformance,
-        realizedAucPoints,
         segmentCalibration,
         accuracyCutoff,
         championConfusion,
@@ -115,20 +113,7 @@ export function OnlinePerformanceTab(): JSX.Element {
                 </SectionCard>
             )}
 
-            {realizedAucPoints.length > 0 && (
-                <SectionCard
-                    title="Realized AUC over time"
-                    description={
-                        <>
-                            Realized AUC measures how well the model ranked people who did {target} above people who did
-                            not. 0.5 is a coin flip and 1 is a perfect ranking. The holdout line is the score the model
-                            got in training.
-                        </>
-                    }
-                >
-                    <RealizedAucChart points={realizedAucPoints} holdoutAuc={champion?.holdout_score ?? null} />
-                </SectionCard>
-            )}
+            <AccuracyTrendCard />
 
             <LiveModelDrivers />
 

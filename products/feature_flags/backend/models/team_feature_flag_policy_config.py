@@ -1,16 +1,19 @@
+from django.contrib.postgres.fields import ArrayField
 from django.db import models
+
+from products.feature_flags.backend.facade.request_blocklist import MAX_BLOCKED_HOST_LENGTH, MAX_BLOCKED_IP_LENGTH
 
 
 class TeamFeatureFlagPolicyConfig(models.Model):
-    """Customer-editable rules that guard how a team's members create flags.
+    """Customer-editable feature flag rules for a team.
 
     Distinct from TeamFeatureFlagsConfig, which holds staff-only rollout switches and is never
     exposed to customers. This one is reachable by project admins as `feature_flag_policy_config`
     on the team/project API.
 
-    These rules are bookkeeping, and they do not hold on every write path. The exemptions are
-    declared by the caller, and a path that builds a serializer context without `get_team` skips
-    the rules entirely: the organization-level flag copy and the approvals apply path both do.
+    The require_tags rule is bookkeeping, and it does not hold on every write path. The exemptions
+    are declared by the caller, and a path that builds a serializer context without `get_team` skips
+    the rule entirely: the organization-level flag copy and the approvals apply path both do.
     """
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE
@@ -26,6 +29,15 @@ class TeamFeatureFlagPolicyConfig(models.Model):
     # experiment, early access feature, product tour, or web experiment are exempt, because those
     # forms have no tag input and would otherwise dead-end.
     require_tags = models.BooleanField(default=False)
+
+    # Saving does not normalize these lists, so every writer goes through facade.request_blocklist first.
+    # db_default lets pods on the previous release insert rows without naming these columns.
+    blocked_hosts = ArrayField(
+        models.CharField(max_length=MAX_BLOCKED_HOST_LENGTH), default=list, blank=True, db_default=[]
+    )
+    blocked_ips = ArrayField(
+        models.CharField(max_length=MAX_BLOCKED_IP_LENGTH), default=list, blank=True, db_default=[]
+    )
 
 
 def team_requires_flag_tags(team_id: int) -> bool:

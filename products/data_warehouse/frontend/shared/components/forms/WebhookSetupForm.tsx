@@ -45,13 +45,6 @@ interface WebhookSetupFormProps {
     /** kea-forms logic and formKey for the manual webhook field inputs form */
     formLogic?: LogicWrapper | BuiltLogic<any>
     formKey?: string
-    /**
-     * Set from the new-source wizard only. The wizard's own Next button stays disabled on this step
-     * until the webhook is set up (tables using webhook sync won't receive data otherwise), so this
-     * shows a hint that leaving the wizard is fine and the webhook can be finished later from the
-     * source's settings — without claiming the in-wizard Next action itself skips the step.
-     */
-    isWizardStep?: boolean
 }
 
 /**
@@ -69,7 +62,6 @@ export function WebhookSetupForm({
     onCreateWebhook,
     formLogic,
     formKey,
-    isWizardStep = false,
 }: WebhookSetupFormProps): JSX.Element {
     const webhookFields = sourceConfig?.webhookFields ?? []
     // A blocked connection is manual-only in practice, so it takes the same path as a source that
@@ -123,13 +115,6 @@ export function WebhookSetupForm({
                 <LemonButton type="primary" onClick={onCreateWebhook}>
                     {manualOnly ? 'Generate webhook URL' : 'Create webhook'}
                 </LemonButton>
-                {isWizardStep && (
-                    <p className="text-sm text-muted mb-0">
-                        Your source is already connected. If you'd rather not finish this now, you can leave the wizard
-                        and set up the webhook later from the source's settings — tables using webhook sync just won't
-                        receive data until then.
-                    </p>
-                )}
             </WebhookSetupCard>
         )
     }
@@ -170,10 +155,11 @@ export function WebhookSetupForm({
 
         return (
             <WebhookSetupCard>
-                <h3 className="text-lg font-semibold">Almost done — finish setting up your {sourceName} webhook</h3>
-                <LemonBanner type="success">
-                    Webhook created in {sourceName}. We just need a couple more details from your {sourceName} dashboard
-                    to start receiving events.
+                <h3 className="text-lg font-semibold">Finish setting up your {sourceName} webhook</h3>
+                <LemonBanner type="warning">
+                    The webhook is created in {sourceName}, but it can't accept events yet. Copy the details below from
+                    your {sourceName} dashboard and save them. Until then, tables that use webhook sync get no webhook
+                    updates.
                 </LemonBanner>
                 {sourceConfig?.webhookSetupCaption && (
                     <LemonMarkdown className="text-sm">{sourceConfig.webhookSetupCaption}</LemonMarkdown>
@@ -193,18 +179,35 @@ export function WebhookSetupForm({
         )
     }
 
+    // A failed request returns no URL, so even a manual-only source needs the error and a retry.
+    const webhookUrlMissing = !webhookResult?.webhook_url
+
     return (
         <WebhookSetupCard>
             <h3 className="text-lg font-semibold">Manual webhook setup for {sourceName}</h3>
-            {(!manualOnly || !!autoCreationBlockedReason) && (
+            {(!manualOnly || !!autoCreationBlockedReason || webhookUrlMissing) && (
                 <LemonBanner type="warning">
-                    {autoCreationBlockedReason || webhookResult?.error || 'Could not create the webhook automatically.'}
+                    <div className="flex flex-col gap-1">
+                        <span>
+                            {(webhookUrlMissing && webhookResult?.error) ||
+                                autoCreationBlockedReason ||
+                                webhookResult?.error ||
+                                'Could not create the webhook automatically.'}
+                        </span>
+                        <span>
+                            {webhookUrlMissing
+                                ? 'Tables that use webhook sync get no webhook updates until the webhook is set up.'
+                                : `Tables that use webhook sync get no webhook updates until you add the webhook in ${sourceName} by hand, using the steps below.`}
+                        </span>
+                    </div>
                 </LemonBanner>
             )}
-            {!manualOnly && (
+            {(!manualOnly || webhookUrlMissing) && (
                 <div className="flex flex-col items-start gap-2">
                     <p className="m-0">
-                        Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.
+                        {manualOnly
+                            ? 'PostHog could not generate the webhook URL. Try again to get one.'
+                            : 'Automatic setup can fail for a temporary reason. Try again, or set the webhook up by hand below.'}
                     </p>
                     <LemonButton type="secondary" onClick={onCreateWebhook}>
                         Try again

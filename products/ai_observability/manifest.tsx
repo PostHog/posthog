@@ -5,12 +5,20 @@ import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import { AI_OBSERVABILITY_CLUSTER_URL_PATTERN } from './frontend/clusters/constants'
 import { scorerFiltersFromSearchParams } from './frontend/scoreDefinitions/scoreDefinitionNavigation'
 
 export const manifest: ProductManifest = {
     name: 'AI observability',
+    activityDescribers: {
+        [ActivityScope.LLM_PROMPT]: () =>
+            import('./frontend/prompts/promptActivityDescriber').then((module) => module.promptActivityDescriber),
+        [ActivityScope.LLM_PROMPT_LABEL]: () =>
+            import('./frontend/prompts/promptLabelActivityDescriber').then(
+                (module) => module.promptLabelActivityDescriber
+            ),
+    },
     scenes: {
         AIObservability: {
             import: () => import('./frontend/AIObservabilityScene'),
@@ -92,6 +100,7 @@ export const manifest: ProductManifest = {
             import: () => import('./frontend/offline-evaluations/OfflineExperimentsScene'),
             projectBased: true,
             name: 'Offline evals',
+            description: 'Manage datasets, follow score trends, and inspect offline experiment results.',
             layout: 'app-container',
             iconType: 'llm_evaluations',
         },
@@ -193,8 +202,7 @@ export const manifest: ProductManifest = {
         '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],
         [AI_OBSERVABILITY_CLUSTER_URL_PATTERN]: ['AIObservabilityCluster', 'aiObservabilityCluster'],
-        '/ai-evals/datasets': ['AIObservabilityDatasets', 'aiObservabilityDatasets'],
-        '/ai-evals/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
+        '/ai-evals/evaluations/offline/datasets/:id': ['AIObservabilityDataset', 'aiObservabilityDataset'],
         '/ai-evals/taggers': ['AIObservabilityTags', 'aiObservabilityTags'],
         '/ai-evals/taggers/:id': ['AIObservabilityTag', 'aiObservabilityTag'],
         '/ai-evals/evaluations': ['AIObservabilityEvaluations', 'aiObservabilityEvaluations'],
@@ -238,6 +246,10 @@ export const manifest: ProductManifest = {
         },
         '/ai-evals': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityEvaluations(), searchParams, hashParams).url,
+        '/ai-evals/datasets': (_params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
+        '/ai-evals/datasets/:id': (params, searchParams, hashParams) =>
+            combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
         '/ai-evals/evaluations/offline': (_params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityOfflineEvaluations(), searchParams, hashParams).url,
         '/ai-evals/tags': (_params, searchParams, hashParams) =>
@@ -297,7 +309,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/clusters/:runId/:clusterId': (params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityCluster(params.runId, params.clusterId), searchParams, hashParams).url,
         '/llm-analytics/datasets': (_params, searchParams, hashParams) =>
-            combineUrl(urls.aiObservabilityDatasets(), searchParams, hashParams).url,
+            combineUrl(urls.aiObservabilityDatasets(), { ...searchParams, tab: 'datasets' }, hashParams).url,
         '/llm-analytics/datasets/:id': (params, searchParams, hashParams) =>
             combineUrl(urls.aiObservabilityDataset(params.id), searchParams, hashParams).url,
         '/llm-analytics/tags': (_params, searchParams, hashParams) =>
@@ -405,9 +417,9 @@ export const manifest: ProductManifest = {
             return `/ai-observability/sessions/${id}${stringifiedParams ? `?${stringifiedParams}` : ''}`
         },
         aiObservabilityPlayground: (): string => '/ai-observability/playground',
-        aiObservabilityDatasets: (): string => '/ai-evals/datasets',
+        aiObservabilityDatasets: (): string => '/ai-evals/evaluations/offline/experiments?tab=datasets',
         aiObservabilityDataset: (id: string, params?: { item?: string }): string =>
-            combineUrl(`/ai-evals/datasets/${id}`, params).url,
+            combineUrl(`/ai-evals/evaluations/offline/datasets/${id}`, params).url,
         aiObservabilityTags: (): string => '/ai-evals/taggers',
         aiObservabilityTag: (id: string): string => `/ai-evals/taggers/${id}`,
         aiObservabilityEvaluations: (): string => '/ai-evals/evaluations',
@@ -447,7 +459,7 @@ export const manifest: ProductManifest = {
             iconType: 'llm_analytics' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
             href: urls.aiObservabilityDashboard(),
-            searchKeywords: ['llm observability', 'llm costs', 'token usage'],
+            searchKeywords: ['llm analytics', 'llm observability', 'llm costs', 'token usage'],
             searchTabs: [
                 { name: 'Traces', href: urls.aiObservabilityTraces() },
                 { name: 'Generations', href: urls.aiObservabilityGenerations() },
@@ -483,33 +495,21 @@ export const manifest: ProductManifest = {
             sceneKey: 'AIObservabilityClusters',
         },
         {
-            path: 'Datasets',
-            intents: [ProductKey.LLM_DATASETS],
-            category: ProductItemCategory.AI_ENGINEERING,
-            type: 'llm_datasets',
-            iconType: 'llm_datasets' as FileSystemIconType,
-            iconColor: ['var(--color-product-llm-datasets-light)', 'var(--color-product-llm-datasets-dark)'],
-            href: urls.aiObservabilityDatasets(),
-            searchKeywords: ['test sets', 'golden set'],
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
-            tags: ['beta'],
-            sceneKey: 'AIObservabilityDatasets',
-        },
-        {
             path: 'Evaluations',
-            intents: [ProductKey.LLM_EVALUATIONS],
+            intents: [ProductKey.LLM_EVALUATIONS, ProductKey.LLM_DATASETS],
             category: ProductItemCategory.AI_ENGINEERING,
             type: 'llm_evaluations',
             iconType: 'llm_evaluations' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-evaluations-light)', 'var(--color-product-llm-evaluations-dark)'],
             href: urls.aiObservabilityEvaluations(),
-            searchKeywords: ['llm judge', 'llm as a judge', 'grading'],
+            searchKeywords: ['evals', 'llm judge', 'llm as a judge', 'grading', 'datasets', 'test sets', 'golden set'],
             searchTabs: [
                 {
                     name: 'Offline evals',
                     href: urls.aiObservabilityOfflineEvaluations(),
                     flag: FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
                 },
+                { name: 'Datasets', href: urls.aiObservabilityDatasets(), flag: FEATURE_FLAGS.LLM_ANALYTICS_DATASETS },
                 { name: 'Scorers', href: urls.aiObservabilityScorers() },
             ],
             sceneKey: 'AIObservabilityEvaluations',

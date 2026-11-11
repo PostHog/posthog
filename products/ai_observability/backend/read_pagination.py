@@ -7,7 +7,11 @@ from posthog.dataclasses import frozen
 
 
 def encode_cursor(values: list[str]) -> str:
-    return base64.urlsafe_b64encode(json.dumps(values, separators=(",", ":")).encode()).decode().rstrip("=")
+    return (
+        base64.urlsafe_b64encode(json.dumps(values, separators=(",", ":"), ensure_ascii=False).encode())
+        .decode()
+        .rstrip("=")
+    )
 
 
 def decode_cursor(cursor: str, expected_parts: int) -> list[str]:

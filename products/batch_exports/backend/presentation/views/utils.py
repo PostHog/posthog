@@ -60,8 +60,6 @@ def check_high_frequency_batch_exports_enabled(team: Team) -> None:
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
 
-    loaded: HogQLQueryModifiers | None = None
-
     def to_internal_value(self, data: typing.Any) -> dict[str, typing.Any]:
         value = super().to_internal_value(data)
         try:
@@ -72,12 +70,6 @@ class HogQLModifiersField(serializers.JSONField):
                 location = ".".join(str(part) for part in error["loc"])
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
-        else:
-            if modifiers.useNewEventsCluster:
-                raise serializers.ValidationError(
-                    "Native events cluster queries are only supported by the synchronous query API"
-                )
-            self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
 
     def to_representation(self, value: typing.Any) -> typing.Any:
