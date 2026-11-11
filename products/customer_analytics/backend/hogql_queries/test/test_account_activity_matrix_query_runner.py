@@ -193,6 +193,23 @@ class TestAccountActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(response, CacheMissResponse)
 
+    @parameterized.expand([("relinked", "acme"), ("newly_linked", None)])
+    def test_cached_activity_follows_the_current_group_key(self, _name: str, external_id: str | None) -> None:
+        Account.objects.for_team(self.team.id).filter(id=self.account.id).update(external_id=external_id)
+        self._event(BO, "insight viewed", "2026-10-26T10:00:00Z", group_key="new-group")
+        flush_persons_and_events()
+        query = {"kind": "AccountActivityMatrixQuery", "accountId": str(self.account.id)}
+        first = get_query_runner(query, self.team, user=self.user).run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
+        )
+        assert first.results.rows == []
+
+        Account.objects.for_team(self.team.id).filter(id=self.account.id).update(external_id="new-group")
+        refreshed = get_query_runner(query, self.team, user=self.user).run(
+            ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=self.user
+        )
+        assert [row.key for row in refreshed.results.rows] == [BO]
+
     @parameterized.expand(
         [
             ("visible", None, status.HTTP_200_OK),

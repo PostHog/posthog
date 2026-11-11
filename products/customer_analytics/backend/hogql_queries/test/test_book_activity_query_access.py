@@ -37,6 +37,13 @@ class TestBookActivityQueryAccess(BookActivityTestCase):
         with pytest.raises(UserAccessControlError):
             validate_book_activity_people_access(self.team, None, str(self.user.id))
 
+    @parameterized.expand(KINDS)
+    def test_owner_bound_jobs_have_distinct_cache_keys(self, kind: str) -> None:
+        query = self._query(kind)
+        first = get_query_runner(query, self.team, user=self.user)
+        second = get_query_runner(query, self.team, user=self.other_user)
+        assert first.get_cache_key() != second.get_cache_key()
+
     @parameterized.expand(
         [
             (kind, interval, date_from, date_to, expected)
