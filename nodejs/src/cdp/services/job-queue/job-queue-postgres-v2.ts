@@ -212,12 +212,12 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
         if (!manager) {
             return
         }
+        this.manager = undefined
         if (this.stopDeadline === undefined) {
             await manager.disconnect()
         } else if (!(await settleBefore(this.stopDeadline, manager.disconnect()))) {
             logger.warn('CyclotronV2 stop deadline passed before the producer pool closed')
         }
-        this.manager = undefined
     }
 
     public isHealthy(): HealthCheckResult {

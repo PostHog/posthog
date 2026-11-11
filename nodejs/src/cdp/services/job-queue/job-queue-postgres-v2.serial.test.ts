@@ -742,4 +742,22 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
             expect(rows[0].n).toBe(0)
         })
     })
+
+    it('lets two producers that share the queue stop it at once', async () => {
+        const applicationName = `shared-producer-stop-${uuidv4()}`
+        const url = new URL(dbUrl(CYCLOTRON_DB.host, CYCLOTRON_DB.port))
+        url.searchParams.set('application_name', applicationName)
+        const queue = await startQueue(url.toString())
+        await enqueue(queue)
+
+        await expect(Promise.all([queue.stopProducer(), queue.stopProducer()])).resolves.toBeDefined()
+
+        await waitForExpect(async () => {
+            const { rows } = await admin.query<{ n: number }>(
+                'SELECT COUNT(*)::int AS n FROM pg_stat_activity WHERE application_name = $1',
+                [applicationName]
+            )
+            expect(rows[0].n).toBe(0)
+        })
+    })
 })
