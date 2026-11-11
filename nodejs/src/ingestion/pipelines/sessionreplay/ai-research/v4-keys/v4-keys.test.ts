@@ -42,6 +42,39 @@ describe('v4 keys', () => {
         expect(dynamo.send).toHaveBeenCalledTimes(reads)
     })
 
+    const rotated = { ...stored, wrapped_key: { B: Buffer.from('rotated') } }
+    const tombstone = { ...stored, wrapped_key: undefined, deleted: { BOOL: true } }
+
+    it.each([
+        ['reuses the plaintext while the row holds the same wrapped key', [stored, stored], ['ok', 'ok'], 1],
+        ['unwraps again when the row holds another wrapped key', [stored, rotated], ['ok', 'ok'], 2],
+        ['drops the plaintext at a tombstone', [stored, tombstone, stored], ['ok', 'deleted', 'ok'], 2],
+        ['drops the plaintext when the row is gone', [stored, undefined, stored], ['ok', 'missing', 'ok'], 2],
+        ['unwraps again once the plaintext is half an hour old', Array(7).fill(stored), Array(7).fill('ok'), 2],
+    ])('after the cache lifetime, %s', async (_name, rows, statuses, unwraps) => {
+        // lru-cache keeps the clock object it found at import, and fake timers install another one, so the test
+        // moves both. lru-cache reads a start time of zero as an entry with no lifetime.
+        let cacheClockMs = 1
+        const cacheClock = jest.spyOn(performance, 'now').mockImplementation(() => cacheClockMs)
+        jest.useFakeTimers()
+        try {
+            const { keys, dynamo, kms } = fakes(undefined)
+            const seen: string[] = []
+            for (const row of rows) {
+                dynamo.send.mockResolvedValueOnce({ Item: row } as never)
+                seen.push((await keys.get(TEAM, MONTH)).status)
+                cacheClockMs += 300_001
+                jest.advanceTimersByTime(300_001)
+            }
+            expect(seen).toEqual(statuses)
+            expect(dynamo.send).toHaveBeenCalledTimes(rows.length)
+            expect(kms.send).toHaveBeenCalledTimes(unwraps)
+        } finally {
+            jest.useRealTimers()
+            cacheClock.mockRestore()
+        }
+    })
+
     it.each([
         ['2026-10', '2027-03-01'],
         ['2026-12', '2027-05-01'],
