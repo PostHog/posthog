@@ -3,20 +3,18 @@ import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
 import { EmailTrackingCodeSigner } from '~/cdp/services/messaging/helpers/tracking-code'
 import { internalFetch } from '~/common/utils/request'
 
-import { JobCounts } from '../probe/cyclotron-probe'
 import { ProviderEdge, UNIT_EMAIL_DOMAIN, startProviderEdge } from '../provider-edge'
 import { JournalEntry, Judge, createJudge } from './judge'
 
 const TRACKING_KEYS = 'scenario-tracking-key'
 const UNIT = 'run-a-1'
-const IDLE: JobCounts = { running: 0, available: 0, scheduledLater: 0 }
 const SEED = { teamIds: [7] }
 const NEVER_ABORTED = new AbortController().signal
 
 describe('judge', () => {
     let edge: ProviderEdge
     let ses: SESv2Client
-    let jobs: JobCounts
+    let unfinishedJobs: number
     let judge: Judge
 
     beforeEach(async () => {
@@ -27,8 +25,12 @@ describe('judge', () => {
             credentials: { accessKeyId: 'edge', secretAccessKey: 'edge' },
             maxAttempts: 1,
         })
-        jobs = IDLE
-        judge = createJudge({ edgeUrl: edge.url, probe: { counts: () => Promise.resolve(jobs) }, pollMs: 10 })
+        unfinishedJobs = 0
+        judge = createJudge({
+            edgeUrl: edge.url,
+            probe: { unfinishedJobs: () => Promise.resolve(unfinishedJobs) },
+            pollMs: 10,
+        })
         await judge.open(SEED)
     })
 
@@ -197,19 +199,14 @@ describe('judge', () => {
         expect(result).toMatchObject({ passed: false, unitIds: [UNIT] })
     })
 
-    it.each<[string, JobCounts, boolean, object]>([
-        [
-            'jobs are still unfinished',
-            { running: 1, available: 1, scheduledLater: 1 },
-            true,
-            { converged: false, unfinishedJobs: 3, unrecorded: [] },
-        ],
-        ['a delivery has no record', IDLE, false, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
-        ['the queues are empty and every delivery is recorded', IDLE, true, { converged: true, unfinishedJobs: 0 }],
+    it.each<[string, number, boolean, object]>([
+        ['jobs are still unfinished', 3, true, { converged: false, unfinishedJobs: 3, unrecorded: [] }],
+        ['a delivery has no record', 0, false, { converged: false, unfinishedJobs: 0, unrecorded: [UNIT] }],
+        ['the queues are empty and every delivery is recorded', 0, true, { converged: true, unfinishedJobs: 0 }],
     ])(
         'converges only when no job is unfinished and every delivery is recorded: %s',
-        async (_story, counts, delivered, expected) => {
-            jobs = counts
+        async (_story, jobs, delivered, expected) => {
+            unfinishedJobs = jobs
             judge.record(offered())
             if (delivered) {
                 await deliver(UNIT)
