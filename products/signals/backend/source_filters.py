@@ -132,8 +132,18 @@ class FilterStateKey:
         )
 
 
-def pending_window_start(key: FilterStateKey) -> datetime | None:
-    return key.rows().values_list("pending_window_start", flat=True).first()
+@frozen
+class PendingWindow:
+    start: datetime
+    # Empty when the window starts after `start` itself, not after one row at that timestamp.
+    after_id: str
+
+
+def pending_window(key: FilterStateKey) -> PendingWindow | None:
+    row = key.rows().values_list("pending_window_start", "pending_window_id").first()
+    if row is None or row[0] is None:
+        return None
+    return PendingWindow(start=row[0], after_id=row[1])
 
 
 def record_fetch_failure(key: FilterStateKey, *, window_start: datetime, error: Exception) -> None:
@@ -155,6 +165,7 @@ def record_fetch_failure(key: FilterStateKey, *, window_start: datetime, error: 
         )
         if state.pending_window_start is None or window_start < state.pending_window_start:
             state.pending_window_start = window_start
+            state.pending_window_id = ""
         state.last_error_code = code[:64]
         state.last_error_message = message[:500]
         state.last_error_at = timezone.now()
@@ -162,7 +173,12 @@ def record_fetch_failure(key: FilterStateKey, *, window_start: datetime, error: 
 
 
 def record_window_processed(
-    key: FilterStateKey, *, window_start: datetime | None, malformed_count: int, resume_from: datetime | None
+    key: FilterStateKey,
+    *,
+    window_start: datetime | None,
+    malformed_count: int,
+    resume_from: datetime | None,
+    resume_after_id: str | None,
 ) -> None:
     """Record a processed window. Clear the stored one, or move it to `resume_from` after a capped batch.
 
@@ -183,4 +199,9 @@ def record_window_processed(
     covered = Q(pending_window_start__isnull=True)
     if window_start is not None:
         covered |= Q(pending_window_start__gte=window_start)
-    rows.filter(covered).update(pending_window_start=resume_from, last_error_code="", last_error_message="")
+    rows.filter(covered).update(
+        pending_window_start=resume_from,
+        pending_window_id=(resume_after_id or "") if resume_from is not None else "",
+        last_error_code="",
+        last_error_message="",
+    )

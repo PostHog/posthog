@@ -49,10 +49,12 @@ class TestFetchRecords(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.windows: list[str | None] = []
+        self.resume_ids: list[str | None] = []
         self.outcomes: list[Exception | int | datetime] = []
 
     def fetcher(self, team: Any, config: SignalSourceTableConfig, context: dict[str, Any]) -> list[dict[str, Any]]:
         self.windows.append(context["last_synced_at"])
+        self.resume_ids.append(context["resume_after_id"])
         outcome = self.outcomes.pop(0)
         if isinstance(outcome, Exception):
             raise outcome
@@ -60,6 +62,7 @@ class TestFetchRecords(BaseTest):
             assert context["drain_window"] is True
             context["window_end"] = outcome.replace(tzinfo=None)
             context["window_capped"] = True
+            context["window_end_id"] = "issue-7"
         else:
             context["malformed_count"] = outcome
         return [{"id": 1}]
@@ -131,6 +134,7 @@ class TestFetchRecords(BaseTest):
         complete_fetch(self.fetch(schema_id, LATE))
 
         assert self.windows == [EARLY.isoformat(), EARLY.isoformat(), MIDDLE.isoformat()]
+        assert self.resume_ids == [None, None, "issue-7"]
         assert self.state(schema_id).pending_window_start is None
 
     def test_first_sync_failure_keeps_the_window_it_read(self) -> None:

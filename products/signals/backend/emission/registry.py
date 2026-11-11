@@ -71,6 +71,9 @@ class SignalSourceTableConfig(BaseModel):
     # Optional ORDER BY expression (HogQL) for the fetcher's query, so the `max_records` limit keeps the
     # most important records instead of an arbitrary subset
     order_by: str | None = None
+    # A unique column that breaks ties on the partition field, so a fetch that pages through a window
+    # oldest first resumes after the exact last row instead of skipping rows that share its timestamp
+    cursor_id_field: str | None = None
     # Max records to process per sync
     max_records: int = 1000
     # Set to True when the source stores datetime values as strings (e.g. GitHub JSON fields)

@@ -25,6 +25,8 @@ class SignalSourceFilterState(TeamScopedRootMixin, UUIDModel):
     # Not a foreign key: schemas belong to another product.
     schema_id = models.UUIDField()
     pending_window_start = models.DateTimeField(null=True, blank=True)
+    # Set when a capped batch stopped partway through `pending_window_start`: the cursor id of its last row.
+    pending_window_id = models.CharField(max_length=200, blank=True, default="")
     last_error_code = models.CharField(max_length=64, blank=True, default="")
     # Only messages the filter code wrote. A query error stores its type, because its text can carry row values.
     last_error_message = models.CharField(max_length=500, blank=True, default="")

@@ -13,13 +13,15 @@ from products.signals.backend.contracts import HOGQL_FILTER_KEY
 from products.signals.backend.emission.fetchers.data_warehouse import (
     DRAIN_WINDOW_KEY,
     MALFORMED_COUNT_KEY,
+    RESUME_AFTER_ID_KEY,
     WINDOW_CAPPED_KEY,
+    WINDOW_END_ID_KEY,
     WINDOW_END_KEY,
 )
 from products.signals.backend.emission.registry import SignalSourceTableConfig
 from products.signals.backend.source_filters import (
     FilterStateKey,
-    pending_window_start,
+    pending_window,
     record_fetch_failure,
     record_window_processed,
 )
@@ -37,6 +39,7 @@ class FetchedWindow:
     tracked: bool
     # Where a capped batch ended. The next fetch resumes there instead of the stored window clearing.
     resume_from: datetime | None
+    resume_after_id: str | None
 
 
 def replay_window_start(
@@ -63,7 +66,8 @@ def fetch_records(
     last_synced_at = datetime.fromisoformat(raw_last_synced_at) if raw_last_synced_at else None
     source_config = context.get("source_config")
     filtered = isinstance(source_config, dict) and HOGQL_FILTER_KEY in source_config
-    pending = pending_window_start(key)
+    stored = pending_window(key)
+    pending = stored.start if stored is not None else None
     tracked = filtered or pending is not None
     # A tracked first sync reads from a bound taken now, so a failure records the window it tried, not a later one.
     first_sync_start = (
@@ -76,6 +80,8 @@ def fetch_records(
         **context,
         "last_synced_at": window_start.isoformat() if window_start is not None else None,
         DRAIN_WINDOW_KEY: tracked,
+        # Resume after the exact row a capped batch stopped at, when this fetch starts at that position.
+        RESUME_AFTER_ID_KEY: (stored.after_id or None) if stored is not None and window_start == stored.start else None,
     }
     if pending is not None:
         logger.info(
@@ -99,12 +105,14 @@ def fetch_records(
                     signals_type="data-import-signals",
                 )
         raise
+    capped = bool(context.get(WINDOW_CAPPED_KEY))
     return FetchedWindow(
         records=records,
         key=key,
         window_start=window_start,
         malformed_count=context.get(MALFORMED_COUNT_KEY, 0),
-        resume_from=_aware(context.get(WINDOW_END_KEY)) if context.get(WINDOW_CAPPED_KEY) else None,
+        resume_from=_aware(context.get(WINDOW_END_KEY)) if capped else None,
+        resume_after_id=context.get(WINDOW_END_ID_KEY) if capped else None,
         tracked=tracked,
     )
 
@@ -116,6 +124,7 @@ def complete_fetch(fetched: FetchedWindow) -> None:
             window_start=fetched.window_start,
             malformed_count=fetched.malformed_count,
             resume_from=fetched.resume_from,
+            resume_after_id=fetched.resume_after_id,
         )
 
 
