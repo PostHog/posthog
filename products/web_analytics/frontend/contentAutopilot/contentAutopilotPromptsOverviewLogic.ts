@@ -115,8 +115,14 @@ export interface contentAutopilotPromptsOverviewLogicMeta {
         overviewKpis: (overview: AEOPromptSetOverviewApi | null) => PromptsOverviewKpis | null
         hasChecks: (overview: AEOPromptSetOverviewApi | null) => boolean
         overviewWindow: (overview: AEOPromptSetOverviewApi | null) => PromptSetWindow | null
-        visibilityChart: (overview: AEOPromptSetOverviewApi | null, chartMetric: any) => EngineVisibilityChart | null
-        visibilityQuery: (overviewWindow: PromptSetWindow | null, chartMetric: any) => DataVisualizationNode | null
+        visibilityChart: (
+            overview: AEOPromptSetOverviewApi | null,
+            chartMetric: PromptVisibilityMetric
+        ) => EngineVisibilityChart | null
+        visibilityQuery: (
+            overviewWindow: PromptSetWindow | null,
+            chartMetric: PromptVisibilityMetric
+        ) => DataVisualizationNode | null
         sourcesQuery: (overviewWindow: PromptSetWindow | null) => DataTableNode | null
     }
 }
