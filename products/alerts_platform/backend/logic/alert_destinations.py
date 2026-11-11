@@ -134,6 +134,22 @@ def has_incident_destination(*, team_id: int, configuration_id: UUID) -> bool:
     )
 
 
+def hears_kind(
+    *, team_id: int, configuration_id: UUID, destination_type: DestinationType, event_kind: AlertEventKind
+) -> bool:
+    """Whether an enabled destination of this type on the alert sends messages of this kind."""
+    return (
+        AlertDestination.objects.for_team(team_id)
+        .filter(
+            configuration_id=configuration_id,
+            type=destination_type,
+            enabled=True,
+            event_kinds__contains=[event_kind.value],
+        )
+        .exists()
+    )
+
+
 def set_subscriber_destinations(
     *,
     team_id: int,
