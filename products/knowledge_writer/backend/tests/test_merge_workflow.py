@@ -329,8 +329,6 @@ async def test_every_docs_command_that_joins_a_running_check_hears_how_it_ended(
     command = DocsCommandRequest(
         repository="PostHog/posthog",
         pull_request_number=PULL_REQUEST_NUMBER,
-        pull_request_url=f"https://github.com/PostHog/posthog/pull/{PULL_REQUEST_NUMBER}",
-        head_sha=MERGE_COMMIT_SHA,
         note="",
         requested_by="@octo",
         requested_by_user_id=42,

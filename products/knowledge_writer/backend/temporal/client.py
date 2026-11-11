@@ -1,4 +1,6 @@
 import asyncio
+from collections.abc import Coroutine
+from typing import Any
 from uuid import UUID
 
 from django.conf import settings
@@ -11,6 +13,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.temporal.common.client import async_connect
 
 from ...merge_check.sources import LandedChange
+from ..adapters.repo_merge import pull_request_key
 from ..facade.contracts import DocsCommandRequest
 from ..facade.enums import DocsRequestSource
 from .merge_workflow import ADD_DOCS_CHECK_WAITER_SIGNAL, MergeCheckInputs, MergeCheckWorkflow
@@ -25,8 +28,12 @@ def publish_workflow_id(task_run_id: UUID) -> str:
     return f"knowledge_writer:publish:{task_run_id}"
 
 
+def run_with_start_timeout(start: Coroutine[Any, Any, None]) -> None:
+    asyncio.run(asyncio.wait_for(start, START_TIMEOUT_SECONDS))
+
+
 def start_publish(task_run_id: UUID, *, team_id: int) -> None:
-    asyncio.run(asyncio.wait_for(start_publish_workflow(task_run_id, team_id=team_id), START_TIMEOUT_SECONDS))
+    run_with_start_timeout(start_publish_workflow(task_run_id, team_id=team_id))
 
 
 async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
@@ -52,12 +59,7 @@ def merge_check_workflow_id(commit_sha: str) -> str:
 
 
 def start_merge_check(change: LandedChange, *, team_id: int, installation_id: str | None) -> None:
-    asyncio.run(
-        asyncio.wait_for(
-            start_merge_check_workflow(change, team_id=team_id, installation_id=installation_id),
-            START_TIMEOUT_SECONDS,
-        )
-    )
+    run_with_start_timeout(start_merge_check_workflow(change, team_id=team_id, installation_id=installation_id))
 
 
 async def start_merge_check_workflow(
@@ -93,16 +95,11 @@ async def start_merge_check_workflow(
 
 
 def docs_check_id(repository: str, pull_request_number: int) -> str:
-    owner, name = repository.lower().split("/", 1)
-    return f"knowledge_writer:command_tag:{owner}.{name}#{pull_request_number}"
+    return f"knowledge_writer:command_tag:{pull_request_key(repository, pull_request_number)}"
 
 
 def start_command_check(command: DocsCommandRequest, *, team_id: int, waiter_id: str | None) -> None:
-    asyncio.run(
-        asyncio.wait_for(
-            start_command_check_workflow(command, team_id=team_id, waiter_id=waiter_id), START_TIMEOUT_SECONDS
-        )
-    )
+    run_with_start_timeout(start_command_check_workflow(command, team_id=team_id, waiter_id=waiter_id))
 
 
 async def start_command_check_workflow(command: DocsCommandRequest, *, team_id: int, waiter_id: str | None) -> None:

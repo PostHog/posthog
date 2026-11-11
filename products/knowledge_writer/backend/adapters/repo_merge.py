@@ -8,9 +8,13 @@ if TYPE_CHECKING:
     from ..temporal.merge_workflow import MergeCheckInputs
 
 
-def pull_request_dedupe_id(repository: str, pull_request_number: int) -> str:
+def pull_request_key(repository: str, pull_request_number: int | None) -> str:
     owner, name = repository.lower().split("/", 1)
-    digest = hashlib.sha256(f"{owner}.{name}#{pull_request_number}".encode()).hexdigest()
+    return f"{owner}.{name}#{pull_request_number}"
+
+
+def pull_request_dedupe_id(repository: str, pull_request_number: int) -> str:
+    digest = hashlib.sha256(pull_request_key(repository, pull_request_number).encode()).hexdigest()
     return f"knowledge_writer:pull_request:{digest}"
 
 

@@ -85,8 +85,6 @@ class MergeCheckReport:
 class DocsCommandRequest:
     repository: str
     pull_request_number: int
-    pull_request_url: str
-    head_sha: str
     note: str
     requested_by: str
     requested_by_user_id: int

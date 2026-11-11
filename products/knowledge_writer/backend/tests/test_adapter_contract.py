@@ -76,7 +76,7 @@ def _valid_verdict(**overrides: Any) -> dict[str, Any]:
     }
 
 
-@pytest.mark.parametrize("origin", list(REGISTRY))
+@pytest.mark.parametrize("origin", list(DocsRequestSource))
 def test_every_input_gets_its_verdict_from_the_shared_builder(origin: DocsRequestSource) -> None:
     adapter = REGISTRY[origin]
 

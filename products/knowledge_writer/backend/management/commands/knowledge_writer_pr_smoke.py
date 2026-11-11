@@ -1,7 +1,6 @@
 import time
 import base64
 import secrets
-import dataclasses
 from uuid import UUID
 
 from django.conf import settings
@@ -208,8 +207,6 @@ def merged_source(github: GitHubIntegration, source_url: str, requested_by_user_
     return DocsCommandRequest(
         repository=pull_request["repository"],
         pull_request_number=pull_request["number"],
-        pull_request_url=pull_request["url"],
-        head_sha=pull_request["head_sha"],
         note=SMOKE_NOTE,
         requested_by=SMOKE_REQUESTER,
         requested_by_user_id=requested_by_user_id,
@@ -221,48 +218,39 @@ def unreachable_source(requested_by_user_id: int) -> DocsCommandRequest:
     return DocsCommandRequest(
         repository="PostHog/posthog",
         pull_request_number=source_number,
-        pull_request_url=f"https://github.com/PostHog/posthog/pull/{source_number}",
-        head_sha=secrets.token_hex(20),
         note=SMOKE_NOTE,
         requested_by=SMOKE_REQUESTER,
         requested_by_user_id=requested_by_user_id,
     )
 
 
-def command_verdict(source: DocsCommandRequest) -> AdapterVerdict:
-    dedupe_id = pull_request_dedupe_id(source.repository, source.pull_request_number)
+def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
     return AdapterVerdict(
         source=CommandTagAdapter.source,
-        subject_id=dedupe_id,
+        subject_id=pull_request_dedupe_id(source.repository, source.pull_request_number),
         needs_docs=True,
         reason="requested",
-        request=DocsRequest(
-            source=CommandTagAdapter.source,
-            source_url=source.pull_request_url,
-            evidence=f"Pull request {source.pull_request_url} at commit {source.head_sha}.",
-            change_kind=DocsChangeKind.UPDATE,
-            suggested_page_urls=(),
-            trigger_instructions=source.note,
-            dedupe_id=dedupe_id,
-            requested_by=source.requested_by,
-            requested_by_user_id=source.requested_by_user_id,
-        ),
+        request=smoke_request(section, source, smoke_suffix),
     )
 
 
-def smoke_verdict(section: str, source: DocsCommandRequest, smoke_suffix: str) -> AdapterVerdict:
-    verdict = command_verdict(source)
-    return dataclasses.replace(verdict, request=smoke_request(verdict, section, smoke_suffix))
-
-
-def smoke_request(verdict: AdapterVerdict, section: str, smoke_suffix: str) -> DocsRequest:
-    if verdict.request is None:
-        raise CommandError(f"The command adapter asked for no docs: {verdict.reason}")
-    return dataclasses.replace(
-        verdict.request,
+def smoke_request(section: str, source: DocsCommandRequest, smoke_suffix: str) -> DocsRequest:
+    source_url = source_pull_request_url(source)
+    return DocsRequest(
+        source=CommandTagAdapter.source,
+        source_url=source_url,
+        evidence=f"Pull request {source_url}.",
+        change_kind=DocsChangeKind.UPDATE,
         suggested_page_urls=(f"https://posthog.com/docs/{section}",),
+        trigger_instructions=source.note,
         dedupe_id=f"knowledge_writer:command_tag:smoke-{smoke_suffix}",
+        requested_by=source.requested_by,
+        requested_by_user_id=source.requested_by_user_id,
     )
+
+
+def source_pull_request_url(source: DocsCommandRequest) -> str:
+    return f"https://github.com/{source.repository}/pull/{source.pull_request_number}"
 
 
 def run_agent_request(
@@ -274,7 +262,7 @@ def run_agent_request(
             f"Intake ran in shadow mode: turn the {AGENT_LAUNCH_FLAG} flag on at 100% for team {team.id}"
         )
     if outcome.task_id is None or outcome.status not in ("started", "joined"):
-        raise CommandError(f"Intake answered {outcome.status} for {source.pull_request_url}")
+        raise CommandError(f"Intake answered {outcome.status} for {source_pull_request_url(source)}")
     pull_request = wait_for_pull_request(outcome.task_id, team.id, writer.docs_repository, deadline)
     return pull_request, outcome.status == "joined"
 
@@ -316,7 +304,7 @@ def run_writer_request(
     smoke_suffix: str,
     branches: list[str],
 ) -> tuple[WriterPullRequest, bool]:
-    request = smoke_request(command_verdict(unreachable_source(writer.user_id)), section, smoke_suffix)
+    request = smoke_request(section, unreachable_source(writer.user_id), smoke_suffix)
     routing = route_request(request, team_id=team.id, github=source_repository_github(team.id))
     joining = pull_request_to_join(list_writer_pull_requests(writer), routing.section)
     task_id = start_writer(request, routing, team=team, writer=writer, joining=joining, start_workflow=False)

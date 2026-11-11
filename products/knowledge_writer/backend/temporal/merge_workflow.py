@@ -29,7 +29,7 @@ from ...merge_check.sources import (
     landed_change,
     read_pull_request,
 )
-from ..adapters.repo_merge import RepoMergeAdapter
+from ..adapters.repo_merge import RepoMergeAdapter, pull_request_key
 from ..facade.contracts import AdapterVerdict, MergeCheckReport
 from ..facade.enums import DocsRequestSource, MergeCheckFailure
 from ..facade.finished_check_hooks import FinishedDocsCheck, get_finished_docs_check_hooks
@@ -105,7 +105,7 @@ def record_unchecked_merge(
     )
     verdict = AdapterVerdict(
         source=inputs.origin,
-        subject_id=inputs.commit_sha or f"{inputs.repository.lower()}#{inputs.pull_request_number}",
+        subject_id=inputs.commit_sha or pull_request_key(inputs.repository, inputs.pull_request_number),
         needs_docs=False,
         reason=reason,
         request=None,

@@ -111,30 +111,23 @@ def handle_docs(context: CommandContext, args: DocsArgs) -> CommandOutcome:
         waiter_id = uuid4().hex
         follow_ups.remember(follow_ups.docs_check_key(waiter_id), follow_up)
     try:
-        _request_docs(context, args, waiter_id)
+        knowledge_writer_facade.request_docs_for_pull_request(
+            knowledge_writer_contracts.DocsCommandRequest(
+                repository=pull_request.repository,
+                pull_request_number=pull_request.number,
+                note=args.note,
+                requested_by=context.request.requester,
+                requested_by_user_id=context.members[0].user_id,
+            ),
+            team_id=context.members[0].team_id,
+            waiter_id=waiter_id,
+        )
     except Exception:
         # The dispatcher answers that the command failed, so a check that started anyway stays quiet.
         if waiter_id is not None:
             follow_ups.take(follow_ups.docs_check_key(waiter_id))
         raise
     return CommandOutcome(accepted=True, message="Checking whether this pull request changes the docs.")
-
-
-def _request_docs(context: CommandContext, args: DocsArgs, waiter_id: str | None) -> None:
-    pull_request = context.pull_request
-    knowledge_writer_facade.request_docs_for_pull_request(
-        knowledge_writer_contracts.DocsCommandRequest(
-            repository=pull_request.repository,
-            pull_request_number=pull_request.number,
-            pull_request_url=pull_request.url,
-            head_sha=pull_request.head_sha,
-            note=args.note,
-            requested_by=context.request.requester,
-            requested_by_user_id=context.members[0].user_id,
-        ),
-        team_id=context.members[0].team_id,
-        waiter_id=waiter_id,
-    )
 
 
 def _follow_up(context: CommandContext) -> follow_ups.FollowUp | None:
