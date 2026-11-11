@@ -5889,7 +5889,7 @@ class TestExternalDataSource(APIBaseTest):
             # what resolution falls back to — so the key is omitted here and found at sync time.
             ("both_absent_omits_key", "incremental", None, None, None),
             ("xmin_fallback_to_detected", "xmin", None, ["id"], ["id"]),
-            ("xmin_explicit_wins_over_detected", "xmin", ["custom_pk"], ["id"], ["custom_pk"]),
+            ("xmin_ignores_caller_key", "xmin", ["custom_pk"], ["id"], ["id"]),
         ]
     )
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")

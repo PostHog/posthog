@@ -1939,9 +1939,10 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 }
                 sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
             elif sync_type == ExternalDataSchema.SyncType.XMIN and new_source_model.supports_scheduled_sync:
+                # The xmin reader keys on the source's own primary key, so a caller's pick would not match it.
                 sync_type_config = {
                     "schema_metadata": schema_metadata,
-                    **({"primary_key_columns": effective_primary_key_columns} if effective_primary_key_columns else {}),
+                    **({"primary_key_columns": detected_primary_keys} if detected_primary_keys else {}),
                 }
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
