@@ -1,5 +1,5 @@
-import { ExperimentExposureTimeSeries, NodeKind } from '~/queries/schema/schema-general'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { ExperimentEventExposureConfig, ExperimentExposureTimeSeries, NodeKind } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { buildExposureSeries, getExposureCriteriaLabel } from './exposuresTransforms'
 
@@ -50,7 +50,7 @@ describe('buildExposureSeries', () => {
 })
 
 describe('getExposureCriteriaLabel', () => {
-    it.each([
+    it.each<[string, AnyPropertyFilter[] | undefined, string]>([
         ['no config', undefined, 'Default ($experiment_exposure)'],
         ['an unfiltered $feature_flag_called config', [], 'Default ($experiment_exposure)'],
         [
@@ -59,7 +59,7 @@ describe('getExposureCriteriaLabel', () => {
             'Default ($experiment_exposure), with filters',
         ],
     ])('labels %s', (_, properties, expected) => {
-        const exposureConfig = properties
+        const exposureConfig: ExperimentEventExposureConfig | undefined = properties
             ? { kind: NodeKind.ExperimentEventExposureConfig, event: '$feature_flag_called', properties }
             : undefined
 
