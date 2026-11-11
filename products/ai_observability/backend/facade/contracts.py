@@ -1,6 +1,6 @@
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, Final, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.alias_generators import to_camel
@@ -196,6 +196,9 @@ TraceSideContent = Annotated[TraceMessagesSide | TraceJsonSide, Field(discrimina
 class TraceNodeContent(Contract):
     input: TraceSideContent = Field(description="The node's input, as messages or as JSON.")
     output: TraceSideContent = Field(description="The node's output, as messages or as JSON.")
+
+
+PARSER_RECIPE_MAX_SOURCE_LENGTH: Final = 100_000
 
 
 class TraceParserTestError(Contract):
