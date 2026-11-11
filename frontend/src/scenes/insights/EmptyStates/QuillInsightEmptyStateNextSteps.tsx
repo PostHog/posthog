@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { ReactNode } from 'react'
 
+import { IconCalendar, IconFilter, IconLineGraph, IconPulse } from '@posthog/icons'
 import { Button, EmptyContent, EmptyDescription, EmptyHeader } from '@posthog/quill'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -16,8 +17,17 @@ import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { openInsightEditor } from 'products/product_analytics/frontend/insights/insightScene/openInsightEditor'
 
-import { rangeReaching } from './emptyStateReason'
+import { EmptyStateReason, rangeReaching } from './emptyStateReason'
 import { insightEmptyStateLogic } from './insightEmptyStateLogic'
+import { QuillInsightEmptyStateIcon } from './QuillInsightEmptyStateIcon'
+
+const REASON_ICONS: Record<EmptyStateReason['kind'], JSX.Element> = {
+    'never-sent': <IconPulse />,
+    'last-seen-before': <IconCalendar />,
+    'last-seen-after': <IconCalendar />,
+    filtered: <IconFilter />,
+    unknown: <IconLineGraph />,
+}
 
 function eventLabel(event: string): string {
     return getCoreFilterDefinition(event, TaxonomicFilterGroupType.Events)?.label ?? event
@@ -30,9 +40,11 @@ function formatDay(day: Dayjs): string {
 /** Says why the insight came back empty and offers the change most likely to fill it. */
 export function QuillInsightEmptyStateNextSteps({
     defaultDetail,
+    icon,
     children,
 }: {
     defaultDetail: ReactNode
+    icon?: JSX.Element
     children: ReactNode
 }): JSX.Element {
     const { insight, insightProps, canEditInsight } = useValues(insightLogic)
@@ -98,6 +110,7 @@ export function QuillInsightEmptyStateNextSteps({
     return (
         <>
             <EmptyHeader>
+                <QuillInsightEmptyStateIcon icon={icon ?? REASON_ICONS[reason.kind]} />
                 {children}
                 <EmptyDescription>{detail}</EmptyDescription>
             </EmptyHeader>

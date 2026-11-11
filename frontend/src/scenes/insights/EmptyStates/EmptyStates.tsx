@@ -10,9 +10,9 @@ import * as errorPng from '@posthog/brand/hoggies/png/error'
 import * as reaperPng from '@posthog/brand/hoggies/png/reaper'
 import * as stampDeniedPng from '@posthog/brand/hoggies/png/stamp-denied'
 import * as trafficControllerPng from '@posthog/brand/hoggies/png/traffic-controller'
-import { IconArchive, IconFunnels, IconInfo, IconPlusSmall, IconRefresh } from '@posthog/icons'
+import { IconArchive, IconFunnels, IconInfo, IconLineGraph, IconPlusSmall, IconRefresh } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Empty, EmptyDescription, EmptyHeader, EmptyTitle, IconStack, IconStackItem } from '@posthog/quill'
+import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from '@posthog/quill'
 
 import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE, TABLE_ACCESS_DENIED_ERROR_CODE } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -62,6 +62,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
+import { QuillInsightEmptyStateIcon } from './QuillInsightEmptyStateIcon'
 import { QuillInsightEmptyStateNextSteps } from './QuillInsightEmptyStateNextSteps'
 import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
@@ -128,24 +129,17 @@ export function InsightEmptyState({
     detail = detail ?? 'Try changing the date range, or pick another action, event or breakdown.'
 
     if (quillSurface) {
-        const quillMedia = (
-            <IconStack>
-                <IconStackItem color="var(--color-product-product-analytics-light)">
-                    {iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : <IconArchive />)}
-                </IconStackItem>
-            </IconStack>
-        )
+        const quillIcon = iconProp ?? (isChristmas() ? <IconChristmasOrnament /> : undefined)
         return (
             <Empty data-attr="insight-empty-state" className="border-none px-4 py-6">
                 {hasCustomCopy ? (
                     <EmptyHeader>
-                        {quillMedia}
+                        <QuillInsightEmptyStateIcon icon={quillIcon ?? <IconLineGraph />} />
                         <EmptyTitle>{heading}</EmptyTitle>
                         {detail && <EmptyDescription>{detail}</EmptyDescription>}
                     </EmptyHeader>
                 ) : (
-                    <QuillInsightEmptyStateNextSteps defaultDetail={detail}>
-                        {quillMedia}
+                    <QuillInsightEmptyStateNextSteps defaultDetail={detail} icon={quillIcon}>
                         <EmptyTitle>{heading}</EmptyTitle>
                     </QuillInsightEmptyStateNextSteps>
                 )}
