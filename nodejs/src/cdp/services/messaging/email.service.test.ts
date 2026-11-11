@@ -1800,6 +1800,26 @@ describe('EmailService', () => {
                     expect(await sendsLeftInTheTeamBudget(emailService)).toBe(1)
                 })
 
+                it('sends nothing when the ownership check answers that the job is lost after it failed on each of its retries', async () => {
+                    const emailService = sender()
+                    let jobLost = false
+                    emailService.checkJobOwnershipBeforeSend(() =>
+                        jobLost
+                            ? Promise.resolve(false)
+                            : Promise.reject(new Error('Connection terminated unexpectedly'))
+                    )
+                    let result = await emailService.executeSendEmail(invocation)
+                    for (let retry = 1; retry < 5; retry++) {
+                        result = await emailService.executeSendEmail(result.invocation)
+                    }
+                    jobLost = true
+
+                    result = await emailService.executeSendEmail(result.invocation)
+
+                    expect(result.finished).toBe(false)
+                    expect(deliveredTo(ses, recipient)).toEqual([])
+                })
+
                 it('claims the workflow limit again when the flow loops back to an email whose earlier pass kept its pacing token', async () => {
                     const emailService = sender()
                     let ownsJob = false
