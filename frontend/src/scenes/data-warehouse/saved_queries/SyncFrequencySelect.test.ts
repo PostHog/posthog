@@ -248,6 +248,20 @@ describe('SyncFrequencySelect', () => {
     })
 
     it.each([
+        ['15min', 'Needs a Boost, Teams, Scale, or Enterprise add-on'],
+        ['30min', 'Needs a paid plan'],
+        ['1hour', 'More often than your plan allows'],
+    ])('names what unlocks %s below the plan floor', (cadence, reason) => {
+        const options = buildOptions(
+            bounds({
+                options: [{ cadence, allowed: false, blocked_by: 'plan', blocker: null }],
+            } as Partial<SyncFrequencyBoundsApi>)
+        )
+
+        expect(options[0].disabledReason).toBe(reason)
+    })
+
+    it.each([
         ['a pin that would hold the cadence', { unpinnedBy: { '1hour': '15min' } }],
         [
             'a pin that would strand a downstream view',
