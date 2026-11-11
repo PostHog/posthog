@@ -1276,6 +1276,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                         "model": state.get("model"),
                         "runtime_adapter": state.get("runtime_adapter"),
                         "reasoning_effort": state.get("reasoning_effort"),
+                        # Read after commit, so a Slack thread mapping saved in the same transaction is visible.
+                        "slack_session_id": task_run._slack_session_id(),
                     },
                 )
 

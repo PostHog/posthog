@@ -101,7 +101,6 @@ class TestTaskCaptureEvent(TestCase):
         task = self._task()
         task.origin_product = origin_product
         task.save(update_fields=["origin_product"])
-        run = TaskRun.objects.create(task=task, team=self.team)
         integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T1", config={})
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -110,11 +109,17 @@ class TestTaskCaptureEvent(TestCase):
             channel="C1",
             thread_ts="1700000000.000100",
             task=task,
-            task_run=run,
+            task_run=TaskRun.objects.create(task=task, team=self.team),
             mentioning_slack_user_id="U1",
         )
 
         with patch("products.tasks.backend.models.posthoganalytics.capture") as capture:
+            run = task.create_run(environment=TaskRun.Environment.LOCAL, extra_state={"use_dedicated_stream": False})
             run.capture_event("task_run_completed")
 
-        self.assertEqual(capture.call_args.kwargs["properties"]["slack_session_id"], expected)
+        session_ids = {
+            call.kwargs["event"]: call.kwargs["properties"]["slack_session_id"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] in {"task_run_created", "task_run_completed"}
+        }
+        self.assertEqual(session_ids, {"task_run_created": expected, "task_run_completed": expected})
