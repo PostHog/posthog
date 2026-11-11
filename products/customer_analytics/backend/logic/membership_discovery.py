@@ -228,6 +228,7 @@ def run_membership_discovery(
     timings = MembershipTimings(job="discovery")
     counts = MembershipDiscoveryCounts()
     outcome = "failure"
+    acquired = False
     lease = get_membership_cleanup_lease(input.team_id)
 
     def check_lease() -> None:
@@ -247,19 +248,26 @@ def run_membership_discovery(
         outcome = "success"
         return counts
     finally:
-        if lease.owned():
-            lease.release()
-        elapsed = monotonic() - started
-        BATCH_SECONDS.observe(elapsed)
-        logger.info(
-            "membership_discovery_batch",
-            team_id=input.team_id,
-            outcome=outcome,
-            scanned=counts.scanned,
-            recovered=counts.recovered,
-            discovered=counts.discovered,
-            has_more=counts.has_more,
-            duration_seconds=elapsed,
-            step_seconds=timings.seconds,
-            failed_step=timings.failed_step,
-        )
+        try:
+            if acquired:
+                with timings.measure("release_lease"):
+                    if lease.owned():
+                        lease.release()
+        except BaseException:
+            outcome = "failure"
+            raise
+        finally:
+            elapsed = monotonic() - started
+            BATCH_SECONDS.observe(elapsed)
+            logger.info(
+                "membership_discovery_batch",
+                team_id=input.team_id,
+                outcome=outcome,
+                scanned=counts.scanned,
+                recovered=counts.recovered,
+                discovered=counts.discovered,
+                has_more=counts.has_more,
+                duration_seconds=elapsed,
+                step_seconds=timings.seconds,
+                failed_step=timings.failed_step,
+            )
