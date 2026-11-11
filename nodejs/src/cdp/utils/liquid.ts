@@ -27,13 +27,35 @@ const LIQUID_UNBOUNDED_FILTERS = ['where_exp', 'find_exp', 'find_index_exp', 're
 
 export const EMAIL_BODY_TAG_LIMIT = 10_000
 
+const LIQUID_BLOCK_OPENER = /-?\s*liquid(?=\s)/y
+
+const countStatementLines = (body: string): number => {
+    let count = 0
+    for (const line of body.split('\n')) {
+        if (line.trim() !== '') {
+            count++
+        }
+    }
+    return count
+}
+
 export const countLiquidTags = (template: string): number => {
     let count = 0
     for (let at = template.indexOf('{'); at !== -1; at = template.indexOf('{', at + 1)) {
         const next = template[at + 1]
-        if (next === '{' || next === '%') {
-            count++
-            at++
+        if (next !== '{' && next !== '%') {
+            continue
+        }
+        count++
+        at++
+        LIQUID_BLOCK_OPENER.lastIndex = at + 1
+        if (next === '%' && LIQUID_BLOCK_OPENER.test(template)) {
+            const end = template.indexOf('%}', LIQUID_BLOCK_OPENER.lastIndex)
+            count += countStatementLines(template.slice(LIQUID_BLOCK_OPENER.lastIndex, end === -1 ? undefined : end))
+            if (end === -1) {
+                break
+            }
+            at = end + 1
         }
     }
     return count

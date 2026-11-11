@@ -3684,6 +3684,15 @@ describe('CDP API', () => {
                         ),
                 ],
                 [
+                    'has a body whose one Liquid block brings it one tag over the limit',
+                    'email_body_too_many_tags',
+                    () =>
+                        storedTemplateRendering(
+                            { html: `{% liquid\n${'echo variables.chunk\n'.repeat(EMAIL_BODY_TAG_LIMIT)}%}` },
+                            'x'
+                        ),
+                ],
+                [
                     'has a body full of Liquid tags, which would take seconds to parse',
                     'email_body_too_many_tags',
                     () => storedTemplateRendering({ html: '{{ x }}'.repeat(100_000) }, 'x'),
