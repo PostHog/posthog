@@ -87,6 +87,9 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
     """
     organization_id = str(organization.id)
     try:
+        minutes = _plan_limit_minutes(organization)
+        if minutes is None:
+            return PlanRefreshFloorReading(floor=None, evaluated=True)
         if _definitions_failed_to_load():
             return PlanRefreshFloorReading(floor=None, evaluated=False)
         result = posthoganalytics.get_feature_flag_result(
@@ -102,11 +105,10 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
             return PlanRefreshFloorReading(floor=None, evaluated=True)
         if not result.enabled:
             return PlanRefreshFloorReading(floor=None, evaluated=True)
-        min_interval = _plan_min_interval(organization)
-        if min_interval is None:
-            return PlanRefreshFloorReading(floor=None, evaluated=True)
         return PlanRefreshFloorReading(
-            floor=PlanRefreshFloor(min_interval=min_interval, clamp_existing=_clamp_existing(result.payload)),
+            floor=PlanRefreshFloor(
+                min_interval=_plan_min_interval(minutes), clamp_existing=_clamp_existing(result.payload)
+            ),
             evaluated=True,
         )
     except InvalidRefreshFloor as error:
@@ -157,11 +159,12 @@ def _report_if_the_flag_is_inconclusive(organization_id: str) -> None:
         _report_once(RefreshFloorFlagInconclusive(), organization_id)
 
 
-def _plan_min_interval(organization: Organization) -> timedelta | None:
+def _plan_limit_minutes(organization: Organization) -> object:
     feature = organization.get_available_feature(AvailableFeature.DATA_MODELING_REFRESH_INTERVAL)
-    minutes = feature.get("limit") if feature else None
-    if minutes is None:
-        return None
+    return feature.get("limit") if feature else None
+
+
+def _plan_min_interval(minutes: object) -> timedelta:
     if isinstance(minutes, bool) or not isinstance(minutes, int) or minutes not in _FLOOR_MINUTES:
         raise InvalidRefreshFloor(
             f"{AvailableFeature.DATA_MODELING_REFRESH_INTERVAL} limit must be one of {_FLOOR_MINUTES} minutes, got {minutes!r}"

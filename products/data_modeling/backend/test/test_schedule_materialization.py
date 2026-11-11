@@ -6,6 +6,8 @@ from unittest import mock
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
+from posthog.constants import AvailableFeature
+
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
@@ -230,6 +232,10 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         assert get_declared_target(node) == H12
 
     def test_unreadable_plan_floor_turns_off_a_query_with_no_schedule_behind_it(self):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.DATA_MODELING_REFRESH_INTERVAL, "name": "Refresh interval", "limit": 60}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
         node = Node.objects.get(saved_query=self.sq)
         self.sq.is_materialized = True
         self.sq.save(update_fields=["is_materialized"])

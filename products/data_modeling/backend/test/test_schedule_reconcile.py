@@ -966,6 +966,30 @@ class TestMaybeReconcileDag(BaseTest):
 
         queue_retry.assert_not_called()
 
+    def test_failed_delete_stays_reported_when_a_later_pass_lists_without_it(self):
+        dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        stale_id = tier_schedule_id(str(dag.id), H1)
+        first_read = build_frequency_graph(dag)
+        set_declared_target(endpoint, H6)
+
+        def delete(_temporal, schedule_id):
+            if schedule_id == stale_id:
+                raise RuntimeError("temporal down")
+
+        with (
+            mock.patch(
+                f"{RECONCILE}.async_connect",
+                new=mock.AsyncMock(side_effect=[self._temporal_listing([stale_id]), self._temporal_listing([])]),
+            ),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()),
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock(side_effect=delete)),
+            mock.patch(f"{RECONCILE}.capture_exception"),
+        ):
+            failed = reconcile_dag_schedules(dag, graph=first_read)
+
+        self.assertEqual(failed, [stale_id])
+
     @parameterized.expand(
         [
             ("save", lambda dag: _reconcile_dag_best_effort(dag)),
@@ -1042,6 +1066,7 @@ class TestMaybeReconcileDag(BaseTest):
         ]
     )
     def test_unreadable_plan_floor_retries_the_write_until_the_floor_reads(self, _name, withdrawal_error, raised):
+        _grant_refresh_interval(self.organization, 60)
         dag = self._dag_with_target()
         temporal = self._temporal_listing([])
 
@@ -1070,6 +1095,7 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand([("describe",), ("delete",), ("update",)])
     def test_unreadable_plan_floor_moves_past_a_tier_already_gone(self, gone_on):
+        _grant_refresh_interval(self.organization, 60)
         dag = self._dag_with_target()
         endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
         cleared = _saved_query_node(self.team, dag, "cleared", NodeType.MAT_VIEW)
@@ -1108,6 +1134,7 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual(update_schedule.call_args.kwargs["schedule"].action.args[0]["node_ids"], [str(endpoint.id)])
 
     def test_unreadable_plan_floor_leaves_a_legacy_whole_dag_schedule_running(self):
+        _grant_refresh_interval(self.organization, 60)
         dag = DAG.objects.create(team=self.team, name="legacy")
         temporal = self._temporal_with_tier(str(dag.id), None)
 
@@ -1124,6 +1151,7 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_not_called()
 
     def test_unreadable_plan_floor_keeps_a_tier_scheduled_after_the_graph_was_read(self):
+        _grant_refresh_interval(self.organization, 60)
         dag = self._dag_with_target()
         late = _saved_query_node(self.team, dag, "late", NodeType.MAT_VIEW)
         late_tier = tier_schedule_id(str(dag.id), H6)
@@ -1144,6 +1172,7 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_not_called()
 
     def test_unreadable_plan_floor_still_takes_a_cleared_node_off_its_schedule(self):
+        _grant_refresh_interval(self.organization, 60)
         dag = self._dag_with_target()
         endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
         cleared = _saved_query_node(self.team, dag, "cleared", NodeType.MAT_VIEW)
@@ -1200,7 +1229,7 @@ class TestMaybeReconcileDag(BaseTest):
         self.organization.available_product_features = features
         with mock.patch(FLAG_RESULT, side_effect=_floor_flag({"clamp_existing": True}, enabled=flag_enabled)) as flag:
             reading = read_organization_plan_refresh_floor(self.organization)
-        self.assertTrue(flag.call_args.kwargs["only_evaluate_locally"])
+        self.assertTrue(all(call.kwargs["only_evaluate_locally"] for call in flag.call_args_list))
         self.assertTrue(reading.evaluated)
         self.assertEqual(
             reading.floor.schedule_floor if reading.floor else None, timedelta(minutes=minutes) if minutes else None
@@ -1212,17 +1241,28 @@ class TestMaybeReconcileDag(BaseTest):
 
     @parameterized.expand(
         [
-            ("self_hosted_never_loads_definitions", False, False, None, True, False, True),
-            ("cloud_with_the_sdk_disabled", True, True, None, True, False, True),
-            ("cloud_with_definitions_that_failed_to_load", True, False, None, False, False, False),
-            ("cloud_with_empty_definitions", True, False, [], False, False, False),
-            ("cloud_after_the_flag_was_deleted", True, False, [{"key": "other-flag"}], True, False, True),
-            ("cloud_with_a_flag_it_could_not_evaluate", True, False, [{"key": REFRESH_FLOOR_FLAG}], True, True, True),
+            ("self_hosted_never_loads_definitions", 60, False, False, None, True, False, True),
+            ("cloud_with_the_sdk_disabled", 60, True, True, None, True, False, True),
+            ("cloud_with_definitions_that_failed_to_load", 60, True, False, None, False, False, False),
+            ("cloud_with_empty_definitions", 60, True, False, [], False, False, False),
+            ("cloud_without_a_limit_while_definitions_failed_to_load", None, True, False, None, True, False, False),
+            ("cloud_after_the_flag_was_deleted", 60, True, False, [{"key": "other-flag"}], True, False, True),
+            (
+                "cloud_with_a_flag_it_could_not_evaluate",
+                60,
+                True,
+                False,
+                [{"key": REFRESH_FLOOR_FLAG}],
+                True,
+                True,
+                True,
+            ),
         ]
     )
     def test_no_flag_result_only_refuses_when_definitions_failed_to_load(
-        self, _name, cloud, disabled, definitions, evaluated, reported, calls_the_sdk
+        self, _name, minutes, cloud, disabled, definitions, evaluated, reported, calls_the_sdk
     ):
+        _grant_refresh_interval(self.organization, minutes)
         with (
             mock.patch(FLAG_RESULT, return_value=None) as flag,
             mock.patch(f"{REFRESH_FLOOR}.run_mode", return_value=mock.Mock(is_deployed_cloud=cloud)),
@@ -1247,6 +1287,7 @@ class TestMaybeReconcileDag(BaseTest):
         ]
     )
     def test_unreadable_plan_floor_only_refuses_a_speed_up(self, _name, stored, target, allowed):
+        _grant_refresh_interval(self.organization, 60)
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
         if stored is not None:
             set_declared_target(node, stored)
@@ -1266,6 +1307,7 @@ class TestMaybeReconcileDag(BaseTest):
         self.assertEqual(get_declared_target(node), target if allowed else stored)
 
     def test_unreadable_plan_floor_refuses_a_bootstrap_before_seeding_targets(self):
+        _grant_refresh_interval(self.organization, 60)
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
         assert node.saved_query is not None
         node.saved_query.sync_frequency_interval = M15

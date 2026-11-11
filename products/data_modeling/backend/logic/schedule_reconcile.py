@@ -520,7 +520,11 @@ def reconcile_dag_schedules(
             if moved_tiers == desired_tiers:
                 return failed_deletes
             desired_tiers = moved_tiers
-            failed_deletes = write(desired_tiers)
+            # A later pass's listing can miss a schedule whose delete failed, so its failure is kept.
+            failed_deletes = [
+                *failed_deletes,
+                *(schedule_id for schedule_id in write(desired_tiers) if schedule_id not in failed_deletes),
+            ]
     except Exception as error:
         logger.exception("Freshness schedule reconcile failed after a write", dag_id=str(dag.id), team_id=team.pk)
         capture_exception(error)
