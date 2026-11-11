@@ -4,7 +4,7 @@ from typing import cast
 import requests
 from posthoganalytics import capture_exception
 
-from products.workflows.backend.facade.contracts import TwilioAccount, TwilioPhoneNumber
+from products.workflows.backend.facade.contracts import TwilioAccount, TwilioCredentialsRejected, TwilioPhoneNumber
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +21,8 @@ class TwilioProvider:
         url = f"{TWILIO_API_BASE_URL}/Accounts/{self.account_sid}{endpoint}"
         try:
             response = requests.request(method, url, auth=self.auth, data=data, params=params)
+            if response.status_code == 401:
+                raise TwilioCredentialsRejected()
             response.raise_for_status()
             if response.status_code == 204:  # No Content
                 return {}
@@ -33,13 +35,8 @@ class TwilioProvider:
         """
         Get all phone numbers owned by the account.
         """
-        try:
-            endpoint = "/IncomingPhoneNumbers.json"
-            response = self._make_request("GET", endpoint)
-            return response.get("incoming_phone_numbers", [])
-        except requests.exceptions.HTTPError as e:
-            capture_exception(Exception(f"TwilioIntegration: Failed to list twilio phone numbers: {e}"))
-            return []
+        response = self._make_request("GET", "/IncomingPhoneNumbers.json")
+        return response.get("incoming_phone_numbers", [])
 
     def get_account_info(self) -> TwilioAccount:
         """

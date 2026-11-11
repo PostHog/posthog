@@ -1549,8 +1549,8 @@ def start_training(
     ``allow_action_target=False`` refuses an action target with ``InvalidTarget``. The check
     reads the locked row, so a concurrent edit of the target cannot slip past it.
 
-    Raises ``TrainingRunCapReached`` when the project has used its sandbox training runs for the
-    last 24 hours, across all its pipelines, and ``LivePipelineCapReached`` when a draft's first
+    Raises ``TrainingRunCapReached`` when the project has used its daily limit of sandbox training
+    runs, across all its pipelines, and ``LivePipelineCapReached`` when a draft's first
     run would take the project over its live pipeline limit.
     """
     # The runner and the sandbox import pandas and pyarrow, so the router path loads them only here.

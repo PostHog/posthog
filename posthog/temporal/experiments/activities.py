@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from zoneinfo import ZoneInfo
 
@@ -33,6 +33,7 @@ from posthog.temporal.experiments.models import (
 )
 from posthog.temporal.experiments.utils import check_significance_transition, recalculation_hour_filter
 
+from products.experiments.backend.facade.daily_calculation import daily_calculation_start_cutoff
 from products.experiments.backend.facade.timeseries import (
     apply_saved_metric_overrides,
     backfill_experiment_timeseries,
@@ -59,8 +60,6 @@ if TYPE_CHECKING:
     from products.experiments.backend.metric_calculation.config import MetricCalculationConfig
 
 logger = structlog.get_logger(__name__)
-
-EXPERIMENT_RECALCULATION_MAX_AGE_DAYS = 60
 
 
 def _build_metric_validated(
@@ -117,7 +116,7 @@ def _get_experiment_regular_metrics_for_hour_sync(hour: int) -> list[ExperimentR
             recalculation_hour_filter(hour),
             deleted=False,
             status=Experiment.Status.RUNNING,
-            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+            start_date__gte=daily_calculation_start_cutoff(datetime.now(ZoneInfo("UTC"))),
         )
         .exclude(
             Q(metrics__isnull=True) | Q(metrics=[]),
@@ -402,7 +401,7 @@ def _get_experiment_saved_metrics_for_hour_sync(hour: int) -> list[ExperimentSav
             recalculation_hour_filter(hour),
             deleted=False,
             status=Experiment.Status.RUNNING,
-            start_date__gte=datetime.now(ZoneInfo("UTC")) - timedelta(days=EXPERIMENT_RECALCULATION_MAX_AGE_DAYS),
+            start_date__gte=daily_calculation_start_cutoff(datetime.now(ZoneInfo("UTC"))),
         ).values_list("id", "team_id")
     )
     experiment_metrics = [
