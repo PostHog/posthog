@@ -48,9 +48,9 @@ _POOL_KEYS = frozenset({"source", "size", "name"})
 class ReasonLimits:
     """The longest reason, in characters, of an entry in each tier."""
 
-    top: int = 240
-    worth_a_look: int = 160
-    later: int = 100
+    top: int = 140
+    worth_a_look: int = 110
+    later: int = 80
 
 
 @frozen
@@ -76,6 +76,8 @@ class PersonalRankingTickConfig:
     skip_team_ids: tuple[int, ...] = ()
     # A pair is due when its latest list was built or checked longer ago than this.
     target_interval_minutes: int = 60
+    # A due pair with no list, or a list older than this, goes first. The payload default is twice the target interval.
+    overdue_after_minutes: int = 120
     # Only pairs with activity in this many days are due.
     active_days: int = 7
     max_pairs_per_tick: int = 20
@@ -86,6 +88,8 @@ class PersonalRankingTickConfig:
     max_org_share: float = 0.25
     # The tick stops when this share of its model calls failed or raised.
     max_error_rate: float = 0.5
+    # The tick starts no pair after this share of its schedule interval, so the last pairs end before the next tick.
+    time_budget_share: float = 0.6
 
 
 TICK_DISABLED = PersonalRankingTickConfig()
@@ -96,9 +100,12 @@ _TICK_MAXIMUMS: dict[str, int] = {
     "target_interval_minutes": 1440,
     "active_days": 90,
     "max_pairs_per_tick": 2000,
-    "max_concurrency": 50,
+    "max_concurrency": 100,
     "max_tick_builds_per_day": 50000,
 }
+_MAX_OVERDUE_AFTER_MINUTES = 2 * _TICK_MAXIMUMS["target_interval_minutes"]
+# A larger share lets the pairs started at the end of a tick run into the next tick.
+_MAX_TIME_BUDGET_SHARE = 0.85
 
 
 @frozen
@@ -233,6 +240,10 @@ def _team_ids(value: Any) -> tuple[int, ...]:
 def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
     if not isinstance(payload, dict) or payload.get("enabled") is not True:
         return TICK_DISABLED
+    ints = {
+        name: _bounded_int(payload.get(name), getattr(TICK_DISABLED, name), maximum)
+        for name, maximum in _TICK_MAXIMUMS.items()
+    }
     return PersonalRankingTickConfig(
         enabled=True,
         organization_ids=_organization_ids(payload.get("organization_ids")),
@@ -241,10 +252,13 @@ def parse_tick_config(payload: Any) -> PersonalRankingTickConfig:
         skip_team_ids=_team_ids(payload.get("skip_team_ids")),
         max_org_share=_fraction(payload.get("max_org_share"), TICK_DISABLED.max_org_share),
         max_error_rate=_fraction(payload.get("max_error_rate"), TICK_DISABLED.max_error_rate),
-        **{
-            name: _bounded_int(payload.get(name), getattr(TICK_DISABLED, name), maximum)
-            for name, maximum in _TICK_MAXIMUMS.items()
-        },
+        overdue_after_minutes=_bounded_int(
+            payload.get("overdue_after_minutes"), 2 * ints["target_interval_minutes"], _MAX_OVERDUE_AFTER_MINUTES
+        ),
+        time_budget_share=_bounded_number(
+            payload.get("time_budget_share"), TICK_DISABLED.time_budget_share, _MAX_TIME_BUDGET_SHARE
+        ),
+        **ints,
     )
 
 

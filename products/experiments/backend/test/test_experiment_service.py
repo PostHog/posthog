@@ -71,7 +71,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
-from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.test.utils import patch_calculation_key_version, patch_exposure_event_flag
 from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -81,6 +81,18 @@ from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataSource,
 )
+
+_SEQUENTIAL_STATS_CONFIG: dict[str, Any] = {
+    "method": "frequentist",
+    "frequentist": {"sequential_testing_enabled": True},
+}
+
+_QUANTILE_METRIC: dict[str, Any] = {
+    "kind": "ExperimentMetric",
+    "metric_type": "quantile",
+    "source": {"kind": "EventsNode", "event": "app_ready", "math_property": "app_ready_ms"},
+    "quantile": 0.9,
+}
 
 
 def _calculation_key(experiment: Experiment, metric_uuid: str) -> str:
@@ -814,18 +826,27 @@ class TestExperimentService(APIBaseTest):
                 "from_another_team",
                 True,
                 {"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+                {"type": "primary"},
                 "Saved metric does not exist or does not belong to this project",
             ),
             (
                 "legacy_query",
                 False,
                 {"kind": "ExperimentTrendsQuery", "count_query": {"kind": "TrendsQuery", "series": []}},
+                {"type": "primary"},
                 "Legacy shared metrics can't be added to an experiment: Unlinkable Metric",
+            ),
+            (
+                "quantile_with_breakdown_override",
+                False,
+                {**_QUANTILE_METRIC, "uuid": "quantile-uuid"},
+                {"type": "primary", "breakdowns": [{"property": "$browser"}]},
+                "Invalid saved metric at index 0: breakdowns are not supported for percentile metrics",
             ),
         ]
     )
     def test_create_experiment_rejects_unlinkable_saved_metric(
-        self, _: str, from_other_team: bool, query: dict, expected_error: str
+        self, _: str, from_other_team: bool, query: dict, metadata: dict, expected_error: str
     ) -> None:
         self._create_flag(key="saved-metrics-link-check")
         team = Team.objects.create(organization=self.organization, name="Other Team") if from_other_team else self.team
@@ -836,10 +857,34 @@ class TestExperimentService(APIBaseTest):
             service.create_experiment(
                 name="Unlinkable Metric Experiment",
                 feature_flag_key="saved-metrics-link-check",
-                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": metadata}],
             )
 
         assert expected_error in str(ctx.exception)
+
+    def test_sequential_experiment_accepts_percentile_metrics(self) -> None:
+        self._create_flag(key="quantile-sequential")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Shared latency", query={**_QUANTILE_METRIC, "uuid": "saved-quantile-uuid"}
+        )
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Latency experiment",
+            feature_flag_key="quantile-sequential",
+            stats_config=_SEQUENTIAL_STATS_CONFIG,
+            metrics=[{**_QUANTILE_METRIC, "uuid": "inline-quantile-uuid"}],
+            allow_unknown_events=True,
+        )
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            allow_unknown_events=True,
+        )
+
+        experiment.refresh_from_db()
+        assert [metric["metric_type"] for metric in experiment.metrics or []] == ["quantile"]
+        assert [link.saved_metric_id for link in experiment.experimenttosavedmetric_set.all()] == [saved_metric.id]
 
     @parameterized.expand(
         [
@@ -1100,6 +1145,19 @@ class TestExperimentService(APIBaseTest):
                     "start_handling": "first_seen",
                 },
             ),
+            ("valid_quantile", _QUANTILE_METRIC),
+            (
+                "valid_quantile_numerical_event_property",
+                {
+                    **_QUANTILE_METRIC,
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "app_ready",
+                        "math_property": "app_ready_ms",
+                        "math_property_type": "numerical_event_properties",
+                    },
+                },
+            ),
             (
                 "valid_retention_exposure_start",
                 {
@@ -1136,6 +1194,68 @@ class TestExperimentService(APIBaseTest):
                 "funnel_with_no_series",
                 [{"kind": "ExperimentMetric", "metric_type": "funnel", "series": []}],
                 "funnel metrics require at least one step",
+            ),
+            (
+                "quantile_above_range",
+                [{**_QUANTILE_METRIC, "quantile": 0.999}],
+                "less_than_equal",
+            ),
+            (
+                "quantile_below_range",
+                [{**_QUANTILE_METRIC, "quantile": 0.001}],
+                "greater_than_equal",
+            ),
+            (
+                "quantile_without_math_property",
+                [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "event": "app_ready"}}],
+                "percentile metrics require a numeric property",
+            ),
+            (
+                "quantile_with_session_duration",
+                [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "math_property": "$session_duration"}}],
+                "percentile metrics need a numeric event property",
+            ),
+            (
+                "quantile_with_person_property",
+                [
+                    {
+                        **_QUANTILE_METRIC,
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "app_ready",
+                            "math_property": "age",
+                            "math_property_type": "person_properties",
+                        },
+                    }
+                ],
+                "percentile metrics need a numeric event property",
+            ),
+            (
+                "quantile_with_breakdown",
+                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdowns": [{"property": "$browser"}]}}],
+                "breakdowns are not supported for percentile metrics",
+            ),
+            (
+                "quantile_with_single_field_breakdown",
+                [{**_QUANTILE_METRIC, "breakdownFilter": {"breakdown": "$browser"}}],
+                "breakdowns are not supported for percentile metrics",
+            ),
+            (
+                "quantile_with_data_warehouse_source",
+                [
+                    {
+                        **_QUANTILE_METRIC,
+                        "source": {
+                            "kind": "ExperimentDataWarehouseNode",
+                            "table_name": "app_loads",
+                            "timestamp_field": "ts",
+                            "events_join_key": "distinct_id",
+                            "data_warehouse_join_key": "user_id",
+                            "math_property": "app_ready_ms",
+                        },
+                    }
+                ],
+                "union_tag_invalid",
             ),
         ]
     )
@@ -2383,13 +2503,16 @@ class TestExperimentService(APIBaseTest):
         [
             ("name", {"name": "Renamed experiment"}, "name"),
             ("description", {"description": "A brand new hypothesis"}, "description"),
+            # Under key version 2 the credible interval feeds the key, so the update restamps every inline metric.
+            ("confidence", {"stats_config": {"method": "bayesian", "bayesian": {"ci_level": 0.9}}}, "stats_config"),
         ]
     )
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
-        experiment = self._create_draft_experiment()
-        service = self._service()
-        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+        with patch_calculation_key_version(2):
+            experiment = self._create_draft_experiment()
+            service = self._service()
+            service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
 
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
@@ -2397,6 +2520,14 @@ class TestExperimentService(APIBaseTest):
         # update pipeline internally re-touches existing inline metrics.
         assert "metrics" not in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
+        assert "metrics" not in logged_fields
+        assert "metrics_secondary" not in logged_fields
 
     @parameterized.expand(
         [
@@ -2444,6 +2575,12 @@ class TestExperimentService(APIBaseTest):
         changed = self._changed_fields(mock_report_user_action)
         assert expected_field in changed
         assert "saved_metrics" not in changed
+        log = ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.id), activity="updated").latest(
+            "created_at"
+        )
+        assert log.detail is not None
+        logged_fields = [change["field"] for change in log.detail["changes"]]
+        assert expected_field in logged_fields
 
     @parameterized.expand(
         [

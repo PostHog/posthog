@@ -1,6 +1,10 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "acknowledge_breaking_changes": {
+            "description": "Confirm an update that removes columns used by downstream views. The first request is refused with code 'breaking_column_change' and names the affected views that the caller can access.",
+            "type": "boolean"
+        },
         "description": {
             "anyOf": [
                 {

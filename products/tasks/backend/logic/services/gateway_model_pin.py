@@ -33,7 +33,7 @@ def _first_party_pin(product: str) -> list[str]:
 
 
 # Ids the legacy gateway serves to PostHog Desktop that the catalog lacks; older app builds call them.
-_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5.2", "gpt-5-mini")
+_DESKTOP_LEGACY_MODELS: tuple[str, ...] = ("gpt-5.4", "gpt-5.3-codex", "gpt-5-mini")
 
 
 def gateway_pin(models: list[str]) -> list[str]:

@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     LegacyEventEmission,
 )
+from products.alerts_platform.backend.facade.rolling_checks import rolling_check_lookback_minutes
 from products.logs.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     LOGS_ALERT_INCIDENT_CLOSED_EVENT,
@@ -36,7 +37,6 @@ from products.logs.backend.alert_event_properties import (
     incident_closed_event_properties,
     threshold_event_properties,
 )
-from products.logs.backend.alert_lookback import rolling_check_lookback_minutes
 from products.logs.backend.alert_state_machine import IncidentCloseReason
 from products.logs.backend.platform_alert_wording import check_window_end, in_utc
 from products.logs.backend.platform_source_config import filters_of
