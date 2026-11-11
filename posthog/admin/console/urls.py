@@ -187,6 +187,30 @@ urlpatterns = [
             "Creating a deletion request", "/admin/console/tools/new-deletion-request/create/"
         ),
     ),
+    *[
+        path(
+            f"admin/experiments/experiment/<int:object_id>/{old}/",
+            MovedToConsole.page_redirect(
+                "This experiment action", "/admin/console/tools/experiments/?experiment={object_id}"
+            ),
+        )
+        for old in ("migrate", "fix-properties", "start-recalculation")
+    ],
+    path(
+        "admin/experiments/experimentsavedmetric/<int:object_id>/migrate/",
+        MovedToConsole.page_redirect(
+            "Migrating a shared metric", "/admin/console/tools/experiments/?saved_metric={object_id}"
+        ),
+    ),
+    *[
+        path(
+            f"admin/experiments/experimentmetricsrecalculation/<uuid:object_id>/{old}/",
+            MovedToConsole.page_redirect(
+                "This recalculation action", "/admin/console/tools/experiment-recalculations/?run={object_id}"
+            ),
+        )
+        for old in ("mark-failed", "mark-completed", "start", "retry-failures")
+    ],
     path(
         "admin/posthog/team/<int:pk>/view-cache/",
         MovedToConsole.page_redirect("The cached config view", "/admin/console/tools/remote-config-cache/?team={pk}"),
@@ -245,6 +269,12 @@ urlpatterns = [
         "admin/legal_documents/legaldocument/<path:object_id>/delete/",
         admin.site.admin_view(legal_document_redirect),
         {"target": "legal-documents/delete/"},
+    ),
+    path(
+        "admin/posthog_ai/conversation/<uuid:pk>/compact/",
+        MovedToConsole.page_redirect(
+            "Compacting a conversation", "/admin/console/tools/ai-conversation-checkpoints/compact/?conversation={pk}"
+        ),
     ),
     path(
         "admin/posthog/organization/send-usage-report/",
