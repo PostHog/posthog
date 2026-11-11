@@ -22,6 +22,11 @@ from products.customer_analytics.backend.logic.membership import (
     get_membership_existence,
     get_membership_query_settings,
 )
+from products.customer_analytics.backend.logic.membership_metrics import (
+    BATCH_DURATION_BUCKETS,
+    SCAN_DURATION_BUCKETS,
+    MembershipTimings,
+)
 from products.customer_analytics.backend.models.membership_cleanup import (
     MembershipCleanupCandidate,
     MembershipCleanupScan,
@@ -31,9 +36,15 @@ logger = structlog.get_logger(__name__)
 BATCH_SIZE = 100
 TEAM_BATCH_SIZE = 25
 OUTCOMES = Counter("customer_analytics_membership_discovery_total", "Membership discovery outcomes", ["outcome"])
-SCAN_SECONDS = Histogram("customer_analytics_membership_discovery_scan_seconds", "Membership full scan duration")
+SCAN_SECONDS = Histogram(
+    "customer_analytics_membership_discovery_scan_seconds",
+    "Membership full scan duration",
+    buckets=SCAN_DURATION_BUCKETS,
+)
 BATCH_SECONDS = Histogram(
-    "customer_analytics_membership_discovery_batch_seconds", "Membership discovery batch duration"
+    "customer_analytics_membership_discovery_batch_seconds",
+    "Membership discovery batch duration",
+    buckets=BATCH_DURATION_BUCKETS,
 )
 
 
@@ -156,22 +167,27 @@ def _run_batch(
     store: MembershipDiscoveryStore,
     scan: MembershipCleanupScan,
     check_lease: Callable[[], None],
+    timings: MembershipTimings,
 ) -> MembershipDiscoveryCounts:
     candidates = MembershipCleanupCandidate.objects.for_team(input.team_id)
-    pending = list(candidates.order_by("last_checked_at", "id")[:BATCH_SIZE])
-    page = store.list_keys(input.team_id, scan.cursor)
+    with timings.measure("read_candidates"):
+        pending = list(candidates.order_by("last_checked_at", "id")[:BATCH_SIZE])
+    with timings.measure("scan_membership"):
+        page = store.list_keys(input.team_id, scan.cursor)
     keys = page[:BATCH_SIZE]
     next_key = page[BATCH_SIZE] if len(page) > BATCH_SIZE else None
     all_keys = set(keys + [get_candidate_key(candidate) for candidate in pending])
-    deleted_team = not Team.objects.filter(id=input.team_id).exists()
+    with timings.measure("read_team"):
+        deleted_team = not Team.objects.filter(id=input.team_id).exists()
     existence = (
         MembershipExistence(persons=frozenset(), groups=frozenset())
         if deleted_team
-        else get_membership_existence(input.team_id, list(all_keys), deadline=store.deadline)
+        else get_membership_existence(input.team_id, list(all_keys), deadline=store.deadline, timings=timings)
     )
     check_lease()
     now = timezone.now()
-    existing = list(candidates.filter(key_hash__in=[key.get_hash() for key in all_keys]))
+    with timings.measure("read_candidate_state"):
+        existing = list(candidates.filter(key_hash__in=[key.get_hash() for key in all_keys]))
     recovered_ids = [
         candidate.pk
         for candidate in existing
@@ -193,20 +209,13 @@ def _run_batch(
         for side in ("person", "group")
         if (key.get_hash(), side) not in existing_sides and is_membership_missing(key, side, existence, deleted_team)
     ]
-    with transaction.atomic():
+    with timings.measure("write_checkpoint"), transaction.atomic():
         candidates.filter(pk__in=recovered_ids).delete()
         candidates.filter(pk__in=[candidate.pk for candidate in existing]).update(last_checked_at=now)
         candidates.bulk_create(discovered, ignore_conflicts=True)
         _update_scan(scan, next_key, now)
     for outcome, count in (("scanned", len(keys)), ("recovered", len(recovered_ids)), ("discovered", len(discovered))):
         OUTCOMES.labels(outcome).inc(count)
-    logger.info(
-        "membership_discovery_batch",
-        team_id=input.team_id,
-        scanned=len(keys),
-        recovered=len(recovered_ids),
-        discovered=len(discovered),
-    )
     return MembershipDiscoveryCounts(
         scanned=len(keys), recovered=len(recovered_ids), discovered=len(discovered), has_more=next_key is not None
     )
@@ -216,19 +225,41 @@ def run_membership_discovery(
     input: MembershipDiscoveryInput, store: MembershipDiscoveryStore
 ) -> MembershipDiscoveryCounts:
     started = monotonic()
+    timings = MembershipTimings(job="discovery")
+    counts = MembershipDiscoveryCounts()
+    outcome = "failure"
     lease = get_membership_cleanup_lease(input.team_id)
-    if not lease.acquire():
-        OUTCOMES.labels("overlap").inc()
-        raise MembershipCleanupBusy("Membership cleanup is busy for this team. Retry the batch.")
 
     def check_lease() -> None:
         get_membership_query_settings(store.deadline)
         lease.extend(MEMBERSHIP_LEASE_SECONDS, replace_ttl=True)
 
     try:
-        scan, _ = MembershipCleanupScan.objects.for_team(input.team_id).get_or_create(team_id=input.team_id)
-        return _run_batch(input, store, scan, check_lease)
+        with timings.measure("acquire_lease"):
+            acquired = lease.acquire()
+        if not acquired:
+            outcome = "overlap"
+            OUTCOMES.labels("overlap").inc()
+            raise MembershipCleanupBusy("Membership cleanup is busy for this team. Retry the batch.")
+        with timings.measure("read_scan_state"):
+            scan, _ = MembershipCleanupScan.objects.for_team(input.team_id).get_or_create(team_id=input.team_id)
+        counts = _run_batch(input, store, scan, check_lease, timings)
+        outcome = "success"
+        return counts
     finally:
         if lease.owned():
             lease.release()
-        BATCH_SECONDS.observe(monotonic() - started)
+        elapsed = monotonic() - started
+        BATCH_SECONDS.observe(elapsed)
+        logger.info(
+            "membership_discovery_batch",
+            team_id=input.team_id,
+            outcome=outcome,
+            scanned=counts.scanned,
+            recovered=counts.recovered,
+            discovered=counts.discovered,
+            has_more=counts.has_more,
+            duration_seconds=elapsed,
+            step_seconds=timings.seconds,
+            failed_step=timings.failed_step,
+        )

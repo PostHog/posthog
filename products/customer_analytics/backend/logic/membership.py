@@ -1,6 +1,7 @@
 import re
 import json
 from collections.abc import Sequence
+from contextlib import nullcontext
 from hashlib import sha256
 from time import monotonic
 
@@ -14,6 +15,8 @@ from posthog.personhog_client.client import personhog_call, require_personhog_cl
 from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, GetGroupsRequest, GroupIdentifier, ReadOptions
 from posthog.redis import get_client as get_redis_client
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+from products.customer_analytics.backend.logic.membership_metrics import MembershipTimings
 
 QUERY_TIMEOUT_SECONDS = HOGQL_INCREASED_MAX_EXECUTION_TIME
 MEMBERSHIP_LEASE_SECONDS = 60 * 60
@@ -72,81 +75,86 @@ def _parse_group_key(group_key: str) -> str:
 
 
 def _get_live_groups(
-    team_id: int, keys: Sequence[MembershipKey], deadline: float | None = None
+    team_id: int, keys: Sequence[MembershipKey], deadline: float | None = None, timings: MembershipTimings | None = None
 ) -> frozenset[tuple[int, str]]:
     # Membership keeps JSON escapes, but group identity storage uses decoded keys.
     lookup_keys: dict[tuple[int, str], tuple[int, str]] = {
         (key.group_type_index, key.group_key): (key.group_type_index, _parse_group_key(key.group_key)) for key in keys
     }
-    groups = sync_execute(
-        """SELECT DISTINCT group_type_index, group_key FROM groups
+    with timings.measure("read_groups") if timings else nullcontext():
+        groups = sync_execute(
+            """SELECT DISTINCT group_type_index, group_key FROM groups
         WHERE team_id = %(team_id)s AND (group_type_index, group_key) IN %(groups)s""",
-        {"team_id": team_id, "groups": list(set(lookup_keys.values()))},
-        settings=get_membership_query_settings(deadline),
-        workload=Workload.OFFLINE,
-    )
+            {"team_id": team_id, "groups": list(set(lookup_keys.values()))},
+            settings=get_membership_query_settings(deadline),
+            workload=Workload.OFFLINE,
+        )
     live_groups = {(row[0], row[1]) for row in groups}
     missing_groups = set(lookup_keys.values()) - live_groups
     if missing_groups:
-        response = personhog_call(
-            "membership_get_groups",
-            lambda: require_personhog_client().get_groups(
-                GetGroupsRequest(
-                    team_id=team_id,
-                    group_identifiers=[
-                        GroupIdentifier(group_type_index=index, group_key=group_key)
-                        for index, group_key in missing_groups
-                    ],
-                    read_options=ReadOptions(
-                        consistency=CONSISTENCY_LEVEL_STRONG,
-                        field_mask=["id", "team_id", "group_type_index", "group_key"],
-                    ),
-                )
-            ),
-        )
+        with timings.measure("primary_groups") if timings else nullcontext():
+            response = personhog_call(
+                "membership_get_groups",
+                lambda: require_personhog_client().get_groups(
+                    GetGroupsRequest(
+                        team_id=team_id,
+                        group_identifiers=[
+                            GroupIdentifier(group_type_index=index, group_key=group_key)
+                            for index, group_key in missing_groups
+                        ],
+                        read_options=ReadOptions(
+                            consistency=CONSISTENCY_LEVEL_STRONG,
+                            field_mask=["id", "team_id", "group_type_index", "group_key"],
+                        ),
+                    )
+                ),
+            )
         live_groups.update((group.group_type_index, group.group_key) for group in response.groups if group.id)
     return frozenset(stored_key for stored_key, lookup_key in lookup_keys.items() if lookup_key in live_groups)
 
 
 def get_membership_existence(
-    team_id: int, keys: Sequence[MembershipKey], deadline: float | None = None
+    team_id: int, keys: Sequence[MembershipKey], deadline: float | None = None, timings: MembershipTimings | None = None
 ) -> MembershipExistence:
     if not keys:
         return MembershipExistence(persons=frozenset(), groups=frozenset())
     distinct_ids = {key.distinct_id for key in keys}
     parameters = {"team_id": team_id, "distinct_ids": list(distinct_ids)}
-    mappings = sync_execute(
-        """SELECT distinct_id, argMax(tuple(person_id, is_deleted), version) AS mapping
+    with timings.measure("read_person_mappings") if timings else nullcontext():
+        mappings = sync_execute(
+            """SELECT distinct_id, argMax(tuple(person_id, is_deleted), version) AS mapping
         FROM person_distinct_id2
         WHERE team_id = %(team_id)s AND distinct_id IN %(distinct_ids)s
         GROUP BY distinct_id
         HAVING mapping.2 = 0""",
-        parameters,
-        settings=get_membership_query_settings(deadline),
-        workload=Workload.OFFLINE,
-    )
-    person_ids = list({mapping[1][0] for mapping in mappings})
-    persons = (
-        sync_execute(
-            """SELECT id FROM person WHERE team_id = %(team_id)s AND id IN %(person_ids)s
-            GROUP BY id HAVING argMax(is_deleted, version) = 0""",
-            {"team_id": team_id, "person_ids": person_ids},
+            parameters,
             settings=get_membership_query_settings(deadline),
             workload=Workload.OFFLINE,
         )
-        if person_ids
-        else []
-    )
+    person_ids = list({mapping[1][0] for mapping in mappings})
+    with timings.measure("read_persons") if timings else nullcontext():
+        persons = (
+            sync_execute(
+                """SELECT id FROM person WHERE team_id = %(team_id)s AND id IN %(person_ids)s
+            GROUP BY id HAVING argMax(is_deleted, version) = 0""",
+                {"team_id": team_id, "person_ids": person_ids},
+                settings=get_membership_query_settings(deadline),
+                workload=Workload.OFFLINE,
+            )
+            if person_ids
+            else []
+        )
     live_person_ids = {row[0] for row in persons}
     live_distinct_ids = {mapping[0] for mapping in mappings if mapping[1][0] in live_person_ids}
     missing_distinct_ids = distinct_ids - live_distinct_ids
     if missing_distinct_ids:
-        live_distinct_ids.update(
-            row.distinct_id
-            for row in get_distinct_id_rows(team_id, list(missing_distinct_ids), strong=True)
-            if not row.is_deleted and row.HasField("person_is_deleted") and not row.person_is_deleted
-        )
+        with timings.measure("primary_persons") if timings else nullcontext():
+            live_distinct_ids.update(
+                row.distinct_id
+                for row in get_distinct_id_rows(team_id, list(missing_distinct_ids), strong=True)
+                if not row.is_deleted and row.HasField("person_is_deleted") and not row.person_is_deleted
+            )
     return MembershipExistence(
         persons=frozenset(live_distinct_ids),
-        groups=_get_live_groups(team_id, keys, deadline),
+        groups=_get_live_groups(team_id, keys, deadline, timings),
     )

@@ -1,5 +1,10 @@
+import asyncio
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import field
 from datetime import datetime, timedelta
 from time import monotonic
+from typing import Literal
 
 from temporalio import activity, workflow
 from temporalio.client import (
@@ -13,10 +18,12 @@ from temporalio.client import (
     ScheduleState,
 )
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import CancelledError
 
 with workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
+    from posthog.dataclasses import frozen
     from posthog.scheduling.jitter import deterministic_offset
     from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists
 
@@ -29,6 +36,59 @@ BATCH_RETRY_POLICY = RetryPolicy(
     initial_interval=BATCH_RETRY_DELAY,
     backoff_coefficient=1,
 )
+
+
+@frozen(frozen=False)
+class MembershipRunSummary:
+    counts: dict[str, int] = field(default_factory=dict)
+    stop_reason: Literal["completed", "time_budget", "batch_limit", "team_page_limit", "failure", "cancelled"] = (
+        "completed"
+    )
+
+    def add_counts(self, **counts: int) -> None:
+        for name, value in counts.items():
+            self.counts[name] = self.counts.get(name, 0) + value
+
+
+@contextmanager
+def record_membership_run(
+    job: Literal["discovery", "deletion"],
+    scope: Literal["team", "coordinator"],
+    *,
+    team_id: int | None = None,
+    dry_run: bool | None = None,
+    deletion_enabled: bool | None = None,
+) -> Iterator[MembershipRunSummary]:
+    started = workflow.now()
+    summary = MembershipRunSummary()
+    outcome = "success"
+    try:
+        yield summary
+    except (asyncio.CancelledError, CancelledError):
+        outcome = "cancelled"
+        summary.stop_reason = "cancelled"
+        raise
+    except BaseException:
+        outcome = "failure"
+        summary.stop_reason = "failure"
+        raise
+    finally:
+        if outcome == "success" and summary.counts.get("teams_failed", 0):
+            outcome = "partial_failure"
+        workflow.logger.info(
+            "membership_run_summary",
+            extra={
+                "job": job,
+                "scope": scope,
+                "team_id": team_id,
+                "dry_run": dry_run,
+                "deletion_enabled": deletion_enabled,
+                "duration_seconds": (workflow.now() - started).total_seconds(),
+                "outcome": outcome,
+                "stop_reason": summary.stop_reason,
+                **summary.counts,
+            },
+        )
 
 
 def get_membership_run_deadline(run_budget: timedelta) -> datetime:

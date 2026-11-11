@@ -51,17 +51,29 @@ from products.customer_analytics.backend.temporal.membership_discovery import (
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "has_more,elapsed,expected_batches",
-    [(False, timedelta(), 1), (True, timedelta(), 3), (True, TEAM_RUN_BUDGET, 1)],
+    "has_more,elapsed,expected_batches,stop_reason",
+    [
+        (False, timedelta(), 1, "completed"),
+        (True, timedelta(), 3, "batch_limit"),
+        (True, TEAM_RUN_BUDGET, 1, "time_budget"),
+    ],
 )
 async def test_team_workflow_stops_at_scan_or_run_limit(
-    has_more: bool, elapsed: timedelta, expected_batches: int
+    has_more: bool, elapsed: timedelta, expected_batches: int, stop_reason: str
 ) -> None:
     now = timezone.now()
-    execute_activity = AsyncMock(return_value=MembershipDiscoveryCounts(scanned=100, has_more=has_more))
+    clock = now
+
+    async def finish_batch(*args: object, **kwargs: object) -> MembershipDiscoveryCounts:
+        nonlocal clock
+        clock += elapsed
+        return MembershipDiscoveryCounts(scanned=100, has_more=has_more)
+
+    execute_activity = AsyncMock(side_effect=finish_batch)
     with (
         patch("products.customer_analytics.backend.temporal.membership_discovery.MAX_BATCHES_PER_TEAM", 3),
-        patch("temporalio.workflow.now", side_effect=[now, *[now + elapsed] * 30]),
+        patch("temporalio.workflow.now", side_effect=lambda: clock),
+        patch("temporalio.workflow.logger") as run_logger,
         patch(
             "temporalio.workflow.info", return_value=SimpleNamespace(start_time=now, execution_timeout=TEAM_RUN_BUDGET)
         ),
@@ -70,6 +82,12 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
         result = await MembershipDiscoveryTeamWorkflow().run(MembershipDiscoveryInput(team_id=1))
     assert result.scanned == 100 * expected_batches
     assert result.has_more == has_more
+    summary = run_logger.info.call_args.kwargs["extra"]
+    assert run_logger.info.call_args.args == ("membership_run_summary",)
+    assert summary["stop_reason"] == stop_reason
+    assert summary["scanned"] == result.scanned
+    assert summary["batches"] == expected_batches
+    assert summary["duration_seconds"] == elapsed.total_seconds() * expected_batches
 
 
 @pytest.mark.asyncio
@@ -78,13 +96,15 @@ async def test_coordinator_stops_between_teams_at_deadline() -> None:
     clock = now
     execute_activity = AsyncMock(side_effect=[[1, 2], None])
 
-    async def finish_child(*args: object, **kwargs: object) -> None:
+    async def finish_child(*args: object, **kwargs: object) -> MembershipDiscoveryCounts:
         nonlocal clock
         clock = now + COORDINATOR_RUN_BUDGET
+        return MembershipDiscoveryCounts(scanned=100, discovered=2, has_more=True)
 
     execute_child = AsyncMock(side_effect=finish_child)
     with (
         patch("temporalio.workflow.now", side_effect=lambda: clock),
+        patch("temporalio.workflow.logger") as run_logger,
         patch("temporalio.workflow.execute_activity", execute_activity),
         patch("temporalio.workflow.execute_child_workflow", execute_child),
     ):
@@ -93,6 +113,13 @@ async def test_coordinator_stops_between_teams_at_deadline() -> None:
     assert execute_child.call_args.args[1].team_id == 1
     assert execute_activity.call_args.args == (record_membership_discovery_team_activity, 1)
     assert execute_child.call_args.kwargs["execution_timeout"] <= TEAM_RUN_BUDGET
+    summary = run_logger.info.call_args.kwargs["extra"]
+    assert summary["scope"] == "coordinator"
+    assert summary["stop_reason"] == "time_budget"
+    assert summary["teams_completed"] == 1
+    assert summary["scanned"] == 100
+    assert summary["discovered"] == 2
+    assert summary["duration_seconds"] == COORDINATOR_RUN_BUDGET.total_seconds()
 
 
 @pytest.mark.django_db(transaction=True)
@@ -203,6 +230,7 @@ async def test_team_reserves_time_for_retries(execution_budget: timedelta) -> No
         ),
         patch("temporalio.workflow.now", return_value=now),
         patch("temporalio.workflow.execute_activity", execute),
+        patch("temporalio.workflow.logger"),
     ):
         await MembershipDiscoveryTeamWorkflow().run(MembershipDiscoveryInput(team_id=1))
     options = execute.call_args.kwargs
@@ -211,3 +239,26 @@ async def test_team_reserves_time_for_retries(execution_budget: timedelta) -> No
     )
     assert retry_time + HEARTBEAT_TIMEOUT <= execution_budget
     assert options["schedule_to_close_timeout"] == execution_budget
+
+
+@pytest.mark.asyncio
+async def test_team_failure_summary_retains_completed_batch_totals() -> None:
+    now = timezone.now()
+    with (
+        patch(
+            "temporalio.workflow.info", return_value=SimpleNamespace(start_time=now, execution_timeout=TEAM_RUN_BUDGET)
+        ),
+        patch("temporalio.workflow.now", return_value=now),
+        patch("temporalio.workflow.logger") as run_logger,
+        patch(
+            "temporalio.workflow.execute_activity",
+            side_effect=[MembershipDiscoveryCounts(scanned=100, has_more=True), RuntimeError("batch unavailable")],
+        ),
+    ):
+        with pytest.raises(RuntimeError, match="batch unavailable"):
+            await MembershipDiscoveryTeamWorkflow().run(MembershipDiscoveryInput(team_id=1))
+    summary = run_logger.info.call_args.kwargs["extra"]
+    assert summary["outcome"] == "failure"
+    assert summary["stop_reason"] == "failure"
+    assert summary["scanned"] == 100
+    assert summary["batches"] == 1

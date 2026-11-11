@@ -144,6 +144,17 @@ Memory, read, thread, and result limits come from the ClickHouse profile.
 Unavailable shards and overflow limits fail queries instead of returning partial results.
 Queries use the `OFFLINE` workload because discovery runs in the background.
 The `customer_analytics_membership_discovery_` metrics report outcomes, batch duration, and scan duration.
+The scan duration includes waiting between scheduled runs. It is not the duration of one workflow execution.
+Batch histograms cover durations through ten minutes. Scan histograms cover durations through seven days.
+The `customer_analytics_membership_step_seconds` histogram labels each measurement by `job`, `step`, and `outcome`.
+Steps separate membership scans, candidate reads, ClickHouse identity reads, primary identity checks, and checkpoint writes.
+Step measurements include failed operations. Metric labels contain no team IDs or identity values.
+
+Each `membership_discovery_batch` log includes counts, `duration_seconds`, `step_seconds`, `failed_step`, and `has_more`.
+Each team and coordinator emits a `membership_run_summary` log with totals, elapsed seconds, outcome, and `stop_reason`.
+Stop reasons distinguish completed work, time budgets, batch limits, page limits, failures, and cancellation.
+Coordinator totals include successful child workflow results. Failed teams log their own partial totals.
+Temporal adds workflow IDs, run IDs, and attempt numbers to the logs and suppresses workflow logs during replay.
 
 Discovery does not change existing person or group deletion processes.
 Membership erasure requires a separate deletion job that rechecks saved candidates before it deletes rows.
