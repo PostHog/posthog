@@ -763,6 +763,17 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderTemplates.map((entry) => entry.path)).toEqual(['Archive/Cards/Receipt'])
     })
 
+    it("still counts other products' files in a folder after it moves, and still hides it", async () => {
+        await expectLogic(logic).toFinishAllListeners()
+
+        projectTreeDataLogic.actions.movedItem({ id: 'dashboards', path: 'Reports', type: 'folder' }, 'Reports', 'Old')
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.openFolder('Old')
+
+        expect(logic.values.otherProductFileCount).toBe(1)
+        expect(logic.values.folderPaths).not.toContain('Old')
+    })
+
     it('refuses a second rename of a folder or its subfolders until the first one lands', async () => {
         await expectLogic(logic).toFinishAllListeners()
         let releaseMove!: () => void

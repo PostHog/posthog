@@ -539,6 +539,16 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             },
         ],
     })),
+    reducers(() => ({
+        otherFileCounts: {
+            [projectTreeDataLogic.actionTypes.movedItem]: (counts, { item, oldPath, newPath }) =>
+                counts && item.type === 'folder'
+                    ? Object.fromEntries(
+                          Object.entries(counts).map(([p, n]) => [reparentPath(p, oldPath, newPath) ?? p, n])
+                      )
+                    : counts,
+        },
+    })),
     selectors({
         browserLoadFailed: [(s) => [s.folderScanFailed], (folderScanFailed: boolean): boolean => folderScanFailed],
         // The shared tree applies a folder move only once its request lands, so a second change queued before then
