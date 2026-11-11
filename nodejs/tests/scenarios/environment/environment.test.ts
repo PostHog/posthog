@@ -397,7 +397,7 @@ describe('scenario environment', () => {
         const stubRole =
             "require('http').createServer((_request, response) => response.end()).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleExitingAfterHealth =
-            "require('http').createServer((_request, response) => response.end(() => process.exit(1))).listen(Number(process.env.HTTP_SERVER_PORT))"
+            "let answered = false; require('http').createServer((_request, response) => (answered ? process.exit(1) : response.end(() => (answered = true)))).listen(Number(process.env.HTTP_SERVER_PORT))"
         const stubRoleBindingAfterHolder = `
             const port = Number(process.env.HTTP_SERVER_PORT)
             const bind = () =>
@@ -515,7 +515,7 @@ describe('scenario environment', () => {
                 },
             ],
             [
-                'exits after it answered /_health',
+                'answers /_health once, then exits',
                 'cdp-api',
                 () => {
                     exitsAfterHealth = 'cdp-api'
