@@ -833,9 +833,8 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(dashboard.name, "Your starter dashboard")
         self.assertEqual(
             dashboard.description,
-            "How people use your app at a glance: traffic, retention, where visitors come from, and "
-            "whether they take action. Built from automatically captured events, so it works on day one. "
-            "Swap in your own events to make it yours.",
+            "These charts use pageviews, clicks, sessions, and location, which PostHog captures automatically. "
+            "Set the retention and funnel tiles to use your own events.",
         )
         self.assertEqual(Dashboard.objects.filter(team=user.team).count(), 1)
 
