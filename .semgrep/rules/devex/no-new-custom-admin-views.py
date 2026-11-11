@@ -39,6 +39,12 @@ urlpatterns = [
     path("admin/", admin.site.urls),
     # ok: no-new-admin-url-routes
     path("api/admin/stats/", stats_view),
+    # ok: no-new-admin-url-routes
+    path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
+    # ok: no-new-admin-url-routes
+    path("admin/login/user/<str:user_id>/", loginas_user, name="loginas-user-login"),
+    # ruleid: no-new-admin-url-routes
+    path("admin/logins-report/", logins_report_view),
 ]
 
 

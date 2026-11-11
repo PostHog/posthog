@@ -99,9 +99,10 @@ rules:
           - pattern-either:
                 - pattern: path("$ROUTE", $VIEW, ...)
                 - pattern: re_path("$ROUTE", $VIEW, ...)
+          # Sign-in, sign-out and impersonation routes serve the admin session, not a staff page.
           - metavariable-regex:
                 metavariable: $ROUTE
-                regex: ^\^?admin/
+                regex: ^\^?admin/(?!oauth2/|auth_check|login/|logout/|impersonation/)
           - metavariable-pattern:
                 metavariable: $VIEW
                 patterns:
