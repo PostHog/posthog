@@ -115,10 +115,14 @@ export interface workflowFoldersLogicActions {
         errorObject?: any
     }
     loadOtherFilesSuccess: (
-        otherFileCounts: Record<string, number> | null,
+        otherFileCounts: {
+            [k: string]: number
+        } | null,
         payload?: void
     ) => {
-        otherFileCounts: Record<string, number> | null
+        otherFileCounts: {
+            [k: string]: number
+        } | null
         payload?: void
     }
     openFolder: (folder: string | null) => {
