@@ -61,7 +61,7 @@ export function createValves({ pollMs = POLL_MS, definitions = VALVES } = {}): V
         const { queue, atLeast } = entry.when!.params
         while (!released.signal.aborted) {
             const jobs = await context.probe.runningJobs({ teams: context.teams, queues: [queue] }).catch(() => 0)
-            if (jobs >= atLeast) {
+            if (jobs >= atLeast && !released.signal.aborted) {
                 return true
             }
             await sleep(pollMs, undefined, { signal: released.signal }).catch(() => undefined)

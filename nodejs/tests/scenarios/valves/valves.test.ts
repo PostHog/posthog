@@ -1,36 +1,63 @@
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
-import { Action, Actuation } from '../environment/environment'
+import { Actuation } from '../environment/environment'
+import { Role } from '../environment/roles'
+import { Queue } from '../probe/cyclotron-probe'
 import { ValveContext, createValves } from './valves'
 
 const EMAIL_WORKER = 'cdp-cyclotron-worker-email'
+const OUR_TEAM = 7
 
-type Recorded = { actions: Action[]; released: number; polls: number }
+type Job = { team: number; queue: Queue; status: 'available' | 'running' }
 
-function contextOf(observe: () => Promise<boolean>, running: () => number): ValveContext & { recorded: Recorded } {
-    const recorded: Recorded = { actions: [], released: 0, polls: 0 }
-    return {
-        recorded,
-        teams: [7],
+function stackOf({ running = [EMAIL_WORKER], unkillable = false }: { running?: Role[]; unkillable?: boolean } = {}) {
+    let nextPid = 1
+    const processes = new Map<Role, number>(running.map((role) => [role, nextPid++]))
+    const gone: number[] = []
+    const jobs: Job[] = []
+    const readers: (() => void)[] = []
+    let gate: Promise<void> | undefined
+
+    const context: ValveContext = {
+        teams: [OUR_TEAM],
         environment: {
             actuate: (action): Promise<Actuation> => {
-                recorded.actions.push(action)
+                const pid = processes.get(action.role)
+                if (pid === undefined) {
+                    return Promise.reject(new Error(`${action.role} is not running`))
+                }
+                if (!unkillable) {
+                    gone.push(pid)
+                    processes.set(action.role, nextPid++)
+                }
                 return Promise.resolve({
-                    observed: observe,
-                    release: () => {
-                        recorded.released += 1
-                        return Promise.resolve()
-                    },
+                    observed: () => Promise.resolve(gone.includes(pid)),
+                    release: () => Promise.resolve(),
                 })
             },
         },
         probe: {
-            runningJobs: ({ teams, queues }) => {
-                recorded.polls += 1
-                expect({ teams, queues }).toEqual({ teams: [7], queues: ['email'] })
-                return Promise.resolve(running())
+            runningJobs: async ({ teams, queues }) => {
+                readers.splice(0).forEach((read) => read())
+                await gate
+                return jobs.filter(
+                    (job) => teams.includes(job.team) && queues.includes(job.queue) && job.status === 'running'
+                ).length
             },
+        },
+    }
+
+    return {
+        context,
+        gone: () => [...gone],
+        run: (count: number, queue: Queue = 'email') =>
+            jobs.push(...Array.from({ length: count }, () => ({ team: OUR_TEAM, queue, status: 'running' as const }))),
+        nextRead: () => new Promise<void>((resolve) => readers.push(resolve)),
+        holdReads: () => {
+            let open = (): void => undefined
+            gate = new Promise((resolve) => (open = resolve))
+            return () => open()
         },
     }
 }
@@ -45,19 +72,17 @@ const kill = (schedule: Pick<ValveEntry, 'at' | 'when'>, holdFor = '10ms'): Valv
 
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
 
-const OBSERVED = (): Promise<boolean> => Promise.resolve(true)
-
 describe('valves', () => {
     it('kills the role an entry names once its offset passes, and records every step', async () => {
         const valves = createValves({ pollMs: 5 })
-        const context = contextOf(OBSERVED, () => 0)
+        const stack = stackOf()
 
-        await valves.start([kill({ at: '20ms' })], context)
-        expect(context.recorded.actions).toEqual([])
+        await valves.start([kill({ at: '20ms' })], stack.context)
+        expect(stack.gone()).toEqual([])
         await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
-        expect(context.recorded).toMatchObject({ actions: [{ kind: 'kill', role: EMAIL_WORKER }], released: 1 })
+        expect(stack.gone()).toEqual([1])
         expect(valves.timeline()).toEqual([
             {
                 valve: 'role.kill',
@@ -70,68 +95,73 @@ describe('valves', () => {
         ])
     })
 
-    it('waits for the queue to run enough jobs, polling the probe, before it acts', async () => {
+    it('waits until enough jobs of its teams run on the queue before it kills', async () => {
         const valves = createValves({ pollMs: 5 })
-        let running = 0
-        const context = contextOf(OBSERVED, () => running)
+        const stack = stackOf()
+        stack.run(1)
+        stack.run(3, 'hogflow')
 
-        await valves.start([kill({ when: RUNNING_ON_EMAIL })], context)
-        await waitForExpect(() => expect(context.recorded.polls).toBeGreaterThan(2), 2000, 5)
-        expect(context.recorded.actions).toEqual([])
+        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        await stack.nextRead()
+        await stack.nextRead()
+        expect(stack.gone()).toEqual([])
 
-        running = 2
-        await waitForExpect(() => expect(context.recorded.actions).toHaveLength(1), 2000, 5)
+        stack.run(1)
+        await waitForExpect(() => expect(stack.gone()).toEqual([1]), 2000, 5)
         await valves.releaseAll()
 
-        expect(context.recorded.actions).toEqual([{ kind: 'kill', role: EMAIL_WORKER }])
         expect(valves.timeline()[0].observedAt).toEqual(expect.any(String))
     })
 
-    it.each<[string, ValveEntry, () => Promise<boolean>, string]>([
-        [
-            'whose predicate never held before release',
-            kill({ when: RUNNING_ON_EMAIL }),
-            OBSERVED,
-            'never applied: running_on_queue email at least 2 did not hold before the drive ended',
-        ],
-        [
-            'that was applied but never observed',
-            kill({ at: '0ms' }),
-            () => Promise.resolve(false),
-            'applied but not observed',
-        ],
-        [
-            'whose actuation failed',
-            kill({ at: '0ms' }),
-            () => Promise.reject(new Error('no such process group')),
-            'no such process group',
-        ],
-    ])('records an error for an entry %s', async (_story, entry, observe, error) => {
+    it.each<[string, boolean]>([
+        ['whose predicate never held', false],
+        ['whose predicate held only once the release had begun', true],
+    ])('never kills for a waiting entry %s before the drive ended', async (_story, heldAcrossRelease) => {
         const valves = createValves({ pollMs: 5 })
-        const context = contextOf(observe, () => 0)
+        const stack = stackOf()
 
-        await valves.start([entry], context)
-        await waitForExpect(
-            () => expect(context.recorded.polls + context.recorded.actions.length).toBeGreaterThan(0),
-            2000,
-            5
-        )
+        await valves.start([kill({ when: RUNNING_ON_EMAIL })], stack.context)
+        const open = heldAcrossRelease ? stack.holdReads() : () => undefined
+        await stack.nextRead()
+        const releasing = valves.releaseAll()
+        if (heldAcrossRelease) {
+            stack.run(2)
+        }
+        open()
+        await releasing
+
+        expect(stack.gone()).toEqual([])
+        expect(valves.timeline()).toEqual([
+            expect.objectContaining({
+                error: 'never applied: running_on_queue email at least 2 did not hold before the drive ended',
+            }),
+        ])
+    })
+
+    it.each<[string, Parameters<typeof stackOf>[0], string]>([
+        ['whose kill did not take', { unkillable: true }, 'applied but not observed'],
+        ['whose role was not running', { running: [] }, `${EMAIL_WORKER} is not running`],
+    ])('records an error for an entry %s', async (_story, stackSetup, error) => {
+        const valves = createValves({ pollMs: 5 })
+        const stack = stackOf(stackSetup)
+
+        await valves.start([kill({ at: '0ms' })], stack.context)
+        await waitForExpect(() => expect(valves.timeline()[0].error).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
-        expect(valves.timeline()).toEqual([expect.objectContaining({ error })])
+        expect(valves.timeline()).toEqual([expect.objectContaining({ error, appliedAt: expect.any(String) })])
         expect(valves.timeline()[0].observedAt).toBeUndefined()
     })
 
-    it('cuts an applied entry short when released before its hold ends, releasing it once', async () => {
+    it('cuts an applied entry short when the drive ends before its hold does', async () => {
         const valves = createValves({ pollMs: 5 })
-        const context = contextOf(OBSERVED, () => 0)
+        const stack = stackOf()
 
-        await valves.start([kill({ at: '0ms' }, '1m')], context)
+        await valves.start([kill({ at: '0ms' }, '1m')], stack.context)
         await waitForExpect(() => expect(valves.timeline()[0].observedAt).toBeDefined(), 2000, 5)
         await Promise.all([valves.releaseAll(), valves.releaseAll()])
-        await valves.releaseAll()
 
-        expect(context.recorded.released).toBe(1)
+        expect(stack.gone()).toEqual([1])
         expect(valves.timeline()[0].releasedAt).toEqual(expect.any(String))
     })
 })
