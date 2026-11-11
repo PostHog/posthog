@@ -16,7 +16,10 @@ from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.organization import OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.facade.testing import create_access_control, delete_access_control
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
@@ -187,6 +190,15 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(created.json()["attr"], "_create_in_folder")
         self.assertFalse(FileSystem.objects.filter(team=self.team, type="folder").exists())
 
+    def test_filing_a_template_without_renaming_it_checks_the_path_with_its_stored_name(self) -> None:
+        templates_url = f"/api/projects/{self.team.id}/messaging_templates/"
+        template = self.client.post(templates_url, {"name": "n" * 400, "type": "email"}, format="json").json()
+
+        filed = self.client.patch(f"{templates_url}{template['id']}/", {"_create_in_folder": "a" * 3990}, format="json")
+
+        self.assertEqual(filed.status_code, 400, filed.content)
+        self.assertEqual(filed.json()["attr"], "_create_in_folder")
+
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
@@ -335,6 +347,44 @@ class TestWorkflowFolders(APIBaseTest):
         self.client.force_login(self.user)
         stored = self.client.get(f"/api/projects/{self.team.id}/{endpoint}/{object_id}/")
         self.assertEqual(stored.status_code, object_status, stored.content)
+
+    @parameterized.expand([("delete",), ("move",)])
+    def test_a_key_scoped_to_one_environment_changes_only_its_own_template_files(self, operation: str) -> None:
+        sibling_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        template_id = self.client.post(
+            f"/api/projects/{sibling_team.id}/messaging_templates/",
+            {"name": "Sibling email", "type": "email"},
+            format="json",
+        ).json()["id"]
+        file = FileSystem.objects.get(team=sibling_team, type="message_template", ref=template_id)
+        original_path = file.path
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Scoped key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=["file_system:read", "file_system:write", "hog_flow:write"],
+            scoped_teams=[self.team.id],
+        )
+        self.client.logout()
+        file_url = f"/api/projects/{self.team.id}/file_system/{file.id}/"
+
+        if operation == "delete":
+            response = self.client.delete(file_url, HTTP_AUTHORIZATION=f"Bearer {key_value}")
+        else:
+            response = self.client.post(
+                f"{file_url}move/",
+                {"new_path": "Moved/Sibling email"},
+                format="json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+            )
+
+        self.assertEqual(response.status_code, 403, response.content)
+        file.refresh_from_db()
+        self.assertEqual(file.path, original_path)
+        self.client.force_login(self.user)
+        stored = self.client.get(f"/api/projects/{sibling_team.id}/messaging_templates/{template_id}/")
+        self.assertEqual(stored.status_code, 200, stored.content)
 
     @parameterized.expand(
         [

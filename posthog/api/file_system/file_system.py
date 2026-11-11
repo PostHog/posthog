@@ -91,7 +91,7 @@ from posthog.models.tagged_item_registry import object_column_for
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
-from posthog.permissions import scopes_caller_lacks
+from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
@@ -538,6 +538,12 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         (type, ref, team_id) - team_id is each row's own team, since the tree can list rows from
         sibling environments and the check has to run against the object's real team.
         """
+        scoped_team_ids = get_authenticator_scoped_team_ids(self.request.successful_authenticator)
+        if scoped_team_ids and any(
+            entry_type in WORKFLOW_FILE_SYSTEM_TYPES and team_id not in scoped_team_ids
+            for entry_type, _ref, team_id in objects
+        ):
+            raise PermissionDenied("This key can't change objects in other environments. Use a key scoped to them.")
         if not objects or not self.user_access_control:
             return
         denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")

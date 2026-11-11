@@ -1531,6 +1531,22 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
         assert str(internal_task.pk) not in ids
 
 
+class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_workflow_files_are_not_listed(self):
+        from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+        from posthog.models.file_system.file_system import FileSystem
+
+        FileSystem.objects.create(team=self.team, path="Reports/Weekly", type="insight", ref="weekly")
+        for file_type in WORKFLOW_FILE_SYSTEM_TYPES:
+            FileSystem.objects.create(team=self.team, path=f"Campaigns/{file_type}", type=file_type, ref=file_type)
+
+        response = execute_hogql_query("SELECT type FROM system.file_system", team=self.team, user=self.user)
+
+        assert {row[0] for row in response.results} == {"insight"}
+
+
 class TestSystemTablesInboxAccess(BaseTest):
     @parameterized.expand([("signal_usage:read", True), ("signal_scout:read", False)])
     def test_spend_tables_require_usage_scope(self, scope: str, expected_visible: bool) -> None:

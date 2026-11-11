@@ -375,7 +375,9 @@ class MessageTemplateSerializer(serializers.Serializer):
         return tags
 
     def validate(self, data: Any) -> Any:
-        validate_file_system_placement(data.get("_create_in_folder"), data.get("name"))
+        validate_file_system_placement(
+            data.get("_create_in_folder"), data.get("name", self.instance.name if self.instance else None)
+        )
         template_type = data.get("type")
         email = data.get("content", {}).get("email") if data.get("content") else None
         # Only published content needs a subject. A draft may still be missing one.
