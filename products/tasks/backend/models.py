@@ -1215,6 +1215,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                     origin=task.origin_product,
                     stage=state.get("ai_stage") or "implementation",
                     report_id=task.signal_report_source_id,
+                    task_runtime=task.runtime,
+                    model_access=model_access.kind,
                 )
             task_run = TaskRun.objects.create(
                 id=run_id,

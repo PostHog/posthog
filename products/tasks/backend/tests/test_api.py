@@ -2800,6 +2800,7 @@ class TestTaskAPI(BaseTaskAPITest):
             self.team.id,
             self.user.id,
             origin_product=Task.OriginProduct.USER_CREATED,
+            posthog_mcp_scopes="full",
             repository="posthog/posthog",
             repositories=["posthog/posthog", "posthog/code"],
             github_integration_id=integration.id,

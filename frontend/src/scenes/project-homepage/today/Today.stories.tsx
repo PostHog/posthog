@@ -30,6 +30,8 @@ import { TaskListItemApi } from 'products/tasks/frontend/generated/api.schemas'
 import type { ReportPageApi } from 'products/today/frontend/generated/api.schemas'
 import type { HighlightsApi } from 'products/today/frontend/generated/api.schemas'
 
+import { readyPulseSlots, withReadySlots } from './todayTestFixtures'
+
 const ADA = {
     id: 1,
     uuid: 'user-ada',
@@ -565,7 +567,7 @@ const KEY_METRIC_URL = (event: string): string =>
         })
     )}`
 
-const HIGHLIGHTS: HighlightsApi = {
+const HIGHLIGHTS: HighlightsApi = withReadySlots({
     status: 'ready',
     generated_at: '2026-09-28T18:00:00Z',
     day: '2026-09-28',
@@ -727,7 +729,7 @@ const HIGHLIGHTS: HighlightsApi = {
             product: 'error_tracking',
         },
     ],
-}
+})
 
 const SAVED_INSIGHTS = [
     { id: 1, short_id: 'chk01', name: 'Checkout conversion' },
@@ -786,7 +788,7 @@ function storyHighlights(): HighlightsApi {
         storyComputingCalls -= 1
         return storyLastReady
             ? { ...storyLastReady, status: 'computing' }
-            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], items: [] }
+            : { ...HIGHLIGHTS, status: 'computing', generated_at: null, pulse: [], pulse_slots: [], items: [] }
     }
     const offered = [...HIGHLIGHTS.pulse, CHECKOUT_METRIC, RETENTION_METRIC, REVENUE_METRIC].filter(
         (metric) => !storyHidden.some((hidden) => hidden.key === metric.key)
@@ -797,7 +799,7 @@ function storyHighlights(): HighlightsApi {
         key: pin.key,
         status: chosen.some((metric) => metric.key === pin.key) ? ('ready' as const) : ('unavailable' as const),
     }))
-    storyLastReady = { ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins }
+    storyLastReady = withReadySlots({ ...HIGHLIGHTS, pulse: [...chosen, ...suggested], pins })
     return storyLastReady
 }
 
@@ -1437,6 +1439,7 @@ export const HomePulseLoading: Story = {
                     status: 'computing',
                     generated_at: null,
                     pulse: [],
+                    pulse_slots: [],
                     items: [],
                 },
             },
@@ -1453,6 +1456,7 @@ export const HomePulsePartial: Story = {
                     ...HIGHLIGHTS,
                     status: 'computing',
                     pulse: HIGHLIGHTS.pulse.slice(0, 1),
+                    pulse_slots: readyPulseSlots(HIGHLIGHTS.pulse.slice(0, 1)),
                     items: [],
                 },
             },

@@ -38,8 +38,9 @@ import {
 import { type StoredSecret, deleteSecret, deleteSecrets, getSecrets, getSecretsOf, putSecret } from '../db/secrets'
 import { withTransaction } from '../db/transaction'
 import { logger } from '../lib/logging'
-import { type AuditActor, type AuditEntry, type AuditQueue, insertAuditRows } from './audit'
+import { type AuditActor, type AuditEntry, type AuditQueue, insertAuditRows, logAuditEntries } from './audit'
 import { IntegrationApiError, notFound } from './errors'
+import { assertIdentityUnchanged } from './identity'
 import { type IntegrationRecordJson, exposedCredentials, toRecordJson, tokenExpiresAt } from './record'
 import {
     type ChangesQuery,
@@ -280,16 +281,31 @@ export class IntegrationsService {
         const id = randomUUID()
         // Sealed before the transaction, so the KMS call holds no row lock or connection.
         const sealed = isEmpty(blob) ? null : await this.seal({ id, ownerId: teamOwner.id, kind: body.kind }, blob)
+        // The hash covers the secret key names, not their values: an unkeyed hash of a
+        // low-entropy secret stored next to the row would allow offline guessing.
         const requestHash =
             idempotencyKey === null
                 ? null
                 : createHash('sha256')
-                      .update(canonicalJson(body as unknown as JsonValue))
+                      .update(
+                          canonicalJson({
+                              ...body,
+                              sensitive_config: Object.keys(blob).sort(),
+                          } as unknown as JsonValue)
+                      )
                       .digest()
 
+        const committed: AuditEntry[] = []
         const result = await this.writeTransaction(async (tx) => {
             if (idempotencyKey !== null && requestHash !== null) {
-                const claim = await claimIdempotencyKey(tx, teamOwner, IDEMPOTENT_CREATE, idempotencyKey, requestHash)
+                const claim = await claimIdempotencyKey(
+                    tx,
+                    caller.actor.deployment,
+                    teamOwner,
+                    IDEMPOTENT_CREATE,
+                    idempotencyKey,
+                    requestHash
+                )
                 if (claim.status === 'mismatch') {
                     throw new IntegrationApiError('conflict', 'the Idempotency-Key was used for another request')
                 }
@@ -328,11 +344,21 @@ export class IntegrationsService {
                 await putSecret(tx, id, sealed)
             }
             if (idempotencyKey !== null) {
-                await recordIdempotencyResult(tx, teamOwner, IDEMPOTENT_CREATE, idempotencyKey, id)
+                await recordIdempotencyResult(
+                    tx,
+                    caller.actor.deployment,
+                    teamOwner,
+                    IDEMPOTENT_CREATE,
+                    idempotencyKey,
+                    id
+                )
             }
-            await insertAuditRows(tx, [this.auditEntry(caller, 'create', inserted.row, 'ok', Object.keys(blob))])
+            await this.writeAudit(tx, committed, [
+                this.auditEntry(caller, 'create', inserted.row, 'ok', Object.keys(blob)),
+            ])
             return { row: inserted.row, replayed: false }
         })
+        logAuditEntries(committed)
         if (result.replayed) {
             this.auditReads(caller, 'create_replay', [result.row])
         }
@@ -348,8 +374,9 @@ export class IntegrationsService {
         const authType = checkAuthType(body.auth_type)
         assertKindAllowed(caller.auth, body.kind)
         const blob = body.sensitive_config as JsonObject
+        const committed: AuditEntry[] = []
 
-        return this.writeTransaction(async (tx) => {
+        const result = await this.writeTransaction(async (tx) => {
             const existing = await lockIntegrationByKey(tx, teamOwner, body.kind, body.integration_id)
             if (!existing) {
                 const id = randomUUID()
@@ -372,7 +399,7 @@ export class IntegrationsService {
                 if (sealed) {
                     await putSecret(tx, id, sealed)
                 }
-                await insertAuditRows(tx, [
+                await this.writeAudit(tx, committed, [
                     this.auditEntry(caller, 'upsert', inserted.row, 'created', Object.keys(blob)),
                 ])
                 return { row: inserted.row, created: true }
@@ -384,6 +411,7 @@ export class IntegrationsService {
                     reference: existing.legacyId === null ? existing.id : String(existing.legacyId),
                 })
             }
+            assertIdentityUnchanged(existing.kind, existing.config as JsonObject, body.config as JsonObject)
             const changes: IntegrationChanges = { config: body.config }
             if (body.created_by_id !== null) {
                 changes.createdById = body.created_by_id
@@ -397,9 +425,13 @@ export class IntegrationsService {
             } else {
                 await putSecret(tx, existing.id, await this.seal(existing, blob))
             }
-            await insertAuditRows(tx, [this.auditEntry(caller, 'upsert', updated.row, 'updated', Object.keys(blob))])
+            await this.writeAudit(tx, committed, [
+                this.auditEntry(caller, 'upsert', updated.row, 'updated', Object.keys(blob)),
+            ])
             return { row: updated.row, created: false }
         })
+        logAuditEntries(committed)
+        return result
     }
 
     /** Applies an `IntegrationPatch` under a row lock. A patch that changes nothing writes nothing. */
@@ -407,7 +439,8 @@ export class IntegrationsService {
         const teamOwner = owner(caller)
         const ref = parseRef(refText)
 
-        return this.writeTransaction(async (tx) => {
+        const committed: AuditEntry[] = []
+        const result = await this.writeTransaction(async (tx) => {
             const row = await lockIntegration(tx, teamOwner, ref)
             if (!row) {
                 throw notFound(refText)
@@ -420,11 +453,13 @@ export class IntegrationsService {
             if (applied === null) {
                 return row
             }
-            await insertAuditRows(tx, [
+            await this.writeAudit(tx, committed, [
                 this.auditEntry(caller, 'update', applied.row, 'ok', applied.secretKeys, { changed: applied.changed }),
             ])
             return applied.row
         })
+        logAuditEntries(committed)
+        return result
     }
 
     /**
@@ -443,6 +478,7 @@ export class IntegrationsService {
         const changes: IntegrationChanges = {}
         const config = row.config as JsonObject
         const newConfig = patched(config, body.config_patch as JsonObject, body.config_remove)
+        assertIdentityUnchanged(row.kind, config, newConfig)
         if (!sameJson(newConfig, config)) {
             changes.config = newConfig
         }
@@ -488,6 +524,7 @@ export class IntegrationsService {
     async delete(caller: Caller, refText: string, ifMatch: number | null): Promise<void> {
         const teamOwner = owner(caller)
         const ref = parseRef(refText)
+        const committed: AuditEntry[] = []
         await this.writeTransaction(async (tx) => {
             const row = await lockIntegration(tx, teamOwner, ref)
             if (!row) {
@@ -502,8 +539,9 @@ export class IntegrationsService {
                 throw new Error(`delete of a locked row returned ${deleted.status}`)
             }
             await deleteSecret(tx, row.id)
-            await insertAuditRows(tx, [this.auditEntry(caller, 'delete', deleted.row, 'ok')])
+            await this.writeAudit(tx, committed, [this.auditEntry(caller, 'delete', deleted.row, 'ok')])
         })
+        logAuditEntries(committed)
     }
 
     async resolve(caller: Caller, refs: readonly string[]): Promise<ResolveResult> {
@@ -628,7 +666,8 @@ export class IntegrationsService {
         body: PatchBody,
         sourceRows: SourceRows
     ): Promise<{ matched: number; updated: number }> {
-        return this.writeTransaction(async (tx, checkDeadline) => {
+        const committed: AuditEntry[] = []
+        const result = await this.writeTransaction(async (tx, checkDeadline) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
             const entries: AuditEntry[] = []
             let updated = 0
@@ -646,9 +685,11 @@ export class IntegrationsService {
                     })
                 )
             }
-            await insertAuditRows(tx, entries)
+            await this.writeAudit(tx, committed, entries)
             return { matched: rows.length, updated }
         })
+        logAuditEntries(committed)
+        return result
     }
 
     /** Soft-deletes the rows of every team with this kind and external id, and their secrets, in one transaction. */
@@ -657,7 +698,8 @@ export class IntegrationsService {
         target: ExternalIdTarget,
         sourceRows: SourceRows
     ): Promise<{ deleted: number }> {
-        return this.writeTransaction(async (tx, checkDeadline) => {
+        const committed: AuditEntry[] = []
+        const result = await this.writeTransaction(async (tx, checkDeadline) => {
             const rows = await lockIntegrationsByExternalId(tx, target.kind, target.externalId, sourceRows)
             const entries: AuditEntry[] = []
             for (const row of rows) {
@@ -676,9 +718,11 @@ export class IntegrationsService {
                 tx,
                 rows.map((row) => row.id)
             )
-            await insertAuditRows(tx, entries)
+            await this.writeAudit(tx, committed, entries)
             return { deleted: rows.length }
         })
+        logAuditEntries(committed)
+        return result
     }
 
     /**
@@ -697,18 +741,21 @@ export class IntegrationsService {
 
         let deleted = 0
         for (;;) {
+            const committed: AuditEntry[] = []
             const batch = await this.writeTransaction(async (tx) => {
                 const rows = await softDeleteOwnerBatch(tx, teamOwner, OWNER_DELETE_BATCH)
                 await deleteSecrets(
                     tx,
                     rows.map((row) => row.id)
                 )
-                await insertAuditRows(
+                await this.writeAudit(
                     tx,
+                    committed,
                     rows.map((row) => this.auditEntry(caller, 'delete_owner', row, 'ok'))
                 )
                 return rows.length
             })
+            logAuditEntries(committed)
             deleted += batch
             if (batch < OWNER_DELETE_BATCH) {
                 break
@@ -765,7 +812,7 @@ export class IntegrationsService {
             entries.push(
                 this.auditEntry(
                     caller,
-                    'changes',
+                    'reverse_sync',
                     row,
                     outcome.secret_error ?? 'ok',
                     outcome.secret === null ? [] : Object.keys(outcome.secret),
@@ -774,6 +821,7 @@ export class IntegrationsService {
             )
         }
         await insertAuditRows(this.deps.pool, entries)
+        logAuditEntries(entries)
 
         const last = changed[changed.length - 1]
         return {
@@ -903,6 +951,12 @@ export class IntegrationsService {
             fields: [...fields].sort(),
             details,
         }
+    }
+
+    /** Stores the rows in the caller's transaction. The caller logs them to stdout after the commit. */
+    private async writeAudit(tx: Queryable, committed: AuditEntry[], entries: readonly AuditEntry[]): Promise<void> {
+        await insertAuditRows(tx, entries)
+        committed.push(...entries)
     }
 
     private auditReads(caller: Caller, operation: string, rows: readonly IntegrationRow[]): void {

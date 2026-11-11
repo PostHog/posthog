@@ -2856,14 +2856,14 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     personal_tier = serializers.SerializerMethodField(
         help_text=(
-            "The tier your personal ranking gave this report, for sort=personal. Null when the language model "
-            "did not rank the report, and for every other sort."
+            "The tier your personal ranking gave this report, when the list response's ranker is personal. Null "
+            "when the language model did not rank the report, and for every other ranker."
         ),
     )
     personal_reason = serializers.SerializerMethodField(
         help_text=(
-            "Why your personal ranking put this report where it is, for sort=personal. Null when the language "
-            "model did not rank the report, and for every other sort."
+            "Why your personal ranking put this report where it is, when the list response's ranker is personal. "
+            "Null when the language model did not rank the report, and for every other ranker."
         ),
     )
 
@@ -2929,7 +2929,8 @@ class SignalReportListQuerySerializer(SignalReportFilterQuerySerializer):
     ranking_id = serializers.UUIDField(
         required=False,
         help_text=(
-            "For sort=personal: the ranking_id of the first page. Pass it on later pages, so a new personal "
+            "For sort=personal, and for sort=recommended when its ranker is personal: the ranking_id of the "
+            "first page. Pass it on later pages, so a new personal "
             "ranking does not reorder them. When that ranking no longer exists, the latest one applies."
         ),
     )

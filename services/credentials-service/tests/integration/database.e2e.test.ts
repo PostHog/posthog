@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
+import { PostgresReplayStore } from '@/auth/replay-postgres'
 import { AUDIENCE } from '@/auth/types'
 import {
     getIntegration,
@@ -24,8 +25,13 @@ import { runMigrations } from '@/db/migrate'
 import type { Config, DatabaseConfig, KmsConfig } from '@/lib/config'
 import { CredentialsServer } from '@/server'
 
-const MIGRATIONS = ['1794323815130_initial-schema', '1794400000000_integrations-changes-index']
-const TABLES = ['audit_log', 'audit_log_default', 'idempotency_keys', 'integration_secrets', 'integrations']
+const MIGRATIONS = [
+    '1794323815130_initial-schema',
+    '1794323815131_runtime-role-grants',
+    '1794323815132_idempotency-deployment',
+    '1794400000000_integrations-changes-index',
+]
+const TABLES = ['audit_log', 'audit_log_default', 'auth_jti', 'idempotency_keys', 'integration_secrets', 'integrations']
 const TEAM: IntegrationOwner = { type: 'team', id: 1 }
 const OTHER_TEAM: IntegrationOwner = { type: 'team', id: 2 }
 
@@ -82,6 +88,94 @@ describe('migrations', () => {
 
         expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
         expect(await tables(url)).toEqual(TABLES)
+    })
+})
+
+describe('runtime role grants', () => {
+    const ROLE = 'credentials_runtime_test'
+    let runtime: Pool
+
+    beforeAll(async () => {
+        await pool.query(`CREATE ROLE ${ROLE} LOGIN PASSWORD 'not-a-real-password'`)
+        const url = await createDatabase('runtime_role_grants')
+        await runMigrations({ databaseUrl: url, direction: 'up', runtimeRole: ROLE })
+        const runtimeUrl = new URL(url)
+        runtimeUrl.username = ROLE
+        runtimeUrl.password = 'not-a-real-password'
+        runtime = new Pool({ connectionString: runtimeUrl.toString() })
+    })
+
+    afterAll(async () => {
+        await runtime?.end()
+    })
+
+    it('lets the runtime role write the integration tables and the replay table', async () => {
+        await runtime.query(
+            `INSERT INTO integrations (owner_type, owner_id, kind, auth_type) VALUES ('team', 1, 'slack', 'oauth')`
+        )
+        await runtime.query(`UPDATE integrations SET errors = 'x'`)
+        await runtime.query(`INSERT INTO auth_jti (deployment, jti, expires_at) VALUES ('d', 'j', now())`)
+        await runtime.query(`DELETE FROM auth_jti WHERE expires_at <= now()`)
+        await runtime.query(`DELETE FROM integrations`)
+    })
+
+    it('lets the runtime role append to and read the audit log', async () => {
+        await runtime.query(`INSERT INTO audit_log (deployment, operation, outcome) VALUES ('d', 'read', 'ok')`)
+        const result = await runtime.query(`SELECT count(*)::int AS n FROM audit_log`)
+        expect(result.rows[0].n).toBeGreaterThan(0)
+    })
+
+    it.each([
+        ['UPDATE', `UPDATE audit_log SET outcome = 'forged'`],
+        ['DELETE', `DELETE FROM audit_log`],
+        ['TRUNCATE', `TRUNCATE audit_log`],
+        ['UPDATE on the default partition', `UPDATE audit_log_default SET outcome = 'forged'`],
+        ['DELETE on the default partition', `DELETE FROM audit_log_default`],
+    ])('refuses %s on the audit log for the runtime role', async (_label, sql) => {
+        await expect(runtime.query(sql)).rejects.toThrow(/permission denied/)
+    })
+
+    it('skips the grants when no runtime role is given', async () => {
+        const url = await createDatabase('runtime_role_unset')
+        expect(await runMigrations({ databaseUrl: url, direction: 'up' })).toEqual(MIGRATIONS)
+    })
+})
+
+describe('postgres replay store', () => {
+    let db: Pool
+    let store: PostgresReplayStore
+
+    beforeAll(async () => {
+        const url = await createDatabase('replay_store')
+        await runMigrations({ databaseUrl: url, direction: 'up' })
+        db = new Pool({ connectionString: url })
+        store = new PostgresReplayStore(db)
+    })
+
+    afterAll(async () => {
+        await db?.end()
+    })
+
+    it('accepts a token id once per deployment', async () => {
+        const expires = Date.now() + 60_000
+        expect(await store.claim('web', 'jti-1', expires)).toBe(true)
+        expect(await store.claim('web', 'jti-1', expires)).toBe(false)
+        expect(await store.claim('worker', 'jti-1', expires)).toBe(true)
+    })
+
+    it('accepts only one of many concurrent claims of the same id', async () => {
+        const results = await Promise.all(
+            Array.from({ length: 8 }, () => store.claim('web', 'jti-race', Date.now() + 60_000))
+        )
+        expect(results.filter(Boolean)).toHaveLength(1)
+    })
+
+    it('deletes expired rows and keeps live ones', async () => {
+        await store.claim('web', 'jti-old', Date.now() - 1000)
+        await store.claim('web', 'jti-live', Date.now() + 60_000)
+        await store.deleteExpired()
+        const rows = await db.query<{ jti: string }>(`SELECT jti FROM auth_jti WHERE jti IN ('jti-old', 'jti-live')`)
+        expect(rows.rows.map((row) => row.jti)).toEqual(['jti-live'])
     })
 })
 
@@ -238,8 +332,8 @@ describe('integrations queries', () => {
 
     it('expires idempotency keys 24 hours after they are stored', async () => {
         const result = await db.query<{ seconds: string }>(
-            `INSERT INTO idempotency_keys (owner_type, owner_id, operation, key, request_hash)
-             VALUES ('team', 1, 'create', 'key-1', '\\x00')
+            `INSERT INTO idempotency_keys (deployment, owner_type, owner_id, operation, key, request_hash)
+             VALUES ('posthog-django', 'team', 1, 'create', 'key-1', '\\x00')
              RETURNING extract(epoch FROM expires_at - created_at)::text AS seconds`
         )
         expect(Number(result.rows[0]?.seconds)).toBe(24 * 60 * 60)

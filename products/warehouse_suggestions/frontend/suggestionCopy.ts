@@ -472,3 +472,7 @@ export function unusedViewsNote(unusedViews: number): string {
 export function countOf(count: number, singular: string, plural: string): string {
     return `${count} ${count === 1 ? singular : plural}`
 }
+
+export function waitingSuggestionsText(waiting: number): string {
+    return `${countOf(waiting, 'more suggestion is', 'more suggestions are')} waiting.`
+}

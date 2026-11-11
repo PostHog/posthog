@@ -188,7 +188,7 @@ export function createIntegrationRoutes(opts: IntegrationRoutesOptions): Hono<En
         return c.json({ record: toRecordJson(row), created }, created ? 201 : 200)
     })
 
-    app.get('/changes', requireIntegrationAuth('changes', { kind: (c) => c.req.queries('kind') }), async (c) => {
+    app.get('/changes', requireIntegrationAuth('reverse_sync', { kind: (c) => c.req.queries('kind') }), async (c) => {
         const query = parseChangesQuery(c.req.queries())
         // The body holds secrets, so no proxy or browser may keep it.
         c.header('Cache-Control', 'no-store')

@@ -131,12 +131,12 @@ Deployments match by exact name. There is no prefix or family match.
 The names come from the `__CALLER_KEY_<DEPLOYMENT>` entries in `PostHog/charts` (`apps/<name>`).
 `src/auth/policy.ts` lists every name.
 
-| Deployment                                                                                                                                  | Ops                                                                              |
-| ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)                                                         | all, including `revoke`, `delete`, `*_by_external_id`, `delete_owner`, `changes` |
-| `temporal-worker-{batch-exports,data-warehouse,general-purpose,health-check,max-ai,stamphog,tasks-agent,video-export,wizard}`               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mint`               |
-| `posthog-worker-django` (Celery), `posthog-query-django`, `posthog-admin-django`, `warehouse-sources-load`                                  | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                       |
-| `cdp-*` (the listed CDP API, cyclotron worker and events consumer deployments) and the listed `ingestion-*` lanes, including `cdp-api-push` | `resolve`                                                                        |
+| Deployment                                                                                                                                  | Ops                                                                                   |
+| ------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `posthog-web-django` (the web-two, frontdoor and streaming pools sign with its key)                                                         | all, including `revoke`, `delete`, `*_by_external_id`, `delete_owner`, `reverse_sync` |
+| `temporal-worker-{batch-exports,data-warehouse,general-purpose,health-check,max-ai,stamphog,tasks-agent,video-export,wizard}`               | `read`, `resolve`, `write`, `refresh`, `list_across_teams`, `mint`                    |
+| `posthog-worker-django` (Celery), `posthog-query-django`, `posthog-admin-django`, `warehouse-sources-load`                                  | `read`, `resolve`, `write`, `refresh`, `list_across_teams`                            |
+| `cdp-*` (the listed CDP API, cyclotron worker and events consumer deployments) and the listed `ingestion-*` lanes, including `cdp-api-push` | `resolve`                                                                             |
 
 ## Storage and rotation
 
@@ -277,6 +277,7 @@ Tables:
 | `integration_secrets` | The encrypted secret blob of one integration (1:1)                                                            |
 | `audit_log`           | One row per access, partitioned by day on `occurred_at`                                                       |
 | `idempotency_keys`    | Request keys for create and exchange, with `expires_at` 24 hours after the write                              |
+| `auth_jti`            | Accepted token ids per deployment, so a token cannot be replayed. Index on `expires_at` for lazy cleanup      |
 
 `src/db/integrations.ts` holds the typed queries. Every query binds the owner, so no query reads or changes another team's row.
 
@@ -297,7 +298,25 @@ node credentials-service-migrate.mjs down 1     # revert the last migration
 pnpm --filter @posthog/credentials-service migrate   # the same, from source, in local development
 ```
 
-It reads `CREDENTIALS_SERVICE_DATABASE_URL` and the `migrations/` directory relative to the working directory.
+It reads `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` and the `migrations/` directory relative to the working directory.
+In single-role local development it falls back to `CREDENTIALS_SERVICE_DATABASE_URL`.
+
+### Database roles
+
+The service uses two Postgres roles:
+
+- The **migrate role** owns the tables. Only the migration Job and the maintenance commands use it (`CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL`).
+- The **runtime role** is the one the service connects as (`CREDENTIALS_SERVICE_DATABASE_URL`). It does not own any table.
+
+The runtime role gets `SELECT, INSERT, UPDATE, DELETE` on `integrations`, `integration_secrets`, `idempotency_keys` and `auth_jti`.
+On `audit_log` it gets only `SELECT, INSERT`: it cannot `UPDATE`, `DELETE` or `TRUNCATE` audit rows, so a compromised pod cannot erase its own trail.
+Audit retention runs under the migrate or a maintenance role, outside the service process.
+
+Infra creates both roles.
+The migration Job sets `CREDENTIALS_SERVICE_RUNTIME_ROLE` to the runtime role name.
+The Job passes it to Postgres as the session setting `credentials_service.runtime_role`, and the grants migration reads it, so the SQL file holds no role name.
+When the variable is unset, the migration skips the grants (single-role local development).
+Each migration that adds a table must grant on it in the same way.
 An advisory lock makes two Jobs that start together run one after the other.
 
 ### Audit partitions
@@ -329,7 +348,7 @@ Every query binds the owner from the token.
 | `PATCH /v1/integrations/by-external-id/:kind/:external_id`  | `write_by_external_id`  | Applies an `IntegrationPatch` to those rows in one transaction. Web only     |
 | `DELETE /v1/integrations/by-external-id/:kind/:external_id` | `delete_by_external_id` | Soft-deletes those rows and their secrets in one transaction. Web only       |
 | `DELETE /v1/integrations?owner=<team id>`                   | `delete_owner`          | Soft-deletes every row and secret of the token's owner, in batches. Web only |
-| `GET /v1/integrations/changes`                              | `changes`               | Rows of every team changed after a cursor, with secrets. Web only            |
+| `GET /v1/integrations/changes`                              | `reverse_sync`          | Rows of every team changed after a cursor, with secrets. Reverse-sync only   |
 
 - A record mirrors the Python `IntegrationRecord`, plus `reference`, `version`, `legacy_id` and `is_source_row`. No read returns a secret.
 - `resolve` returns the decrypted secret blob without `refresh_token`, and without `client_secret` for an `oauth` row. `expires_at` is `refreshed_at + expires_in` from the config, or null.
@@ -351,6 +370,8 @@ Web-only routes (the web deployment is the only one whose policy holds these ops
   It soft-deletes 500 rows per transaction until none are left, removes their secrets and the owner's idempotency keys, and audits each row.
   It is idempotent: after a failure, call it again.
 - `GET /v1/integrations/changes` is the one read that returns secrets. It exists for the Django reverse sync during the migration.
+  Only the `posthog-integrations-reverse-sync` deployment holds the `reverse_sync` op. It has its own queue and signing key, and the service audits every row it returns.
+  The route and the restore command are deleted in Phase 7.
   Each item has `record`, `deleted`, `updated_at`, `secret`, `secret_unreadable_keys` and `secret_error`.
   `secret` is the current decrypted blob, `refresh_token` and `client_secret` included, for every live row on the page.
   A secret that changed before `since` can sit on a row that changed again after it, so the feed never leaves it out.
@@ -385,6 +406,13 @@ Audit: one `audit_log` row for each record that a request returns or changes.
 A write stores its rows in its own transaction.
 A read hands them to an in-process queue (10k rows) that writes batches every second.
 When the queue is full, the service drops the rows and counts them on `credentials_service_audit_dropped_total`, so a read never waits.
+Every audit row is also written to stdout as one JSON line (`integrations:audited`), before the response. It holds field names only, never values. The queue never drops this line.
+
+Idempotency keys are scoped by deployment, owner and operation.
+
+`PATCH /:ref` and the upsert of an existing row refuse changes to identity fields: `integration_id`, and the config keys `installation_id`, `instance_url` and `region`. They answer `validation`. Set these keys when you create the row. `identityConfigKeys(kind)` in `src/integrations/identity.ts` returns the list.
+
+`src/auth/replay-postgres.ts` holds a Postgres store for token ids, on the `auth_jti` table. The token verifier does not use it yet: it needs the replay store interface from the auth PR.
 
 ## Isolation
 
@@ -448,21 +476,23 @@ Its wrapped keys go into the same columns. The service refuses it when `CREDENTI
 
 ## Configuration
 
-| Variable                                 | Default                       | Notes                                                   |
-| ---------------------------------------- | ----------------------------- | ------------------------------------------------------- |
-| `CREDENTIALS_SERVICE_ENV`                | `dev`                         | Logical env, recorded on every startup log line         |
-| `CREDENTIALS_SERVICE_SECRET_SOURCE`      | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
-| `CREDENTIALS_SERVICE_SECRETS_DIR`        | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
-| `CREDENTIALS_SERVICE_SECRET_NAME`        | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
-| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`   | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
-| `CREDENTIALS_SERVICE_RELOAD_SECONDS`     | `30`                          | Re-read interval; a safety re-list next to the watch    |
-| `CREDENTIALS_SERVICE_METRICS_PORT`       | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
-| `CREDENTIALS_SERVICE_LOG_LEVEL`          | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                                   | `8004`                        |                                                         |
-| `HOST`                                   | `0.0.0.0`                     |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`              | `5000`                        | Wait before draining, for the Kubernetes prestop window |
-| `CREDENTIALS_SERVICE_DATABASE_URL`       | unset                         | Postgres URL; unset means platform secrets only         |
-| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE` | `20`                          | Connections per pod                                     |
+| Variable                                   | Default                       | Notes                                                   |
+| ------------------------------------------ | ----------------------------- | ------------------------------------------------------- |
+| `CREDENTIALS_SERVICE_ENV`                  | `dev`                         | Logical env, recorded on every startup log line         |
+| `CREDENTIALS_SERVICE_SECRET_SOURCE`        | `directory`                   | `directory` or `kubernetes`; anything else fails boot   |
+| `CREDENTIALS_SERVICE_SECRETS_DIR`          | `/etc/credentials-secrets`    | Where the Kubernetes Secret is mounted (`directory`)    |
+| `CREDENTIALS_SERVICE_SECRET_NAME`          | `credentials-service-secrets` | The Secret to watch (`kubernetes`)                      |
+| `CREDENTIALS_SERVICE_SECRET_NAMESPACE`     | the pod's namespace           | Read from the service account when unset (`kubernetes`) |
+| `CREDENTIALS_SERVICE_RELOAD_SECONDS`       | `30`                          | Re-read interval; a safety re-list next to the watch    |
+| `CREDENTIALS_SERVICE_METRICS_PORT`         | `9090`                        | Dedicated `/metrics` listener, kept off the ingress     |
+| `CREDENTIALS_SERVICE_LOG_LEVEL`            | by `NODE_ENV`                 | `debug`, `info`, `warn` or `error`                      |
+| `PORT`                                     | `8004`                        |                                                         |
+| `HOST`                                     | `0.0.0.0`                     |                                                         |
+| `SHUTDOWN_PRESTOP_DELAY_MS`                | `5000`                        | Wait before draining, for the Kubernetes prestop window |
+| `CREDENTIALS_SERVICE_DATABASE_URL`         | unset                         | Postgres URL; unset means platform secrets only         |
+| `CREDENTIALS_SERVICE_DATABASE_POOL_SIZE`   | `20`                          | Connections per pod                                     |
+| `CREDENTIALS_SERVICE_MIGRATE_DATABASE_URL` | unset                         | Migrate role URL, for the migration Job only            |
+| `CREDENTIALS_SERVICE_RUNTIME_ROLE`         | unset                         | Role that the migration Job grants access to            |
 
 The service exits at boot rather than starting degraded: a missing production variable, a
 numeric variable that does not parse, or a `kubernetes` source without `KUBERNETES_SERVICE_HOST`

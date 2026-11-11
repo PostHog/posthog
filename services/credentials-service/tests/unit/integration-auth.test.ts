@@ -158,7 +158,7 @@ describe('integration policy', () => {
         ...crossTeamAndAdmin.map((op) => [WORKER, op, false] as const),
         [WORKER, 'delete', false],
         [WORKER, 'revoke', false],
-        [WORKER, 'changes', false],
+        [WORKER, 'reverse_sync', false],
         [WORKER, 'oauth_exchange', false],
         ...(['read', 'resolve', 'write', 'refresh', 'list_across_teams'] as const).map(
             (op) => [CELERY, op, true] as const

@@ -17,6 +17,8 @@ export interface MigrateOptions {
     /** How many migrations to run. Every pending one when unset for `up`, one for `down`. */
     count?: number
     dir?: string
+    /** The role that gets the runtime grants. Unset skips them. */
+    runtimeRole?: string
 }
 
 /** Applies or reverts the SQL migrations. Returns the names of the migrations it ran. */
@@ -27,6 +29,8 @@ export async function runMigrations(options: MigrateOptions): Promise<string[]> 
             connectionString: options.databaseUrl,
             connectionTimeoutMillis: CONNECTION_TIMEOUT_MS,
             keepAlive: true,
+            // Read by the grants migration through current_setting().
+            ...(options.runtimeRole ? { options: `-c credentials_service.runtime_role=${options.runtimeRole}` } : {}),
         },
         dir: options.dir ?? MIGRATIONS_DIR,
         direction: options.direction,

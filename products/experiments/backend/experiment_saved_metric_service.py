@@ -9,11 +9,6 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.team.team import Team
 
-from products.experiments.backend.hogql_queries.utils import (
-    SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE,
-    uses_sequential_testing,
-)
-from products.experiments.backend.metric_calculation.config import team_experiments_configs
 from products.experiments.backend.metric_resolution import apply_saved_metric_overrides
 from products.experiments.backend.metric_utils import without_action_names
 from products.experiments.backend.metric_validation import (
@@ -108,48 +103,19 @@ class ExperimentSavedMetricService:
         saved_metric.delete()
 
     def _validate_linked_experiments(self, saved_metric: ExperimentSavedMetric, query: dict) -> None:
-        # Each link applies its own breakdowns to the saved query, and each experiment applies its own stats
-        # settings, so a query change that is valid on its own, such as a switch to a percentile metric, can
-        # make the metric fail on every linked experiment.
-        links = (
-            ExperimentToSavedMetric.objects.filter(saved_metric=saved_metric, experiment__deleted=False)
-            .select_related("experiment")
-            .order_by("id")
-        )
-        is_quantile = query.get("metric_type") == "quantile"
-        team_default_sequential = team_experiments_configs([self.team.id])[
-            self.team.id
-        ].default_sequential_testing_enabled
-        breakdowns_fail = False
-        sequential_fails = False
+        links = ExperimentToSavedMetric.objects.filter(saved_metric=saved_metric, experiment__deleted=False)
         for link in links:
             metadata = link.metadata or {}
-            if not breakdowns_fail and metadata.get("breakdowns"):
-                try:
-                    parse_and_validate_metric(apply_saved_metric_overrides(query, metadata), error_prefix="")
-                except ValidationError:
-                    breakdowns_fail = True
-            if (
-                not sequential_fails
-                and is_quantile
-                and uses_sequential_testing(
-                    link.experiment.stats_config, team_default_sequential_testing_enabled=team_default_sequential
-                )
-            ):
-                sequential_fails = True
-        # The user may not be allowed to see the experiment, so the error does not name it.
-        errors: list[str] = []
-        if breakdowns_fail:
-            errors.append(
-                "The breakdowns it adds to this metric don't work with this change. "
-                "Remove them from the experiment first."
-            )
-        if sequential_fails:
-            errors.append(
-                f"{SEQUENTIAL_QUANTILE_UNSUPPORTED_MESSAGE} Turn off sequential testing in the experiment first."
-            )
-        if errors:
-            raise ValidationError(f"A linked experiment uses this metric. {' '.join(errors)}")
+            if not metadata.get("breakdowns"):
+                continue
+            try:
+                parse_and_validate_metric(apply_saved_metric_overrides(query, metadata), error_prefix="")
+            except ValidationError as error:
+                # The user may not be allowed to see the experiment, so the error does not name it.
+                raise ValidationError(
+                    "A linked experiment uses this metric. The breakdowns it adds to this metric don't work with "
+                    "this change. Remove them from the experiment first."
+                ) from error
 
     def _assert_team_ownership(self, saved_metric: ExperimentSavedMetric) -> None:
         if saved_metric.team_id != self.team.id:

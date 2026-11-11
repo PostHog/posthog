@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, _compute_system_table_access_decision, system_table_denials
 from posthog.hogql.database.models import Table
@@ -176,7 +177,7 @@ class TestSystemTablesTeamScoping(BaseTest):
     """Verify every system table's generated SQL includes a team_id WHERE clause."""
 
     @parameterized.expand(ALL_SYSTEM_TABLE_NAMES)
-    def test_system_table_has_team_id_filter(self, table_name):
+    def test_system_table_filters_on_team_id_without_selecting_it(self, table_name):
         if table_name == "data_deletion_requests":
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -188,10 +189,14 @@ class TestSystemTablesTeamScoping(BaseTest):
             database=db,
         )
         sql = f"SELECT * FROM system.{table_name}"
-        query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
+        query, prepared = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
 
         pattern = TEAM_ID_FILTER_PATTERNS.get(table_name, f"system__{table_name}.team_id")
         assert f"equals({pattern}, {self.team.pk})" in query
+
+        assert isinstance(prepared, ast.SelectQuery) and prepared.type is not None
+        assert prepared.type.columns
+        assert "team_id" not in prepared.type.columns
 
     def test_all_system_tables_have_isolation_tests(self):
         """Fails when a new system table is added without a corresponding isolation test."""

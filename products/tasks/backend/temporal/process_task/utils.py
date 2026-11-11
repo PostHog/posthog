@@ -1695,13 +1695,15 @@ def run_gateway_env_vars(ctx: TaskProcessingContext, task: Task) -> dict[str, st
     context that scoped-token minting depends on. `ctx` is the run's
     TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
     """
-    from products.signals.backend.facade.trial import start_task_trial
+    from products.signals.backend.facade.trial import TrialExecutionRefused, start_task_trial
 
     trial = bool((ctx.state or {}).get("self_driving_funding", {}).get("funding") == "trial")
     if trial:
+        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or (
+            ctx.task_runtime == "pi" and ctx.origin_product != "signals_scout"
+        ):
+            raise TrialExecutionRefused()
         start_task_trial(team=task.team, run_id=UUID(str(ctx.run_id)))
-        if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access) or ctx.task_runtime == "pi":
-            raise GatewayNotConfiguredError("Trial work requires accounted AI gateway execution")
     if task.is_scout_experiment is True:
         ensure_scout_trial_capture_ready()
         if "own-subscription" in (ctx.claude_model_access, ctx.codex_model_access):
