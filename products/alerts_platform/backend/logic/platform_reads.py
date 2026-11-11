@@ -257,6 +257,29 @@ def native_source_config_values(
     return {value for config in configs if (value := config.get(source_config_key)) in wanted}
 
 
+def native_configuration_ids_by_source_config(
+    *, team_id: int, source_kind: str, source_config_key: str, values: Collection[Any]
+) -> dict[Any, list[UUID]]:
+    """The configurations of a kind with no source row in the team, by which of `values` each holds as
+    `source_config[key]`, enabled or not. A value no configuration holds is left out."""
+    if not values:
+        return {}
+    # The caller names the team, as `native_source_config_values` takes its teams.
+    configs = (
+        PlatformAlertConfiguration.objects.unscoped()
+        .filter(team_id=team_id, source_kind=source_kind, legacy_configuration_id__isnull=True)
+        .filter(_source_config_in(source_config_key, values))
+        .order_by("created_at", "id")
+        .values_list("id", "source_config")
+    )
+    wanted = set(values)
+    by_value: dict[Any, list[UUID]] = {}
+    for configuration_id, config in configs:
+        if (value := config.get(source_config_key)) in wanted:
+            by_value.setdefault(value, []).append(configuration_id)
+    return by_value
+
+
 def _source_config_in(key: str, values: Collection[Any]) -> Q:
     return reduce(operator.or_, (Q(source_config__contains={key: value}) for value in values))
 

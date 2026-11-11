@@ -155,7 +155,11 @@ from products.access_control.backend.presentation.access_control import (
     UserAccessControlSerializerMixin,
 )
 from products.alerts.backend.facade.api import delete_insight_alerts
-from products.alerts.backend.presentation.views.insight_alerts import insight_alerts_prefetch, serialize_insight_alerts
+from products.alerts.backend.presentation.views.insight_alerts import (
+    insight_alerts_prefetch,
+    native_insight_alerts,
+    serialize_insight_alerts,
+)
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
     dashboard_access_method,
@@ -1241,9 +1245,26 @@ class InsightSerializer(InsightBasicSerializer):
         if self.context.get("hide_extra_details", False):
             return []
 
-        # Use prefetched alerts data
-        alerts = getattr(insight, "_prefetched_alerts", [])
-        return serialize_insight_alerts(alerts, self.context)
+        # Only the insight API prefetches alerts. Other callers embed none.
+        alerts = getattr(insight, "_prefetched_alerts", None)
+        if alerts is None:
+            return []
+        return serialize_insight_alerts([*alerts, *self._native_alerts(insight)], self.context)
+
+    def _native_alerts(self, insight: Insight) -> list[Any]:
+        """The insight's alerts with no insight row. The first call reads them for every insight in the
+        response at once and keeps them in the context, so a page costs one read."""
+        loaded: dict[int, list[Any]] = self.context.setdefault("_native_insight_alerts", {})
+        if insight.id not in loaded:
+            parent = self.parent
+            response = (
+                parent.instance if isinstance(parent, serializers.ListSerializer) and parent.instance else [insight]
+            )
+            batch = [each for each in response if hasattr(each, "_prefetched_alerts")] or [insight]
+            native = native_insight_alerts(batch)
+            loaded.update({each.id: native.get(each.id, []) for each in batch})
+            loaded.setdefault(insight.id, native.get(insight.id, []))
+        return loaded[insight.id]
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]
     def get_filter_override_context(self, insight: Insight) -> dict[str, object] | None:

@@ -92,6 +92,12 @@ def _iso(moment: datetime) -> str:
     return moment.isoformat().replace("+00:00", "Z")
 
 
+def _alert_queries(captured: CaptureQueriesContext) -> int:
+    # The insight list reads each insight's dashboard tiles, so only the alert tables show what the
+    # embedded alerts cost.
+    return sum('"alerts_platformalert' in query["sql"] for query in captured.captured_queries)
+
+
 class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -1075,6 +1081,48 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert subscriber_user_ids_by_public_id(team_id=self.team.id, public_ids=[created_id]) == {
             created_id: (self.user.id,)
         }
+
+    def test_the_insight_api_embeds_alerts_insight_keeps_no_row_for_in_one_read_per_page(self) -> None:
+        def create_native_alert() -> tuple[int, str]:
+            insight = Insight.objects.create(team=self.team, query=self.alert.insight.query)
+            with patch(
+                "products.alerts.backend.platform_ownership.posthoganalytics.feature_enabled", return_value=True
+            ):
+                created = self.client.post(
+                    self.url,
+                    {
+                        "insight": insight.id,
+                        "subscribed_users": [self.user.id],
+                        "condition": {"type": "absolute_value"},
+                        "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                        "name": "A new alert",
+                        "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                    },
+                    format="json",
+                )
+            assert created.status_code == status.HTTP_201_CREATED, created.json()
+            return insight.id, created.json()["id"]
+
+        insights_url = f"/api/environments/{self.team.id}/insights/"
+        insight_id, alert_id = create_native_alert()
+
+        retrieved = self.client.get(f"{insights_url}{insight_id}/")
+        with CaptureQueriesContext(connection) as one_native:
+            listed = self.client.get(insights_url)
+        create_native_alert()
+        create_native_alert()
+        with CaptureQueriesContext(connection) as three_native:
+            self.client.get(insights_url)
+
+        embedded = [
+            (alert["id"], alert["threshold"]["configuration"]["bounds"]) for alert in retrieved.json()["alerts"]
+        ]
+        assert embedded == [(alert_id, {"upper": 100})]
+        listed_alerts = {
+            insight["id"]: [alert["id"] for alert in insight["alerts"]] for insight in listed.json()["results"]
+        }
+        assert listed_alerts[insight_id] == [alert_id]
+        assert _alert_queries(three_native) == _alert_queries(one_native)
 
     def _forget_the_insight_row(self) -> None:
         with team_scope(self.team.id):
