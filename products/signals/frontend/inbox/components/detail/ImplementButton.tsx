@@ -15,6 +15,7 @@ import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import type { ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { SignalReport } from '../../types'
+import { primaryReportPullRequest } from '../../utils/reportPullRequests'
 import { buildReportImplementationPrompt } from './buildReportImplementationPrompt'
 import { IMPLEMENTATION_AGENTS } from './implementationAgents'
 import { ReportGithubConnection } from './ReportGithubConnection'
@@ -104,7 +105,8 @@ export function ImplementButton({
         const run = task.latest_run!
         return (
             <LemonButton
-                type="primary"
+                // With a pull request, Review pull request is the page's one primary action.
+                type={primaryReportPullRequest(report).url ? 'secondary' : 'primary'}
                 size="small"
                 className="w-fit"
                 to={urls.taskDetail(task.id)}
