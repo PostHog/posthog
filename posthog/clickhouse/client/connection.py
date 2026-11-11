@@ -168,6 +168,9 @@ class ClickHouseUser(StrEnum):
     ALERTS_PLATFORM_TRACES = "alerts_platform_traces"
     # Exists on the logs cluster only. Snuffle connects as it for the platform's PromQL queries.
     ALERTS_PLATFORM_METRICS = "alerts_platform_metrics"
+    # Exists on the logs and metrics clusters only. PostHog's Snuffle proxy sends PromQL and LogQL
+    # requests as this user when the caller names none, so they keep their own concurrency budget.
+    SNUFFLE = "snuffle"
     # The platform's own bookkeeping, shared by every source: its check history and the default
     # user of its evaluation worker. A source's checks keep their own user, so a new source never
     # takes from another source's budget.
@@ -467,13 +470,14 @@ LOGS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
         ClickHouseUser.ALERTS_PLATFORM_LOGS,
         ClickHouseUser.ALERTS_PLATFORM_METRICS,
         ClickHouseUser.ALERTS_PLATFORM_TRACES,
+        ClickHouseUser.SNUFFLE,
     }
 )
 # Named users that exist on the metrics cluster. Keep this a subset of LOGS_CLUSTER_USERS: the metrics
 # host falls back to the logs host, so a user listed here must also work there.
 # ALERTS_PLATFORM_INSIGHT is here because an insight alert on metrics must keep its own concurrency budget.
 METRICS_CLUSTER_USERS: frozenset[ClickHouseUser] = frozenset(
-    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS}
+    {ClickHouseUser.ALERTS_PLATFORM_INSIGHT, ClickHouseUser.ALERTS_PLATFORM_METRICS, ClickHouseUser.SNUFFLE}
 )
 
 _PINNED_CLUSTER_USERS: Mapping[Workload, frozenset[ClickHouseUser]] = {

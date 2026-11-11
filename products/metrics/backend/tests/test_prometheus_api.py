@@ -29,30 +29,47 @@ def _upstream() -> MagicMock:
     return response
 
 
+_ALERTS = ClickHouseUser.ALERTS_PLATFORM_METRICS
+_SNUFFLE = ClickHouseUser.SNUFFLE
+
+
 @pytest.mark.parametrize(
-    "registered,ch_user,expected",
+    "registered,ch_user,workload,expected",
     [
         (
-            True,
-            ClickHouseUser.ALERTS_PLATFORM_METRICS,
+            {_ALERTS},
+            _ALERTS,
+            Workload.METRICS,
             [("alerts_platform_metrics", "token-1"), ("alerts_platform_metrics", "token-2")],
         ),
-        (False, ClickHouseUser.ALERTS_PLATFORM_METRICS, [("reader", "secret"), ("reader", "secret")]),
-        (True, None, [("reader", "secret"), ("reader", "secret")]),
+        # A caller's own user wins over the Snuffle default.
+        (
+            {_ALERTS, _SNUFFLE},
+            _ALERTS,
+            Workload.METRICS,
+            [("alerts_platform_metrics", "token-1"), ("alerts_platform_metrics", "token-2")],
+        ),
+        (set(), _ALERTS, Workload.METRICS, [("reader", "secret"), ("reader", "secret")]),
+        # Without a caller's user, requests go as snuffle once the deployment registers it.
+        ({_SNUFFLE}, None, Workload.METRICS, [("snuffle", "token-1"), ("snuffle", "token-2")]),
+        ({_SNUFFLE}, None, Workload.LOGS, [("snuffle", "token-1"), ("snuffle", "token-2")]),
+        (set(), None, Workload.METRICS, [("reader", "secret"), ("reader", "secret")]),
+        (set(), None, Workload.LOGS, [("logs-reader", "logs-secret"), ("logs-reader", "logs-secret")]),
     ],
 )
 def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_token(
-    settings, monkeypatch, tmp_path, registered, ch_user, expected
+    settings, monkeypatch, tmp_path, registered, ch_user, workload, expected
 ):
     settings.SNUFFLE_METRICS_URL = "http://snuffle.test:9091"
     settings.SNUFFLE_METRICS_USER = "reader"
     settings.SNUFFLE_METRICS_PASSWORD = "secret"
+    settings.SNUFFLE_APM_URL = "http://snuffle-logs.test:9091"
+    settings.SNUFFLE_APM_USER = "logs-reader"
+    settings.SNUFFLE_APM_PASSWORD = "logs-secret"
     token = tmp_path / "token"
     users = {ClickHouseUser.DEFAULT: ClickHouseCredentials(user="default", password="x")}
-    if registered:
-        users[ClickHouseUser.ALERTS_PLATFORM_METRICS] = ClickHouseCredentials(
-            user="alerts_platform_metrics", password="", password_file=str(token)
-        )
+    for user in registered:
+        users[user] = ClickHouseCredentials(user=user.value, password="", password_file=str(token))
     monkeypatch.setattr(connection, "__user_dict", users)
     request = MagicMock(return_value=_upstream())
     monkeypatch.setattr("posthog.api.snuffle_proxy.internal_requests.request", request)
@@ -60,7 +77,7 @@ def test_snuffle_request_authenticates_as_the_registered_user_with_its_current_t
     sent = []
     for rotation in ("token-1", "token-2"):
         token.write_text(rotation)
-        snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user, workload=Workload.METRICS)
+        snuffle_request(1, "POST", "/api/v1/query", data={"query": "up"}, ch_user=ch_user, workload=workload)
         auth = request.call_args.kwargs["auth"]
         sent.append((auth.username, auth.password))
 
