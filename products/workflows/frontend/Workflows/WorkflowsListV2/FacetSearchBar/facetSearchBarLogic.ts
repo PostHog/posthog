@@ -335,6 +335,9 @@ function buildSuggestions(
         const matches: FacetSuggestion[] = []
         const countValues = countValuesIn({ filters: value.filters, text: rest })
         for (const facet of facets) {
+            if (matches.length === MAX_CROSS_FACET_SUGGESTIONS) {
+                break
+            }
             for (const { value: v, count } of countValues(facet.key)) {
                 if (matches.length === MAX_CROSS_FACET_SUGGESTIONS) {
                     break
