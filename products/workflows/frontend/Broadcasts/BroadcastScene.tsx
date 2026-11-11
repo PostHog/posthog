@@ -3,6 +3,7 @@ import { BindLogic, useValues } from 'kea'
 import { SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
+import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -59,6 +60,7 @@ function BroadcastSceneContent({ id }: BroadcastWizardLogicProps): JSX.Element {
         // The composer is the page while drafting; the panel opens itself once the broadcast exists.
         autoOpen: false,
     })
+    useFileSystemLogView({ type: 'hog_flow', ref: id, enabled: id !== 'new' && !!broadcast })
 
     if (showAiComposer) {
         return <NewBroadcastAgent />
