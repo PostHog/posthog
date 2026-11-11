@@ -2566,6 +2566,7 @@ def _active_access_token_response(
     application: OAuthApplication | None,
     sandbox_task_id: uuid.UUID | None = None,
     supports_step_up: bool = False,
+    self_introspecting_user: User | None = None,
 ) -> JsonResponse:
     """RFC 7662 response for an active access token, whether it is stored or a signed JWT."""
     data: dict[str, Any] = {
@@ -2583,6 +2584,14 @@ def _active_access_token_response(
     if application:
         data["client_id"] = application.client_id
         data["client_name"] = application.name
+    if self_introspecting_user is not None:
+        # Only for self-introspection: a caller with the `introspection` scope can read other
+        # users' tokens from the same application.
+        data["user_distinct_id"] = self_introspecting_user.distinct_id
+        organization = self_introspecting_user.organization
+        team = self_introspecting_user.team
+        data["current_organization_id"] = str(organization.id) if organization else None
+        data["current_team_id"] = team.id if team else None
     if sandbox_task_id is not None:
         # The policy resolves API routes, which import these views.
         from products.signals.backend.facade.tool_policy import resolve_scout_held_tools  # noqa: PLC0415
@@ -2710,7 +2719,8 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             verified = IDJagAccessTokenAuthentication.verify_access_token(token_value)
         except AuthenticationFailed:
             return JsonResponse({"active": False}, status=200)
-        if not self._is_self_introspection(request):
+        is_self = self._is_self_introspection(request)
+        if not is_self:
             caller_token = getattr(request, "oauth_caller_access_token", None)
             caller_client_id = credential_client_id or getattr(
                 getattr(caller_token, "application", None), "client_id", None
@@ -2724,6 +2734,7 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
             scoped_teams=[],
             scoped_organizations=[verified.organization_id],
             application=OAuthApplication.objects.filter(client_id=verified.client_id).first(),
+            self_introspecting_user=verified.user if is_self else None,
         )
 
     def get_token_response(self, request, token_value=None):
@@ -2806,6 +2817,9 @@ class OAuthIntrospectTokenView(ClientProtectedScopedResourceView):
                 application=access_token.application,
                 sandbox_task_id=access_token.sandbox_task_id,
                 supports_step_up=access_token.supports_step_up,
+                self_introspecting_user=(
+                    access_token.user if caller_token is not None and access_token.pk == caller_token.pk else None
+                ),
             )
 
         # Fall back to refresh token (lookup by plaintext token — OAuthRefreshToken has
