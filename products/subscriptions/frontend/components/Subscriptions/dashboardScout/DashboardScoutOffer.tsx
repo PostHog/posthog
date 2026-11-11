@@ -24,9 +24,8 @@ export function DashboardScoutOffer({ onSetUp, disabledReason }: DashboardScoutO
                         </LemonTag>
                     </div>
                     <div className="text-xs text-secondary">
-                        Get a message in Slack about what changed on this dashboard, with the likely cause. A scout
-                        learns what is normal over time and follows the notes you leave it. Its inbox reports pull in
-                        related data from across your project, and your code when GitHub is connected.
+                        Get a Slack message when something changes here, with the likely cause. A scout learns what is
+                        normal, follows your notes, and can use your other data and code.
                     </div>
                 </div>
                 <LemonButton
