@@ -143,47 +143,53 @@ export default defineCommand({
 
     human({ result, out }) {
         if (result.status === 'pending') {
-            printPending(out, result)
+            printPending(out, result, 'login')
             return
         }
-        out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}, project ${result.projectId}.`)
-        switch (result.store) {
-            case 'keychain':
-                out.line(out.style('Credentials saved to the system keychain', 'dim'))
-                break
-            case 'file':
-                if (result.keychainError) {
-                    out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
-                }
-                out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
-                break
+
+        const effects: string[] = []
+        const warnings: string[] = []
+        const notes: string[] = []
+        if (result.store === 'file') {
+            if (result.keychainError) {
+                warnings.push(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`)
+            }
+            effects.push(`Credentials saved to ${result.credentialsPath}, which only you can read`)
+        } else {
+            effects.push('Credentials saved to the system keychain')
         }
 
         const { path, status, error } = result.config
         const file = escapeControls(path)
         if (status === 'failed') {
-            out.line(
+            warnings.push(
+                `hog couldn't write ${file}: ${escapeControls(error ?? '').replace(/\.?$/, '.')} Add "host": "${escapeControls(result.host)}" and "projectId": ${result.projectId} to it, so commands there use this login.`
+            )
+        } else if (status === 'unchanged') {
+            notes.push(`${file} already has this host and project.`)
+        } else {
+            effects.push(
+                status === 'created'
+                    ? `Created ${file} with this host and project`
+                    : `Set this host and project in ${file}`
+            )
+        }
+        if (status !== 'failed') {
+            notes.push(
                 out.style(
-                    `hog couldn't write ${file}: ${escapeControls(error ?? '').replace(/\.?$/, '.')} Add "host": "${escapeControls(result.host)}" and "projectId": ${result.projectId} to it, so commands there use this login.`,
-                    'yellow'
+                    `Commands under ${escapeControls(dirname(path))} use this login, unless a closer \`posthog.json\` sets another project.`,
+                    'dim'
                 )
             )
-            out.line(`Try it: ${result.next}`)
-            return
         }
+        notes.push(`Try it: ${result.next}`)
 
-        const saved = {
-            created: `Created ${file} with this host and project.`,
-            updated: `Set this host and project in ${file}.`,
-            unchanged: `${file} already has this host and project.`,
-        }[status]
-        out.line(saved)
-        out.line(
-            out.style(
-                `Commands under ${escapeControls(dirname(path))} use this login, unless a closer \`posthog.json\` sets another project.`,
-                'dim'
-            )
-        )
-        out.line(`Try it: ${result.next}`)
+        out.report({
+            status: status === 'failed' ? 'partial' : 'done',
+            result: `Logged in to ${escapeControls(result.host)}, project ${result.projectId}`,
+            effects,
+            warnings,
+            notes,
+        })
     },
 })

@@ -138,7 +138,12 @@ describe('hog ci setup', () => {
     })
 
     test.each([
-        ['an admin waits at the terminal until they approve it', true, 'Approved.', 2],
+        [
+            'an admin waits at the terminal until they approve it',
+            true,
+            'Fake CI jobs can now use hog in this project',
+            2,
+        ],
         [
             'a member gets the link to send an admin and does not wait',
             false,
